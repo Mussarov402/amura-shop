@@ -425,7 +425,7 @@ async function refreshLive(){
     if($("#modal").classList.contains("open")){ const id = $("#sheet").dataset.id; if(byId(id)) refreshCard(id); }
     if(VIEW === "cart" && !document.querySelector(".done") && !document.activeElement?.matches("#drawerBody input")) renderCart();
     return true;
-  }catch{ return false; }
+  }catch{ setTimeout(refreshLive, 15000); return false; }   // сервер не ответил — пробуем снова через 15 с, не ждём 3 минуты
 }
 function filtered(){
   const q = st.q.toLowerCase();

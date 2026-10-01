@@ -189,7 +189,7 @@ def _products():
 
 def _stock():
     """Доступный остаток (остаток − резерв) по всем товарам — лёгкий быстрый отчёт МойСклад."""
-    data = ms("GET", "/report/stock/all/current", params={"stockType": "freeStock"}, timeout=45)
+    data = ms("GET", "/report/stock/all/current", params={"stockType": "freeStock"}, timeout=12)   # 3 попытки по 12 с < 60 с воркера gunicorn
     rows = data if isinstance(data, list) else data.get("rows", [])
     return {r["assortmentId"]: r.get("freeStock", r.get("stock", 0)) for r in rows}
 
