@@ -389,10 +389,38 @@ def cors(resp):
 
 
 # ---------- POST /order ----------
+_orders = {}                  # ключ заказа -> (время, ответ): повтор не создаёт второй заказ
+_orders_lock = threading.Lock()
+
+
+def _order_key(d):
+    k = str(d.get("orderKey") or "")[:64]
+    if k:
+        return "k:" + k
+    raw = json.dumps([d.get("phone"), d.get("telegram"), d.get("shipping"),
+                      sorted((str(p.get("id")), p.get("qty")) for p in (d.get("items") or []))])
+    return "h:" + hashlib.sha1(raw.encode()).hexdigest()
+
+
 @bp.route("/order", methods=["POST", "OPTIONS"])
 def create_order():
     if request.method == "OPTIONS":
         return "", 204
+    d = request.get_json(silent=True) or {}
+    key = _order_key(d)
+    with _orders_lock:                         # один заказ за раз: повторные отправки ждут и получают тот же ответ
+        now = time.time()
+        for k in [k for k, v in _orders.items() if now - v[0] > 600]:
+            del _orders[k]
+        if key in _orders:
+            return _orders[key][1]
+        resp = _create_order_impl()
+        if not isinstance(resp, tuple):            # ошибки (tuple) не кэшируем — повтор разрешён
+            _orders[key] = (time.time(), resp)
+        return resp
+
+
+def _create_order_impl():
     ip = request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip()
     if too_many(ip):
         return jsonify(ok=False, error="Слишком много заказов подряд, подождите 10 минут"), 429
@@ -469,7 +497,10 @@ def create_order():
     if len(caption) > 1000:
         tg("sendMessage", chat_id=OWNER, text=caption[:4000])
         caption = f"Заказ № {number}, итого {fmt(total)} ₸"
-    tg("sendDocument", chat_id=OWNER, caption=caption, _files={"document": (f"AMURA-{number}.pdf", pdf, "application/pdf")})
+    try:
+        tg("sendDocument", chat_id=OWNER, caption=caption, _files={"document": (f"AMURA-{number}.pdf", pdf, "application/pdf")})
+    except Exception as e:                     # заказ уже в МойСклад — сбой Telegram не должен вызвать повторную отправку
+        print("Заказ", number, "Telegram не ответил:", e, flush=True)
 
     return jsonify(ok=True, number=number, total=total, startToken=f"{number}_{tok}",
                    pdfUrl=f"{PUBLIC_URL}/order/{number}/pdf?t={tok}")

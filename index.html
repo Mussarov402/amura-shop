@@ -610,6 +610,8 @@ function setCartQty(it, v){
 function readFormSafe(){ if($("#fName")) readForm(); }
 
 /* ===== Отправка заказа ===== */
+let orderKeyVal = "";   // один ключ на попытку заказа: повторная отправка не создаёт дубль
+function orderKey(){ return orderKeyVal || (orderKeyVal = Date.now().toString(36) + Math.random().toString(36).slice(2, 10)); }
 $("#drawerBody").addEventListener("submit", async e => {
   e.preventDefault();
   const f = readForm(), err = $("#err");
@@ -628,7 +630,8 @@ $("#drawerBody").addEventListener("submit", async e => {
     telegram: f.contact === "tg" ? f.tg : "",
     city: f.city, shipping: f.ship,
     items: t.ls.map(l => ({ id: l.it.id, qty: l.q, price: l.price })),
-    clientTotal: t.total
+    clientTotal: t.total,
+    orderKey: orderKey()
   };
   const btn = $("#send"); btn.disabled = true; btn.textContent = "Отправляем…";
   try{
@@ -640,6 +643,7 @@ $("#drawerBody").addEventListener("submit", async e => {
       if(!r.ok || !res.ok) throw new Error(res.error || "Сервер не ответил");
     }
     showDone(res, f, t);
+    orderKeyVal = "";
     cart = {}; save("amura-cart2", cart); renderCartCount(); render();
   }catch(ex){
     err.textContent = (ex.message || "Ошибка") + ". Попробуйте ещё раз или напишите менеджеру в WhatsApp.";
