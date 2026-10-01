@@ -24,11 +24,13 @@
     SITE_URL            https://mussarov402.github.io/amura-shop   (оттуда берётся img/index.json)
     WHOLESALE_TAG       тег контрагента в МойСклад, открывающий оптовые цены (по умолчанию «опт»)
 """
+import gzip
 import hashlib
 import hmac
 import io
 import json
 import os
+import queue
 import re
 import threading
 import time
@@ -91,22 +93,34 @@ def sign(number):
     return hmac.new(ORDER_SECRET, str(number).encode(), hashlib.sha256).hexdigest()[:12]
 
 
+MS_PARALLEL = threading.BoundedSemaphore(int(os.environ.get("MS_PARALLEL", "4")))   # МойСклад: не больше 5 запросов одновременно
+
+
 def ms(method, path, **kw):
     url = path if path.startswith("http") else API + path
     tmo = kw.pop("timeout", 30)
-    for attempt in range(3):
+    for attempt in range(5):
         t0 = time.time()
         try:
-            r = S.request(method, url, timeout=(10, tmo), **kw)
+            with MS_PARALLEL:              # при наплыве заказов запросы ждут очереди, а не получают отказ МойСклад
+                r = S.request(method, url, timeout=(10, tmo), **kw)
         except requests.RequestException as e:
             print(f"МойСклад {method} {path[:60]} — нет ответа за {time.time() - t0:.0f} с: {e.__class__.__name__}", flush=True)
-            if attempt == 2 or method != "GET":   # запись не повторяем вслепую: МойСклад мог её уже принять (так появлялись дубли)
+            if attempt >= 2 or method != "GET":   # запись не повторяем вслепую: МойСклад мог её уже принять (так появлялись дубли)
                 raise
             time.sleep(2)
             continue
         if time.time() - t0 > 5:
             print(f"МойСклад {method} {path[:60]} — {time.time() - t0:.1f} с, {len(r.content)} байт", flush=True)
-        if r.status_code == 429 or r.status_code >= 500:
+        if r.status_code == 429:           # лимит МойСклад: запрос не выполнен, повтор безопасен и для записи
+            wait = int(r.headers.get("X-Lognex-Retry-TimeInterval", 0) or 0) / 1000
+            time.sleep(max(wait, 0.5 * (attempt + 1)))
+            continue
+        if r.status_code >= 500:
+            if method != "GET":            # запись могла пройти — пусть вызывающий проверит (заказ ищется по externalCode)
+                raise requests.HTTPError(f"МойСклад {r.status_code}", response=r)
+            if attempt >= 2:
+                break
             time.sleep(1.5 * (attempt + 1))
             continue
         if r.status_code >= 400:
@@ -138,8 +152,33 @@ def tg(method, **data):
     if not BOT:
         return None
     files = data.pop("_files", None)
-    r = requests.post(f"https://api.telegram.org/bot{BOT}/{method}", data=data, files=files, timeout=30)
-    return r.json()
+    for _ in range(4):
+        r = requests.post(f"https://api.telegram.org/bot{BOT}/{method}", data=data, files=files, timeout=30)
+        j = r.json()
+        if r.status_code == 429:           # Telegram просит подождать (много сообщений подряд)
+            time.sleep(min(int((j.get("parameters") or {}).get("retry_after", 2)), 30) + 0.5)
+            continue
+        if not j.get("ok"):
+            raise RuntimeError(f"Telegram {method}: {j.get('description', r.status_code)}")
+        return j
+    raise RuntimeError(f"Telegram {method}: лимит сообщений")
+
+
+_notify_q = queue.Queue()
+
+
+def _notifier():
+    """Уведомления владельцу — по одному, чтобы при наплыве заказов Telegram не отбрасывал сообщения."""
+    while True:
+        fn = _notify_q.get()
+        try:
+            fn()
+        except Exception as e:
+            print("Уведомление:", e, flush=True)
+        time.sleep(0.4)
+
+
+threading.Thread(target=_notifier, daemon=True).start()
 
 
 # ---------- оповещения владельцу ----------
@@ -366,9 +405,18 @@ def live(max_age=LIVE_TTL):
     v = _cache.get("live")
     if v and time.time() - v[0] < max_age:
         return v[1]
-    if v and max_age >= LIVE_TTL and _live_lock.locked():
-        return v[1]                       # обновление уже идёт — отдаём то, что есть
+    if v and max_age >= LIVE_TTL:         # посетитель не ждёт МойСклад: отдаём последние данные, обновляем в фоне
+        if not _live_lock.locked():
+            threading.Thread(target=_refresh_quiet, args=(max_age,), daemon=True).start()
+        return v[1]
     return refresh(max_age)
+
+
+def _refresh_quiet(max_age):
+    try:
+        refresh(max_age)
+    except Exception as e:
+        print("Обновление каталога:", e, flush=True)
 
 
 def catalog():
@@ -428,9 +476,21 @@ def catalog_route():
             return jsonify(error=str(e)[:200]), 502
         data = v[1]                        # МойСклад не ответил — отдаём последние данные
     ws = is_wholesale(session_cid())
-    resp = jsonify(updated=data["updated"], wholesale=ws, items=view_items(data["items"], ws))
+    ck = ("catjson", ws)                     # JSON и gzip собираются раз на обновление каталога, а не на каждого посетителя
+    hit = _cache.get(ck)
+    if hit and hit[0] is data:
+        body = hit[1]
+    else:
+        raw = json.dumps({"updated": data["updated"], "wholesale": ws, "items": view_items(data["items"], ws)},
+                         ensure_ascii=False, separators=(",", ":")).encode()
+        body = (raw, gzip.compress(raw, 6))
+        _cache[ck] = (data, body)
+    gz = "gzip" in request.headers.get("Accept-Encoding", "")
+    resp = Response(body[1] if gz else body[0], mimetype="application/json")
+    if gz:
+        resp.headers["Content-Encoding"] = "gzip"
     resp.headers["Cache-Control"] = "private, max-age=60"
-    resp.headers["Vary"] = "Authorization"
+    resp.headers["Vary"] = "Authorization, Accept-Encoding"
     return resp
 
 
@@ -470,7 +530,20 @@ def unit_price(item, qty, wholesale=True):
     return item["opt"]
 
 
+_agents = {}
+
+
 def find_or_create_agent(name, phone, telegram, city):
+    ck = phone[-10:] if phone else "@" + telegram.lower()
+    hit = _agents.get(ck)
+    if hit and time.time() - hit[0] < 3600:
+        return hit[1]
+    aid = _find_or_create_agent(name, phone, telegram, city)
+    _agents[ck] = (time.time(), aid)
+    return aid
+
+
+def _find_or_create_agent(name, phone, telegram, city):
     if phone:
         rows = ms("GET", "/entity/counterparty", params={"search": phone[-10:], "limit": 5})["rows"]
         for r in rows:
@@ -518,6 +591,7 @@ def cors(resp):
 # ---------- POST /order ----------
 _orders = {}                  # ключ заказа -> (время, ответ): повтор не создаёт второй заказ
 _orders_lock = threading.Lock()
+_key_locks = {}               # ключ заказа -> [время, замок]
 
 
 def _order_key(d):
@@ -535,14 +609,19 @@ def create_order():
         return "", 204
     d = request.get_json(silent=True) or {}
     key = _order_key(d)
-    with _orders_lock:                         # один заказ за раз: повторные отправки ждут и получают тот же ответ
+    with _orders_lock:
         now = time.time()
         for k in [k for k, v in _orders.items() if now - v[0] > 600]:
             del _orders[k]
+        for k in [k for k, v in _key_locks.items() if now - v[0] > 600 and not v[1].locked()]:
+            del _key_locks[k]
+        lk = _key_locks.setdefault(key, [now, threading.Lock()])
+        lk[0] = now
+    with lk[1]:                                # разные заказы идут параллельно; повтор того же заказа ждёт и получает тот же ответ
         if key in _orders:
             return _orders[key][1]
         resp = _create_order_impl(key)
-        if not isinstance(resp, tuple):            # ошибки (tuple) не кэшируем — повтор разрешён
+        if not isinstance(resp, tuple):        # ошибки (tuple) не кэшируем — повтор разрешён
             _orders[key] = (time.time(), resp)
         return resp
 
@@ -674,7 +753,7 @@ def _create_order_impl(key):
             print("Заказ", number, "Telegram не ответил:", e, flush=True)
             alert("notify", f"заказ № {number} записан в МойСклад, но PDF в Telegram не ушёл: {str(e)[:200]}")
 
-    threading.Thread(target=notify_owner, daemon=True).start()
+    _notify_q.put(notify_owner)
 
     return jsonify(ok=True, number=number, total=total, startToken=f"{number}_{tok}",
                    pdfUrl=f"{PUBLIC_URL}/order/{number}/pdf?t={tok}")

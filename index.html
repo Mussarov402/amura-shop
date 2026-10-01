@@ -676,11 +676,12 @@ $("#drawerBody").addEventListener("submit", async e => {
     let res;
     if(DEMO){ await new Promise(r => setTimeout(r, 700)); res = { ok: true, number: "DEMO-" + Date.now().toString().slice(-5), total: t.total, pdfUrl: "", demo: true }; }
     else{
-      const ctl = new AbortController(), tm = setTimeout(() => ctl.abort(), 55000);
+      const ctl = new AbortController(), tm = setTimeout(() => ctl.abort(), 120000);
+      const busy = setTimeout(() => { btn.textContent = "Заказов много — ваш в очереди, не закрывайте страницу…"; }, 8000);
       let r;
       try{ r = await fetch(CONFIG.orderUrl, { method: "POST", headers: authHeaders(), body: JSON.stringify(payload), signal: ctl.signal }); }
       catch(e){ throw new Error(e.name === "AbortError" ? "Сервер долго отвечает — нажмите «Отправить заказ» ещё раз, дубль не создастся" : "Нет связи с сервером"); }
-      finally{ clearTimeout(tm); }
+      finally{ clearTimeout(tm); clearTimeout(busy); }
       res = await r.json().catch(() => ({}));
       if(!r.ok || !res.ok) throw new Error(res.error || "Сервер не ответил");
     }
