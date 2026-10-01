@@ -573,18 +573,22 @@ def _create_order_impl():
     data = {"number": number, "date": datetime.now(ALMATY).strftime("%d.%m.%Y %H:%M"), "name": name,
             "contact": contact, "city": city, "ship": ship_name, "lines": lines,
             "loader": loader, "fee": fee, "total": total}
-    pdf = build_pdf(data)
-    caption = (f"🛒 Заказ с сайта № {number}\n{name} · {contact}\n{city} · {ship_name}\n\n"
-               + "\n".join(f"{l['name']} — {l['qty']} × {fmt(l['price'])} = {fmt(l['qty'] * l['price'])} ₸" for l in lines)
-               + (f"\nУслуга грузчика — {fmt(loader)} ₸" if loader else "")
-               + f"\n{FEE_NAME} 0,95% — {fmt(fee)} ₸\nИтого: {fmt(total)} ₸")
-    if len(caption) > 1000:
-        tg("sendMessage", chat_id=OWNER, text=caption[:4000])
-        caption = f"Заказ № {number}, итого {fmt(total)} ₸"
-    try:
-        tg("sendDocument", chat_id=OWNER, caption=caption, _files={"document": (f"AMURA-{number}.pdf", pdf, "application/pdf")})
-    except Exception as e:                     # заказ уже в МойСклад — сбой Telegram не должен вызвать повторную отправку
-        print("Заказ", number, "Telegram не ответил:", e, flush=True)
+    def notify_owner():                        # PDF и Telegram — в фоне, клиент не ждёт
+        try:
+            pdf = build_pdf(data)
+            caption = (f"🛒 Заказ с сайта № {number}\n{name} · {contact}\n{city} · {ship_name}\n\n"
+                       + "\n".join(f"{l['name']} — {l['qty']} × {fmt(l['price'])} = {fmt(l['qty'] * l['price'])} ₸" for l in lines)
+                       + (f"\nУслуга грузчика — {fmt(loader)} ₸" if loader else "")
+                       + f"\n{FEE_NAME} 0,95% — {fmt(fee)} ₸\nИтого: {fmt(total)} ₸")
+            if len(caption) > 1000:
+                tg("sendMessage", chat_id=OWNER, text=caption[:4000])
+                caption = f"Заказ № {number}, итого {fmt(total)} ₸"
+            tg("sendDocument", chat_id=OWNER, caption=caption, _files={"document": (f"AMURA-{number}.pdf", pdf, "application/pdf")})
+        except Exception as e:                 # заказ уже в МойСклад — сбой Telegram не должен ломать ответ клиенту
+            print("Заказ", number, "Telegram не ответил:", e, flush=True)
+            alert("notify", f"заказ № {number} записан в МойСклад, но PDF в Telegram не ушёл: {str(e)[:200]}")
+
+    threading.Thread(target=notify_owner, daemon=True).start()
 
     return jsonify(ok=True, number=number, total=total, startToken=f"{number}_{tok}",
                    pdfUrl=f"{PUBLIC_URL}/order/{number}/pdf?t={tok}")
