@@ -381,12 +381,20 @@ def organization():
     return cached("org", 86400, lambda: ms("GET", "/entity/organization", params={"limit": 1})["rows"][0]["id"])
 
 
+LOADER_ID = os.environ.get("LOADER_ID", "5c6dc5bf-3baa-11f0-0a80-031800089db8")      # «Услуга грузчика» (код 00308)
+FEE_ID = os.environ.get("FEE_SERVICE_ID", "f5b6ae93-bd87-11f1-0a80-05d1002f5db2")   # услуга «Комиссия банка»
+
+
 def loader_id():
+    if LOADER_ID:                  # известный id — без медленного поиска в МойСклад
+        return LOADER_ID
     return cached("loader", 86400, lambda: ms("GET", "/entity/product",
                                                 params={"filter": f"code={LOADER_CODE}", "limit": 1})["rows"][0]["id"])
 
 
 def fee_service_id():
+    if FEE_ID:
+        return FEE_ID
     def find_or_create():
         rows = ms("GET", "/entity/service", params={"filter": f"name={FEE_NAME}", "limit": 1})["rows"]
         if rows:
@@ -654,6 +662,15 @@ def order_pdf(number):
 
 
 # ---------- бот: /start <номер>_<подпись> ----------
+@bp.route("/alert-test/<secret>")
+def alert_test(secret):
+    """Проверка оповещений: открыть ссылку — владельцу придёт тестовое сообщение."""
+    if not HOOK_SECRET or not hmac.compare_digest(secret, HOOK_SECRET):
+        return "", 403
+    alert("test", "тест оповещений — всё работает", every=0)
+    return jsonify(ok=True)
+
+
 @bp.route("/tg/<secret>", methods=["POST"])
 def tg_webhook(secret):
     if not HOOK_SECRET or not hmac.compare_digest(secret, HOOK_SECRET):
