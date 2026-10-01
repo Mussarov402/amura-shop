@@ -1,7 +1,7 @@
 // AMURA: сайт открывается мгновенно, как приложение.
 // Страница и фото — из памяти телефона сразу, в фоне обновляются.
 // Живые остатки, заказы и вход (сервер) — только из сети, не кэшируются.
-const V = "amura-v1";
+const V = "amura-v2";
 self.addEventListener("install", e => { self.skipWaiting(); e.waitUntil(caches.open(V).then(c => c.addAll(["./", "index.html", "manifest.webmanifest", "icon-192.png"]))); });
 self.addEventListener("activate", e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== V).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener("fetch", e => {
@@ -14,9 +14,10 @@ self.addEventListener("fetch", e => {
     e.respondWith(caches.open(V).then(c => c.match(req).then(hit => hit || fetch(req).then(r => { if(r.ok || r.type === "opaque") c.put(req, r.clone()); return r; }))));
     return;
   }
-  // страница: сразу из памяти, в фоне — новая версия
-  e.respondWith(caches.open(V).then(c => c.match(req).then(hit => {
-    const net = fetch(req).then(r => { if(r.ok) c.put(req, r.clone()); return r; }).catch(() => hit);
-    return hit || net;
-  })));
+  // страница: сначала свежая из сети (до 3 секунд), иначе из памяти — обновления видны сразу
+  e.respondWith(caches.open(V).then(c => {
+    const net = fetch(req, { cache: "no-cache" }).then(r => { if(r.ok) c.put(req, r.clone()); return r; });
+    const slow = new Promise(res => setTimeout(res, 3000)).then(() => c.match(req));
+    return Promise.race([net, slow.then(h => h || net)]).catch(() => c.match(req));
+  }));
 });
