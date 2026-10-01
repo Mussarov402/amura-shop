@@ -185,7 +185,29 @@ def _products():
     Остатки при этом берутся из МойСклад напрямую (быстрый отчёт), см. _stock()."""
     r = requests.get(f"{SITE_URL}/catalog.json", timeout=20, headers={"Cache-Control": "no-cache"})
     r.raise_for_status()
-    return [{"_site": True, **i} for i in r.json()["items"]]
+    d = r.json()
+    _cache["site_updated"] = d.get("updated", "")
+    return [{"_site": True, **i} for i in d["items"]]
+
+
+def _delta():
+    """Товары, изменённые в МойСклад после выгрузки catalog.json (цены, названия, новинки) — маленький быстрый запрос.
+    Время в фильтре МойСклад — московское, выгрузка подписана временем Алматы (на 2 часа вперёд)."""
+    try:
+        base = datetime.strptime(_cache["site_updated"], "%d.%m.%Y %H:%M")
+    except Exception:
+        return []
+    since = (base - timedelta(hours=2, minutes=20)).strftime("%Y-%m-%d %H:%M:%S")
+    rows = []
+    for offset in range(0, 500, 100):
+        d = ms("GET", "/entity/product", params={"filter": f"updated>{since}", "limit": 100, "offset": offset,
+                                                   "order": "updated,asc"}, timeout=12)
+        part = d.get("rows", [])
+        rows += part
+        if len(part) < 100:
+            break
+    print(f"Изменённых товаров после выгрузки: {len(rows)}", flush=True)
+    return rows
 
 
 def _stock():
@@ -241,6 +263,14 @@ def refresh(max_age):
         if v and time.time() - v[0] < max_age:
             return v[1]
         products = cached("products", 600, _products)
+        try:
+            extra = cached("delta", 120, _delta)
+        except Exception as e:             # не получилось — работаем по выгрузке, остатки всё равно живые
+            print("Изменения товаров не получены:", e, flush=True)
+            extra = []
+        if extra:
+            ids = {r["id"] for r in extra}
+            products = [p for p in products if p["id"] not in ids] + extra
         data = build_live(products)
         _cache["live"] = (time.time(), data)
         return data
