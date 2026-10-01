@@ -120,6 +120,23 @@ def tg(method, **data):
     return r.json()
 
 
+# ---------- оповещения владельцу ----------
+_alerts = {}
+
+
+def alert(key, text, every=600):
+    """Пишет в лог и шлёт владельцу в Telegram, но не чаще раза в `every` секунд на один key."""
+    print("ALERT", key, text, flush=True)
+    now = time.time()
+    if now - _alerts.get(key, 0) < every:
+        return
+    _alerts[key] = now
+    try:
+        tg("sendMessage", chat_id=OWNER, text="⚠️ Сайт AMURA: " + text)
+    except Exception as e:
+        print("Оповещение не отправлено:", e, flush=True)
+
+
 # ---------- кэш каталога и справочников ----------
 _cache = {}
 
@@ -278,14 +295,25 @@ def refresh(max_age):
 
 def _background():
     """Пока сайтом пользуются, держим каталог свежим в фоне — клиенты не ждут МойСклад."""
+    fails, alerted = 0, False
     while True:
         time.sleep(20)
         if time.time() - _last_hit[0] > 1200:
             continue
         try:
             refresh(LIVE_TTL)
+            if alerted:
+                try:
+                    tg("sendMessage", chat_id=OWNER, text="✅ Сайт AMURA: связь с МойСклад восстановилась")
+                except Exception as e:
+                    print("Оповещение не отправлено:", e, flush=True)
+            fails, alerted = 0, False
         except Exception as e:
+            fails += 1
             print("Фоновое обновление каталога:", e, flush=True)
+            if fails >= 3:
+                alerted = True
+                alert("bg", f"каталог не обновляется из МойСклад ({fails} раз подряд): {str(e)[:300]}")
 
 
 def _probe():
@@ -297,6 +325,7 @@ def _probe():
         print(f"Проверка остатков: {len(st)} позиций за {time.time() - t0:.1f} с", flush=True)
     except Exception as e:
         print("Проверка МойСклад не прошла:", e, flush=True)
+        alert("probe", f"при запуске сервера МойСклад не ответил: {str(e)[:300]}")
 
 
 threading.Thread(target=_background, daemon=True).start()
