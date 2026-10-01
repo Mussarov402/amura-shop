@@ -86,8 +86,19 @@ def sign(number):
 
 def ms(method, path, **kw):
     url = path if path.startswith("http") else API + path
-    for attempt in range(4):
-        r = S.request(method, url, timeout=kw.pop("timeout", 90), **kw)
+    tmo = kw.pop("timeout", 30)
+    for attempt in range(3):
+        t0 = time.time()
+        try:
+            r = S.request(method, url, timeout=(10, tmo), **kw)
+        except requests.RequestException as e:
+            print(f"МойСклад {method} {path[:60]} — нет ответа за {time.time() - t0:.0f} с: {e.__class__.__name__}", flush=True)
+            if attempt == 2:
+                raise
+            time.sleep(2)
+            continue
+        if time.time() - t0 > 5:
+            print(f"МойСклад {method} {path[:60]} — {time.time() - t0:.1f} с, {len(r.content)} байт", flush=True)
         if r.status_code == 429 or r.status_code >= 500:
             time.sleep(1.5 * (attempt + 1))
             continue
@@ -151,7 +162,12 @@ def _countries():
 
 def _country(row):
     href = (row.get("country") or {}).get("meta", {}).get("href", "")
-    return cached("countries", 86400, _countries).get(href.rsplit("/", 1)[-1], "") if href else ""
+    if not href:
+        return ""
+    try:
+        return cached("countries", 86400, _countries).get(href.rsplit("/", 1)[-1], "")
+    except Exception:
+        return ""
 
 
 def _barcode(row):
@@ -163,19 +179,26 @@ def _barcode(row):
 
 
 def _products():
-    """Карточки товаров (цены, упаковки, бренд, страна) — меняются редко, кэш 10 минут."""
-    rows, offset = [], 0
-    while True:
-        data = ms("GET", "/entity/product", params={"filter": "archived=false", "limit": 1000, "offset": offset}, timeout=150)
-        rows += data.get("rows", [])
-        offset += 1000
-        if offset >= data["meta"]["size"]:
-            return rows
+    """Карточки товаров (цены, упаковки, бренд, страна) — меняются редко, кэш 10 минут.
+    Берём небольшими страницами; если МойСклад не отдаёт — берём из выгрузки catalog.json на сайте."""
+    try:
+        rows, offset = [], 0
+        while True:
+            data = ms("GET", "/entity/product", params={"filter": "archived=false", "limit": 100, "offset": offset}, timeout=40)
+            rows += data.get("rows", [])
+            offset += 100
+            if offset >= data["meta"]["size"]:
+                return rows
+    except Exception as e:
+        print("Карточки из МойСклад не получены, беру catalog.json:", e, flush=True)
+        r = requests.get(f"{SITE_URL}/catalog.json", timeout=20)
+        r.raise_for_status()
+        return [{"_site": True, **i} for i in r.json()["items"]]
 
 
 def _stock():
     """Доступный остаток (остаток − резерв) по всем товарам — лёгкий быстрый отчёт МойСклад."""
-    data = ms("GET", "/report/stock/all/current", params={"stockType": "freeStock"}, timeout=60)
+    data = ms("GET", "/report/stock/all/current", params={"stockType": "freeStock"}, timeout=45)
     rows = data if isinstance(data, list) else data.get("rows", [])
     return {r["assortmentId"]: r.get("freeStock", r.get("stock", 0)) for r in rows}
 
@@ -186,6 +209,12 @@ def build_live(products):
     new_since = (datetime.now(ALMATY) - timedelta(days=21)).strftime("%Y-%m-%d")
     items, descs = [], {}
     for r in products:
+        if r.get("_site"):                 # строка из catalog.json — цены уже готовы, обновляем только остаток
+            qty = int(stock.get(r["id"], 0) or 0)
+            if qty > 0:
+                items.append({k: v for k, v in r.items() if k not in ("_site", "desc")} | {"qty": qty})
+            descs[r["id"]] = r.get("desc", "")
+            continue
         if r.get("code") == LOADER_CODE:
             continue
         qty = int(stock.get(r["id"], 0) or 0)
@@ -237,7 +266,19 @@ def _background():
             print("Фоновое обновление каталога:", e, flush=True)
 
 
+def _probe():
+    time.sleep(3)
+    try:
+        t0 = time.time(); ms("GET", "/entity/organization", params={"limit": 1}, timeout=20)
+        print(f"Проверка МойСклад: ответ за {time.time() - t0:.1f} с", flush=True)
+        t0 = time.time(); st = _stock()
+        print(f"Проверка остатков: {len(st)} позиций за {time.time() - t0:.1f} с", flush=True)
+    except Exception as e:
+        print("Проверка МойСклад не прошла:", e, flush=True)
+
+
 threading.Thread(target=_background, daemon=True).start()
+threading.Thread(target=_probe, daemon=True).start()
 
 
 def live(max_age=LIVE_TTL):

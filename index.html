@@ -162,10 +162,10 @@ form.co{display:grid;gap:12px;padding-top:6px}
 .seg button{border:0;background:transparent;border-radius:9px;padding:8px;font-weight:700;font-size:14px;color:var(--muted)}
 .seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.08)}
 .ship{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.ship label{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:10px;padding:10px;font-size:14px;font-weight:600;cursor:pointer;background:var(--bg)}
-.field .ship input{accent-color:var(--green);width:20px;height:20px;padding:0;margin:0;flex:none}
-.ship label{min-width:0;line-height:1.25}
-.ship label:has(input:checked){border-color:var(--green-3);background:var(--mint)}
+.ship label{position:relative;display:flex;align-items:center;justify-content:center;text-align:center;min-height:48px;border:1.5px solid var(--line);border-radius:12px;padding:8px 10px;font-size:14px;font-weight:700;line-height:1.2;cursor:pointer;background:var(--bg);color:var(--ink);min-width:0;word-break:break-word}
+.field .ship input{position:absolute;opacity:0;width:1px;height:1px;margin:0;padding:0;pointer-events:none}
+.ship label.on,.ship label:has(input:checked){border-color:var(--green);background:var(--green);color:#fff}
+.ship label:has(input:focus-visible){outline:2px solid var(--brass);outline-offset:2px}
 .err{color:var(--danger);font-size:13px;font-weight:600;min-height:1em}
 .done{display:grid;gap:12px;padding-top:12px}
 .done h3{font-family:var(--display);font-weight:500;font-size:22px;margin:4px 0 0}
@@ -566,7 +566,7 @@ function renderCart(){
       <div class="field" id="tgField" ${f.contact==="tg"?"":"hidden"}><label for="fTg">Telegram username</label><input id="fTg" autocapitalize="off" placeholder="@username" value="${esc(f.tg||"")}"></div>
       <div class="field"><label for="fCity">Город</label><input id="fCity" autocomplete="address-level2" value="${esc(f.city||"")}"></div>
       <div class="field"><label>Способ отправки</label>
-        <div class="ship">${CONFIG.shipping.map(s => `<label><input type="radio" name="ship" value="${s.id}" ${f.ship===s.id?"checked":""}> ${esc(s.name)}</label>`).join("")}</div></div>
+        <div class="ship">${CONFIG.shipping.map(s => `<label class="${f.ship===s.id?"on":""}"><input type="radio" name="ship" value="${s.id}" ${f.ship===s.id?"checked":""}><span>${esc(s.name)}</span></label>`).join("")}</div></div>
       <div class="err" id="err"></div>
       <button class="btn" id="send" type="submit">Отправить заказ</button>
       <button class="btn ghost" id="clear" type="button">Очистить корзину</button>
@@ -597,7 +597,7 @@ $("#drawerBody").addEventListener("click", e => {
 });
 $("#drawerBody").addEventListener("change", e => {
   if(e.target.matches(".line input")){ const it = byId(e.target.closest(".line").dataset.id); if(it) setCartQty(it, e.target.value); }
-  if(e.target.name === "ship"){ readForm(); renderSum(); }
+  if(e.target.name === "ship"){ document.querySelectorAll(".ship label").forEach(l => l.classList.toggle("on", l.querySelector("input").checked)); readForm(); renderSum(); }
 });
 $("#drawerBody").addEventListener("input", e => { if(e.target.matches("#co input:not([type=radio])")) readForm(); });
 function setCartQty(it, v){
