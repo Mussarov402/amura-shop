@@ -2,7 +2,7 @@
 
 Запускается в GitHub Actions репо Agents (там есть MS_TOKEN).
 Пишет в папку OUT (по умолчанию ./docs — папка сайта в этом же репо):
-  catalog.json        — товары в наличии с РОЗНИЧНОЙ ценой (в поле opt; mid/box = 0) — его видят все
+  catalog.json        — товары в наличии; в opt/mid/box — опт (PUBLIC_WHOLESALE) или розница; rtl — розница
   prices.bin          — оптовые цены (Оптовая / От 10шт / Короб), зашифрованы ключом из MS_TOKEN — читает только сервер
   img/<id>.webp       — миниатюры 500px (перекачиваются только если товар изменился)
   img/index.json      — кэш: id -> updated
@@ -28,6 +28,7 @@ IMG_SIZE = 500
 NEW_DAYS = 21
 
 PRICE_RTL = "Розничная цена"
+PUBLIC_WHOLESALE = True   # пока всем показываем опт; False — всем розница, опт только клиентам с тегом «опт»
 PRICE_OPT = "Оптовая цена"
 PRICE_MID = ("От 10шт", "От 15шт")   # тип цены переименован в МойСклад; на сайте действует от 10 шт
 PRICE_BOX = "Короб"
@@ -140,9 +141,9 @@ def main():
             no_opt += 1
             continue
         mid, box, bq = price(it, PRICE_MID), price(it, PRICE_BOX), box_qty(it)
+        tiers = [opt, mid if 0 < mid < opt else 0, box if (0 < box < opt and bq) else 0, bq if (0 < box < opt) else 0]
         if opt > 0:
-            wholesale[it["id"]] = [opt, mid if 0 < mid < opt else 0, box if (0 < box < opt and bq) else 0,
-                                   bq if (0 < box < opt) else 0]
+            wholesale[it["id"]] = tiers
         pid, upd = it["id"], it.get("updated", "")
 
         img = None
@@ -171,10 +172,11 @@ def main():
             "country": country_of(it, cmap),
             "barcode": barcode_of(it),
             "qty": qty,
-            "opt": rtl,          # публично — только розница; опт в prices.bin
-            "mid": 0,
-            "box": 0,
-            "boxQty": bq,
+            "opt": tiers[0] if PUBLIC_WHOLESALE else rtl,
+            "mid": tiers[1] if PUBLIC_WHOLESALE else 0,
+            "box": tiers[2] if PUBLIC_WHOLESALE else 0,
+            "boxQty": tiers[3] if PUBLIC_WHOLESALE else bq,
+            "rtl": rtl,
             "img": img,
             "updated": upd[:10],
             "isNew": upd[:10] >= new_since,

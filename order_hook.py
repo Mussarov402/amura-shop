@@ -59,6 +59,7 @@ TIER_MID = 10                  # цена типа «От 15шт» действ�
 LIVE_TTL = 150                 # сек: как часто сервер перечитывает МойСклад для сайта
 PRICE_RTL, PRICE_OPT, PRICE_MID, PRICE_BOX = "Розничная цена", "Оптовая цена", ("От 10шт", "От 15шт"), "Короб"
 WHOLESALE_TAG = os.environ.get("WHOLESALE_TAG", "опт").strip().lower()
+PUBLIC_WHOLESALE = os.environ.get("PRICE_MODE", "opt") == "opt"   # opt — опт видят все; retail — всем розница, опт по тегу
 LOADER_CODE = "00308"          # «Услуга грузчика» (товар в МойСклад)
 LOADER_PRICE = 1000
 FEE_RATE = 0.0095
@@ -116,6 +117,13 @@ def ms(method, path, **kw):
 
 PAY_FIELDS = [("PAY_RECIPIENT", "Получатель"), ("PAY_PHONE", "Перевод по номеру телефона"),
               ("PAY_CARD", "Номер карты"), ("PAY_IIN", "ИИН"), ("PAY_IBAN", "IBAN"), ("PAY_BANK", "Банк")]
+
+
+def pay_text(pay, total):
+    return ("💳 Реквизиты для оплаты\n\n" + f"Сумма: {fmt(total)} ₸\n"
+            + "".join(f"{i['label']}: {i['value']}\n" for i in pay["items"])
+            + f"Назначение: {pay['purpose']}\n" + (f"\n{pay['note']}\n" if pay["note"] else "")
+            + "\nПосле оплаты пришлите, пожалуйста, чек сюда или менеджеру.")
 
 
 def pay_info(number):
@@ -229,7 +237,7 @@ def _products():
     out = []
     for i in d["items"]:
         o, m, bx, bq = opt.get(i["id"], (0, 0, 0, 0))
-        out.append({"_site": True, **i, "rtl": i["opt"], "opt": o, "mid": m, "box": bx, "boxQty": bq or i.get("boxQty", 0)})
+        out.append({"_site": True, **i, "rtl": i.get("rtl", 0), "opt": o, "mid": m, "box": bx, "boxQty": bq or i.get("boxQty", 0)})
     return out
 
 
@@ -390,6 +398,8 @@ def product_route(pid):
 
 def is_wholesale(cid):
     """Оптовик = у контрагента тег «опт» или выбран тип цены «Оптовая цена». Проверка раз в 5 минут."""
+    if PUBLIC_WHOLESALE:
+        return True
     if not cid:
         return False
     def check():
@@ -671,7 +681,7 @@ def _create_order_impl(key):
 
     threading.Thread(target=notify_owner, daemon=True).start()
 
-    return jsonify(ok=True, number=number, total=total, pay=pay_info(number), startToken=f"{number}_{tok}",
+    return jsonify(ok=True, number=number, total=total, startToken=f"{number}_{tok}",
                    pdfUrl=f"{PUBLIC_URL}/order/{number}/pdf?t={tok}")
 
 
@@ -731,14 +741,6 @@ def build_pdf(o):
         ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
     el += [t, Spacer(1, 6 * mm)]
-    pay = pay_info(o["number"])
-    if pay:
-        el += [Paragraph("<b>Реквизиты для оплаты</b>", n)]
-        el += [Paragraph(f"{i['label']}: <b>{i['value']}</b>", n) for i in pay["items"]]
-        el += [Paragraph(f"Назначение: {pay['purpose']}", n)]
-        if pay["note"]:
-            el += [Paragraph(pay["note"], n)]
-        el += [Spacer(1, 4 * mm)]
     el += [Paragraph("Цены указаны в тенге. Менеджер свяжется с вами для подтверждения, оплаты и отправки.", n)]
     doc.build(el)
     return buf.getvalue()
@@ -786,9 +788,13 @@ def tg_webhook(secret):
     if m and hmac.compare_digest(sign(m.group(1)), m.group(2)):
         o = order_from_ms(m.group(1))
         if o:
+            pay = pay_info(o["number"])
             tg("sendDocument", chat_id=chat,
-               caption=f"Ваш заказ AMURA № {o['number']} на {fmt(o['total'])} ₸. Менеджер свяжется с вами для оплаты и отправки.",
+               caption=f"Ваш заказ AMURA № {o['number']} на {fmt(o['total'])} ₸."
+                       + ("" if pay else " Менеджер свяжется с вами для оплаты и отправки."),
                _files={"document": (f"AMURA-{o['number']}.pdf", build_pdf(o), "application/pdf")})
+            if pay:                            # реквизиты — только в мессенджер клиента, не на сайте и не в PDF
+                tg("sendMessage", chat_id=chat, text=pay_text(pay, o["total"]))
             user = (msg.get("from") or {}).get("username", "")
             tg("sendMessage", chat_id=OWNER, text=f"Клиент @{user or chat} получил накладную по заказу № {o['number']}")
             return "", 200
