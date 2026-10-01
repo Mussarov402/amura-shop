@@ -171,6 +171,12 @@ form.co{display:grid;gap:12px;padding-top:6px}
 .done{display:grid;gap:12px;padding-top:12px}
 .done h3{font-family:var(--display);font-weight:500;font-size:22px;margin:4px 0 0}
 .done p{margin:0;color:var(--muted)}
+.pay{border:1.5px solid var(--green);border-radius:14px;padding:14px 16px;display:grid;gap:10px;background:var(--bg)}
+.pay h4{margin:0;font-size:16px}
+.pay-row{display:flex;align-items:center;gap:10px;justify-content:space-between}
+.pay-row span{display:block;font-size:12.5px;color:var(--muted)}
+.pay-row b{font-size:16px;word-break:break-all}
+.pay-row button{flex:none;border:1px solid var(--line);background:#fff;border-radius:10px;padding:8px 12px;font-weight:700;font-size:13px;min-height:40px;cursor:pointer}
 
 .modal{position:fixed;inset:0;z-index:42;display:none;place-items:center;padding:16px}
 .modal.open{display:grid}
@@ -696,18 +702,28 @@ function showDone(res, f, t){
   const shipName = (CONFIG.shipping.find(s => s.id === f.ship)?.name || "") + (f.logistics && f.ship !== "kazpost" && f.ship !== "courier" && f.ship !== "pickup" ? " — " + f.logistics : "") + (f.ship === "kazpost" ? ` — ${f.recipient}, ${f.zip}, ${f.address}` : "") + (f.ship === "courier" ? ` — ${f.address}` : "");
   const text = `Здравствуйте! Мой заказ AMURA № ${res.number}\n${f.name}, ${f.city}, ${shipName}\n\n` +
     t.ls.map(l => `${l.it.name} — ${l.q} шт × ${fmt(l.price)} ₸`).join("\n") +
-    (t.loader ? `\nУслуга грузчика — ${fmt(t.loader)} ₸` : "") + `\nКомиссия банка 0,95% — ${fmt(t.fee)} ₸\nИтого: ${fmt(res.total || t.total)} ₸`;
+    (t.loader ? `\nУслуга грузчика — ${fmt(t.loader)} ₸` : "") + `\nКомиссия банка 0,95% — ${fmt(t.fee)} ₸\nИтого: ${fmt(res.total || t.total)} ₸` +
+    (res.pay ? `\n\nОплачу по реквизитам: ${res.pay.purpose}` : "");
+  const pay = res.pay ? `<div class="pay"><h4>Оплата: ${fmt(res.total || t.total)} ₸</h4>
+      ${res.pay.items.map(i => `<div class="pay-row"><div><span>${esc(i.label)}</span><b>${esc(i.value)}</b></div><button type="button" data-copy="${esc(i.value)}">Копировать</button></div>`).join("")}
+      <div class="pay-row"><div><span>Назначение платежа</span><b>${esc(res.pay.purpose)}</b></div><button type="button" data-copy="${esc(res.pay.purpose)}">Копировать</button></div>
+      ${res.pay.note ? `<p>${esc(res.pay.note)}</p>` : ""}</div>` : "";
   const wa = `https://wa.me/${CONFIG.managerWa}?text=${encodeURIComponent(text)}`;
   const tg = `https://t.me/${CONFIG.botUsername}?start=${encodeURIComponent(res.startToken || res.number)}`;
   $("#drawerBody").innerHTML = `<div class="done">
     <h3>Заказ № ${esc(res.number)}</h3>
-    <p>Сумма ${fmt(res.total || t.total)} ₸. Менеджер свяжется с вами для оплаты и отправки.</p>
+    <p>${res.pay ? "Заказ зарезервирован. Оплатите по реквизитам ниже и отправьте чек менеджеру." : `Сумма ${fmt(res.total || t.total)} ₸. Менеджер свяжется с вами для оплаты и отправки.`}</p>
+    ${pay}
     ${f.contact === "tg"
       ? `<p>Нажмите кнопку и «Старт» — бот сразу пришлёт PDF-накладную.</p><a class="btn tg" href="${tg}" target="_blank" rel="noopener">Получить накладную в Telegram</a>`
       : `<p>Нажмите кнопку — выберите WhatsApp, и текст заказа вместе с PDF уйдёт менеджеру.</p><button class="btn wa" id="waSend" type="button">Отправить в WhatsApp</button>`}
     ${res.pdfUrl ? `<a class="btn ghost" href="${esc(res.pdfUrl)}" target="_blank" rel="noopener">Скачать PDF-накладную</a>` : (res.demo ? `<p class="kv">В демо-режиме PDF не создаётся.</p>` : "")}
     <button class="btn ghost" id="backShop" type="button">Вернуться в каталог</button></div>`;
   $("#backShop").onclick = () => go("home");
+  document.querySelectorAll(".pay [data-copy]").forEach(b => b.onclick = async () => {
+    try{ await navigator.clipboard.writeText(b.dataset.copy); b.textContent = "Скопировано"; }
+    catch{ toast(b.dataset.copy); }
+  });
   const waBtn = $("#waSend");
   if(waBtn){
     // PDF скачиваем заранее, чтобы по нажатию сразу открылось меню «Поделиться» с файлом и текстом

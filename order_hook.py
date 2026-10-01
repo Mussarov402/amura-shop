@@ -67,7 +67,8 @@ ALMATY = timezone(timedelta(hours=5))
 bp = Blueprint("orders", __name__)
 S = requests.Session()
 S.headers.update({"Authorization": f"Bearer {MS_TOKEN}", "Accept-Encoding": "gzip",
-                  "Content-Type": "application/json"})
+                  "Content-Type": "application/json",
+                  "Connection": "close"})   # без «залежавшихся» соединений: на них запрос висит до таймаута
 
 _here = os.path.dirname(os.path.abspath(__file__))
 pdfmetrics.registerFont(TTFont("DV", os.path.join(_here, "fonts", "DejaVuSans.ttf")))
@@ -93,7 +94,7 @@ def ms(method, path, **kw):
             r = S.request(method, url, timeout=(10, tmo), **kw)
         except requests.RequestException as e:
             print(f"МойСклад {method} {path[:60]} — нет ответа за {time.time() - t0:.0f} с: {e.__class__.__name__}", flush=True)
-            if attempt == 2:
+            if attempt == 2 or method != "GET":   # запись не повторяем вслепую: МойСклад мог её уже принять (так появлялись дубли)
                 raise
             time.sleep(2)
             continue
@@ -106,6 +107,19 @@ def ms(method, path, **kw):
             raise RuntimeError(f"МойСклад {r.status_code}: {r.text[:300]}")
         return r.json() if r.content else {}
     raise RuntimeError("МойСклад не отвечает")
+
+
+PAY_FIELDS = [("PAY_RECIPIENT", "Получатель"), ("PAY_PHONE", "Перевод по номеру телефона"),
+              ("PAY_CARD", "Номер карты"), ("PAY_IIN", "ИИН"), ("PAY_IBAN", "IBAN"), ("PAY_BANK", "Банк")]
+
+
+def pay_info(number):
+    """Реквизиты для оплаты — из переменных окружения Render (позже — из панели управления)."""
+    items = [{"label": label, "value": os.environ.get(key, "").strip()} for key, label in PAY_FIELDS]
+    items = [i for i in items if i["value"]]
+    if not items:
+        return None
+    return {"items": items, "purpose": f"Оплата заказа № {number}", "note": os.environ.get("PAY_NOTE", "").strip()}
 
 
 def meta(entity, eid):
@@ -482,13 +496,35 @@ def create_order():
             del _orders[k]
         if key in _orders:
             return _orders[key][1]
-        resp = _create_order_impl()
+        resp = _create_order_impl(key)
         if not isinstance(resp, tuple):            # ошибки (tuple) не кэшируем — повтор разрешён
             _orders[key] = (time.time(), resp)
         return resp
 
 
-def _create_order_impl():
+def _post_order(body):
+    """Создаёт заказ один раз. Если ответ МойСклад не дошёл — ищем заказ по externalCode, а не создаём второй."""
+    try:
+        return ms("POST", "/entity/customerorder", json=body, timeout=10)
+    except requests.RequestException as e:
+        print("Заказ: ответ МойСклад не дошёл, ищу по externalCode:", e.__class__.__name__, flush=True)
+    looked = False
+    for _ in range(4):
+        try:
+            rows = ms("GET", "/entity/customerorder", params={"filter": f"externalCode={body['externalCode']}", "limit": 1},
+                      timeout=8)["rows"]
+            looked = True
+            if rows:
+                return rows[0]
+        except Exception as e:
+            print("Заказ: поиск по externalCode не удался:", e, flush=True)
+        time.sleep(2)
+    if looked:                                 # точно знаем, что заказа нет — создаём ещё раз
+        return ms("POST", "/entity/customerorder", json=body, timeout=20)
+    raise RuntimeError("МойСклад не подтвердил создание заказа")
+
+
+def _create_order_impl(key):
     ip = request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip()
     if too_many(ip):
         return jsonify(ok=False, error="Слишком много заказов подряд, подождите 10 минут"), 429
@@ -556,7 +592,8 @@ def _create_order_impl():
             positions.append({"quantity": 1, "price": loader * 100, "assortment": meta("product", loader_id())})
         positions.append({"quantity": 1, "price": fee * 100, "assortment": meta("service", fee_service_id())})
         contact = f"WhatsApp +{phone}" if phone else f"Telegram @{telegram}"
-        order = ms("POST", "/entity/customerorder", json={
+        order = _post_order({
+            "externalCode": "site-" + hashlib.sha1(key.encode()).hexdigest()[:24],
             "organization": meta("organization", organization()),
             "agent": meta("counterparty", agent),
             "shipmentAddress": city,
@@ -590,7 +627,7 @@ def _create_order_impl():
 
     threading.Thread(target=notify_owner, daemon=True).start()
 
-    return jsonify(ok=True, number=number, total=total, startToken=f"{number}_{tok}",
+    return jsonify(ok=True, number=number, total=total, pay=pay_info(number), startToken=f"{number}_{tok}",
                    pdfUrl=f"{PUBLIC_URL}/order/{number}/pdf?t={tok}")
 
 
@@ -649,7 +686,16 @@ def build_pdf(o):
         ("LINEABOVE", (0, -1), (-1, -1), 0.8, colors.HexColor("#0E3B2C")),
         ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
-    el += [t, Spacer(1, 6 * mm), Paragraph("Цены указаны в тенге. Менеджер свяжется с вами для подтверждения, оплаты и отправки.", n)]
+    el += [t, Spacer(1, 6 * mm)]
+    pay = pay_info(o["number"])
+    if pay:
+        el += [Paragraph("<b>Реквизиты для оплаты</b>", n)]
+        el += [Paragraph(f"{i['label']}: <b>{i['value']}</b>", n) for i in pay["items"]]
+        el += [Paragraph(f"Назначение: {pay['purpose']}", n)]
+        if pay["note"]:
+            el += [Paragraph(pay["note"], n)]
+        el += [Spacer(1, 4 * mm)]
+    el += [Paragraph("Цены указаны в тенге. Менеджер свяжется с вами для подтверждения, оплаты и отправки.", n)]
     doc.build(el)
     return buf.getvalue()
 
