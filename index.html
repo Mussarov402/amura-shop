@@ -567,11 +567,22 @@ function renderCart(){
       <div class="field"><label for="fCity">Город</label><input id="fCity" autocomplete="address-level2" value="${esc(f.city||"")}"></div>
       <div class="field"><label>Способ отправки</label>
         <div class="ship">${CONFIG.shipping.map(s => `<label class="${f.ship===s.id?"on":""}"><input type="radio" name="ship" value="${s.id}" ${f.ship===s.id?"checked":""}><span>${esc(s.name)}</span></label>`).join("")}</div></div>
+      <div id="shipExtra">${shipExtraHTML(f)}</div>
       <div class="err" id="err"></div>
       <button class="btn" id="send" type="submit">Отправить заказ</button>
       <button class="btn ghost" id="clear" type="button">Очистить корзину</button>
     </form>`;
   renderSum();
+}
+function shipExtraHTML(f){
+  const k = f.ship;
+  if(k === "kamaz" || k === "rail" || k === "avia")
+    return `<div class="field"><label for="fLogi">Через какую логистику</label><input id="fLogi" placeholder="Название транспортной компании" value="${esc(f.logistics||"")}"></div>`;
+  if(k === "kazpost")
+    return `<div class="field"><label for="fFio">ФИО получателя</label><input id="fFio" autocomplete="name" value="${esc(f.recipient||"")}"></div>
+      <div class="field"><label for="fZip">Индекс</label><input id="fZip" inputmode="numeric" maxlength="6" autocomplete="postal-code" value="${esc(f.zip||"")}"></div>
+      <div class="field"><label for="fAddr">Адрес</label><input id="fAddr" autocomplete="street-address" placeholder="Город, улица, дом, квартира" value="${esc(f.address||"")}"></div>`;
+  return "";
 }
 function renderSum(){
   const ship = document.querySelector('input[name="ship"]:checked')?.value;
@@ -584,6 +595,10 @@ function renderSum(){
 function readForm(){
   const contact = document.querySelector(".seg [aria-pressed=true]")?.dataset.c || "wa";
   const f = { name: $("#fName").value.trim(), contact, phone: $("#fPhone").value.trim(), tg: $("#fTg").value.trim().replace(/^@/, ""), city: $("#fCity").value.trim(), ship: document.querySelector('input[name="ship"]:checked')?.value || "" };
+  const g = id => (document.getElementById(id)?.value ?? null);
+  const old = load("amura-form", {});
+  f.logistics = g("fLogi") ?? old.logistics ?? ""; f.recipient = g("fFio") ?? old.recipient ?? "";
+  f.zip = g("fZip") ?? old.zip ?? ""; f.address = g("fAddr") ?? old.address ?? "";
   save("amura-form", f); return f;
 }
 $("#drawerBody").addEventListener("click", e => {
@@ -597,7 +612,7 @@ $("#drawerBody").addEventListener("click", e => {
 });
 $("#drawerBody").addEventListener("change", e => {
   if(e.target.matches(".line input")){ const it = byId(e.target.closest(".line").dataset.id); if(it) setCartQty(it, e.target.value); }
-  if(e.target.name === "ship"){ document.querySelectorAll(".ship label").forEach(l => l.classList.toggle("on", l.querySelector("input").checked)); readForm(); renderSum(); }
+  if(e.target.name === "ship"){ document.querySelectorAll(".ship label").forEach(l => l.classList.toggle("on", l.querySelector("input").checked)); const f = readForm(); $("#shipExtra").innerHTML = shipExtraHTML(f); renderSum(); }
 });
 $("#drawerBody").addEventListener("input", e => { if(e.target.matches("#co input:not([type=radio])")) readForm(); });
 function setCartQty(it, v){
@@ -621,6 +636,12 @@ $("#drawerBody").addEventListener("submit", async e => {
   if(f.contact === "tg" && !/^[A-Za-z0-9_]{4,32}$/.test(f.tg)) return fail("Укажите Telegram username", "#fTg");
   if(!f.city) return fail("Укажите город", "#fCity");
   if(!f.ship) return fail("Выберите способ отправки");
+  if(["kamaz", "rail", "avia"].includes(f.ship) && !f.logistics) return fail("Укажите, через какую логистику отправить", "#fLogi");
+  if(f.ship === "kazpost"){
+    if(!f.recipient) return fail("Укажите ФИО получателя", "#fFio");
+    if(!/^\d{6}$/.test(f.zip)) return fail("Индекс — 6 цифр", "#fZip");
+    if(!f.address) return fail("Укажите адрес", "#fAddr");
+  }
   function fail(m, sel){ err.textContent = m; if(sel) $(sel).focus(); }
   err.textContent = "";
   const t = totals(f.ship);
@@ -629,6 +650,7 @@ $("#drawerBody").addEventListener("submit", async e => {
     phone: f.contact === "wa" ? normPhone(digits) : "",
     telegram: f.contact === "tg" ? f.tg : "",
     city: f.city, shipping: f.ship,
+    logistics: f.logistics, recipient: f.recipient, zip: f.zip, address: f.address,
     items: t.ls.map(l => ({ id: l.it.id, qty: l.q, price: l.price })),
     clientTotal: t.total,
     orderKey: orderKey()
@@ -653,7 +675,7 @@ $("#drawerBody").addEventListener("submit", async e => {
 function normPhone(d){ if(d.length === 11 && d[0] === "8") d = "7" + d.slice(1); if(d.length === 10) d = "7" + d; return d; }
 function showDone(res, f, t){
   $("#drawerTitle").textContent = "Заказ принят";
-  const shipName = CONFIG.shipping.find(s => s.id === f.ship)?.name || "";
+  const shipName = (CONFIG.shipping.find(s => s.id === f.ship)?.name || "") + (f.logistics && f.ship !== "kazpost" && f.ship !== "courier" && f.ship !== "pickup" ? " — " + f.logistics : "") + (f.ship === "kazpost" ? ` — ${f.recipient}, ${f.zip}, ${f.address}` : "");
   const text = `Здравствуйте! Мой заказ AMURA № ${res.number}\n${f.name}, ${f.city}, ${shipName}\n\n` +
     t.ls.map(l => `${l.it.name} — ${l.q} шт × ${fmt(l.price)} ₸`).join("\n") +
     (t.loader ? `\nУслуга грузчика — ${fmt(t.loader)} ₸` : "") + `\nКомиссия банка 0,95% — ${fmt(t.fee)} ₸\nИтого: ${fmt(res.total || t.total)} ₸`;

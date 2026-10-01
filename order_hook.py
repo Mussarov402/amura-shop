@@ -458,6 +458,18 @@ def _create_order_impl():
         return jsonify(ok=False, error="Корзина пуста или товаров нет в наличии"), 400
 
     ship_name, need_loader = SHIPPING[ship]
+    logistics = str(d.get("logistics", "")).strip()[:80]
+    recipient = str(d.get("recipient", "")).strip()[:100]
+    zipcode = re.sub(r"\D", "", str(d.get("zip", "")))[:6]
+    address = str(d.get("address", "")).strip()[:200]
+    if need_loader and not logistics:
+        return jsonify(ok=False, error="Укажите, через какую логистику отправить"), 400
+    if ship == "kazpost" and not (recipient and len(zipcode) == 6 and address):
+        return jsonify(ok=False, error="Для Казпочты укажите ФИО, индекс и адрес"), 400
+    if need_loader:
+        ship_name += f" — {logistics}"
+    elif ship == "kazpost":
+        ship_name += f" — {recipient}, {zipcode}, {address}"
     goods = sum(l["qty"] * l["price"] for l in lines)
     loader = LOADER_PRICE if need_loader else 0
     fee = int((goods + loader) * FEE_RATE + 0.5)  # как Math.round на сайте
