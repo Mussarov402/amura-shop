@@ -34,6 +34,7 @@
   --bg:#0F1512; --surface:#17201C; --ink:#E9EFEB; --muted:#9AA8A1; --line:#28342E; --danger:#E0816F; color-scheme:dark; --warn-bg:#3A301C; --warn-fg:#EBD3A0;
 }
 *,*::before,*::after{box-sizing:border-box}
+html,body{overflow-x:hidden}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased;padding-bottom:env(safe-area-inset-bottom,0px)}
 img{max-width:100%;display:block}
 button,input,select,textarea{font:inherit;color:inherit}
@@ -162,7 +163,8 @@ form.co{display:grid;gap:12px;padding-top:6px}
 .seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.08)}
 .ship{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .ship label{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:10px;padding:10px;font-size:14px;font-weight:600;cursor:pointer;background:var(--bg)}
-.ship input{accent-color:var(--green)}
+.field .ship input{accent-color:var(--green);width:20px;height:20px;padding:0;margin:0;flex:none}
+.ship label{min-width:0;line-height:1.25}
 .ship label:has(input:checked){border-color:var(--green-3);background:var(--mint)}
 .err{color:var(--danger);font-size:13px;font-weight:600;min-height:1em}
 .done{display:grid;gap:12px;padding-top:12px}
