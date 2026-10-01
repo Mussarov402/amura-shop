@@ -179,21 +179,12 @@ def _barcode(row):
 
 
 def _products():
-    """Карточки товаров (цены, упаковки, бренд, страна) — меняются редко, кэш 10 минут.
-    Берём небольшими страницами; если МойСклад не отдаёт — берём из выгрузки catalog.json на сайте."""
-    try:
-        rows, offset = [], 0
-        while True:
-            data = ms("GET", "/entity/product", params={"filter": "archived=false", "limit": 100, "offset": offset}, timeout=40)
-            rows += data.get("rows", [])
-            offset += 100
-            if offset >= data["meta"]["size"]:
-                return rows
-    except Exception as e:
-        print("Карточки из МойСклад не получены, беру catalog.json:", e, flush=True)
-        r = requests.get(f"{SITE_URL}/catalog.json", timeout=20)
-        r.raise_for_status()
-        return [{"_site": True, **i} for i in r.json()["items"]]
+    """Карточки товаров (названия, цены, упаковки, фото) — из выгрузки catalog.json на сайте.
+    Её обновляет GitHub Actions; большой список товаров МойСклад отдаёт серверу Render слишком медленно.
+    Остатки при этом берутся из МойСклад напрямую (быстрый отчёт), см. _stock()."""
+    r = requests.get(f"{SITE_URL}/catalog.json", timeout=20, headers={"Cache-Control": "no-cache"})
+    r.raise_for_status()
+    return [{"_site": True, **i} for i in r.json()["items"]]
 
 
 def _stock():
