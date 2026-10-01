@@ -664,10 +664,26 @@ function showDone(res, f, t){
     <p>Сумма ${fmt(res.total || t.total)} ₸. Менеджер свяжется с вами для оплаты и отправки.</p>
     ${f.contact === "tg"
       ? `<p>Нажмите кнопку и «Старт» — бот сразу пришлёт PDF-накладную.</p><a class="btn tg" href="${tg}" target="_blank" rel="noopener">Получить накладную в Telegram</a>`
-      : `<p>Скачайте накладную и отправьте заказ менеджеру в WhatsApp.</p><a class="btn wa" href="${wa}" target="_blank" rel="noopener">Написать в WhatsApp</a>`}
+      : `<p>Нажмите кнопку — выберите WhatsApp, и текст заказа вместе с PDF уйдёт менеджеру.</p><button class="btn wa" id="waSend" type="button">Отправить в WhatsApp</button>`}
     ${res.pdfUrl ? `<a class="btn ghost" href="${esc(res.pdfUrl)}" target="_blank" rel="noopener">Скачать PDF-накладную</a>` : (res.demo ? `<p class="kv">В демо-режиме PDF не создаётся.</p>` : "")}
     <button class="btn ghost" id="backShop" type="button">Вернуться в каталог</button></div>`;
   $("#backShop").onclick = () => go("home");
+  const waBtn = $("#waSend");
+  if(waBtn){
+    // PDF скачиваем заранее, чтобы по нажатию сразу открылось меню «Поделиться» с файлом и текстом
+    let pdfFile = null;
+    if(res.pdfUrl) fetch(res.pdfUrl).then(r => r.ok ? r.blob() : null).then(b => { if(b) pdfFile = new File([b], `AMURA-${res.number}.pdf`, { type: "application/pdf" }); }).catch(() => {});
+    waBtn.onclick = async () => {
+      try{
+        if(pdfFile && navigator.canShare && navigator.canShare({ files: [pdfFile] })){
+          await navigator.share({ files: [pdfFile], text });   // в списке выберите WhatsApp → чат с менеджером
+          return;
+        }
+      }catch(e){ if(e && e.name === "AbortError") return; }
+      window.open(wa, "_blank", "noopener");                  // запасной вариант: только текст
+      if(res.pdfUrl) toast("PDF скачайте кнопкой ниже и приложите в чат");
+    };
+  }
 }
 
 /* ===== UI ===== */
