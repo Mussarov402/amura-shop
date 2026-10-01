@@ -5,7 +5,8 @@
     app.register_blueprint(order_bp)
 
 Маршруты:
-    GET  /catalog                  — живой каталог для сайта (МойСклад, кэш 150 сек)
+    GET  /catalog                  — живой каталог для сайта (МойСклад, кэш 150 сек).
+                                     Всем — розничная цена; оптовику (вошёл в «Я», тег «опт» в МойСклад) — опт / от 10 шт / короб
     POST /order                    — заказ с сайта → МойСклад + Telegram владельцу + ссылка на PDF
     GET  /order/<номер>/pdf?t=...  — PDF-накладная (по подписанной ссылке)
     POST /tg/<TG_WEBHOOK_SECRET>   — вебхук бота заказов: /start <номер>_<подпись> → бот шлёт PDF
@@ -21,6 +22,7 @@
     ORDER_SECRET        случайная строка для подписи ссылок на PDF
     PUBLIC_URL          https://amura-shop-api.onrender.com
     SITE_URL            https://mussarov402.github.io/amura-shop   (оттуда берётся img/index.json)
+    WHOLESALE_TAG       тег контрагента в МойСклад, открывающий оптовые цены (по умолчанию «опт»)
 """
 import hashlib
 import hmac
@@ -34,6 +36,8 @@ from datetime import datetime, timedelta, timezone
 
 import requests
 from flask import Blueprint, Response, jsonify, request
+
+from pricebox import unseal
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
@@ -53,7 +57,8 @@ SITE_URL = os.environ.get("SITE_URL", "").rstrip("/")
 
 TIER_MID = 10                  # цена типа «От 15шт» действует от 10 шт
 LIVE_TTL = 150                 # сек: как часто сервер перечитывает МойСклад для сайта
-PRICE_OPT, PRICE_MID, PRICE_BOX = "Оптовая цена", ("От 10шт", "От 15шт"), "Короб"
+PRICE_RTL, PRICE_OPT, PRICE_MID, PRICE_BOX = "Розничная цена", "Оптовая цена", ("От 10шт", "От 15шт"), "Короб"
+WHOLESALE_TAG = os.environ.get("WHOLESALE_TAG", "опт").strip().lower()
 LOADER_CODE = "00308"          # «Услуга грузчика» (товар в МойСклад)
 LOADER_PRICE = 1000
 FEE_RATE = 0.0095
@@ -217,8 +222,15 @@ def _products():
     r = requests.get(f"{SITE_URL}/catalog.json", timeout=20, headers={"Cache-Control": "no-cache"})
     r.raise_for_status()
     d = r.json()
+    b = requests.get(f"{SITE_URL}/prices.bin", timeout=20, headers={"Cache-Control": "no-cache"})
+    b.raise_for_status()
+    opt = unseal(b.content, MS_TOKEN)        # id -> [опт, от 10 шт, короб, шт в коробе]
     _cache["site_updated"] = d.get("updated", "")
-    return [{"_site": True, **i} for i in d["items"]]
+    out = []
+    for i in d["items"]:
+        o, m, bx, bq = opt.get(i["id"], (0, 0, 0, 0))
+        out.append({"_site": True, **i, "rtl": i["opt"], "opt": o, "mid": m, "box": bx, "boxQty": bq or i.get("boxQty", 0)})
+    return out
 
 
 def _delta():
@@ -263,9 +275,9 @@ def build_live(products):
         if r.get("code") == LOADER_CODE:
             continue
         qty = int(stock.get(r["id"], 0) or 0)
-        opt = _price(r, PRICE_OPT)
+        opt, rtl = _price(r, PRICE_OPT), _price(r, PRICE_RTL)
         descs[r["id"]] = (r.get("description") or "")[:4000]
-        if qty <= 0 or opt <= 0:
+        if qty <= 0 or (opt <= 0 and rtl <= 0):
             continue
         mid, box = _price(r, PRICE_MID), _price(r, PRICE_BOX)
         bq = max([int(p.get("quantity", 0)) for p in (r.get("packs") or []) if p.get("quantity", 0) > 1] or [0])
@@ -274,7 +286,7 @@ def build_live(products):
             "id": r["id"], "name": r.get("name", ""), "brand": _brand(r), "code": r.get("code", ""),
             "article": r.get("article", ""), "country": _country(r), "barcode": _barcode(r), "qty": qty,
             "opt": opt, "mid": mid if 0 < mid < opt else 0,
-            "box": box if (0 < box < opt and bq) else 0, "boxQty": bq if (0 < box < opt) else 0,
+            "box": box if (0 < box < opt and bq) else 0, "boxQty": bq, "rtl": rtl,
             "img": f"img/{r['id']}.webp" if r["id"] in imgs else None,
             "updated": upd[:10], "isNew": upd[:10] >= new_since,
         })
@@ -376,6 +388,30 @@ def product_route(pid):
     return resp
 
 
+def is_wholesale(cid):
+    """Оптовик = у контрагента тег «опт» или выбран тип цены «Оптовая цена». Проверка раз в 5 минут."""
+    if not cid:
+        return False
+    def check():
+        cp = ms("GET", f"/entity/counterparty/{cid}", params={"expand": "priceType"}, timeout=10)
+        tags = {t.strip().lower() for t in cp.get("tags") or []}
+        return WHOLESALE_TAG in tags or (cp.get("priceType") or {}).get("name") == PRICE_OPT
+    try:
+        return cached("ws:" + cid, 300, check)
+    except Exception as e:
+        print("Проверка оптовика не удалась:", e, flush=True)
+        v = _cache.get("ws:" + cid)
+        return v[1] if v else False
+
+
+def view_items(items, wholesale):
+    """Что видит клиент: оптовик — опт / от 10 шт / короб; остальные — только розничную цену."""
+    if wholesale:
+        return [{k: v for k, v in i.items() if k != "rtl"} for i in items if i.get("opt", 0) > 0]
+    return [{k: v for k, v in i.items() if k != "rtl"} | {"opt": i["rtl"], "mid": 0, "box": 0}
+            for i in items if i.get("rtl", 0) > 0]
+
+
 @bp.route("/catalog")
 def catalog_route():
     try:
@@ -386,8 +422,10 @@ def catalog_route():
         if not v:
             return jsonify(error=str(e)[:200]), 502
         data = v[1]                        # МойСклад не ответил — отдаём последние данные
-    resp = jsonify(data)
-    resp.headers["Cache-Control"] = "public, max-age=60"
+    ws = is_wholesale(session_cid())
+    resp = jsonify(updated=data["updated"], wholesale=ws, items=view_items(data["items"], ws))
+    resp.headers["Cache-Control"] = "private, max-age=60"
+    resp.headers["Vary"] = "Authorization"
     return resp
 
 
@@ -417,7 +455,9 @@ def fee_service_id():
     return cached("fee", 86400, find_or_create)
 
 
-def unit_price(item, qty):
+def unit_price(item, qty, wholesale=True):
+    if not wholesale:
+        return item.get("rtl", 0)
     if item.get("box") and item.get("boxQty") and qty >= item["boxQty"]:
         return item["box"]
     if item.get("mid") and qty >= TIER_MID:
@@ -550,6 +590,8 @@ def _create_order_impl(key):
         if not v:
             return jsonify(ok=False, error="Склад сейчас не отвечает, попробуйте через минуту"), 503
         cat = {i["id"]: i for i in v[1]["items"]}
+    me = session_cid()                         # клиент вошёл в «Я» — заказ на его контрагента
+    ws = is_wholesale(me)
     lines = []
     for p in (d.get("items") or [])[:200]:
         item = cat.get(str(p.get("id")))
@@ -557,7 +599,10 @@ def _create_order_impl(key):
         if not item or qty <= 0:
             continue
         qty = min(qty, int(item["qty"]))
-        lines.append({"id": item["id"], "name": item["name"], "qty": qty, "price": unit_price(item, qty)})
+        price = unit_price(item, qty, ws)
+        if price <= 0:
+            continue
+        lines.append({"id": item["id"], "name": item["name"], "qty": qty, "price": price})
     if not lines:
         return jsonify(ok=False, error="Корзина пуста или товаров нет в наличии"), 400
 
@@ -584,7 +629,6 @@ def _create_order_impl(key):
     total = goods + loader + fee
 
     try:
-        me = session_cid()                     # клиент вошёл в «Я» — заказ на его контрагента
         agent = me or find_or_create_agent(name, phone, telegram, city)
         positions = [{"quantity": l["qty"], "price": l["price"] * 100, "reserve": l["qty"],   # резерв товара под заказ
                       "assortment": meta("product", l["id"])} for l in lines]

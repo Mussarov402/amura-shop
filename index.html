@@ -362,13 +362,15 @@ const pick = {};                              // id -> выбранное кол
 const byId = id => ALL.find(i => i.id === id);
 
 /* ===== Каталог ===== */
-async function getJSON(url, ms){
+async function getJSON(url, ms, headers){
   const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), ms);
-  try{ const r = await fetch(url, { cache: "no-cache", signal: ctl.signal }); if(!r.ok) throw new Error(r.status); return await r.json(); }
+  try{ const r = await fetch(url, { cache: "no-cache", signal: ctl.signal, headers }); if(!r.ok) throw new Error(r.status); return await r.json(); }
   finally{ clearTimeout(t); }
 }
 const DESC = {};
+let WS = false;                               // true — сервер отдал оптовые цены (клиент с тегом «опт»)
 function applyData(data){
+  WS = !!data.wholesale;
   ALL = (data.items || []).filter(i => i.qty > 0 && i.opt > 0);
   ALL.forEach(i => { if(typeof i.desc === "string") DESC[i.id] = i.desc; else if(i.id in DESC) i.desc = DESC[i.id]; });
   $("#meta").dataset.upd = data.updated || "";
@@ -381,9 +383,9 @@ function applyData(data){
   $("#brands").innerHTML = `<button class="chip" data-b="" aria-pressed="${!st.brand}">Все бренды</button>` + brands.map(b => `<button class="chip" data-b="${esc(b)}" aria-pressed="${st.brand === b}">${esc(b)}</button>`).join("");
   renderCartCount();
 }
-const CACHE_KEY = "amura-catalog-v1";
+const CACHE_KEY = "amura-catalog-v2";      // v2: розница по умолчанию, опт — только оптовикам
 function cacheSave(){
-  try{ localStorage.setItem(CACHE_KEY, JSON.stringify({ t: Date.now(), updated: $("#meta").dataset.upd || "", items: ALL })); }catch{}
+  try{ localStorage.setItem(CACHE_KEY, JSON.stringify({ t: Date.now(), updated: $("#meta").dataset.upd || "", wholesale: WS, items: ALL })); }catch{}
 }
 function cacheLoad(){
   try{ const c = JSON.parse(localStorage.getItem(CACHE_KEY) || "null"); return c && c.items && c.items.length && Date.now() - c.t < 7 * 864e5 ? c : null; }catch{ return null; }
@@ -395,12 +397,12 @@ async function boot(){
   renderCartCount();
   // 0) мгновенно: каталог, который этот телефон уже видел (как в приложениях WB / Kaspi)
   const cached = cacheLoad();
-  if(cached){ applyData({ items: cached.items, updated: cached.updated }); render(); if(VIEW === "cart") renderCart(); }
+  if(cached){ applyData({ items: cached.items, updated: cached.updated, wholesale: cached.wholesale }); render(); if(VIEW === "cart") renderCart(); }
   else skeletonGrid(8);
   // 1) параллельно: выгрузка с GitHub Pages (быстро, CDN) и живые остатки с сервера
   let shown = !!cached;
   const stat = getJSON(CONFIG.catalogUrl, 8000).then(d => {
-    if(lastLive) return true;                 // живые данные уже пришли — выгрузка нужна только для описаний
+    if(lastLive || (AUTH.token && shown)) return true;   // живые данные уже пришли (или у оптовика есть свои) — выгрузка нужна только для описаний
     applyData(d); render(); shown = true; cacheSave(); if(VIEW === "cart") renderCart(); return true;
   }).catch(() => false);
   const live = refreshLive();
@@ -423,7 +425,7 @@ let lastLive = 0;
 async function refreshLive(){
   if(!CONFIG.liveUrl) return false;
   try{
-    const data = await getJSON(CONFIG.liveUrl, 60000);   // сервер может «просыпаться» до минуты
+    const data = await getJSON(CONFIG.liveUrl, 60000, AUTH.token ? { Authorization: "Bearer " + AUTH.token } : undefined);   // сервер может «просыпаться» до минуты
     lastLive = Date.now();
     const typing = document.activeElement && document.activeElement.matches("#grid input, #sheet input");
     applyData(data); cacheSave();
@@ -447,7 +449,8 @@ function render(){
   const part = list.slice(0, st.shown);
   $("#title").textContent = st.q ? `Поиск: «${st.q}»` : (st.brand || "Весь каталог");
   const upd = $("#meta").dataset.upd;
-  $("#meta").textContent = `${fmt(list.length)} товаров` + (upd ? ` · обновлено ${upd}` : "");
+  $("#meta").textContent = `${fmt(list.length)} товаров` + (upd ? ` · обновлено ${upd}` : "")
+    + (DEMO ? "" : WS ? " · оптовые цены" : " · розничные цены, опт — после входа в «Я»");
   $("#grid").innerHTML = part.map(cardHTML).join("");
   $("#status").innerHTML = list.length ? "" : `<div class="notice"><h3>Ничего не нашлось</h3><p>Попробуйте другое название, бренд или артикул.</p></div>`;
   $("#more").hidden = list.length <= st.shown;
@@ -763,7 +766,11 @@ document.addEventListener("keydown", e => { if(e.key === "Escape") closeAll(); }
 /* ===== Раздел «Я» ===== */
 let AUTH = load("amura-auth", { token: "", profile: null });
 function authHeaders(){ const h = { "Content-Type": "application/json" }; if(AUTH.token) h.Authorization = "Bearer " + AUTH.token; return h; }
-function setAuth(token, profile){ AUTH = { token, profile: profile || null }; save("amura-auth", AUTH); }
+function setAuth(token, profile){
+  const changed = token !== AUTH.token;
+  AUTH = { token, profile: profile || null }; save("amura-auth", AUTH);
+  if(changed && !DEMO) refreshLive();       // вошёл / вышел — цены меняются (розница ↔ опт)
+}
 async function api(path, opts = {}){
   if(DEMO) return demoApi(path, opts);
   const r = await fetch(CONFIG.apiUrl + path, { ...opts, headers: authHeaders() });

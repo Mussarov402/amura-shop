@@ -28,7 +28,7 @@ jobs:
         run: |
           git config user.name "amura-bot"
           git config user.email "amura-bot@users.noreply.github.com"
-          git add catalog.json img
+          git add catalog.json prices.bin img
           git diff --cached --quiet && echo "Без изменений" && exit 0
           git commit -m "Каталог $(TZ=Asia/Almaty date '+%d.%m.%Y %H:%M')"
           git push

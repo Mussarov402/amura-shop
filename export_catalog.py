@@ -2,7 +2,8 @@
 
 Запускается в GitHub Actions репо Agents (там есть MS_TOKEN).
 Пишет в папку OUT (по умолчанию ./docs — папка сайта в этом же репо):
-  catalog.json        — товары в наличии с ценами Оптовая (1–9 шт) / От 15шт (на сайте от 10 шт) / Короб
+  catalog.json        — товары в наличии с РОЗНИЧНОЙ ценой (в поле opt; mid/box = 0) — его видят все
+  prices.bin          — оптовые цены (Оптовая / От 10шт / Короб), зашифрованы ключом из MS_TOKEN — читает только сервер
   img/<id>.webp       — миниатюры 500px (перекачиваются только если товар изменился)
   img/index.json      — кэш: id -> updated
 ИИ не используется. Токенов в выходных файлах нет.
@@ -17,6 +18,8 @@ from datetime import datetime, timedelta, timezone
 import requests
 from PIL import Image
 
+from pricebox import seal
+
 API = "https://api.moysklad.ru/api/remap/1.2"
 TOKEN = os.environ["MS_TOKEN"]
 OUT = os.environ.get("OUT", "docs")
@@ -24,6 +27,7 @@ IMG_DIR = os.path.join(OUT, "img")
 IMG_SIZE = 500
 NEW_DAYS = 21
 
+PRICE_RTL = "Розничная цена"
 PRICE_OPT = "Оптовая цена"
 PRICE_MID = ("От 10шт", "От 15шт")   # тип цены переименован в МойСклад; на сайте действует от 10 шт
 PRICE_BOX = "Короб"
@@ -122,7 +126,7 @@ def main():
     cmap = countries()
     now = datetime.now(timezone(timedelta(hours=5)))
     new_since = (now - timedelta(days=NEW_DAYS)).strftime("%Y-%m-%d")
-    items, downloaded, no_opt = [], 0, 0
+    items, downloaded, no_opt, wholesale = [], 0, 0, {}
 
     for it in rows:
         if it.get("code") in SKIP_CODES:
@@ -131,10 +135,14 @@ def main():
         opt = price(it, PRICE_OPT)
         if qty <= 0:
             continue
-        if opt <= 0:
+        rtl = price(it, PRICE_RTL)
+        if opt <= 0 and rtl <= 0:
             no_opt += 1
             continue
         mid, box, bq = price(it, PRICE_MID), price(it, PRICE_BOX), box_qty(it)
+        if opt > 0:
+            wholesale[it["id"]] = [opt, mid if 0 < mid < opt else 0, box if (0 < box < opt and bq) else 0,
+                                   bq if (0 < box < opt) else 0]
         pid, upd = it["id"], it.get("updated", "")
 
         img = None
@@ -163,10 +171,10 @@ def main():
             "country": country_of(it, cmap),
             "barcode": barcode_of(it),
             "qty": qty,
-            "opt": opt,
-            "mid": mid if 0 < mid < opt else 0,
-            "box": box if (0 < box < opt and bq) else 0,
-            "boxQty": bq if (0 < box < opt) else 0,
+            "opt": rtl,          # публично — только розница; опт в prices.bin
+            "mid": 0,
+            "box": 0,
+            "boxQty": bq,
             "img": img,
             "updated": upd[:10],
             "isNew": upd[:10] >= new_since,
@@ -186,8 +194,9 @@ def main():
     json.dump(catalog, open(os.path.join(OUT, "catalog.json"), "w", encoding="utf-8"),
               ensure_ascii=False, separators=(",", ":"))
     json.dump(img_index, open(idx_path, "w", encoding="utf-8"))
-    print(f"товаров: {len(items)}, новых фото: {downloaded}, без оптовой цены пропущено: {no_opt}, "
-          f"с ценой короба: {sum(1 for i in items if i['box'])}")
+    open(os.path.join(OUT, "prices.bin"), "wb").write(seal(wholesale, TOKEN))
+    print(f"товаров: {len(items)}, новых фото: {downloaded}, без цен пропущено: {no_opt}, "
+          f"с оптовой ценой: {len(wholesale)}, без розничной: {sum(1 for i in items if not i['opt'])}")
 
 
 if __name__ == "__main__":
