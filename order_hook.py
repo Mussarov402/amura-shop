@@ -87,7 +87,7 @@ def sign(number):
 def ms(method, path, **kw):
     url = path if path.startswith("http") else API + path
     for attempt in range(4):
-        r = S.request(method, url, timeout=40, **kw)
+        r = S.request(method, url, timeout=kw.pop("timeout", 90), **kw)
         if r.status_code == 429 or r.status_code >= 500:
             time.sleep(1.5 * (attempt + 1))
             continue
@@ -162,24 +162,35 @@ def _barcode(row):
     return ""
 
 
-def build_live():
-    """Товары в наличии прямо из МойСклад (2 запроса на ~700 товаров)."""
+def _products():
+    """Карточки товаров (цены, упаковки, бренд, страна) — меняются редко, кэш 10 минут."""
     rows, offset = [], 0
     while True:
-        data = ms("GET", "/entity/assortment", params={
-            "filter": "type=product;stockMode=positiveOnly;archived=false", "limit": 500, "offset": offset})
+        data = ms("GET", "/entity/product", params={"filter": "archived=false", "limit": 1000, "offset": offset}, timeout=150)
         rows += data.get("rows", [])
-        offset += 500
+        offset += 1000
         if offset >= data["meta"]["size"]:
-            break
+            return rows
+
+
+def _stock():
+    """Доступный остаток (остаток − резерв) по всем товарам — лёгкий быстрый отчёт МойСклад."""
+    data = ms("GET", "/report/stock/all/current", params={"stockType": "freeStock"}, timeout=60)
+    rows = data if isinstance(data, list) else data.get("rows", [])
+    return {r["assortmentId"]: r.get("freeStock", r.get("stock", 0)) for r in rows}
+
+
+def build_live(products):
+    stock = _stock()
     imgs = cached("imgidx", 1800, _img_index)
     new_since = (datetime.now(ALMATY) - timedelta(days=21)).strftime("%Y-%m-%d")
     items, descs = [], {}
-    for r in rows:
+    for r in products:
         if r.get("code") == LOADER_CODE:
             continue
-        qty = int(r.get("quantity") if r.get("quantity") is not None else r.get("stock") or 0)
+        qty = int(stock.get(r["id"], 0) or 0)
         opt = _price(r, PRICE_OPT)
+        descs[r["id"]] = (r.get("description") or "")[:4000]
         if qty <= 0 or opt <= 0:
             continue
         mid, box = _price(r, PRICE_MID), _price(r, PRICE_BOX)
@@ -193,30 +204,54 @@ def build_live():
             "img": f"img/{r['id']}.webp" if r["id"] in imgs else None,
             "updated": upd[:10], "isNew": upd[:10] >= new_since,
         })
-        descs[r["id"]] = (r.get("description") or "")[:4000]
     _cache["descs"] = (time.time(), descs)
     # описание не входит в живой каталог (он уходит клиентам каждые 3 минуты) — отдаётся по /product/<id>
     return {"updated": datetime.now(ALMATY).strftime("%d.%m.%Y %H:%M"), "items": items}
 
 
 _live_lock = threading.Lock()
+_last_hit = [0.0]
 
 
-def live(max_age=LIVE_TTL):
-    v = _cache.get("live")
-    if v and time.time() - v[0] < max_age:
-        return v[1]
-    with _live_lock:                      # один запрос в МойСклад, даже если зашло много клиентов
+def refresh(max_age):
+    """Обновляет кэш: карточки раз в 10 минут, остатки — когда данные старше max_age."""
+    with _live_lock:
         v = _cache.get("live")
         if v and time.time() - v[0] < max_age:
             return v[1]
-        data = build_live()
+        products = cached("products", 600, _products)
+        data = build_live(products)
         _cache["live"] = (time.time(), data)
         return data
 
 
+def _background():
+    """Пока сайтом пользуются, держим каталог свежим в фоне — клиенты не ждут МойСклад."""
+    while True:
+        time.sleep(20)
+        if time.time() - _last_hit[0] > 1200:
+            continue
+        try:
+            refresh(LIVE_TTL)
+        except Exception as e:
+            print("Фоновое обновление каталога:", e, flush=True)
+
+
+threading.Thread(target=_background, daemon=True).start()
+
+
+def live(max_age=LIVE_TTL):
+    _last_hit[0] = time.time()
+    v = _cache.get("live")
+    if v and time.time() - v[0] < max_age:
+        return v[1]
+    if v and max_age >= LIVE_TTL and _live_lock.locked():
+        return v[1]                       # обновление уже идёт — отдаём то, что есть
+    return refresh(max_age)
+
+
 def catalog():
-    return {i["id"]: i for i in live(max_age=60)["items"]}   # для заказа — данные не старше минуты
+    return {i["id"]: i for i in live(max_age=60)["items"]}   # для заказа — остатки не старше минуты
 
 
 @bp.route("/product/<pid>")
@@ -240,6 +275,7 @@ def catalog_route():
     try:
         data = live()
     except Exception as e:
+        print("Каталог: ошибка МойСклад:", e, flush=True)
         v = _cache.get("live")
         if not v:
             return jsonify(error=str(e)[:200]), 502
@@ -342,7 +378,14 @@ def create_order():
         return jsonify(ok=False, error="Заполните имя, контакт, город и способ отправки"), 400
 
     # Цены и остатки пересчитываются на сервере по МойСклад — цены из браузера не используются
-    cat = catalog()
+    try:
+        cat = catalog()
+    except Exception as e:
+        print("Заказ: МойСклад не ответил по остаткам:", e, flush=True)
+        v = _cache.get("live")
+        if not v:
+            return jsonify(ok=False, error="Склад сейчас не отвечает, попробуйте через минуту"), 503
+        cat = {i["id"]: i for i in v[1]["items"]}
     lines = []
     for p in (d.get("items") or [])[:200]:
         item = cat.get(str(p.get("id")))
