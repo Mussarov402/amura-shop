@@ -115,24 +115,19 @@ def ms(method, path, **kw):
     raise RuntimeError("МойСклад не отвечает")
 
 
-PAY_FIELDS = [("PAY_RECIPIENT", "Получатель"), ("PAY_PHONE", "Перевод по номеру телефона"),
-              ("PAY_CARD", "Номер карты"), ("PAY_IIN", "ИИН"), ("PAY_IBAN", "IBAN"), ("PAY_BANK", "Банк")]
+PAY_MESSAGE_DEFAULT = """💳 Реквизиты для оплаты
+
+Kaspi.kz:
+Переводом на номер:
++7 776 632 2485
+Айша М.
+
+После оплаты пришлите, пожалуйста, чек сюда"""
 
 
-def pay_text(pay, total):
-    return ("💳 Реквизиты для оплаты\n\n" + f"Сумма: {fmt(total)} ₸\n"
-            + "".join(f"{i['label']}: {i['value']}\n" for i in pay["items"])
-            + f"Назначение: {pay['purpose']}\n" + (f"\n{pay['note']}\n" if pay["note"] else "")
-            + "\nПосле оплаты пришлите, пожалуйста, чек сюда или менеджеру.")
-
-
-def pay_info(number):
-    """Реквизиты для оплаты — из переменных окружения Render (позже — из панели управления)."""
-    items = [{"label": label, "value": os.environ.get(key, "").strip()} for key, label in PAY_FIELDS]
-    items = [i for i in items if i["value"]]
-    if not items:
-        return None
-    return {"items": items, "purpose": f"Оплата заказа № {number}", "note": os.environ.get("PAY_NOTE", "").strip()}
+def pay_text():
+    """Сообщение с реквизитами — бот шлёт его клиенту сразу после накладной. Текст можно заменить переменной PAY_MESSAGE."""
+    return os.environ.get("PAY_MESSAGE", "").replace("\\n", "\n").strip() or PAY_MESSAGE_DEFAULT
 
 
 def meta(entity, eid):
@@ -788,13 +783,9 @@ def tg_webhook(secret):
     if m and hmac.compare_digest(sign(m.group(1)), m.group(2)):
         o = order_from_ms(m.group(1))
         if o:
-            pay = pay_info(o["number"])
-            tg("sendDocument", chat_id=chat,
-               caption=f"Ваш заказ AMURA № {o['number']} на {fmt(o['total'])} ₸."
-                       + ("" if pay else " Менеджер свяжется с вами для оплаты и отправки."),
+            tg("sendDocument", chat_id=chat, caption=f"Ваш заказ AMURA № {o['number']} на {fmt(o['total'])} ₸.",
                _files={"document": (f"AMURA-{o['number']}.pdf", build_pdf(o), "application/pdf")})
-            if pay:                            # реквизиты — только в мессенджер клиента, не на сайте и не в PDF
-                tg("sendMessage", chat_id=chat, text=pay_text(pay, o["total"]))
+            tg("sendMessage", chat_id=chat, text=pay_text())   # реквизиты — только в мессенджер клиента, не на сайте и не в PDF
             user = (msg.get("from") or {}).get("username", "")
             tg("sendMessage", chat_id=OWNER, text=f"Клиент @{user or chat} получил накладную по заказу № {o['number']}")
             return "", 200
