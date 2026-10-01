@@ -25,7 +25,7 @@ IMG_SIZE = 500
 NEW_DAYS = 21
 
 PRICE_OPT = "Оптовая цена"
-PRICE_MID = "От 15шт"   # на сайте действует от 10 шт
+PRICE_MID = ("От 10шт", "От 15шт")   # тип цены переименован в МойСклад; на сайте действует от 10 шт
 PRICE_BOX = "Короб"
 SKIP_CODES = {"00308"}  # «Услуга грузчика» и прочие служебные позиции
 
@@ -57,8 +57,9 @@ def fetch_assortment():
 
 
 def price(item, name):
+    names = (name,) if isinstance(name, str) else name
     for p in item.get("salePrices", []):
-        if p.get("priceType", {}).get("name") == name:
+        if p.get("priceType", {}).get("name") in names:
             return round(p.get("value", 0) / 100)
     return 0
 

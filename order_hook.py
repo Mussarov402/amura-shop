@@ -53,7 +53,7 @@ SITE_URL = os.environ.get("SITE_URL", "").rstrip("/")
 
 TIER_MID = 10                  # цена типа «От 15шт» действует от 10 шт
 LIVE_TTL = 150                 # сек: как часто сервер перечитывает МойСклад для сайта
-PRICE_OPT, PRICE_MID, PRICE_BOX = "Оптовая цена", "От 15шт", "Короб"
+PRICE_OPT, PRICE_MID, PRICE_BOX = "Оптовая цена", ("От 10шт", "От 15шт"), "Короб"
 LOADER_CODE = "00308"          # «Услуга грузчика» (товар в МойСклад)
 LOADER_PRICE = 1000
 FEE_RATE = 0.0095
@@ -134,8 +134,9 @@ def cached(key, ttl, fn):
 
 
 def _price(row, name):
+    names = (name,) if isinstance(name, str) else name
     for p in row.get("salePrices", []):
-        if p.get("priceType", {}).get("name") == name:
+        if p.get("priceType", {}).get("name") in names:
             return round(p.get("value", 0) / 100)
     return 0
 
