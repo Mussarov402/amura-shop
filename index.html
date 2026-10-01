@@ -582,6 +582,8 @@ function shipExtraHTML(f){
     return `<div class="field"><label for="fFio">ФИО получателя</label><input id="fFio" autocomplete="name" value="${esc(f.recipient||"")}"></div>
       <div class="field"><label for="fZip">Индекс</label><input id="fZip" inputmode="numeric" maxlength="6" autocomplete="postal-code" value="${esc(f.zip||"")}"></div>
       <div class="field"><label for="fAddr">Адрес</label><input id="fAddr" autocomplete="street-address" placeholder="Город, улица, дом, квартира" value="${esc(f.address||"")}"></div>`;
+  if(k === "courier")
+    return `<div class="field"><label for="fAddr">Адрес доставки по Алматы</label><input id="fAddr" autocomplete="street-address" placeholder="Улица, дом, квартира / офис" value="${esc(f.address||"")}"></div>`;
   return "";
 }
 function renderSum(){
@@ -637,6 +639,7 @@ $("#drawerBody").addEventListener("submit", async e => {
   if(!f.city) return fail("Укажите город", "#fCity");
   if(!f.ship) return fail("Выберите способ отправки");
   if(["kamaz", "rail", "avia"].includes(f.ship) && !f.logistics) return fail("Укажите, через какую логистику отправить", "#fLogi");
+  if(f.ship === "courier" && !f.address) return fail("Укажите адрес доставки", "#fAddr");
   if(f.ship === "kazpost"){
     if(!f.recipient) return fail("Укажите ФИО получателя", "#fFio");
     if(!/^\d{6}$/.test(f.zip)) return fail("Индекс — 6 цифр", "#fZip");
@@ -675,7 +678,7 @@ $("#drawerBody").addEventListener("submit", async e => {
 function normPhone(d){ if(d.length === 11 && d[0] === "8") d = "7" + d.slice(1); if(d.length === 10) d = "7" + d; return d; }
 function showDone(res, f, t){
   $("#drawerTitle").textContent = "Заказ принят";
-  const shipName = (CONFIG.shipping.find(s => s.id === f.ship)?.name || "") + (f.logistics && f.ship !== "kazpost" && f.ship !== "courier" && f.ship !== "pickup" ? " — " + f.logistics : "") + (f.ship === "kazpost" ? ` — ${f.recipient}, ${f.zip}, ${f.address}` : "");
+  const shipName = (CONFIG.shipping.find(s => s.id === f.ship)?.name || "") + (f.logistics && f.ship !== "kazpost" && f.ship !== "courier" && f.ship !== "pickup" ? " — " + f.logistics : "") + (f.ship === "kazpost" ? ` — ${f.recipient}, ${f.zip}, ${f.address}` : "") + (f.ship === "courier" ? ` — ${f.address}` : "");
   const text = `Здравствуйте! Мой заказ AMURA № ${res.number}\n${f.name}, ${f.city}, ${shipName}\n\n` +
     t.ls.map(l => `${l.it.name} — ${l.q} шт × ${fmt(l.price)} ₸`).join("\n") +
     (t.loader ? `\nУслуга грузчика — ${fmt(t.loader)} ₸` : "") + `\nКомиссия банка 0,95% — ${fmt(t.fee)} ₸\nИтого: ${fmt(res.total || t.total)} ₸`;

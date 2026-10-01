@@ -466,6 +466,10 @@ def _create_order_impl():
         return jsonify(ok=False, error="Укажите, через какую логистику отправить"), 400
     if ship == "kazpost" and not (recipient and len(zipcode) == 6 and address):
         return jsonify(ok=False, error="Для Казпочты укажите ФИО, индекс и адрес"), 400
+    if ship == "courier" and not address:
+        return jsonify(ok=False, error="Укажите адрес доставки по Алматы"), 400
+    if ship == "courier":
+        ship_name += f" — {address}"
     if need_loader:
         ship_name += f" — {logistics}"
     elif ship == "kazpost":
