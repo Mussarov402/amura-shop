@@ -542,8 +542,8 @@ def _create_order_impl():
     try:
         me = session_cid()                     # клиент вошёл в «Я» — заказ на его контрагента
         agent = me or find_or_create_agent(name, phone, telegram, city)
-        positions = [{"quantity": l["qty"], "price": l["price"] * 100, "assortment": meta("product", l["id"])}
-                     for l in lines]
+        positions = [{"quantity": l["qty"], "price": l["price"] * 100, "reserve": l["qty"],   # резерв товара под заказ
+                      "assortment": meta("product", l["id"])} for l in lines]
         if loader:
             positions.append({"quantity": 1, "price": loader * 100, "assortment": meta("product", loader_id())})
         positions.append({"quantity": 1, "price": fee * 100, "assortment": meta("service", fee_service_id())})
