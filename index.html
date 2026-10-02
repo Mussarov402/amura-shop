@@ -124,7 +124,14 @@ select{font-size:14px;background:var(--surface);border:1px solid var(--line);bor
 body{padding-bottom:calc(86px + env(safe-area-inset-bottom,0px))}
 body:not([data-view="home"]) .search, body:not([data-view="home"]) .brandsBar{display:none}
 .tabbar{position:fixed;left:0;right:0;bottom:0;z-index:30;display:grid;grid-template-columns:repeat(3,1fr);background:#173A2A;border-radius:22px 22px 0 0;padding:10px 8px calc(8px + env(safe-area-inset-bottom,0px));box-shadow:0 -6px 24px rgba(8,25,18,.22);-webkit-transform:translateZ(0);transform:translateZ(0);will-change:transform}
-@media (min-width:760px){.tabbar{left:50%;right:auto;width:520px;margin-left:-260px}}
+/* компьютер: как в маркетплейсах — «Корзина» и «Кабинет» в шапке, нижней панели нет */
+.topnav{display:none;margin-left:auto;gap:4px}
+.topnav button{border:0;background:transparent;color:#DCE7E1;display:grid;justify-items:center;gap:2px;font-weight:600;font-size:12.5px;padding:4px 12px;border-radius:10px}
+.topnav button:hover{background:#14503C;color:#fff}
+.topnav button[aria-current="page"]{color:#fff}
+.topnav svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.topnav .ic{position:relative;display:grid}
+.topnav .count{position:absolute;right:-12px;top:-6px}
 .tabbar button{border:0;background:transparent;display:grid;justify-items:center;gap:5px;color:rgba(233,241,236,.55);font-weight:700;font-size:13px;padding:4px 0}
 .tabbar button[aria-current="page"]{color:#fff}
 .tabbar svg{width:27px;height:27px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
@@ -214,6 +221,12 @@ form.co{display:grid;gap:12px;padding-top:6px}
   .sheet{grid-template-columns:1fr}
   .sheet .pic{border-radius:var(--radius-lg) var(--radius-lg) 0 0;min-height:220px}
 }
+@media (min-width:761px){
+  .tabbar{display:none}
+  .topnav{display:flex}
+  body{padding-bottom:0}
+  .toast{bottom:24px}
+}
 </style>
 </head>
 <body>
@@ -225,6 +238,10 @@ form.co{display:grid;gap:12px;padding-top:6px}
       <form class="search" id="searchForm" role="search">
         <input id="q" type="search" placeholder="Бренд, товар или артикул" aria-label="Поиск">
       </form>
+      <nav class="topnav" aria-label="Разделы">
+        <button type="button" data-view="cart"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l-1 12H6L5 8Z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/></svg><span class="count" id="cartCount2" hidden>0</span></span><span>Корзина</span></button>
+        <button type="button" data-view="me"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4.5 20.5c1.2-3.8 4.1-5.5 7.5-5.5s6.3 1.7 7.5 5.5"/></svg><span>Кабинет</span></button>
+      </nav>
     </div>
   </div>
 </header>
@@ -552,7 +569,7 @@ function totals(ship){
   const fee = Math.round((goods + loader) * CONFIG.bankFee);
   return { ls, goods, loader, fee, total: goods + loader + fee, count: ls.reduce((s,l) => s + l.q, 0) };
 }
-function renderCartCount(){ const n = Object.values(cart).reduce((s,q) => s + q, 0); const c = $("#cartCount"); c.textContent = n; c.hidden = !n; }
+function renderCartCount(){ const n = Object.values(cart).reduce((s,q) => s + q, 0); ["#cartCount", "#cartCount2"].forEach(id => { const c = $(id); c.textContent = n; c.hidden = !n; }); }
 const TIER_NAME = { opt: "поштучно", mid: `от ${CONFIG.tierMid} шт`, box: "цена короба" };
 
 function renderCart(){
@@ -736,14 +753,14 @@ let VIEW = "home";
 function go(v, keepScroll){
   VIEW = v; document.body.dataset.view = v;
   ["home", "cart", "me"].forEach(k => { $("#view" + k[0].toUpperCase() + k.slice(1)).hidden = k !== v; });
-  document.querySelectorAll(".tabbar button").forEach(b => b.dataset.view === v ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current"));
+  document.querySelectorAll(".tabbar button, .topnav button").forEach(b => b.dataset.view === v ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current"));
   closeAll();
   if(v === "cart") renderCart();
   if(v === "me") renderMe();
   try{ history.replaceState(null, "", v === "home" ? location.pathname : "#" + v); }catch{}
   if(!keepScroll) window.scrollTo({ top: 0 });
 }
-$(".tabbar").addEventListener("click", e => { const b = e.target.closest("[data-view]"); if(b) go(b.dataset.view); });
+document.querySelectorAll(".tabbar, .topnav").forEach(n => n.addEventListener("click", e => { const b = e.target.closest("[data-view]"); if(b) go(b.dataset.view); }));
 document.addEventListener("keydown", e => { if(e.key === "Escape") closeAll(); });
 
 
