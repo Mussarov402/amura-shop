@@ -140,7 +140,12 @@ Kaspi.kz:
 
 def pay_text():
     """Сообщение с реквизитами — бот шлёт его клиенту сразу после накладной. Текст можно заменить переменной PAY_MESSAGE."""
-    return os.environ.get("PAY_MESSAGE", "").replace("\\n", "\n").strip() or PAY_MESSAGE_DEFAULT
+    try:
+        import admin
+        saved = admin.pay_text_saved()       # текст из панели управления
+    except Exception:
+        saved = ""
+    return saved or os.environ.get("PAY_MESSAGE", "").replace("\\n", "\n").strip() or PAY_MESSAGE_DEFAULT
 
 
 def meta(entity, eid):
@@ -304,7 +309,15 @@ def build_live(products):
     imgs = cached("imgidx", 1800, _img_index)
     new_since = (datetime.now(ALMATY) - timedelta(days=21)).strftime("%Y-%m-%d")
     items, descs = [], {}
+    try:
+        import admin
+        hidden = admin.hidden_ids()          # товары, скрытые в панели управления
+    except Exception:
+        hidden = set()
     for r in products:
+        if r["id"] in hidden:
+            descs[r["id"]] = r.get("desc", "")
+            continue
         if r.get("_site"):                 # строка из catalog.json — цены уже готовы, обновляем только остаток
             qty = int(stock.get(r["id"], 0) or 0)
             if qty > 0:
@@ -851,6 +864,11 @@ def tg_webhook(secret):
     chat = (msg.get("chat") or {}).get("id")
     text = msg.get("text", "")
     if not chat:
+        return "", 200
+    am = re.match(r"^/start\s+adm_([A-Za-z0-9]{20,40})$", text.strip())
+    if am:
+        import admin
+        admin.handle_admin_login(am.group(1), chat)
         return "", 200
     lm = re.match(r"^/start\s+login_([A-Za-z0-9]{20,40})$", text.strip())
     if lm:
