@@ -315,9 +315,6 @@ def build_live(products):
     except Exception:
         hidden = set()
     for r in products:
-        if r["id"] in hidden:
-            descs[r["id"]] = r.get("desc", "")
-            continue
         if r.get("_site"):                 # строка из catalog.json — цены уже готовы, обновляем только остаток
             qty = int(stock.get(r["id"], 0) or 0)
             if qty > 0:
@@ -342,9 +339,11 @@ def build_live(products):
             "img": f"img/{r['id']}.webp" if r["id"] in imgs else None,
             "updated": upd[:10], "isNew": upd[:10] >= new_since,
         })
+    hid_items = [i for i in items if i["id"] in hidden]      # скрытые: клиентам не отдаются, видны только в панели
+    items = [i for i in items if i["id"] not in hidden]
     _cache["descs"] = (time.time(), descs)
     # описание не входит в живой каталог (он уходит клиентам каждые 3 минуты) — отдаётся по /product/<id>
-    return {"updated": datetime.now(ALMATY).strftime("%d.%m.%Y %H:%M"), "items": items}
+    return {"updated": datetime.now(ALMATY).strftime("%d.%m.%Y %H:%M"), "items": items, "hiddenItems": hid_items}
 
 
 _live_lock = threading.Lock()
