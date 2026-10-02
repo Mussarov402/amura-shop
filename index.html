@@ -68,15 +68,30 @@ header.top{position:sticky;top:0;z-index:20;background:#0E3B2C;color:#F2F5F3;pad
 .chip[aria-pressed="true"]{background:#fff;color:#0E3B2C;border-color:#fff}
 
 .hero{background:linear-gradient(180deg,#0E3B2C 0%,#0E3B2C 55%,var(--bg) 55%);padding:6px 0 0}
-.hero-card{background:#14503C;border-radius:var(--radius-lg);color:#fff;padding:30px 32px;display:grid;grid-template-columns:1.4fr 1fr;gap:20px;align-items:end;position:relative;overflow:hidden}
-.hero-card::after{content:"";position:absolute;right:-80px;top:-120px;width:360px;height:360px;border-radius:50%;border:1px solid rgba(205,176,126,.35);box-shadow:0 0 0 40px rgba(205,176,126,.06),0 0 0 90px rgba(205,176,126,.04);pointer-events:none}
-.hero h1{font-family:var(--display);font-weight:500;font-size:clamp(24px,4vw,40px);line-height:1.1;margin:0 0 10px;max-width:18ch}
-.hero p{margin:0;color:#C7D8D0;max-width:46ch}
+.bSlide h1{font-family:var(--display);font-weight:500;font-size:clamp(24px,4vw,40px);line-height:1.1;margin:0 0 10px;max-width:18ch;position:relative;z-index:1}
+.bSlide p{margin:0;color:rgba(255,255,255,.82);max-width:46ch;position:relative;z-index:1}
 .tiers-legend{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;position:relative;z-index:1}
 .tiers-legend span{background:rgba(255,255,255,.1);border:1px solid rgba(205,176,126,.4);border-radius:99px;padding:4px 12px;font-size:13px;font-weight:600;color:#F1E6D2}
-.hero-facts{display:flex;gap:26px;justify-content:flex-end;position:relative;z-index:1}
-.fact b{display:block;font-family:var(--display);font-weight:500;font-size:26px;color:var(--brass)}
-.fact span{font-size:13px;color:#C7D8D0}
+/* карусель баннеров (как на WB/Ozon/Kaspi): слайды из banners.json — текст на цвете или картинка */
+.banners{position:relative;border-radius:var(--radius-lg);overflow:hidden}
+.bTrack{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;scroll-behavior:smooth}
+.bTrack::-webkit-scrollbar{display:none}
+.bSlide{flex:0 0 100%;scroll-snap-align:start;position:relative;min-height:210px;color:#fff;padding:30px 32px 40px;display:flex;flex-direction:column;justify-content:center;text-decoration:none;overflow:hidden;cursor:default}
+.bSlide[data-link]{cursor:pointer}
+.bSlide::after{content:"";position:absolute;right:-80px;top:-120px;width:360px;height:360px;border-radius:50%;border:1px solid rgba(255,255,255,.18);box-shadow:0 0 0 40px rgba(255,255,255,.04),0 0 0 90px rgba(255,255,255,.03);pointer-events:none}
+.bSlide.pic{padding:0;min-height:0;aspect-ratio:4/1}
+.bSlide.pic::after{display:none}
+.bSlide.pic img{width:100%;height:100%;object-fit:cover;display:block}
+.bSlide .bBtn{align-self:flex-start;margin-top:16px;background:#fff;color:#0E3B2C;border-radius:10px;padding:9px 16px;font-weight:700;font-size:14px;position:relative;z-index:1}
+.bNav{position:absolute;top:50%;transform:translateY(-50%);z-index:2;border:0;width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.92);display:grid;place-items:center;box-shadow:0 2px 10px rgba(0,0,0,.25);opacity:0;transition:opacity .2s}
+.banners:hover .bNav{opacity:1}
+.bNav svg{width:20px;height:20px;fill:none;stroke:#0E3B2C;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.bNav.prev{left:12px}.bNav.next{right:12px}
+.bDots{position:absolute;left:0;right:0;bottom:12px;display:flex;justify-content:center;gap:6px;z-index:2}
+.bDots button{width:8px;height:8px;border-radius:99px;border:0;padding:0;background:rgba(255,255,255,.45);transition:width .2s}
+.bDots button[aria-current="true"]{width:22px;background:#fff}
+.banners.one .bNav,.banners.one .bDots{display:none}
+@media (pointer:coarse){.bNav{display:none}}
 
 .toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:24px 0 14px}
 .toolbar h2{font-family:var(--display);font-weight:500;font-size:21px;margin:0}
@@ -235,13 +250,11 @@ form.co{display:grid;gap:12px;padding-top:6px}
   .catBtn{order:3;padding:10px 12px}
   .catBtn span{display:none}
   .search{order:4;flex:1 1 0}
-  .hero-card{grid-template-columns:1fr;padding:18px 18px 16px;gap:12px}
+  .bSlide{min-height:170px;padding:18px 18px 32px}
+  .bSlide.pic{aspect-ratio:2/1}
   .hero h1{font-size:22px;margin-bottom:6px}
   .hero p{font-size:13.5px}
   .tiers-legend{margin-top:10px}
-  .hero-facts{justify-content:flex-start;gap:20px}
-  .fact b{font-size:20px;display:inline;margin-right:6px}
-  .fact span{font-size:12px}
   .grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 10px}
   .card{padding:8px}
   .price-now b{font-size:17px}
@@ -286,7 +299,7 @@ form.co{display:grid;gap:12px;padding-top:6px}
 <header class="top">
   <div class="wrap">
     <div class="bar">
-      <a class="logo" href="#" id="home">AMURA<small>корейская косметика оптом</small></a>
+      <a class="logo" href="#" id="home">AMURA</a>
       <span class="brk" aria-hidden="true"></span>
       <button type="button" class="catBtn" id="catBtn" aria-label="Каталог брендов" aria-controls="catPanel"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Каталог</span></button>
       <form class="search" id="searchForm" role="search">
@@ -308,23 +321,18 @@ form.co{display:grid;gap:12px;padding-top:6px}
 <div class="view" id="viewHome">
 <section class="hero">
   <div class="wrap">
-    <div class="hero-card">
-      <div>
-        <h1>Красота начинается с ухода</h1>
-        <p>Оригинальная корейская косметика со склада в Казахстане. Чем больше берёте — тем ниже цена.</p>
-        <div class="tiers-legend"><span>поштучно</span><span>от 10 шт</span><span>от короба</span></div>
-      </div>
-      <div class="hero-facts">
-        <div class="fact"><b id="factTotal">—</b><span>товаров в наличии</span></div>
-        <div class="fact"><b id="factBrands">—</b><span>брендов</span></div>
-      </div>
+    <div class="banners" id="banners" aria-roledescription="карусель" aria-label="Баннеры">
+      <div class="bTrack" id="bTrack"></div>
+      <button type="button" class="bNav prev" aria-label="Предыдущий баннер"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
+      <button type="button" class="bNav next" aria-label="Следующий баннер"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
+      <div class="bDots" id="bDots"></div>
     </div>
   </div>
 </section>
 
 <main class="wrap">
   <div class="toolbar">
-    <div><h2 id="title">Весь каталог</h2><div class="meta" id="meta">Загружаем каталог…</div></div>
+    <div><h2 id="title">Весь каталог</h2><div class="meta" id="meta" hidden></div></div>
     <select id="sort" aria-label="Сортировка">
       <option value="default">По бренду</option>
       <option value="new">Сначала новые</option>
@@ -451,8 +459,6 @@ function applyData(data){
   Object.keys(pick).forEach(id => { const it = byId(id); if(!it) delete pick[id]; else pick[id] = Math.min(pick[id], it.qty); });
   save("amura-cart2", cart);
   const brands = [...new Set(ALL.map(i => i.brand).filter(Boolean))].sort((a,b) => a.localeCompare(b, "ru"));
-  $("#factTotal").textContent = fmt(ALL.length);
-  $("#factBrands").textContent = brands.length;
   $("#brands").innerHTML = `<button class="chip" data-b="" aria-pressed="${!st.brand}">Все бренды</button>` + brands.map(b => `<button class="chip" data-b="${esc(b)}" aria-pressed="${st.brand === b}">${esc(b)}</button>`).join("");
   renderCartCount();
 }
@@ -523,7 +529,7 @@ function render(){
   const part = list.slice(0, st.shown);
   $("#title").textContent = st.q ? `Поиск: «${st.q}»` : (st.brand || "Весь каталог");
   const upd = $("#meta").dataset.upd;
-  $("#meta").textContent = `${fmt(list.length)} товаров` + (upd ? ` · обновлено ${upd}` : "");
+
   $("#grid").innerHTML = part.map(cardHTML).join("");
   $("#status").innerHTML = list.length ? "" : `<div class="notice"><h3>Ничего не нашлось</h3><p>Попробуйте другое название, бренд или артикул.</p></div>`;
   $("#more").hidden = list.length <= st.shown;
@@ -562,6 +568,48 @@ function onBuyChange(e){
   const it = byId(e.target.closest("[data-id]").dataset.id); if(it) setPick(it, e.target.value);
 }
 ["#grid", "#sheet"].forEach(sel => { $(sel).addEventListener("click", onBuyClick); $(sel).addEventListener("change", onBuyChange); });
+/* ===== Баннеры (banners.json) ===== */
+const BANNERS_DEFAULT = { autoplaySec: 6, slides: [{ title: "Красота начинается с ухода", text: "Оригинальная корейская косметика со склада в Казахстане. Чем больше берёте — тем ниже цена.", tags: ["поштучно", "от 10 шт", "от короба"], bg: "#14503C" }] };
+function bannerGo(link){
+  if(!link) return;
+  if(link.url){ window.open(link.url, "_blank", "noopener"); return; }
+  if(VIEW !== "home") go("home");
+  if(link.brand !== undefined){ selectBrand(link.brand); return; }
+  if(link.q !== undefined){ st.q = link.q; $("#q").value = link.q; }
+  if(link.sort){ st.sort = link.sort; $("#sort").value = link.sort; }
+  st.shown = PAGE; render(); window.scrollTo({ top: $(".toolbar").offsetTop - 120, behavior: "smooth" });
+}
+function renderBanners(cfg){
+  const slides = (cfg.slides || []).filter(b => b.img || b.title);
+  if(!slides.length) { $("#banners").hidden = true; return; }
+  const box = $("#banners"), track = $("#bTrack"), dots = $("#bDots");
+  box.hidden = false; box.classList.toggle("one", slides.length < 2);
+  track.innerHTML = slides.map((b, i) => {
+    const link = b.link ? ` data-link='${esc(JSON.stringify(b.link))}'` : "";
+    if(b.img) return `<div class="bSlide pic"${link} role="group" aria-label="${i + 1} из ${slides.length}"><img src="${esc(b.img)}" alt="${esc(b.title || "Баннер")}" loading="${i ? "lazy" : "eager"}"></div>`;
+    return `<div class="bSlide"${link} style="background:${esc(b.bg || "#14503C")}" role="group" aria-label="${i + 1} из ${slides.length}">
+      <h1>${esc(b.title)}</h1>${b.text ? `<p>${esc(b.text)}</p>` : ""}
+      ${b.tags ? `<div class="tiers-legend">${b.tags.map(t => `<span>${esc(t)}</span>`).join("")}</div>` : ""}
+      ${b.button && b.link ? `<span class="bBtn">${esc(b.button)}</span>` : ""}</div>`;
+  }).join("");
+  dots.innerHTML = slides.map((_, i) => `<button type="button" aria-label="Баннер ${i + 1}" aria-current="${!i}"></button>`).join("");
+  const idx = () => Math.round(track.scrollLeft / Math.max(1, track.clientWidth));
+  const show = i => track.scrollTo({ left: ((i + slides.length) % slides.length) * track.clientWidth });
+  track.onscroll = () => { const k = idx(); dots.querySelectorAll("button").forEach((d, j) => d.setAttribute("aria-current", j === k)); };
+  dots.onclick = e => { const d = e.target.closest("button"); if(d) show([...dots.children].indexOf(d)); };
+  box.querySelector(".prev").onclick = () => show(idx() - 1);
+  box.querySelector(".next").onclick = () => show(idx() + 1);
+  track.onclick = e => { const sl = e.target.closest("[data-link]"); if(sl) try{ bannerGo(JSON.parse(sl.dataset.link)); }catch{} };
+  clearInterval(renderBanners.t);
+  let paused = false;
+  box.onmouseenter = () => paused = true; box.onmouseleave = () => paused = false;
+  track.addEventListener("touchstart", () => { paused = true; setTimeout(() => paused = false, 8000); }, { passive: true });
+  const sec = Number(cfg.autoplaySec) || 6;
+  if(slides.length > 1) renderBanners.t = setInterval(() => { if(!paused && VIEW === "home" && document.visibilityState === "visible") show(idx() + 1); }, sec * 1000);
+}
+renderBanners(BANNERS_DEFAULT);
+getJSON("banners.json", 8000).then(renderBanners).catch(() => {});
+
 /* ряд брендов на компьютере: стрелки, колесо мыши, перетаскивание */
 (() => {
   const row = $("#brands"), prev = $(".bArrow.prev"), next = $(".bArrow.next");
