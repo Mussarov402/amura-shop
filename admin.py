@@ -152,21 +152,44 @@ def overview():
     t0 = time.time()
     ms_ok = True
     try:
-        oh.ms("GET", "/entity/organization", params={"limit": 1}, timeout=10)
+        oh.ms("GET", "/entity/organization", params={"limit": 1}, timeout=6)
     except Exception:
         ms_ok = False
     day = datetime.now(oh.ALMATY).strftime("%Y-%m-%d")
-    today = oh.ms("GET", "/entity/customerorder", params={"filter": f"moment>={day} 00:00:00", "limit": 100})["rows"]
+    today = fresh("adm_today", 60, lambda: oh.ms("GET", "/entity/customerorder", params={
+        "filter": f"moment>={day} 00:00:00", "limit": 100}, timeout=12)["rows"])
     return jsonify(ok=True, products=len(items), hidden=len(hidden_ids()), ordersToday=len(today),
                    sumToday=sum(o["sum"] for o in today) / 100, catalogUpdated=(v[1]["updated"] if v else ""),
                    siteUpdated=oh._cache.get("site_updated", ""), msOk=ms_ok, msSec=round(time.time() - t0, 1),
                    tgOk=bool(oh.BOT and oh.OWNER), sms=bool(oh.MOBIZON_KEY))
 
 
+def fresh(key, ttl, fn):
+    """Данные из МойСклад с кэшем; если МойСклад завис — отдаём прошлые данные, а не ошибку (и не шлём оповещение)."""
+    try:
+        return oh.cached(key, ttl, fn)
+    except Exception as e:
+        print("Панель:", key, e.__class__.__name__, flush=True)
+        v = oh._cache.get(key)
+        if v:
+            return v[1]
+        raise Busy()
+
+
+class Busy(Exception):
+    pass
+
+
+@bp.errorhandler(Busy)
+def busy(_):
+    return jsonify(ok=False, error="МойСклад долго отвечает — обновите через минуту"), 503
+
+
 @bp.get("/admin/api/orders")
 @guard
 def orders():
-    rows = oh.ms("GET", "/entity/customerorder", params={"order": "moment,desc", "limit": 50, "expand": "agent,state"})["rows"]
+    rows = fresh("adm_orders", 45, lambda: oh.ms("GET", "/entity/customerorder", params={
+        "order": "moment,desc", "limit": 30, "expand": "agent,state"}, timeout=12)["rows"])
     out = []
     for o in rows:
         desc = (o.get("description") or "").split("\n")
