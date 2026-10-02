@@ -16,7 +16,7 @@ import order_hook as oh
 bp = Blueprint("admin", __name__)
 HERE = os.path.dirname(os.path.abspath(__file__))
 ADMIN_HOURS = 24 * 14
-ATTR_HIDDEN, ATTR_PAY = "Сайт: скрыт", "Сайт: реквизиты"
+ATTR_HIDDEN, ATTR_PAY, ATTR_BANNERS = "Сайт: скрыт", "Сайт: реквизиты", "Сайт: баннеры"
 _logins = {}   # nonce -> {"t": время, "ok": bool}
 
 
@@ -254,3 +254,78 @@ def pay():
         return jsonify(ok=True)
     s = pay_settings()
     return jsonify(ok=True, text=s.get("text") or oh.pay_text(), at=s.get("at", ""))
+
+
+# ---------- баннеры главной ----------
+def _clean_banners(d):
+    slides = []
+    for s in (d.get("slides") or [])[:8]:
+        title = str(s.get("title", "")).strip()[:80]
+        img = str(s.get("img", "")).strip()[:300]
+        if not title and not img:
+            continue
+        bg = str(s.get("bg", ""))
+        out = {"title": title, "text": str(s.get("text", "")).strip()[:200],
+               "bg": bg if oh.re.fullmatch(r"#[0-9a-fA-F]{6}", bg) else "#14503C"}
+        if oh.re.match(r"https?://", img):
+            out["img"] = img
+        tags = [str(t).strip()[:24] for t in (s.get("tags") or []) if str(t).strip()][:4]
+        if tags:
+            out["tags"] = tags
+        link = s.get("link") or {}
+        for k in ("brand", "q", "url"):
+            if str(link.get(k, "")).strip():
+                out["link"] = {k: str(link[k]).strip()[:200]}
+        if link.get("sort") in ("new",):
+            out["link"] = {"sort": "new"}
+        if out.get("link") and str(s.get("button", "")).strip():
+            out["button"] = str(s["button"]).strip()[:30]
+        if s.get("off"):
+            out["off"] = True
+        slides.append(out)
+    return {"autoplaySec": min(max(int(d.get("autoplaySec") or 6), 3), 20), "slides": slides}
+
+
+def banners_saved():
+    org = oh.ms("GET", f"/entity/organization/{oh.organization()}")
+    for a in org.get("attributes") or []:
+        if a.get("name") == ATTR_BANNERS and a.get("value"):
+            try:
+                return json.loads(a["value"])
+            except Exception:
+                return None
+    return None
+
+
+@bp.get("/banners")
+def banners_public():
+    """Баннеры для сайта; пусто — сайт берёт запасной banners.json."""
+    try:
+        d = oh.cached("banners", 60, banners_saved)
+    except Exception:
+        d = None
+    if not d:
+        return jsonify(error="none"), 404
+    resp = jsonify(autoplaySec=d.get("autoplaySec", 6), slides=[s for s in d["slides"] if not s.get("off")])
+    resp.headers["Cache-Control"] = "public, max-age=60"
+    return oh.cors(resp)
+
+
+@bp.route("/admin/api/banners", methods=["GET", "PUT"])
+@guard
+def banners_admin():
+    if request.method == "PUT":
+        d = _clean_banners(request.get_json(silent=True) or {})
+        raw = json.dumps(d, ensure_ascii=False, separators=(",", ":"))
+        if len(raw) > 4000:
+            return jsonify(ok=False, error="Слишком много текста — сократите баннеры"), 400
+        oh.ms("PUT", f"/entity/organization/{oh.organization()}", json={"attributes": [{"meta": _attr("organization", ATTR_BANNERS, "text")["meta"], "value": raw}]})
+        oh._cache.pop("banners", None)
+        return jsonify(ok=True, **d)
+    d = banners_saved()
+    if not d:                                  # ещё не сохраняли — берём баннеры, которые сейчас на сайте
+        try:
+            d = oh.requests.get(f"{oh.SITE_URL}/banners.json", timeout=10).json()
+        except Exception:
+            d = {"autoplaySec": 6, "slides": []}
+    return jsonify(ok=True, saved=bool(banners_saved is not None and d), **_clean_banners(d))
