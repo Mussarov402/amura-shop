@@ -581,7 +581,7 @@ def cors(resp):
     if origin in allowed:
         resp.headers["Access-Control-Allow-Origin"] = origin
         resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
-        resp.headers["Access-Control-Allow-Methods"] = "POST, GET, PATCH, OPTIONS"
+        resp.headers["Access-Control-Allow-Methods"] = "POST, GET, PATCH, PUT, OPTIONS"
     return resp
 
 
@@ -921,6 +921,47 @@ def tg_attr():
 
 def set_tg_id(cid, tg_id):
     ms("PUT", f"/entity/counterparty/{cid}", json={"attributes": [{"meta": tg_attr()["meta"], "value": str(tg_id)}]})
+
+
+# ---------- избранное клиента: поле «Сайт: избранное» в карточке контрагента МойСклад ----------
+ATTR_FAV = "Сайт: избранное"
+FAV_MAX = 300
+
+
+def fav_attr():
+    def load():
+        rows = ms("GET", "/entity/counterparty/metadata/attributes").get("rows", [])
+        for r in rows:
+            if r["name"] == ATTR_FAV:
+                return r
+        return ms("POST", "/entity/counterparty/metadata/attributes", json={"name": ATTR_FAV, "type": "text", "required": False})
+    return cached("favattr", 86400, load)
+
+
+def _clean_ids(ids):
+    out = []
+    for i in ids or []:
+        i = str(i)
+        if re.fullmatch(r"[0-9a-f-]{36}", i) and i not in out:
+            out.append(i)
+    return out[:FAV_MAX]
+
+
+@bp.route("/fav", methods=["GET", "PUT", "OPTIONS"])
+def fav():
+    if request.method == "OPTIONS":
+        return "", 204
+    cid = session_cid()
+    if not cid:
+        return jsonify(ok=False, error="Войдите заново"), 401
+    meta_ = fav_attr()["meta"]
+    if request.method == "PUT":
+        ids = _clean_ids((request.get_json(silent=True) or {}).get("ids"))
+        ms("PUT", f"/entity/counterparty/{cid}", json={"attributes": [{"meta": meta_, "value": " ".join(ids)}]})
+        return jsonify(ok=True, ids=ids)
+    cp = ms("GET", f"/entity/counterparty/{cid}")
+    val = next((a.get("value") or "" for a in cp.get("attributes") or [] if a.get("name") == ATTR_FAV), "")
+    return jsonify(ok=True, ids=_clean_ids(str(val).split()))
 
 
 def norm_phone(v):

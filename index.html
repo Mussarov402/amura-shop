@@ -503,6 +503,7 @@ async function boot(){
   if(okStatic && okLive) getJSON(CONFIG.catalogUrl, 8000).then(d => { (d.items || []).forEach(i => { if(i.desc) DESC[i.id] = i.desc; }); ALL.forEach(i => { if(i.desc === undefined && i.id in DESC) i.desc = DESC[i.id]; }); cacheSave(); }).catch(() => {});
   setInterval(() => { if(document.visibilityState === "visible") refreshLive(); }, CONFIG.refreshMs);
   document.addEventListener("visibilitychange", () => { if(document.visibilityState === "visible" && Date.now() - lastLive > 60000) refreshLive(); });
+  syncFav();
   if("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
 }
 const MOBILE = matchMedia("(max-width:760px), (pointer:coarse) and (max-height:500px)");   // то же условие, что в CSS
@@ -571,6 +572,7 @@ function toggleFav(id){
   save("amura-fav", FAV); renderFavCount();
   document.querySelectorAll(`[data-id="${CSS.escape(id)}"] [data-fav], #sheet[data-id="${CSS.escape(id)}"] [data-fav]`).forEach(b => { b.setAttribute("aria-pressed", on); b.setAttribute("aria-label", on ? "Убрать из избранного" : "В избранное"); });
   toast(on ? "Добавлено в избранное" : "Убрано из избранного");
+  pushFav();
   if(VIEW === "fav" && !on) renderFav();
 }
 function renderFav(){
@@ -580,6 +582,24 @@ function renderFav(){
   $("#favGrid").innerHTML = items.map(cardHTML).join("");
 }
 renderFavCount();
+/* клиент вошёл в «Кабинет» — избранное общее на всех его устройствах (хранится на сервере) */
+let favT;
+function pushFav(){
+  if(!AUTH.token || DEMO) return;
+  clearTimeout(favT); favT = setTimeout(() => api("/fav", { method: "PUT", body: JSON.stringify({ ids: FAV }) }).catch(() => {}), 700);
+}
+async function syncFav(){
+  if(!AUTH.token || DEMO) return;
+  try{
+    const j = await api("/fav");
+    const server = j.ids || [];
+    const merged = [...FAV, ...server.filter(x => !FAV.includes(x))];
+    const changed = merged.length !== FAV.length;
+    FAV = merged; save("amura-fav", FAV); renderFavCount();
+    if(changed){ render(); if(VIEW === "fav") renderFav(); }
+    if(merged.length !== server.length || merged.some((x, i) => x !== server[i])) pushFav();
+  }catch{}
+}
 function refreshCard(id){
   const it = byId(id); if(!it) return;
   document.querySelectorAll(`[data-id="${CSS.escape(id)}"] .act`).forEach(n => { n.innerHTML = buyHTML(it); });
@@ -980,6 +1000,7 @@ function setAuth(token, profile){
   const changed = token !== AUTH.token;
   AUTH = { token, profile: profile || null }; save("amura-auth", AUTH);
   if(changed && !DEMO) refreshLive();       // вошёл / вышел — цены меняются (розница ↔ опт)
+  if(changed && token) syncFav();
 }
 async function api(path, opts = {}){
   if(DEMO) return demoApi(path, opts);
