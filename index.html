@@ -435,7 +435,7 @@ function tiersHTML(it, q){
   if(it.mid) rows.push(["mid", CONFIG.tierMid, `от ${CONFIG.tierMid} шт`, it.mid]);
   if(it.box && it.boxQty) rows.push(["box", it.boxQty, `Короб ${it.boxQty} шт`, it.box]);
   return `<div class="tiers" role="group" aria-label="Цена по количеству">${rows.map(([k, min, label, p]) =>
-    `<button type="button" data-tier="${min}" class="${t === k ? "on" : ""}" aria-pressed="${t === k}" ${min > it.qty ? `disabled title="На складе меньше ${min} шт"` : ""}><span>${label}</span><b>${fmt(p)} ₸</b></button>`).join("")}</div>`;
+    `<button type="button" data-tier="${min}" class="${t === k ? "on" : ""}" aria-pressed="${t === k}" ${min > it.qty ? `disabled title="Столько нет в наличии"` : ""}><span>${label}</span><b>${fmt(p)} ₸</b></button>`).join("")}</div>`;
 }
 function buyHTML(it){
   const q = qtyPick(it), inCart = cart[it.id];
@@ -556,7 +556,6 @@ function cardHTML(it){
     <button class="thumb" data-open aria-label="${esc(it.name)}">${it.img ? `<img src="${esc(it.img)}" alt="" loading="lazy" decoding="async" width="500" height="500">` : `<span class="ph">${esc((it.brand||it.name||"A").charAt(0))}</span>`}${it.isNew ? '<span class="tag">Новинка</span>' : ""}</button>
     <div class="brand">${esc(it.brand || "")}</div>
     <button class="name" data-open>${esc(it.name)}</button>
-    <div class="stock">В наличии ${fmt(it.qty)} шт</div>
     <div class="act">${buyHTML(it)}</div>
   </article>`;
 }
@@ -606,7 +605,7 @@ function refreshCard(id){
 }
 function setPick(it, v){
   const q = Math.max(1, Math.min(it.qty, Math.floor(Number(v) || 1)));
-  if(Number(v) > it.qty) toast(`На складе ${fmt(it.qty)} шт`);
+  if(Number(v) > it.qty) toast("Больше нет в наличии");
   pick[it.id] = q; refreshCard(it.id);
 }
 function onBuyClick(e){
@@ -749,7 +748,7 @@ $("#home").onclick = e => { e.preventDefault(); go("home"); st.q = ""; $("#q").v
 /* ===== Карточка товара ===== */
 function specsHTML(it){
   const rows = [["Бренд", it.brand], ["Страна", it.country], ["Артикул", it.code], ["Штрихкод", it.barcode],
-    ["В коробе", it.boxQty ? `${fmt(it.boxQty)} шт` : ""], ["В наличии", `${fmt(it.qty)} шт`]].filter(r => r[1]);
+    ["В коробе", it.boxQty ? `${fmt(it.boxQty)} шт` : ""]].filter(r => r[1]);
   return `<table class="specs"><tbody>${rows.map(([k, v]) => `<tr><th>${k}</th><td>${esc(v)}</td></tr>`).join("")}</tbody></table>`;
 }
 function descHTML(it){
@@ -765,7 +764,7 @@ function openProduct(it){
     <div class="info">
       <div class="brand">${esc(it.brand || "")}${it.country ? ` · ${esc(it.country)}` : ""}</div>
       <h3>${esc(it.name)}</h3>
-      <div class="stock">В наличии ${fmt(it.qty)} шт${it.boxQty ? ` · в коробе ${it.boxQty} шт` : ""}</div>
+      ${it.boxQty ? `<div class="stock">В коробе ${it.boxQty} шт</div>` : ""}
       <div class="act">${buyHTML(it)}</div>
       <h4 class="sec">Описание</h4>
       <div id="descBox">${descHTML(it)}</div>
@@ -877,7 +876,7 @@ $("#drawerBody").addEventListener("change", e => {
 $("#drawerBody").addEventListener("input", e => { if(e.target.matches("#co input:not([type=radio])")) readForm(); });
 function setCartQty(it, v){
   const q = Math.max(0, Math.min(it.qty, Math.floor(Number(v) || 0)));
-  if(Number(v) > it.qty) toast(`На складе ${fmt(it.qty)} шт`);
+  if(Number(v) > it.qty) toast("Больше нет в наличии");
   if(q === 0) delete cart[it.id]; else cart[it.id] = q;
   delete pick[it.id];
   save("amura-cart2", cart); renderCartCount(); refreshCard(it.id); readFormSafe(); renderCart();
