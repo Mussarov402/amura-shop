@@ -99,10 +99,17 @@ header.top{position:sticky;top:0;z-index:20;background:#0E3B2C;color:#F2F5F3;pad
 select{font-size:14px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
 
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:22px 16px}
-.card{display:flex;flex-direction:column;gap:6px;min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:10px}
+.card{position:relative;display:flex;flex-direction:column;gap:6px;min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:10px}
 .thumb{aspect-ratio:1/1;border-radius:10px;background:#fff;display:grid;place-items:center;overflow:hidden;cursor:pointer;padding:0;border:0;position:relative}
 .thumb img{width:100%;height:100%;object-fit:contain;padding:10px}
 .ph{font-family:var(--display);font-size:30px;color:#C9D3CE}
+/* «Избранное»: сердечко на карточке и в карточке товара */
+.fav{position:absolute;top:16px;right:16px;z-index:2;width:36px;height:36px;border-radius:50%;border:0;background:rgba(255,255,255,.92);display:grid;place-items:center;box-shadow:0 1px 6px rgba(0,0,0,.12);cursor:pointer;padding:0}
+.fav svg{width:21px;height:21px;fill:none;stroke:#5F6B66;stroke-width:1.8;stroke-linejoin:round;transition:transform .15s}
+.fav:hover svg{stroke:#D6336C}
+.fav[aria-pressed="true"] svg{fill:#E0245E;stroke:#E0245E}
+.fav:active svg{transform:scale(.85)}
+.sheet .fav{top:14px;right:auto;left:14px}
 .tag{position:absolute;left:8px;top:8px;background:var(--green);color:#fff;font-size:11px;font-weight:700;padding:3px 8px;border-radius:6px}
 .brand{font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em}
 .name{font-size:14px;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:2.7em;background:none;border:0;padding:0;text-align:left;font-weight:600}
@@ -166,7 +173,7 @@ select{font-size:14px;background:var(--surface);border:1px solid var(--line);bor
 .page-h{font-family:var(--display);font-weight:500;font-size:22px;margin:4px 0 8px}
 body{padding-bottom:calc(86px + env(safe-area-inset-bottom,0px))}
 body:not([data-view="home"]) .brandsBar{display:none}
-.tabbar{position:fixed;left:0;right:0;bottom:0;z-index:30;display:grid;grid-template-columns:repeat(3,1fr);background:#173A2A;border-radius:22px 22px 0 0;padding:10px 8px calc(8px + env(safe-area-inset-bottom,0px));box-shadow:0 -6px 24px rgba(8,25,18,.22);-webkit-transform:translateZ(0);transform:translateZ(0);will-change:transform}
+.tabbar{position:fixed;left:0;right:0;bottom:0;z-index:30;display:grid;grid-template-columns:repeat(4,1fr);background:#173A2A;border-radius:22px 22px 0 0;padding:10px 8px calc(8px + env(safe-area-inset-bottom,0px));box-shadow:0 -6px 24px rgba(8,25,18,.22);-webkit-transform:translateZ(0);transform:translateZ(0);will-change:transform}
 /* компьютер: как в маркетплейсах — «Корзина» и «Кабинет» в шапке, нижней панели нет */
 .topnav{display:none;margin-left:auto;gap:4px}
 .topnav button{border:0;background:transparent;color:#DCE7E1;display:grid;justify-items:center;gap:2px;font-weight:600;font-size:12.5px;padding:4px 12px;border-radius:10px}
@@ -225,7 +232,7 @@ form.co{display:grid;gap:12px;padding-top:6px}
 .modal{position:fixed;inset:0;z-index:42;display:none;place-items:center;padding:16px}
 .modal.open{display:grid}
 .sheet{background:var(--surface);border-radius:var(--radius-lg);max-width:880px;width:100%;max-height:calc(100% - 16px);overflow:auto;display:grid;grid-template-columns:1fr 1fr;position:relative}
-.sheet .pic{background:#fff;display:grid;place-items:center;min-height:300px;border-radius:var(--radius-lg) 0 0 var(--radius-lg)}
+.sheet .pic{position:relative;background:#fff;display:grid;place-items:center;min-height:300px;border-radius:var(--radius-lg) 0 0 var(--radius-lg)}
 .sheet .pic img{max-height:460px;object-fit:contain;padding:22px}
 .sheet .info{padding:26px;display:flex;flex-direction:column;gap:10px}
 .sheet .info h3{font-family:var(--display);font-weight:500;font-size:21px;line-height:1.25;margin:0}
@@ -306,6 +313,7 @@ form.co{display:grid;gap:12px;padding-top:6px}
         <input id="q" type="search" placeholder="Бренд, товар или артикул" aria-label="Поиск">
       </form>
       <nav class="topnav" aria-label="Разделы">
+        <button type="button" data-view="fav"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-9.2-9.4C1.6 7.6 3.9 4.5 7.2 4.5c2 0 3.4 1.1 4.8 2.8 1.4-1.7 2.8-2.8 4.8-2.8 3.3 0 5.6 3.1 4.4 6.6-1.7 4.8-9.2 9.4-9.2 9.4Z"/></svg><span class="count" id="favCount2" hidden>0</span></span><span>Избранное</span></button>
         <button type="button" data-view="cart"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l-1 12H6L5 8Z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/></svg><span class="count" id="cartCount2" hidden>0</span></span><span>Корзина</span></button>
         <button type="button" data-view="me"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4.5 20.5c1.2-3.8 4.1-5.5 7.5-5.5s6.3 1.7 7.5 5.5"/></svg><span>Кабинет</span></button>
       </nav>
@@ -350,6 +358,9 @@ form.co{display:grid;gap:12px;padding-top:6px}
   <div class="wrap narrow"><button type="button" class="back" data-home>← В каталог</button><h2 class="page-h" id="drawerTitle">Корзина</h2><div id="drawerBody"></div></div>
 </section>
 
+<section class="view page" id="viewFav" hidden>
+  <div class="wrap"><button type="button" class="back" data-home>← В каталог</button><h2 class="page-h">Избранное</h2><div id="favNote"></div><div class="grid" id="favGrid"></div></div>
+</section>
 <section class="view page" id="viewMe" hidden>
   <div class="wrap narrow"><button type="button" class="back" data-home>← В каталог</button><h2 class="page-h" id="meTitle">Мой кабинет</h2><div id="meBody"></div></div>
 </section>
@@ -357,6 +368,8 @@ form.co{display:grid;gap:12px;padding-top:6px}
 <nav class="tabbar" aria-label="Разделы">
   <button type="button" data-view="home" aria-current="page">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 10.5 12 3.5l8.5 7"/><path d="M5.5 9v11h13V9"/><path d="M10 20v-6h4v6"/></svg><span>Главная</span></button>
+  <button type="button" data-view="fav">
+    <span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-9.2-9.4C1.6 7.6 3.9 4.5 7.2 4.5c2 0 3.4 1.1 4.8 2.8 1.4-1.7 2.8-2.8 4.8-2.8 3.3 0 5.6 3.1 4.4 6.6-1.7 4.8-9.2 9.4-9.2 9.4Z"/></svg><span class="count" id="favCount" hidden>0</span></span><span>Избранное</span></button>
   <button type="button" data-view="cart">
     <span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l-1 12H6L5 8Z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/></svg><span class="count" id="cartCount" hidden>0</span></span><span>Корзина</span></button>
   <button type="button" data-view="me">
@@ -531,12 +544,14 @@ function render(){
   const upd = $("#meta").dataset.upd;
 
   $("#grid").innerHTML = part.map(cardHTML).join("");
+  if(VIEW === "fav" && !document.activeElement?.matches("#favGrid input")) renderFav();   // свежие цены и остатки и в избранном
   $("#status").innerHTML = list.length ? "" : `<div class="notice"><h3>Ничего не нашлось</h3><p>Попробуйте другое название, бренд или артикул.</p></div>`;
   $("#more").hidden = list.length <= st.shown;
 }
 function qtyPick(it){ return pick[it.id] ?? cart[it.id] ?? 1; }
 function cardHTML(it){
   return `<article class="card" data-id="${esc(it.id)}">
+    ${favBtnHTML(it.id)}
     <button class="thumb" data-open aria-label="${esc(it.name)}">${it.img ? `<img src="${esc(it.img)}" alt="" loading="lazy" decoding="async" width="500" height="500">` : `<span class="ph">${esc((it.brand||it.name||"A").charAt(0))}</span>`}${it.isNew ? '<span class="tag">Новинка</span>' : ""}</button>
     <div class="brand">${esc(it.brand || "")}</div>
     <button class="name" data-open>${esc(it.name)}</button>
@@ -544,6 +559,27 @@ function cardHTML(it){
     <div class="act">${buyHTML(it)}</div>
   </article>`;
 }
+/* ===== Избранное (хранится на устройстве) ===== */
+let FAV = load("amura-fav", []);
+const HEART = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-9.2-9.4C1.6 7.6 3.9 4.5 7.2 4.5c2 0 3.4 1.1 4.8 2.8 1.4-1.7 2.8-2.8 4.8-2.8 3.3 0 5.6 3.1 4.4 6.6-1.7 4.8-9.2 9.4-9.2 9.4Z"/></svg>';
+const isFav = id => FAV.includes(id);
+function favBtnHTML(id){ const on = isFav(id); return `<button type="button" class="fav" data-fav aria-pressed="${on}" aria-label="${on ? "Убрать из избранного" : "В избранное"}">${HEART}</button>`; }
+function renderFavCount(){ const n = FAV.length; ["#favCount", "#favCount2"].forEach(id => { const c = $(id); if(c){ c.textContent = n; c.hidden = !n; } }); }
+function toggleFav(id){
+  const on = !isFav(id);
+  FAV = on ? [id, ...FAV] : FAV.filter(x => x !== id);
+  save("amura-fav", FAV); renderFavCount();
+  document.querySelectorAll(`[data-id="${CSS.escape(id)}"] [data-fav], #sheet[data-id="${CSS.escape(id)}"] [data-fav]`).forEach(b => { b.setAttribute("aria-pressed", on); b.setAttribute("aria-label", on ? "Убрать из избранного" : "В избранное"); });
+  toast(on ? "Добавлено в избранное" : "Убрано из избранного");
+  if(VIEW === "fav" && !on) renderFav();
+}
+function renderFav(){
+  const items = FAV.map(byId).filter(Boolean), gone = FAV.length - items.length;
+  $("#favNote").innerHTML = !FAV.length ? `<div class="notice"><h3>В избранном пока пусто</h3><p>Нажмите ♡ на товаре — он появится здесь.</p></div>`
+    : gone ? `<p class="kv" style="margin:0 0 12px">${gone} ${gone === 1 ? "товар закончился" : "товара закончились"} — вернутся сюда, когда снова будут в наличии.</p>` : "";
+  $("#favGrid").innerHTML = items.map(cardHTML).join("");
+}
+renderFavCount();
 function refreshCard(id){
   const it = byId(id); if(!it) return;
   document.querySelectorAll(`[data-id="${CSS.escape(id)}"] .act`).forEach(n => { n.innerHTML = buyHTML(it); });
@@ -557,6 +593,7 @@ function onBuyClick(e){
   const box = e.target.closest("[data-id]"); if(!box) return;
   const it = byId(box.dataset.id); if(!it) return;
   const q = qtyPick(it), tier = e.target.closest("[data-tier]");
+  if(e.target.closest("[data-fav]")){ toggleFav(it.id); return; }
   if(tier){ if(!tier.disabled) setPick(it, Number(tier.dataset.tier)); }
   else if(e.target.closest("[data-inc]")) setPick(it, q + 1);
   else if(e.target.closest("[data-dec]")) setPick(it, q - 1);
@@ -567,7 +604,7 @@ function onBuyChange(e){
   if(!e.target.matches(".stepper input")) return;
   const it = byId(e.target.closest("[data-id]").dataset.id); if(it) setPick(it, e.target.value);
 }
-["#grid", "#sheet"].forEach(sel => { $(sel).addEventListener("click", onBuyClick); $(sel).addEventListener("change", onBuyChange); });
+["#grid", "#sheet", "#favGrid"].forEach(sel => { $(sel).addEventListener("click", onBuyClick); $(sel).addEventListener("change", onBuyChange); });
 /* ===== Баннеры (banners.json) ===== */
 const BANNERS_DEFAULT = { autoplaySec: 6, slides: [{ title: "Красота начинается с ухода", text: "Оригинальная корейская косметика со склада в Казахстане. Чем больше берёте — тем ниже цена.", tags: ["поштучно", "от 10 шт", "от короба"], bg: "#14503C" }] };
 function bannerGo(link){
@@ -704,7 +741,7 @@ function descHTML(it){
 function openProduct(it){
   $("#sheet").dataset.id = it.id;
   $("#sheet").innerHTML = `<button class="x" id="closeModal" aria-label="Закрыть">×</button>
-    <div class="pic">${it.imgBig || it.img ? `<img src="${esc(it.imgBig || it.img)}" alt="${esc(it.name)}">` : `<span class="ph" style="font-size:48px">${esc((it.brand||"A").charAt(0))}</span>`}</div>
+    <div class="pic">${favBtnHTML(it.id)}${it.imgBig || it.img ? `<img src="${esc(it.imgBig || it.img)}" alt="${esc(it.name)}">` : `<span class="ph" style="font-size:48px">${esc((it.brand||"A").charAt(0))}</span>`}</div>
     <div class="info">
       <div class="brand">${esc(it.brand || "")}${it.country ? ` · ${esc(it.country)}` : ""}</div>
       <h3>${esc(it.name)}</h3>
@@ -923,10 +960,11 @@ $("#scrim").onclick = closeAll;
 let VIEW = "home";
 function go(v, keepScroll){
   VIEW = v; document.body.dataset.view = v;
-  ["home", "cart", "me"].forEach(k => { $("#view" + k[0].toUpperCase() + k.slice(1)).hidden = k !== v; });
+  ["home", "fav", "cart", "me"].forEach(k => { $("#view" + k[0].toUpperCase() + k.slice(1)).hidden = k !== v; });
   document.querySelectorAll(".tabbar button, .topnav button").forEach(b => b.dataset.view === v ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current"));
   closeAll();
   if(v === "cart") renderCart();
+  if(v === "fav") renderFav();
   if(v === "me") renderMe();
   try{ history.replaceState(null, "", v === "home" ? location.pathname : "#" + v); }catch{}
   if(!keepScroll) window.scrollTo({ top: 0 });
@@ -1110,7 +1148,7 @@ const DEMO_ITEMS = [
   { id:"d6", name:"Пример: крем для век 30 мл", brand:"Пример В", code:"00006", qty:36, opt:3990 }
 ];
 document.body.dataset.view = "home";
-{ const h = location.hash.slice(1); if(h === "cart" || h === "me") go(h, true); }
+{ const h = location.hash.slice(1); if(h === "cart" || h === "me" || h === "fav") go(h, true); }
 boot();
 </script>
 </body>
