@@ -352,3 +352,125 @@ def banners_admin():
         except Exception:
             d = {"autoplaySec": 6, "slides": []}
     return jsonify(ok=True, saved=bool(banners_saved is not None and d), **_clean_banners(d))
+
+
+# ---------- инбокс и ИИ ----------
+import inbox  # noqa: E402
+
+
+@bp.get("/admin/api/inbox/status")
+@guard
+def inbox_status():
+    with inbox.db() as d:
+        return jsonify(ok=True, persistent=inbox.PG, key=bool(inbox.OPENAI_KEY), aiOn=inbox.ai_on(d), model=inbox.OPENAI_MODEL,
+                       unread=(d.run("SELECT COALESCE(SUM(unread),0) FROM conv", one=True) or [0])[0])
+
+
+@bp.get("/admin/api/inbox/convs")
+@guard
+def inbox_convs():
+    with inbox.db() as d:
+        rows = d.run("SELECT id, name, username, status, unread, last_at, last_text FROM conv ORDER BY last_at DESC LIMIT 100", many=True)
+    return jsonify(ok=True, convs=[{"id": r[0], "name": r[1], "username": r[2], "status": r[3], "unread": r[4], "at": r[5], "text": r[6]} for r in rows])
+
+
+@bp.get("/admin/api/inbox/conv/<int:cid>")
+@guard
+def inbox_conv(cid):
+    with inbox.db() as d:
+        c = d.run("SELECT id, name, username, status FROM conv WHERE id=%s", (cid,), one=True)
+        if not c:
+            return jsonify(ok=False, error="Диалог не найден"), 404
+        d.run("UPDATE conv SET unread=0 WHERE id=%s", (cid,))
+        ms_ = d.run("SELECT id, role, text, photo, at FROM msg WHERE conv_id=%s ORDER BY id DESC LIMIT 100", (cid,), many=True)[::-1]
+    return jsonify(ok=True, conv={"id": c[0], "name": c[1], "username": c[2], "status": c[3]},
+                   messages=[{"id": m[0], "role": m[1], "text": m[2], "at": m[4],
+                              "photo": (f"/admin/api/inbox/photo/{m[3]}?t={_sig('ph' + m[3])}" if m[3] else "")} for m in ms_])
+
+
+@bp.post("/admin/api/inbox/conv/<int:cid>/send")
+@guard
+def inbox_send(cid):
+    text = str((request.get_json(silent=True) or {}).get("text", "")).strip()[:3500]
+    if not text:
+        return jsonify(ok=False, error="Пустое сообщение"), 400
+    with inbox.db() as d:
+        c = d.run("SELECT chat_id FROM conv WHERE id=%s", (cid,), one=True)
+        if not c:
+            return jsonify(ok=False, error="Диалог не найден"), 404
+        oh.tg("sendMessage", chat_id=c[0], text=text)
+        inbox.save_msg(d, cid, "manager", text)
+        d.run("UPDATE conv SET status='manager' WHERE id=%s", (cid,))     # менеджер ответил — ИИ молчит
+    return jsonify(ok=True)
+
+
+@bp.post("/admin/api/inbox/conv/<int:cid>/status")
+@guard
+def inbox_set_status(cid):
+    st = (request.get_json(silent=True) or {}).get("status")
+    if st not in ("ai", "manager", "closed"):
+        return jsonify(ok=False, error="Неверный статус"), 400
+    with inbox.db() as d:
+        d.run("UPDATE conv SET status=%s WHERE id=%s", (st, cid))
+    return jsonify(ok=True)
+
+
+@bp.get("/admin/api/inbox/photo/<path:file_id>")
+def inbox_photo(file_id):
+    t = request.args.get("t", "")
+    if not oh.ORDER_SECRET or not oh.hmac.compare_digest(t, _sig("ph" + file_id)):
+        return "", 403
+    info = oh.tg("getFile", file_id=file_id)["result"]
+    r = oh.requests.get(f"https://api.telegram.org/file/bot{oh.BOT}/{info['file_path']}", timeout=30)
+    return oh.Response(r.content, mimetype="image/jpeg", headers={"Cache-Control": "private, max-age=86400"})
+
+
+@bp.route("/admin/api/ai", methods=["GET", "PUT"])
+@guard
+def ai_settings():
+    with inbox.db() as d:
+        if request.method == "PUT":
+            j = request.get_json(silent=True) or {}
+            if "enabled" in j:
+                inbox.set_setting(d, "ai_enabled", "1" if j["enabled"] else "0")
+            if "rules" in j:
+                inbox.set_setting(d, "rules", str(j["rules"]).strip()[:6000] or inbox.DEFAULT_RULES)
+            return jsonify(ok=True)
+        kb = d.run("SELECT id, title, body FROM kb ORDER BY id", many=True)
+        return jsonify(ok=True, enabled=inbox.get_setting(d, "ai_enabled", "1") == "1", key=bool(inbox.OPENAI_KEY), model=inbox.OPENAI_MODEL,
+                       persistent=inbox.PG, rules=inbox.get_setting(d, "rules", inbox.DEFAULT_RULES),
+                       kb=[{"id": r[0], "title": r[1], "body": r[2]} for r in kb])
+
+
+@bp.post("/admin/api/ai/kb")
+@guard
+def kb_save():
+    j = request.get_json(silent=True) or {}
+    title, body = str(j.get("title", "")).strip()[:120], str(j.get("body", "")).strip()[:4000]
+    if not title or not body:
+        return jsonify(ok=False, error="Заполните заголовок и текст"), 400
+    with inbox.db() as d:
+        if j.get("id"):
+            d.run("UPDATE kb SET title=%s, body=%s, at=%s WHERE id=%s", (title, body, time.time(), int(j["id"])))
+        else:
+            d.run("INSERT INTO kb (title, body, at) VALUES (%s,%s,%s)", (title, body, time.time()))
+    return jsonify(ok=True)
+
+
+@bp.delete("/admin/api/ai/kb/<int:kid>")
+@guard
+def kb_delete(kid):
+    with inbox.db() as d:
+        d.run("DELETE FROM kb WHERE id=%s", (kid,))
+    return jsonify(ok=True)
+
+
+@bp.post("/admin/api/ai/test")
+@guard
+def ai_test():
+    text = str((request.get_json(silent=True) or {}).get("text", "")).strip()[:500]
+    if not inbox.OPENAI_KEY:
+        return jsonify(ok=False, error="Ключ OPENAI_API_KEY не добавлен в Render"), 400
+    with inbox.db() as d:
+        reply, hand = inbox.ai_reply(d, [], text)
+    return jsonify(ok=True, reply=reply, handoff=hand)

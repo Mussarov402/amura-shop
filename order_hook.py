@@ -883,6 +883,14 @@ def tg_webhook(secret):
             user = (msg.get("from") or {}).get("username", "")
             tg("sendMessage", chat_id=OWNER, text=f"Клиент @{user or chat} получил накладную по заказу № {o['number']}")
             return "", 200
+    if msg.get("photo") or (text and not text.startswith("/")):       # обычное сообщение клиента — в инбокс (ИИ или менеджер)
+        try:
+            import inbox
+            photo = msg["photo"][-1]["file_id"] if msg.get("photo") else None
+            threading.Thread(target=inbox.on_client_message, args=(chat, msg.get("from") or {}, text or msg.get("caption", ""), photo), daemon=True).start()
+            return "", 200
+        except Exception as e:
+            print("Инбокс недоступен:", e, flush=True)
     tg("sendMessage", chat_id=chat, text="Здравствуйте! Это бот заказов AMURA. Оформите заказ на сайте — и накладная придёт сюда.")
     return "", 200
 
