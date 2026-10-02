@@ -27,6 +27,38 @@ def on_error(e):
     return jsonify(ok=False, error="Что-то пошло не так, попробуйте ещё раз через минуту"), 500
 
 
+def _watchdog():
+    """Самопроверка вместо Health Check в настройках Render: раз в 30 с сервер запрашивает сам себя.
+    3 неудачи подряд (всё зависло) — оповещение владельцу и выход процесса; gunicorn сразу поднимает новый."""
+    import os
+    import threading
+    import time
+    import urllib.request
+
+    port = os.environ.get("PORT")
+    if not port:
+        return
+
+    def loop():
+        time.sleep(60)
+        fails = 0
+        while True:
+            try:
+                ok = urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=20).status == 200
+            except Exception:
+                ok = False
+            fails = 0 if ok else fails + 1
+            if fails >= 3:
+                alert("watchdog", "сервер перестал отвечать — перезапускаю", every=0)
+                os._exit(1)
+            time.sleep(30)
+
+    threading.Thread(target=loop, daemon=True).start()
+
+
+_watchdog()
+
+
 if __name__ == "__main__":
     import os
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
