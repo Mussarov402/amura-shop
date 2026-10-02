@@ -30,7 +30,6 @@ import hmac
 import io
 import json
 import os
-import queue
 import re
 import threading
 import time
@@ -164,21 +163,19 @@ def tg(method, **data):
     raise RuntimeError(f"Telegram {method}: лимит сообщений")
 
 
-_notify_q = queue.Queue()
+_notify_lock = threading.Lock()
 
 
-def _notifier():
-    """Уведомления владельцу — по одному, чтобы при наплыве заказов Telegram не отбрасывал сообщения."""
-    while True:
-        fn = _notify_q.get()
-        try:
-            fn()
-        except Exception as e:
-            print("Уведомление:", e, flush=True)
-        time.sleep(0.4)
-
-
-threading.Thread(target=_notifier, daemon=True).start()
+def notify_bg(fn):
+    """Уведомление владельцу в отдельном потоке; отправка по одной, чтобы при наплыве Telegram не отбрасывал сообщения."""
+    def run():
+        with _notify_lock:
+            try:
+                fn()
+            except Exception as e:
+                print("Уведомление:", e, flush=True)
+            time.sleep(0.4)
+    threading.Thread(target=run, daemon=True).start()
 
 
 # ---------- оповещения владельцу ----------
@@ -749,11 +746,12 @@ def _create_order_impl(key):
                 tg("sendMessage", chat_id=OWNER, text=caption[:4000])
                 caption = f"Заказ № {number}, итого {fmt(total)} ₸"
             tg("sendDocument", chat_id=OWNER, caption=caption, _files={"document": (f"AMURA-{number}.pdf", pdf, "application/pdf")})
+            print(f"Заказ {number}: уведомление владельцу отправлено", flush=True)
         except Exception as e:                 # заказ уже в МойСклад — сбой Telegram не должен ломать ответ клиенту
             print("Заказ", number, "Telegram не ответил:", e, flush=True)
             alert("notify", f"заказ № {number} записан в МойСклад, но PDF в Telegram не ушёл: {str(e)[:200]}")
 
-    _notify_q.put(notify_owner)
+    notify_bg(notify_owner)
 
     return jsonify(ok=True, number=number, total=total, startToken=f"{number}_{tok}",
                    pdfUrl=f"{PUBLIC_URL}/order/{number}/pdf?t={tok}")
