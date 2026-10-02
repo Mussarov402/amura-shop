@@ -584,28 +584,42 @@ function renderBanners(cfg){
   if(!slides.length) { $("#banners").hidden = true; return; }
   const box = $("#banners"), track = $("#bTrack"), dots = $("#bDots");
   box.hidden = false; box.classList.toggle("one", slides.length < 2);
-  track.innerHTML = slides.map((b, i) => {
+  const html = slides.map((b, i) => {
     const link = b.link ? ` data-link='${esc(JSON.stringify(b.link))}'` : "";
     if(b.img) return `<div class="bSlide pic"${link} role="group" aria-label="${i + 1} из ${slides.length}"><img src="${esc(b.img)}" alt="${esc(b.title || "Баннер")}" loading="${i ? "lazy" : "eager"}"></div>`;
     return `<div class="bSlide"${link} style="background:${esc(b.bg || "#14503C")}" role="group" aria-label="${i + 1} из ${slides.length}">
       <h1>${esc(b.title)}</h1>${b.text ? `<p>${esc(b.text)}</p>` : ""}
       ${b.tags ? `<div class="tiers-legend">${b.tags.map(t => `<span>${esc(t)}</span>`).join("")}</div>` : ""}
       ${b.button && b.link ? `<span class="bBtn">${esc(b.button)}</span>` : ""}</div>`;
-  }).join("");
+  });
+  const N = slides.length, loop = N > 1;
+  // бесконечная лента: [копия последнего] 1 … N [копия первого] — после последнего едем дальше к первому, без отмотки назад
+  track.innerHTML = loop ? html[N - 1].replace('class="bSlide', 'aria-hidden="true" class="bSlide') + html.join("") + html[0].replace('class="bSlide', 'aria-hidden="true" class="bSlide') : html.join("");
   dots.innerHTML = slides.map((_, i) => `<button type="button" aria-label="Баннер ${i + 1}" aria-current="${!i}"></button>`).join("");
-  const idx = () => Math.round(track.scrollLeft / Math.max(1, track.clientWidth));
-  const show = i => track.scrollTo({ left: ((i + slides.length) % slides.length) * track.clientWidth });
-  track.onscroll = () => { const k = idx(); dots.querySelectorAll("button").forEach((d, j) => d.setAttribute("aria-current", j === k)); };
+  const W = () => Math.max(1, track.clientWidth);
+  const pos = () => Math.round(track.scrollLeft / W());                       // позиция в ленте с копиями
+  const idx = () => loop ? (pos() - 1 + N) % N : pos();                       // номер настоящего баннера
+  const jump = p => { track.style.scrollBehavior = "auto"; track.scrollLeft = p * W(); track.style.scrollBehavior = ""; };
+  const show = i => track.scrollTo({ left: (loop ? i + 1 : Math.max(0, Math.min(N - 1, i))) * W(), behavior: "smooth" });
+  const fix = () => { if(!loop) return; const p = pos(); if(p === 0) jump(N); else if(p === N + 1) jump(1); };   // с копии — незаметно на настоящий
+  let st2;
+  track.onscroll = () => {
+    const k = idx(); dots.querySelectorAll("button").forEach((d, j) => d.setAttribute("aria-current", j === k));
+    clearTimeout(st2); st2 = setTimeout(fix, 140);
+  };
+  if(loop) requestAnimationFrame(() => jump(1));
+  removeEventListener("resize", renderBanners.rz);
+  addEventListener("resize", renderBanners.rz = () => jump(loop ? idx() + 1 : idx()));
   dots.onclick = e => { const d = e.target.closest("button"); if(d) show([...dots.children].indexOf(d)); };
-  box.querySelector(".prev").onclick = () => show(idx() - 1);
-  box.querySelector(".next").onclick = () => show(idx() + 1);
+  box.querySelector(".prev").onclick = () => { fix(); show(idx() - 1); };
+  box.querySelector(".next").onclick = () => { fix(); show(idx() + 1); };
   track.onclick = e => { const sl = e.target.closest("[data-link]"); if(sl) try{ bannerGo(JSON.parse(sl.dataset.link)); }catch{} };
   clearInterval(renderBanners.t);
   let paused = false;
   box.onmouseenter = () => paused = true; box.onmouseleave = () => paused = false;
   track.addEventListener("touchstart", () => { paused = true; setTimeout(() => paused = false, 8000); }, { passive: true });
   const sec = Number(cfg.autoplaySec) || 6;
-  if(slides.length > 1) renderBanners.t = setInterval(() => { if(!paused && VIEW === "home" && document.visibilityState === "visible") show(idx() + 1); }, sec * 1000);
+  if(slides.length > 1) renderBanners.t = setInterval(() => { if(!paused && VIEW === "home" && document.visibilityState === "visible"){ fix(); show(idx() + 1); } }, sec * 1000);
 }
 renderBanners(BANNERS_DEFAULT);
 getJSON("banners.json", 8000).then(renderBanners).catch(() => {});
