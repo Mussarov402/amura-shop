@@ -207,9 +207,11 @@ def products():
             if (not brand or (i.get("brand") or "Без бренда") == brand)
             and (not q or q in (i["name"] + " " + i.get("brand", "") + " " + i.get("code", "")).lower())]
     rows.sort(key=lambda i: (i["id"] not in hidset, i["name"]))
+    size = min(max(int(request.args.get("size", 100) or 100), 10), 200)
+    start = max(int(request.args.get("offset", 0) or 0), 0)
     return jsonify(ok=True, total=len(rows), hiddenTotal=len(hid), items=[
         {"id": i["id"], "code": i.get("code", ""), "name": i["name"], "brand": i.get("brand", ""), "qty": i["qty"],
-         "rtl": i.get("rtl", 0), "opt": i.get("opt", 0), "hidden": i["id"] in hidset} for i in rows[:300]])
+         "rtl": i.get("rtl", 0), "opt": i.get("opt", 0), "hidden": i["id"] in hidset} for i in rows[start:start + size]])
 
 
 def _set_hidden(ids, val):
