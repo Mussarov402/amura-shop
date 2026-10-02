@@ -177,20 +177,48 @@ def orders():
     return jsonify(ok=True, orders=out)
 
 
+def _all_items():
+    v = oh._cache.get("live")
+    data = v[1] if v else oh.refresh(oh.LIVE_TTL)
+    return data["items"], data.get("hiddenItems", [])
+
+
+@bp.get("/admin/api/brands")
+@guard
+def brands():
+    shown, hid = _all_items()
+    b = {}
+    for i in shown + hid:
+        r = b.setdefault(i.get("brand") or "Без бренда", {"brand": i.get("brand") or "Без бренда", "total": 0, "hidden": 0})
+        r["total"] += 1
+    for i in hid:
+        b[i.get("brand") or "Без бренда"]["hidden"] += 1
+    return jsonify(ok=True, brands=sorted(b.values(), key=lambda r: r["brand"].lower()))
+
+
 @bp.get("/admin/api/products")
 @guard
 def products():
-    v = oh._cache.get("live")
-    if not v:
-        v = (0, oh.refresh(oh.LIVE_TTL))
-    hid = hidden_ids()
+    shown, hid = _all_items()
+    hidset = {i["id"] for i in hid}
     q = request.args.get("q", "").strip().lower()
-    rows = [i for i in v[1]["items"] if not q or q in (i["name"] + " " + i.get("brand", "") + " " + i.get("code", "")).lower()]
-    rows.sort(key=lambda i: (i["id"] not in hid, i["name"]))
+    brand = request.args.get("brand", "")
+    rows = [i for i in shown + hid
+            if (not brand or (i.get("brand") or "Без бренда") == brand)
+            and (not q or q in (i["name"] + " " + i.get("brand", "") + " " + i.get("code", "")).lower())]
+    rows.sort(key=lambda i: (i["id"] not in hidset, i["name"]))
     return jsonify(ok=True, total=len(rows), hiddenTotal=len(hid), items=[
         {"id": i["id"], "code": i.get("code", ""), "name": i["name"], "brand": i.get("brand", ""), "qty": i["qty"],
-         "rtl": i.get("rtl", 0), "opt": i.get("opt", 0), "mid": i.get("mid", 0), "box": i.get("box", 0),
-         "hidden": i["id"] in hid} for i in rows[:200]])
+         "rtl": i.get("rtl", 0), "opt": i.get("opt", 0), "hidden": i["id"] in hidset} for i in rows[:300]])
+
+
+def _set_hidden(ids, val):
+    meta = _attr("product", ATTR_HIDDEN, "boolean")["meta"]
+    for k in range(0, len(ids), 200):          # МойСклад обновляет пачкой одним запросом
+        oh.ms("POST", "/entity/product", json=[{"meta": oh.meta("product", i)["meta"], "attributes": [{"meta": meta, "value": val}]}
+                                                for i in ids[k:k + 200]], timeout=40)
+    oh._cache.pop("hidden", None)
+    oh._cache.pop("live", None)       # каталог пересоберётся с новой видимостью
 
 
 @bp.post("/admin/api/products/<pid>/hidden")
@@ -198,11 +226,19 @@ def products():
 def set_hidden(pid):
     if not oh.re.fullmatch(r"[0-9a-f-]{36}", pid):
         return jsonify(ok=False, error="Неверный товар"), 400
-    val = bool((request.get_json(silent=True) or {}).get("hidden"))
-    oh.ms("PUT", f"/entity/product/{pid}", json={"attributes": [{"meta": _attr("product", ATTR_HIDDEN, "boolean")["meta"], "value": val}]})
-    oh._cache.pop("hidden", None)
-    oh._cache.pop("live", None)       # каталог пересоберётся с новой видимостью
+    _set_hidden([pid], bool((request.get_json(silent=True) or {}).get("hidden")))
     return jsonify(ok=True)
+
+
+@bp.post("/admin/api/brands/hidden")
+@guard
+def set_brand_hidden():
+    d = request.get_json(silent=True) or {}
+    shown, hid = _all_items()
+    brand, val = d.get("brand", ""), bool(d.get("hidden"))
+    ids = [i["id"] for i in (shown if val else hid) if (i.get("brand") or "Без бренда") == brand]
+    _set_hidden(ids, val)
+    return jsonify(ok=True, changed=len(ids))
 
 
 @bp.route("/admin/api/pay", methods=["GET", "PUT"])
