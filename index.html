@@ -678,7 +678,7 @@ function renderBanners(cfg){
   if(slides.length > 1) renderBanners.t = setInterval(() => { if(!paused && VIEW === "home" && document.visibilityState === "visible"){ fix(); show(idx() + 1); } }, sec * 1000);
 }
 renderBanners(BANNERS_DEFAULT);
-getJSON("banners.json", 8000).then(renderBanners).catch(() => {});
+getJSON(CONFIG.apiUrl + "/banners", 8000).catch(() => getJSON("banners.json", 8000)).then(renderBanners).catch(() => {});   // из панели управления, запасной — banners.json
 
 /* ряд брендов на компьютере: стрелки, колесо мыши, перетаскивание */
 (() => {

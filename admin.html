@@ -25,7 +25,7 @@ input,textarea{font:15px inherit;font-family:inherit;padding:12px 14px;border:1p
 <div id="login" hidden><div class="logo" style="color:var(--g)">AMURA<small style="color:var(--mut)">панель управления</small></div>
 <p class="mut">Вход только для владельца: подтвердите его в Telegram.</p><button class="btn" id="go">Войти через Telegram</button><p class="mut" id="lmsg"></p></div>
 <div class="app" id="app" hidden><aside><div class="logo">AMURA<small>панель сайта</small></div>
-<button class="nav on" data-p="overview">Обзор</button><button class="nav" data-p="products">Товары на сайте</button><button class="nav" data-p="orders">Заказы</button><button class="nav" data-p="pay">Оплата и реквизиты</button>
+<button class="nav on" data-p="overview">Обзор</button><button class="nav" data-p="products">Товары на сайте</button><button class="nav" data-p="banners">Баннеры</button><button class="nav" data-p="orders">Заказы</button><button class="nav" data-p="pay">Оплата и реквизиты</button>
 <div class="soon">Сообщения · ИИ · Каналы — скоро</div>
 <div class="note">Склад и цены ведутся в МойСклад. Панель показывает, что видит сайт, и управляет настройками.<br><br><a href="#" id="out" style="color:#fff">Выйти</a></div></aside>
 <main id="main"></main></div>
@@ -74,6 +74,24 @@ async products(q="",brand="",page=0){const size=+(localStorage.getItem("amura_ps
  const bulk=async h=>{if(!confirm((h?"Скрыть":"Показать")+" все товары бренда «"+brand+"» на сайте?"))return;$("#main").innerHTML='<div class="mut">Применяю…</div>';try{await api("brands/hidden",{method:"POST",body:JSON.stringify({brand,hidden:h})})}catch(e){alert(e.message)}views.products("",brand)};
  if(cb){$("#bh").onclick=()=>bulk(true);$("#bs").onclick=()=>bulk(false)}
  document.querySelectorAll(".sw").forEach(b=>b.onclick=async()=>{const on=b.classList.contains("on");b.disabled=true;try{await api(`products/${b.dataset.id}/hidden`,{method:"POST",body:JSON.stringify({hidden:on})});b.classList.toggle("on");b.closest(".row").classList.toggle("hid",on)}catch(e){alert(e.message)}b.disabled=false})},
+async banners(){const d=await api("banners");let S=d.slides,sec=d.autoplaySec;
+ const draw=()=>{$("#main").innerHTML=head("Баннеры на главной","Карусель вверху сайта. Изменения видны на сайте в течение минуты.")+`<div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap"><button class="btn" id="add" ${S.length>=8?"disabled":""}>+ Добавить баннер</button><span class="mut">Листать каждые</span><input id="sec" type="number" min="3" max="20" value="${sec}" style="width:80px"><span class="mut">сек · до 8 баннеров</span><span style="flex:1"></span><button class="btn" id="save">Сохранить и опубликовать</button><span class="mut" id="m"></span></div>`+
+ S.map((s,i)=>`<div class="card" style="margin-bottom:14px;${s.off?"opacity:.6":""}" data-i="${i}"><div style="display:flex;gap:16px;flex-wrap:wrap"><div style="flex:1;min-width:280px;display:grid;gap:10px">
+ <input data-k="title" placeholder="Заголовок" maxlength="80" value="${esc(s.title)}"><input data-k="text" placeholder="Текст под заголовком" maxlength="200" value="${esc(s.text)}">
+ <input data-k="tags" placeholder="Метки через запятую (до 4)" value="${esc((s.tags||[]).join(", "))}">
+ <div style="display:flex;gap:10px"><select data-k="ltype" style="flex:1;padding:12px;border:1px solid #CBD4CE;border-radius:10px;background:#fff">${[["","Без ссылки"],["brand","Бренд"],["q","Поиск по слову"],["sort","Новинки"],["url","Своя ссылка"]].map(([v,t])=>`<option value="${v}" ${(s.link?Object.keys(s.link)[0]:"")===v?"selected":""}>${t}</option>`).join("")}</select><input data-k="lval" placeholder="Какой бренд / слово / адрес" value="${esc(s.link?(s.link.sort?"":Object.values(s.link)[0]):"")}" style="flex:2"></div>
+ <div style="display:flex;gap:10px;align-items:center"><input data-k="button" placeholder="Текст кнопки (если есть ссылка)" maxlength="30" value="${esc(s.button||"")}" style="flex:1"><label class="mut">Цвет <input data-k="bg" type="color" value="${esc(s.bg||"#14503C")}" style="width:56px;padding:2px;height:44px"></label></div>
+ <input data-k="img" placeholder="Картинка вместо текста: адрес https://… (необязательно)" value="${esc(s.img||"")}"></div>
+ <div style="width:260px"><div style="border-radius:12px;padding:18px;min-height:130px;color:#fff;background:${esc(s.bg||"#14503C")}"><div style="font-size:18px;font-weight:700">${esc(s.title)||"Заголовок"}</div><div style="font-size:13px;margin-top:6px;opacity:.9">${esc(s.text)}</div></div>
+ <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap"><button class="btn ghost" data-a="up">↑</button><button class="btn ghost" data-a="dn">↓</button><button class="btn ghost" data-a="off">${s.off?"Показать":"Скрыть"}</button><button class="btn ghost" data-a="del">Удалить</button></div></div></div></div>`).join("")+(S.length?"":'<div class="card mut">Баннеров нет — на сайте карусель скрыта.</div>');
+ const read=()=>{sec=+$("#sec").value||6;document.querySelectorAll("[data-i]").forEach(c=>{const s=S[+c.dataset.i],g=k=>c.querySelector(`[data-k=${k}]`).value.trim(),t=g("ltype"),v=g("lval");
+  Object.assign(s,{title:g("title"),text:g("text"),bg:g("bg"),button:g("button"),img:g("img"),tags:g("tags").split(",").map(x=>x.trim()).filter(Boolean),link:t==="sort"?{sort:"new"}:(t&&v?{[t]:v}:undefined)})})};
+ $("#add").onclick=()=>{read();S.push({title:"Новый баннер",text:"",bg:"#14503C"});draw()};
+ document.querySelectorAll("[data-a]").forEach(b=>b.onclick=()=>{read();const i=+b.closest("[data-i]").dataset.i,a=b.dataset.a;
+  if(a==="del"&&!confirm("Удалить баннер?"))return;if(a==="del")S.splice(i,1);if(a==="off")S[i].off=!S[i].off;
+  if(a==="up"&&i>0)[S[i-1],S[i]]=[S[i],S[i-1]];if(a==="dn"&&i<S.length-1)[S[i+1],S[i]]=[S[i],S[i+1]];draw()});
+ $("#save").onclick=async()=>{read();try{const r=await api("banners",{method:"PUT",body:JSON.stringify({autoplaySec:sec,slides:S})});S=r.slides;sec=r.autoplaySec;draw();$("#m").textContent="Сохранено ✅"}catch(e){$("#m").textContent=e.message}}};
+ draw()},
 async pay(){const p=await api("pay");$("#main").innerHTML=head("Оплата и реквизиты","Это сообщение бот отправляет клиенту сразу после накладной")+`<div class="card" style="max-width:640px"><textarea id="t">${esc(p.text)}</textarea><div style="display:flex;gap:10px;align-items:center;margin-top:14px"><button class="btn" id="s">Сохранить и опубликовать</button><span class="mut" id="m">${p.at?"Изменено "+esc(p.at):""}</span></div></div>`;
  $("#s").onclick=async()=>{try{await api("pay",{method:"PUT",body:JSON.stringify({text:$("#t").value})});$("#m").textContent="Сохранено ✅"}catch(e){$("#m").textContent=e.message}}}};
 boot();
