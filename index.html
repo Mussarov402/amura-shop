@@ -53,6 +53,17 @@ header.top{position:sticky;top:0;z-index:20;background:#0E3B2C;color:#F2F5F3;pad
 .brandsBar{background:#0E3B2C}
 .brands{display:flex;gap:6px;overflow-x:auto;padding:0 0 12px;scrollbar-width:none}
 .brands::-webkit-scrollbar{display:none}
+/* как на WB: стрелки по краям, затухание у края, колесо и перетаскивание мышью (только компьютер) */
+.brandsRow{position:relative}
+.bArrow{position:absolute;top:0;bottom:12px;z-index:2;width:56px;border:0;display:flex;align-items:center;padding:0;color:#fff;cursor:pointer}
+.bArrow svg{width:34px;height:34px;padding:7px;border-radius:50%;background:#fff;fill:none;stroke:#0E3B2C;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;box-shadow:0 2px 10px rgba(0,0,0,.25)}
+.bArrow:hover svg{background:#E4EFE9}
+.bArrow.prev{left:-4px;justify-content:flex-start;background:linear-gradient(90deg,#0E3B2C 55%,rgba(14,59,44,0))}
+.bArrow.next{right:-4px;justify-content:flex-end;background:linear-gradient(270deg,#0E3B2C 55%,rgba(14,59,44,0))}
+.bArrow[hidden]{display:none}
+.brands.drag{cursor:grabbing;user-select:none}
+.brands.drag .chip{pointer-events:none}
+@media (pointer:coarse){.bArrow{display:none !important}}
 .chip{flex:none;border:1px solid #2E6A54;background:transparent;color:#DCE7E1;border-radius:99px;padding:6px 14px;font-size:13px;font-weight:600}
 .chip[aria-pressed="true"]{background:#fff;color:#0E3B2C;border-color:#fff}
 
@@ -265,7 +276,11 @@ form.co{display:grid;gap:12px;padding-top:6px}
     </div>
   </div>
 </header>
-<div class="brandsBar"><div class="wrap"><nav class="brands" id="brands" aria-label="Бренды"></nav></div></div>
+<div class="brandsBar"><div class="wrap"><div class="brandsRow" id="brandsRow">
+  <button type="button" class="bArrow prev" aria-label="Прокрутить бренды влево" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
+  <nav class="brands" id="brands" aria-label="Бренды"></nav>
+  <button type="button" class="bArrow next" aria-label="Прокрутить бренды вправо" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
+</div></div></div>
 
 <div class="view" id="viewHome">
 <section class="hero">
@@ -520,6 +535,34 @@ function onBuyChange(e){
   const it = byId(e.target.closest("[data-id]").dataset.id); if(it) setPick(it, e.target.value);
 }
 ["#grid", "#sheet"].forEach(sel => { $(sel).addEventListener("click", onBuyClick); $(sel).addEventListener("change", onBuyChange); });
+/* ряд брендов на компьютере: стрелки, колесо мыши, перетаскивание */
+(() => {
+  const row = $("#brands"), prev = $(".bArrow.prev"), next = $(".bArrow.next");
+  const upd = () => { const max = row.scrollWidth - row.clientWidth; prev.hidden = row.scrollLeft <= 4; next.hidden = row.scrollLeft >= max - 4; };
+  const step = () => Math.max(200, row.clientWidth * 0.7);
+  prev.onclick = () => row.scrollBy({ left: -step(), behavior: "smooth" });
+  next.onclick = () => row.scrollBy({ left: step(), behavior: "smooth" });
+  row.addEventListener("scroll", upd, { passive: true });
+  addEventListener("resize", upd);
+  new MutationObserver(upd).observe(row, { childList: true });
+  row.addEventListener("wheel", e => {                 // обычное колесо мыши крутит ряд вбок
+    if(Math.abs(e.deltaY) <= Math.abs(e.deltaX) || row.scrollWidth <= row.clientWidth) return;
+    const max = row.scrollWidth - row.clientWidth;
+    if((e.deltaY < 0 && row.scrollLeft <= 0) || (e.deltaY > 0 && row.scrollLeft >= max)) return;   // край ряда — дальше крутится страница
+    e.preventDefault(); row.scrollLeft += e.deltaY;
+  }, { passive: false });
+  let down = null, moved = false;
+  row.addEventListener("pointerdown", e => { if(e.pointerType !== "mouse" || e.button !== 0) return; down = { x: e.clientX, left: row.scrollLeft }; moved = false; });
+  addEventListener("pointermove", e => {
+    if(!down) return;
+    const dx = e.clientX - down.x;
+    if(!moved && Math.abs(dx) > 6){ moved = true; row.classList.add("drag"); }
+    if(moved) row.scrollLeft = down.left - dx;
+  });
+  addEventListener("pointerup", () => { if(!down) return; down = null; setTimeout(() => row.classList.remove("drag"), 0); });
+  row.addEventListener("click", e => { if(moved){ e.stopImmediatePropagation(); e.preventDefault(); moved = false; } }, true);   // после перетаскивания бренд не выбирается
+  upd();
+})();
 $("#brands").addEventListener("click", e => {
   const b = e.target.closest(".chip"); if(!b) return;
   st.brand = b.dataset.b; st.shown = PAGE;
