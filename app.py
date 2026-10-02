@@ -6,10 +6,12 @@ import traceback
 from flask import Flask, jsonify, request
 from werkzeug.exceptions import HTTPException
 
+from admin import bp as admin_bp
 from order_hook import alert, bp
 
 app = Flask(__name__)
 app.register_blueprint(bp)
+app.register_blueprint(admin_bp)
 
 
 @app.get("/")
