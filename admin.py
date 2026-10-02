@@ -194,7 +194,7 @@ def orders():
     for o in rows:
         desc = (o.get("description") or "").split("\n")
         out.append({"number": o["name"], "moment": o["moment"][:16], "client": o["agent"]["name"],
-                    "ship": (desc[3].replace("Отправка: ", "") if len(desc) > 3 else ""),
+                    "ship": (desc[3][len("Отправка: "):] if len(desc) > 3 and desc[3].startswith("Отправка: ") else ""),
                     "sum": o["sum"] / 100, "state": (o.get("state") or {}).get("name", "Новый"),
                     "pdf": f"{oh.PUBLIC_URL}/order/{o['name']}/pdf?t={oh.sign(o['name'])}"})
     return jsonify(ok=True, orders=out)
