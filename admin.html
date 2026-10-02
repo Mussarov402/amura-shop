@@ -3,6 +3,7 @@
 <meta name="robots" content="noindex"><title>Панель AMURA</title>
 <style>
 :root{--g:#0E3B2C;--bg:#F4F5F3;--line:#E1E6E2;--mut:#5C6B63;--ok:#0E5A3A;--okbg:#DDF1E6;--warn:#7A4B00;--warnbg:#FCEBC8;--bad:#8A1C1C;--badbg:#F9DADA}
+[hidden]{display:none!important}
 *{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#16201B;background:var(--bg)}
 .app{display:flex;min-height:100vh}aside{width:230px;flex:none;background:var(--g);color:#fff;padding:24px 16px;display:flex;flex-direction:column;gap:6px}
 .logo{font-size:22px;font-weight:700;letter-spacing:.04em;padding:0 14px 18px}.logo small{display:block;font-size:11px;font-weight:500;letter-spacing:0;color:#A9C3B7}
@@ -18,7 +19,7 @@ main{flex:1;min-width:0;padding:28px 34px}h1{margin:0;font-size:28px}.sub{color:
 input,textarea{font:15px inherit;font-family:inherit;padding:12px 14px;border:1px solid #CBD4CE;border-radius:10px;width:100%}textarea{min-height:240px;resize:vertical}
 .sw{width:44px;height:24px;border-radius:99px;background:#C9D1CC;position:relative;border:0;cursor:pointer;flex:none}.sw::after{content:"";position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#fff;transition:.15s}.sw.on{background:var(--g)}.sw.on::after{left:22px}
 .mut{color:var(--mut);font-size:13px}.num{text-align:right;width:84px;flex:none;font-size:14px}.hid{opacity:.55}
-#login{max-width:420px;margin:15vh auto;background:#fff;border:1px solid var(--line);border-radius:14px;padding:28px;text-align:center}
+#login{max-width:420px;margin:15vh auto;font-size:16px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:28px;text-align:center}
 .menu{display:none}@media(max-width:800px){.app{flex-direction:column}aside{width:auto;flex-direction:row;flex-wrap:wrap;padding:12px}.logo{padding:0 8px 0 0;width:100%}aside .soon,aside .note{display:none}main{padding:18px}.num.h{display:none}}
 </style></head><body>
 <div id="login" hidden><div class="logo" style="color:var(--g)">AMURA<small style="color:var(--mut)">панель управления</small></div>
