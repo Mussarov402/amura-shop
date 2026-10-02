@@ -127,13 +127,30 @@ select{font-size:14px;background:var(--surface);border:1px solid var(--line);bor
 .btn:disabled{opacity:.6;cursor:wait}
 .more{display:block;margin:28px auto 56px;border:1.5px solid var(--green);color:var(--green-3);background:transparent;font-weight:700;border-radius:12px;padding:12px 28px}
 
+/* кнопка «Каталог» и боковая панель брендов — как на WB */
+.catBtn{flex:none;display:flex;align-items:center;gap:8px;border:0;background:#1F5A44;color:#fff;font-weight:700;font-size:15px;padding:10px 16px;border-radius:12px}
+.catBtn:hover{background:#26694F}
+.catBtn svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round}
+.brk{display:none}
+.catPanel{position:fixed;top:0;bottom:0;left:0;z-index:50;width:min(360px,86vw);background:var(--surface);color:var(--ink);transform:translateX(-102%);visibility:hidden;transition:transform .22s ease,visibility 0s .22s;display:flex;flex-direction:column;box-shadow:6px 0 30px rgba(0,0,0,.25)}
+.catPanel.open{transform:none;visibility:visible;transition:transform .22s ease}
+.catHead{display:flex;align-items:center;justify-content:space-between;padding:calc(14px + env(safe-area-inset-top,0px)) 18px 12px;border-bottom:1px solid var(--line)}
+.catHead b{font-family:var(--display);font-size:20px}
+.catHead button{border:0;background:var(--bg);width:38px;height:38px;border-radius:10px;font-size:18px;color:var(--ink)}
+.catList{overflow-y:auto;padding:8px;flex:1}
+.catList button{display:flex;justify-content:space-between;align-items:center;width:100%;border:0;background:transparent;color:var(--ink);text-align:left;padding:11px 12px;border-radius:10px;font-size:15px}
+.catList button:hover,.catList button[aria-current="true"]{background:var(--mint)}
+.catList button[aria-current="true"]{font-weight:700;color:var(--green-3)}
+.catList small{color:var(--muted);font-size:12.5px;margin-left:10px}
+.back{border:0;background:transparent;color:var(--green-3);font-weight:700;font-size:15px;padding:6px 0;margin:0 0 4px;cursor:pointer}
+.back:hover{text-decoration:underline}
 .scrim{position:fixed;inset:0;background:rgba(8,20,15,.5);z-index:40;display:none}
 .scrim.open{display:block}
 .narrow{max-width:560px}
 .page{padding-block:18px 8px}
 .page-h{font-family:var(--display);font-weight:500;font-size:22px;margin:4px 0 8px}
 body{padding-bottom:calc(86px + env(safe-area-inset-bottom,0px))}
-body:not([data-view="home"]) .search, body:not([data-view="home"]) .brandsBar{display:none}
+body:not([data-view="home"]) .brandsBar{display:none}
 .tabbar{position:fixed;left:0;right:0;bottom:0;z-index:30;display:grid;grid-template-columns:repeat(3,1fr);background:#173A2A;border-radius:22px 22px 0 0;padding:10px 8px calc(8px + env(safe-area-inset-bottom,0px));box-shadow:0 -6px 24px rgba(8,25,18,.22);-webkit-transform:translateZ(0);transform:translateZ(0);will-change:transform}
 /* компьютер: как в маркетплейсах — «Корзина» и «Кабинет» в шапке, нижней панели нет */
 .topnav{display:none;margin-left:auto;gap:4px}
@@ -213,7 +230,11 @@ form.co{display:grid;gap:12px;padding-top:6px}
      как в маркетплейсах: логотип уезжает вверх, поиск остаётся прижатым к верху */
   header.top{top:calc(6px - var(--hide, 0px))}
   .bar{flex-wrap:wrap;gap:10px}
-  .search{order:3;flex-basis:100%}
+  .logo{order:1}
+  .brk{display:block;order:2;flex-basis:100%;height:0}
+  .catBtn{order:3;padding:10px 12px}
+  .catBtn span{display:none}
+  .search{order:4;flex:1 1 0}
   .hero-card{grid-template-columns:1fr;padding:18px 18px 16px;gap:12px}
   .hero h1{font-size:22px;margin-bottom:6px}
   .hero p{font-size:13.5px}
@@ -266,6 +287,8 @@ form.co{display:grid;gap:12px;padding-top:6px}
   <div class="wrap">
     <div class="bar">
       <a class="logo" href="#" id="home">AMURA<small>корейская косметика оптом</small></a>
+      <span class="brk" aria-hidden="true"></span>
+      <button type="button" class="catBtn" id="catBtn" aria-label="Каталог брендов" aria-controls="catPanel"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Каталог</span></button>
       <form class="search" id="searchForm" role="search">
         <input id="q" type="search" placeholder="Бренд, товар или артикул" aria-label="Поиск">
       </form>
@@ -316,11 +339,11 @@ form.co{display:grid;gap:12px;padding-top:6px}
 </div>
 
 <section class="view page" id="viewCart" hidden>
-  <div class="wrap narrow"><h2 class="page-h" id="drawerTitle">Корзина</h2><div id="drawerBody"></div></div>
+  <div class="wrap narrow"><button type="button" class="back" data-home>← В каталог</button><h2 class="page-h" id="drawerTitle">Корзина</h2><div id="drawerBody"></div></div>
 </section>
 
 <section class="view page" id="viewMe" hidden>
-  <div class="wrap narrow"><h2 class="page-h" id="meTitle">Мой кабинет</h2><div id="meBody"></div></div>
+  <div class="wrap narrow"><button type="button" class="back" data-home>← В каталог</button><h2 class="page-h" id="meTitle">Мой кабинет</h2><div id="meBody"></div></div>
 </section>
 
 <nav class="tabbar" aria-label="Разделы">
@@ -333,6 +356,10 @@ form.co{display:grid;gap:12px;padding-top:6px}
 </nav>
 
 <div class="scrim" id="scrim"></div>
+<aside class="catPanel" id="catPanel" aria-label="Каталог" aria-hidden="true">
+  <div class="catHead"><b>Каталог</b><button type="button" id="catClose" aria-label="Закрыть">✕</button></div>
+  <nav class="catList" id="catList"></nav>
+</aside>
 <div class="modal" id="modal" role="dialog" aria-modal="true"><div class="sheet" id="sheet"></div></div>
 <div class="toast" id="toast" role="status"></div>
 
@@ -563,14 +590,32 @@ function onBuyChange(e){
   row.addEventListener("click", e => { if(moved){ e.stopImmediatePropagation(); e.preventDefault(); moved = false; } }, true);   // после перетаскивания бренд не выбирается
   upd();
 })();
+function selectBrand(brand){
+  if(VIEW !== "home") go("home");
+  st.brand = brand; st.shown = PAGE;
+  document.querySelectorAll("#brands .chip").forEach(c => c.setAttribute("aria-pressed", c.dataset.b === brand));
+  const chip = [...document.querySelectorAll("#brands .chip")].find(c => c.dataset.b === brand);
+  if(chip) chip.scrollIntoView({ block: "nearest", inline: "center" });
+  render(); window.scrollTo({ top: $(".toolbar").offsetTop - 120 });
+}
 $("#brands").addEventListener("click", e => {
   const b = e.target.closest(".chip"); if(!b) return;
-  st.brand = b.dataset.b; st.shown = PAGE;
-  document.querySelectorAll("#brands .chip").forEach(c => c.setAttribute("aria-pressed", c === b));
-  render(); window.scrollTo({ top: $(".toolbar").offsetTop - 120 });
+  selectBrand(b.dataset.b);
 });
-let qt; $("#q").addEventListener("input", e => { clearTimeout(qt); qt = setTimeout(() => { st.q = e.target.value.trim(); st.shown = PAGE; render(); }, 200); });
-$("#searchForm").onsubmit = e => { e.preventDefault(); st.q = $("#q").value.trim(); st.shown = PAGE; render(); $("#q").blur(); };
+/* «Каталог»: боковая панель со всеми брендами и категориями */
+function openCatalog(){
+  const counts = {}; ALL.forEach(i => { if(i.brand) counts[i.brand] = (counts[i.brand] || 0) + 1; });
+  const names = Object.keys(counts).sort((a,b) => a.localeCompare(b, "ru"));
+  $("#catList").innerHTML = `<button type="button" data-b="" aria-current="${!st.brand}">Все товары<small>${fmt(ALL.length)}</small></button>`
+    + names.map(b => `<button type="button" data-b="${esc(b)}" aria-current="${st.brand === b}">${esc(b)}<small>${fmt(counts[b])}</small></button>`).join("");
+  $("#catPanel").classList.add("open"); $("#catPanel").setAttribute("aria-hidden", "false"); $("#scrim").classList.add("open");
+}
+$("#catBtn").onclick = () => $("#catPanel").classList.contains("open") ? closeAll() : openCatalog();
+$("#catClose").onclick = closeAll;
+$("#catList").addEventListener("click", e => { const b = e.target.closest("[data-b]"); if(!b) return; closeAll(); st.q = ""; $("#q").value = ""; selectBrand(b.dataset.b); });
+document.querySelectorAll("[data-home]").forEach(b => b.onclick = () => go("home"));
+let qt; $("#q").addEventListener("input", e => { if(VIEW !== "home") return; clearTimeout(qt); qt = setTimeout(() => { st.q = e.target.value.trim(); st.shown = PAGE; render(); }, 200); });
+$("#searchForm").onsubmit = e => { e.preventDefault(); if(VIEW !== "home") go("home"); st.q = $("#q").value.trim(); st.shown = PAGE; render(); $("#q").blur(); };   // поиск из корзины/кабинета ведёт в каталог
 $("#sort").onchange = e => { st.sort = e.target.value; render(); };
 function showMore(){
   const list = filtered(); if(list.length <= st.shown) return;
@@ -811,7 +856,7 @@ function showDone(res, f, t){
 }
 
 /* ===== UI ===== */
-function closeAll(){ $("#modal").classList.remove("open"); $("#scrim").classList.remove("open"); }
+function closeAll(){ $("#modal").classList.remove("open"); $("#scrim").classList.remove("open"); $("#catPanel").classList.remove("open"); $("#catPanel").setAttribute("aria-hidden", "true"); }
 $("#scrim").onclick = closeAll;
 let VIEW = "home";
 function go(v, keepScroll){
