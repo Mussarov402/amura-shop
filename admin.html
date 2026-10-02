@@ -34,10 +34,10 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 <div id="login" hidden><div class="logo" style="color:var(--g)">AMURA<small style="color:var(--mut)">панель управления</small></div>
 <p class="mut">Вход только для владельца: подтвердите его в Telegram.</p><button class="btn" id="go">Войти через Telegram</button><p class="mut" id="lmsg"></p></div>
 <div class="app" id="app" hidden><aside><div class="logo">AMURA<small>панель сайта</small></div>
-<button class="nav on" data-p="overview">Обзор</button><button class="nav" data-p="products">Товары на сайте</button><button class="nav" data-p="orders">Заказы</button><button class="nav" data-p="inbox">Сообщения</button><button class="nav" data-p="pay">Оплата и реквизиты</button>
-<div class="soon">ИИ · Каналы — скоро</div>
+<button class="nav on" data-p="overview">Обзор</button><button class="nav" data-p="products">Товары на сайте</button><button class="nav" data-p="orders">Заказы</button><button class="nav" data-p="inbox">Сообщения</button><button class="nav" data-p="ai">ИИ-продажник</button>
+<div class="soon">Каналы — скоро</div>
 <div class="note">Склад и цены ведутся в МойСклад. Панель показывает, что видит сайт, и управляет настройками.<br><br><a href="#" id="out" style="color:#fff">Выйти</a></div></aside>
-<div class="mtop"><span>AMURA · панель</span><a href="#" id="out2">Выйти</a></div><main id="main"></main><nav class="tabbar" aria-label="Разделы"><button data-p="overview" class="on"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Обзор</button><button data-p="products"><svg viewBox="0 0 24 24"><path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>Товары</button><button data-p="orders"><svg viewBox="0 0 24 24"><path d="M6 3h12l2 4v13a1 1 0 01-1 1H5a1 1 0 01-1-1V7z"/><path d="M4 7h16M9 11a3 3 0 006 0"/></svg>Заказы</button><button data-p="inbox"><svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 01-11.6 7.1L4 20l1-4.6A8 8 0 1121 12z"/></svg>Сообщения</button><button data-p="pay"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h4"/></svg>Оплата</button></nav></div>
+<div class="mtop"><span>AMURA · панель</span><a href="#" id="out2">Выйти</a></div><main id="main"></main><nav class="tabbar" aria-label="Разделы"><button data-p="overview" class="on"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Обзор</button><button data-p="products"><svg viewBox="0 0 24 24"><path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>Товары</button><button data-p="orders"><svg viewBox="0 0 24 24"><path d="M6 3h12l2 4v13a1 1 0 01-1 1H5a1 1 0 01-1-1V7z"/><path d="M4 7h16M9 11a3 3 0 006 0"/></svg>Заказы</button><button data-p="inbox"><svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 01-11.6 7.1L4 20l1-4.6A8 8 0 1121 12z"/></svg>Сообщения</button><button data-p="ai"><svg viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="12" rx="3"/><path d="M12 7V4M9 12v1.5M15 12v1.5"/></svg>ИИ</button></nav></div>
 <script>
 const $=s=>document.querySelector(s),T="amura_admin";let tok=localStorage.getItem(T)||"";
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -53,20 +53,21 @@ $("#go").onclick=async()=>{const b=$("#go");b.disabled=true;$("#lmsg").textConte
  catch(e){$("#lmsg").textContent=e.message}b.disabled=false};
 $("#out").onclick=$("#out2").onclick=e=>{e.preventDefault();localStorage.removeItem(T);tok="";boot()};
 let cur="overview";document.querySelectorAll(".nav,.tabbar button").forEach(b=>b.onclick=()=>{document.querySelectorAll(".nav,.tabbar button").forEach(x=>x.classList.toggle("on",x.dataset.p===b.dataset.p));scrollTo(0,0);show(b.dataset.p)});
-const seg=a=>`<div class="seg"><button class="${a==="products"?"on":""}" data-go="products">Товары</button><button class="${a==="banners"?"on":""}" data-go="banners">Баннеры на главной</button></div>`;
+const SEG={products:[["products","Товары"],["banners","Баннеры на главной"]],overview:[["overview","Состояние"],["pay","Оплата и реквизиты"]]};
+const seg=a=>{const g=SEG[a==="banners"?"products":a==="pay"?"overview":a];return `<div class="seg">${g.map(([k,t])=>`<button class="${k===a?"on":""}" data-go="${k}">${t}</button>`).join("")}</div>`};
 const bindSeg=()=>document.querySelectorAll("[data-go]").forEach(b=>b.onclick=()=>show(b.dataset.go));
 const head=(t,s)=>`<h1>${t}</h1><div class="sub">${s}</div>`;
 async function show(p){cur=p;$("#main").innerHTML='<div class="mut">Загрузка…</div>';try{await views[p]()}catch(e){if(e.message!=="401")$("#main").innerHTML=`<div class="b x">${esc(e.message)}</div>`}}
 const badge=(ok,a="Работает",b="Сбой")=>`<span class="b ${ok?"ok":"x"}">${ok?a:b}</span>`;
 const views={
-async overview(){const o=await api("overview");$("#main").innerHTML=head("Обзор","Данные с живого сайта")+`
+async overview(){const o=await api("overview");$("#main").innerHTML=head("Обзор","Данные с живого сайта")+seg("overview")+`
 <div class="cards"><div class="card"><div class="l">Товаров на сайте</div><div class="v">${o.products}</div><div class="s">скрыто вручную: ${o.hidden}</div></div>
 <div class="card"><div class="l">Заказов сегодня</div><div class="v">${o.ordersToday}</div><div class="s">на ${fmt(o.sumToday)} ₸</div></div>
 <div class="card"><div class="l">Каталог обновлён</div><div class="v" style="font-size:20px">${esc(o.catalogUpdated)||"—"}</div><div class="s">выгрузка: ${esc(o.siteUpdated)||"—"}</div></div></div>
 <div class="card"><div style="font-size:17px;font-weight:700;margin-bottom:6px">Связь</div>
 <div class="row"><div class="grow"><b>МойСклад</b><div class="mut">ответ за ${o.msSec} с</div></div>${badge(o.msOk)}</div>
 <div class="row"><div class="grow"><b>Оповещения в Telegram</b></div>${badge(o.tgOk,"Настроено","Не настроено")}</div>
-<div class="row"><div class="grow"><b>Вход по SMS</b></div>${badge(o.sms,"Подключён","Не подключён")}</div></div>`},
+<div class="row"><div class="grow"><b>Вход по SMS</b></div>${badge(o.sms,"Подключён","Не подключён")}</div></div>`;bindSeg()},
 async orders(){const o=await api("orders");const st=s=>/оплач/i.test(s)&&!/ждё|не /i.test(s)?"ok":/нов|ждё/i.test(s)?"w":"n";
  $("#main").innerHTML=head("Заказы с сайта","Заказы создаются в МойСклад; последние 30")+`<div class="card">`+o.orders.map(x=>`<div class="ord"><div class="o1"><b>№${esc(x.number)}</b><span class="mut">${esc(x.moment.replace("T"," ").slice(5))}</span><span class="b ${st(x.state)}" style="margin-left:auto">${esc(x.state)}</span></div><div class="o2"><span class="cl">${esc(x.client)}</span><b>${fmt(x.sum)} ₸</b></div><div class="o3"><span class="mut">${esc(x.ship)||"&nbsp;"}</span><a href="${esc(x.pdf)}" target="_blank">PDF</a></div></div>`).join("")+`</div>`},
 async products(q="",brand="",page=0){const size=+(localStorage.getItem("amura_psize")||100);const [o,bs]=await Promise.all([api("products?q="+encodeURIComponent(q)+"&brand="+encodeURIComponent(brand)+"&size="+size+"&offset="+page*size),api("brands")]);const pages=Math.max(1,Math.ceil(o.total/size));
@@ -105,7 +106,8 @@ async banners(){const d=await api("banners");let S=d.slides,sec=d.autoplaySec;
  $("#save").onclick=async()=>{read();try{const r=await api("banners",{method:"PUT",body:JSON.stringify({autoplaySec:sec,slides:S})});S=r.slides;sec=r.autoplaySec;draw();$("#m").textContent="Сохранено ✅"}catch(e){$("#m").textContent=e.message}}};
  draw()},
 async inbox(){$("#main").innerHTML=head("Сообщения","Общий инбокс: WhatsApp, Telegram и чат сайта в одном месте")+`<div class="card" style="max-width:560px"><div style="font-size:17px;font-weight:700;margin-bottom:8px">Скоро</div><div class="mut" style="font-size:14.5px;line-height:1.5">Здесь будут диалоги с клиентами из всех каналов. Место в меню уже зарезервировано.</div></div>`},
-async pay(){const p=await api("pay");$("#main").innerHTML=head("Оплата и реквизиты","Это сообщение бот отправляет клиенту сразу после накладной")+`<div class="card" style="max-width:640px"><textarea id="t">${esc(p.text)}</textarea><div style="display:flex;gap:10px;align-items:center;margin-top:14px"><button class="btn" id="s">Сохранить и опубликовать</button><span class="mut" id="m">${p.at?"Изменено "+esc(p.at):""}</span></div></div>`;
- $("#s").onclick=async()=>{try{await api("pay",{method:"PUT",body:JSON.stringify({text:$("#t").value})});$("#m").textContent="Сохранено ✅"}catch(e){$("#m").textContent=e.message}}}};
+async ai(){$("#main").innerHTML=head("ИИ-продажник","Отвечает клиентам по базе знаний и данным МойСклад")+`<div class="card" style="max-width:560px"><div style="font-size:17px;font-weight:700;margin-bottom:8px">Скоро</div><div class="mut" style="font-size:14.5px;line-height:1.5">База знаний, правила передачи менеджеру и проверка ответов. Место в меню уже зарезервировано.</div></div>`},
+async pay(){const p=await api("pay");$("#main").innerHTML=head("Оплата и реквизиты","Это сообщение бот отправляет клиенту сразу после накладной")+seg("pay")+`<div class="card" style="max-width:640px"><textarea id="t">${esc(p.text)}</textarea><div style="display:flex;gap:10px;align-items:center;margin-top:14px"><button class="btn" id="s">Сохранить и опубликовать</button><span class="mut" id="m">${p.at?"Изменено "+esc(p.at):""}</span></div></div>`;
+ bindSeg();$("#s").onclick=async()=>{try{await api("pay",{method:"PUT",body:JSON.stringify({text:$("#t").value})});$("#m").textContent="Сохранено ✅"}catch(e){$("#m").textContent=e.message}}}};
 boot();
 </script></body></html>
