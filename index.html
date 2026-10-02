@@ -100,8 +100,8 @@ select{font-size:14px;background:var(--surface);border:1px solid var(--line);bor
 
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:22px 16px}
 .card{position:relative;display:flex;flex-direction:column;gap:6px;min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:10px}
-.thumb{aspect-ratio:1/1;border-radius:10px;background:#fff;display:grid;place-items:center;overflow:hidden;cursor:pointer;padding:0;border:0;position:relative}
-.thumb img{width:100%;height:100%;object-fit:contain;padding:10px}
+.thumb{aspect-ratio:3/4;border-radius:10px;background:#fff;display:grid;place-items:center;overflow:hidden;cursor:pointer;padding:0;border:0;position:relative}
+.thumb img{width:100%;height:100%;object-fit:contain}   /* фото товара — 3:4, как на WB (900×1200) */
 .ph{font-family:var(--display);font-size:30px;color:#C9D3CE}
 /* «Избранное»: сердечко на карточке и в карточке товара */
 .fav{position:absolute;top:16px;right:16px;z-index:2;width:36px;height:36px;border-radius:50%;border:0;background:rgba(255,255,255,.92);display:grid;place-items:center;box-shadow:0 1px 6px rgba(0,0,0,.12);cursor:pointer;padding:0}

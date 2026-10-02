@@ -24,7 +24,8 @@ API = "https://api.moysklad.ru/api/remap/1.2"
 TOKEN = os.environ["MS_TOKEN"]
 OUT = os.environ.get("OUT", "docs")
 IMG_DIR = os.path.join(OUT, "img")
-IMG_SIZE = 500
+IMG_SIZE = 800          # большая сторона миниатюры; фото в МойСклад — 3:4 (900×1200), как на WB
+IMG_VER = 2             # сменить — все миниатюры пересоберутся
 NEW_DAYS = 21
 
 PRICE_RTL = "Розничная цена"
@@ -122,6 +123,8 @@ def main():
         img_index = json.load(open(idx_path, encoding="utf-8"))
     except Exception:
         img_index = {}
+    if img_index.get("_ver") != IMG_VER:     # сменился размер миниатюр — пересобрать все
+        img_index = {"_ver": IMG_VER}
 
     rows = fetch_assortment()
     cmap = countries()
@@ -185,7 +188,7 @@ def main():
     # удалить миниатюры товаров, которых больше нет
     alive = {i["id"] for i in items}
     for pid in list(img_index):
-        if pid not in alive:
+        if pid != "_ver" and pid not in alive:
             img_index.pop(pid, None)
             try:
                 os.remove(os.path.join(IMG_DIR, f"{pid}.webp"))
