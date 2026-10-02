@@ -23,7 +23,7 @@ input,textarea{font:15px inherit;font-family:inherit;padding:12px 14px;border:1p
 #login{max-width:420px;margin:15vh auto;font-size:16px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:28px;text-align:center}
 .tabbar,.mtop{display:none}.mtop{order:-1}
 @media(max-width:800px){.app{flex-direction:column}aside{display:none}main{padding:16px 14px calc(96px + env(safe-area-inset-bottom,0px))}.num.h{display:none}
-.mtop{display:flex;justify-content:space-between;align-items:center;background:var(--g);color:#fff;padding:calc(12px + env(safe-area-inset-top,0px)) 16px 12px;font-weight:700;letter-spacing:.04em}.mtop a{color:#B7CCC2;font-size:13px;font-weight:500;letter-spacing:0}
+.mtop{position:sticky;top:0;z-index:40;display:flex;justify-content:space-between;align-items:center;background:var(--g);color:#fff;padding:calc(12px + env(safe-area-inset-top,0px)) 16px 12px;font-weight:700;letter-spacing:.04em}.mtop a{color:#B7CCC2;font-size:13px;font-weight:500;letter-spacing:0}
 .tabbar{position:fixed;left:0;right:0;bottom:0;z-index:30;display:grid;grid-template-columns:repeat(5,1fr);background:#173A2A;border-radius:22px 22px 0 0;padding:10px 4px calc(8px + env(safe-area-inset-bottom,0px));box-shadow:0 -6px 24px rgba(8,25,18,.22)}
 .tabbar button{border:0;background:transparent;display:grid;justify-items:center;gap:4px;color:rgba(233,241,236,.55);font:700 11.5px inherit;font-family:inherit;padding:4px 0;cursor:pointer}.tabbar button.on{color:#fff}
 .tabbar svg{width:25px;height:25px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}}
