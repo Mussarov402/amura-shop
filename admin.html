@@ -20,7 +20,12 @@ input,textarea{font:15px inherit;font-family:inherit;padding:12px 14px;border:1p
 .sw{width:44px;height:24px;border-radius:99px;background:#C9D1CC;position:relative;border:0;cursor:pointer;flex:none}.sw::after{content:"";position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#fff;transition:.15s}.sw.on{background:var(--g)}.sw.on::after{left:22px}
 .mut{color:var(--mut);font-size:13px}.num{text-align:right;width:84px;flex:none;font-size:14px}.hid{opacity:.55}
 #login{max-width:420px;margin:15vh auto;font-size:16px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:28px;text-align:center}
-.menu{display:none}@media(max-width:800px){.app{flex-direction:column}aside{width:auto;flex-direction:row;flex-wrap:wrap;padding:12px}.logo{padding:0 8px 0 0;width:100%}aside .soon,aside .note{display:none}main{padding:18px}.num.h{display:none}}
+.tabbar,.mtop{display:none}.mtop{order:-1}
+@media(max-width:800px){.app{flex-direction:column}aside{display:none}main{padding:16px 14px calc(96px + env(safe-area-inset-bottom,0px))}.num.h{display:none}
+.mtop{display:flex;justify-content:space-between;align-items:center;background:var(--g);color:#fff;padding:12px 16px;font-weight:700;letter-spacing:.04em}.mtop a{color:#B7CCC2;font-size:13px;font-weight:500;letter-spacing:0}
+.tabbar{position:fixed;left:0;right:0;bottom:0;z-index:30;display:grid;grid-template-columns:repeat(5,1fr);background:#173A2A;border-radius:22px 22px 0 0;padding:10px 4px calc(8px + env(safe-area-inset-bottom,0px));box-shadow:0 -6px 24px rgba(8,25,18,.22)}
+.tabbar button{border:0;background:transparent;display:grid;justify-items:center;gap:4px;color:rgba(233,241,236,.55);font:700 11.5px inherit;font-family:inherit;padding:4px 0;cursor:pointer}.tabbar button.on{color:#fff}
+.tabbar svg{width:25px;height:25px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}}
 </style></head><body>
 <div id="login" hidden><div class="logo" style="color:var(--g)">AMURA<small style="color:var(--mut)">панель управления</small></div>
 <p class="mut">Вход только для владельца: подтвердите его в Telegram.</p><button class="btn" id="go">Войти через Telegram</button><p class="mut" id="lmsg"></p></div>
@@ -28,7 +33,7 @@ input,textarea{font:15px inherit;font-family:inherit;padding:12px 14px;border:1p
 <button class="nav on" data-p="overview">Обзор</button><button class="nav" data-p="products">Товары на сайте</button><button class="nav" data-p="banners">Баннеры</button><button class="nav" data-p="orders">Заказы</button><button class="nav" data-p="pay">Оплата и реквизиты</button>
 <div class="soon">Сообщения · ИИ · Каналы — скоро</div>
 <div class="note">Склад и цены ведутся в МойСклад. Панель показывает, что видит сайт, и управляет настройками.<br><br><a href="#" id="out" style="color:#fff">Выйти</a></div></aside>
-<main id="main"></main></div>
+<div class="mtop"><span>AMURA · панель</span><a href="#" id="out2">Выйти</a></div><main id="main"></main><nav class="tabbar" aria-label="Разделы"><button data-p="overview" class="on"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Обзор</button><button data-p="products"><svg viewBox="0 0 24 24"><path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>Товары</button><button data-p="banners"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 20h8"/></svg>Баннеры</button><button data-p="orders"><svg viewBox="0 0 24 24"><path d="M6 3h12l2 4v13a1 1 0 01-1 1H5a1 1 0 01-1-1V7z"/><path d="M4 7h16M9 11a3 3 0 006 0"/></svg>Заказы</button><button data-p="pay"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h4"/></svg>Оплата</button></nav></div>
 <script>
 const $=s=>document.querySelector(s),T="amura_admin";let tok=localStorage.getItem(T)||"";
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -42,8 +47,8 @@ $("#go").onclick=async()=>{const b=$("#go");b.disabled=true;$("#lmsg").textConte
   for(let i=0;i<150;i++){await new Promise(r=>setTimeout(r,2000));const p=await fetch("/admin/api/login/poll?nonce="+r.nonce).then(r=>r.json());
    if(p.token){tok=p.token;localStorage.setItem(T,tok);return boot()}if(!p.ok)break}$("#lmsg").textContent="Время вышло, попробуйте ещё раз."}
  catch(e){$("#lmsg").textContent=e.message}b.disabled=false};
-$("#out").onclick=e=>{e.preventDefault();localStorage.removeItem(T);tok="";boot()};
-let cur="overview";document.querySelectorAll(".nav").forEach(b=>b.onclick=()=>{document.querySelectorAll(".nav").forEach(x=>x.classList.toggle("on",x===b));show(b.dataset.p)});
+$("#out").onclick=$("#out2").onclick=e=>{e.preventDefault();localStorage.removeItem(T);tok="";boot()};
+let cur="overview";document.querySelectorAll(".nav,.tabbar button").forEach(b=>b.onclick=()=>{document.querySelectorAll(".nav,.tabbar button").forEach(x=>x.classList.toggle("on",x.dataset.p===b.dataset.p));scrollTo(0,0);show(b.dataset.p)});
 const head=(t,s)=>`<h1>${t}</h1><div class="sub">${s}</div>`;
 async function show(p){cur=p;$("#main").innerHTML='<div class="mut">Загрузка…</div>';try{await views[p]()}catch(e){if(e.message!=="401")$("#main").innerHTML=`<div class="b x">${esc(e.message)}</div>`}}
 const badge=(ok,a="Работает",b="Сбой")=>`<span class="b ${ok?"ok":"x"}">${ok?a:b}</span>`;
