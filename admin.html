@@ -4,7 +4,6 @@
 <style>
 :root{--g:#0E3B2C;--bg:#F4F5F3;--line:#E1E6E2;--mut:#5C6B63;--ok:#0E5A3A;--okbg:#DDF1E6;--warn:#7A4B00;--warnbg:#FCEBC8;--bad:#8A1C1C;--badbg:#F9DADA}
 [hidden]{display:none!important}
-@media(max-width:800px){html{background:linear-gradient(#0E3B2C 50%,#F4F5F3 50%)}}
 *{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#16201B;background:var(--bg)}
 .app{display:flex;min-height:100vh}aside{width:230px;flex:none;background:var(--g);color:#fff;padding:24px 16px;display:flex;flex-direction:column;gap:6px}
 .logo{font-size:22px;font-weight:700;letter-spacing:.04em;padding:0 14px 18px}.logo small{display:block;font-size:11px;font-weight:500;letter-spacing:0;color:#A9C3B7}
@@ -28,6 +27,7 @@ input,textarea{font:15px inherit;font-family:inherit;padding:12px 14px;border:1p
 .tabbar{position:fixed;left:0;right:0;bottom:0;z-index:30;display:grid;grid-template-columns:repeat(5,1fr);background:#173A2A;border-radius:22px 22px 0 0;padding:10px 4px calc(8px + env(safe-area-inset-bottom,0px));box-shadow:0 -6px 24px rgba(8,25,18,.22)}
 .tabbar button{border:0;background:transparent;display:grid;justify-items:center;gap:4px;color:rgba(233,241,236,.55);font:700 11.5px inherit;font-family:inherit;padding:4px 0;cursor:pointer}.tabbar button.on{color:#fff}
 .tabbar svg{width:25px;height:25px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}}
+@media(max-width:800px){html,body{background:#0E3B2C}.app{background:var(--bg)}}
 </style></head><body>
 <div id="login" hidden><div class="logo" style="color:var(--g)">AMURA<small style="color:var(--mut)">панель управления</small></div>
 <p class="mut">Вход только для владельца: подтвердите его в Telegram.</p><button class="btn" id="go">Войти через Telegram</button><p class="mut" id="lmsg"></p></div>
