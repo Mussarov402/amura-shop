@@ -143,8 +143,8 @@ def connect(code, phone_id, waba_id, webhook_url, verify_token, coex=False, redi
             token = j["access_token"]
             break
         m = str((j.get("error") or {}).get("message", r.text[:200]))
-        if m not in errs:
-            errs.append(m)
+        lab = "пусто" if ru == "" else "без адреса" if ru is None else ru.replace("https://", "")[:42]
+        errs.append(f"[{lab}] {m[:110]}")
     if not token:
         hint = ""
         if any("domain" in e.lower() for e in errs):
