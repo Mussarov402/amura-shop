@@ -12,6 +12,7 @@ from datetime import datetime
 from flask import Blueprint, jsonify, request, send_from_directory
 
 import order_hook as oh
+import team
 
 bp = Blueprint("admin", __name__)
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -24,45 +25,132 @@ def _sig(body):
     return hmac.new(oh.ORDER_SECRET, b"admin." + body.encode(), hashlib.sha256).hexdigest()[:32]
 
 
-def make_admin_token():
-    body = oh._b64(json.dumps({"a": 1, "e": int(time.time()) + ADMIN_HOURS * 3600}).encode())
+def make_admin_token(role="owner", chat=None):
+    p = {"a": 1, "r": role, "e": int(time.time()) + ADMIN_HOURS * 3600}
+    if chat:
+        p["c"] = str(chat)
+    body = oh._b64(json.dumps(p).encode())
     return body + "." + _sig(body)
 
 
-def is_admin():
+def who():
+    """Кто вошёл: {"role": "owner"|"staff", "perms": [...], "name": ...} или None. Права сотрудника берутся из базы при каждом запросе —
+    отключили человека, и доступ пропал сразу."""
     h = request.headers.get("Authorization", "")
     if not h.startswith("Bearer ") or not oh.ORDER_SECRET:
-        return False
+        return None
     try:
         body, sig = h[7:].split(".")
         if not hmac.compare_digest(sig, _sig(body)):
-            return False
+            return None
         d = json.loads(oh.base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
-        return bool(d.get("a")) and d["e"] > time.time()
+        if not d.get("a") or d["e"] <= time.time():
+            return None
+        if d.get("r", "owner") == "owner":
+            return {"role": "owner", "perms": list(team.PERMS), "name": "Владелец"}
+        s = team.by_chat(d.get("c"))
+        return {"role": "staff", "perms": s["perms"], "name": s["name"]} if s else None
     except Exception:
-        return False
+        return None
+
+
+def is_admin():
+    w = who()
+    return bool(w and w["role"] == "owner")
 
 
 def guard(fn):
+    """Только владелец."""
     def w(*a, **k):
         if not is_admin():
-            return jsonify(ok=False, error="Войдите заново"), 401
+            return jsonify(ok=False, error="Войдите заново" if not who() else "Раздел только для владельца"), 401 if not who() else 403
         return fn(*a, **k)
     w.__name__ = fn.__name__
     return w
 
 
+def need(perm):
+    """Владелец или сотрудник с правом perm (inbox / orders / products)."""
+    def deco(fn):
+        def w(*a, **k):
+            me = who()
+            if not me:
+                return jsonify(ok=False, error="Войдите заново"), 401
+            if me["role"] != "owner" and perm not in me["perms"]:
+                return jsonify(ok=False, error="Нет доступа к этому разделу"), 403
+            return fn(*a, **k)
+        w.__name__ = fn.__name__
+        return w
+    return deco
+
+
 # ---------- вход ----------
 def handle_admin_login(nonce, chat):
-    """Вызывается из вебхука бота: /start adm_<код>."""
+    """Вызывается из вебхука бота: /start adm_<код>. Входит владелец или сотрудник, добавленный в «Команда»."""
     v = _logins.get(nonce)
-    if str(chat) != str(oh.OWNER):
-        oh.tg("sendMessage", chat_id=chat, text="Эта панель только для владельца.")
+    me = None if str(chat) == str(oh.OWNER) else team.by_chat(chat)
+    if str(chat) != str(oh.OWNER) and not me:
+        oh.tg("sendMessage", chat_id=chat, text="У вас нет доступа к панели. Попросите владельца добавить вас в разделе «Команда».")
     elif not v:
         oh.tg("sendMessage", chat_id=chat, text="Ссылка устарела, обновите страницу входа.")
     else:
-        v["ok"] = True
+        v.update(ok=True, role="owner" if not me else "staff", chat=str(chat))
         oh.tg("sendMessage", chat_id=chat, text="Вход в панель AMURA подтверждён ✅ Вернитесь в браузер.")
+
+
+_codes = {}     # ключ входа -> {"code", "t", "tries", "chat", "role"}
+
+
+def _find_login(username):
+    """Кому слать код: пустой username — владельцу, иначе сотруднику с таким @username (или владельцу, если это его @username)."""
+    u = (username or "").strip().lstrip("@").lower()
+    owner_u = ""
+    try:
+        owner_u = (oh.tg("getChat", chat_id=oh.OWNER)["result"].get("username") or "").lower() if oh.OWNER else ""
+    except Exception:
+        pass
+    if not u or (owner_u and u == owner_u):
+        return ("owner", str(oh.OWNER)) if oh.OWNER else (None, None)
+    for st in team.staff():
+        if st["active"] and st["username"].lower() == u:
+            return "staff", st["chat"]
+    return None, None
+
+
+@bp.post("/admin/api/login/code")
+def login_code():
+    """Шаг 1: бот присылает одноразовый код в Telegram. Ответ всегда одинаковый, чтобы нельзя было подбирать @username."""
+    if oh.too_many("admc:" + oh.client_ip(), limit=6, window=600):
+        return jsonify(ok=False, error="Слишком много попыток, подождите 10 минут"), 429
+    uname = ((request.get_json(silent=True) or {}).get("username") or "").strip().lstrip("@").lower()
+    role, chat = _find_login(uname)
+    now = time.time()
+    for k in [k for k, v in _codes.items() if now - v["t"] > 300]:
+        _codes.pop(k, None)
+    if chat and not oh.too_many("admt:" + chat, limit=3, window=600):
+        code = f"{secrets.randbelow(900000) + 100000}"
+        _codes[uname] = {"code": code, "t": now, "tries": 0, "chat": chat, "role": role}
+        try:
+            oh.tg("sendMessage", chat_id=chat, text=f"Код входа в панель AMURA: {code}\nДействует 5 минут. Никому его не сообщайте. Если это были не вы — просто проигнорируйте.")
+        except Exception as e:
+            print("Код входа не отправлен:", e, flush=True)
+    return jsonify(ok=True)
+
+
+@bp.post("/admin/api/login/verify")
+def login_verify():
+    """Шаг 2: человек вводит код со страницы бота."""
+    d = request.get_json(silent=True) or {}
+    uname = (d.get("username") or "").strip().lstrip("@").lower()
+    v = _codes.get(uname)
+    if not v or time.time() - v["t"] > 300 or v["tries"] >= 5:
+        _codes.pop(uname, None)
+        return jsonify(ok=False, error="Код не подошёл или устарел. Запросите новый."), 400
+    v["tries"] += 1
+    if not hmac.compare_digest(str(d.get("code", "")).strip(), v["code"]):
+        return jsonify(ok=False, error="Неверный код"), 400
+    _codes.pop(uname, None)
+    return jsonify(ok=True, token=make_admin_token(v["role"], v["chat"]), role=v["role"])
 
 
 @bp.post("/admin/api/login")
@@ -85,7 +173,7 @@ def login_poll():
         return jsonify(ok=False, error="Ссылка устарела"), 404
     if v["ok"]:
         _logins.pop(request.args["nonce"], None)
-        return jsonify(ok=True, token=make_admin_token())
+        return jsonify(ok=True, token=make_admin_token(v.get("role", "owner"), v.get("chat")))
     return jsonify(ok=True, token=None)
 
 
@@ -186,7 +274,7 @@ def busy(_):
 
 
 @bp.get("/admin/api/orders")
-@guard
+@need("orders")
 def orders():
     rows = fresh("adm_orders", 45, lambda: oh.ms("GET", "/entity/customerorder", params={
         "order": "moment,desc", "limit": 30, "expand": "agent,state"}, timeout=12)["rows"])
@@ -207,7 +295,7 @@ def _all_items():
 
 
 @bp.get("/admin/api/brands")
-@guard
+@need("products")
 def brands():
     shown, hid = _all_items()
     b = {}
@@ -220,7 +308,7 @@ def brands():
 
 
 @bp.get("/admin/api/products")
-@guard
+@need("products")
 def products():
     shown, hid = _all_items()
     hidset = {i["id"] for i in hid}
@@ -247,7 +335,7 @@ def _set_hidden(ids, val):
 
 
 @bp.post("/admin/api/products/<pid>/hidden")
-@guard
+@need("products")
 def set_hidden(pid):
     if not oh.re.fullmatch(r"[0-9a-f-]{36}", pid):
         return jsonify(ok=False, error="Неверный товар"), 400
@@ -256,7 +344,7 @@ def set_hidden(pid):
 
 
 @bp.post("/admin/api/brands/hidden")
-@guard
+@need("products")
 def set_brand_hidden():
     d = request.get_json(silent=True) or {}
     shown, hid = _all_items()
@@ -359,7 +447,7 @@ import inbox  # noqa: E402
 
 
 @bp.get("/admin/api/inbox/status")
-@guard
+@need("inbox")
 def inbox_status():
     with inbox.db() as d:
         return jsonify(ok=True, persistent=inbox.PG, key=bool(inbox.OPENAI_KEY), aiOn=inbox.ai_on(d), model=inbox.OPENAI_MODEL,
@@ -367,7 +455,7 @@ def inbox_status():
 
 
 @bp.get("/admin/api/inbox/convs")
-@guard
+@need("inbox")
 def inbox_convs():
     with inbox.db() as d:
         rows = d.run("SELECT id, name, username, status, unread, last_at, last_text FROM conv ORDER BY last_at DESC LIMIT 100", many=True)
@@ -375,7 +463,7 @@ def inbox_convs():
 
 
 @bp.get("/admin/api/inbox/conv/<int:cid>")
-@guard
+@need("inbox")
 def inbox_conv(cid):
     with inbox.db() as d:
         c = d.run("SELECT id, name, username, status FROM conv WHERE id=%s", (cid,), one=True)
@@ -389,7 +477,7 @@ def inbox_conv(cid):
 
 
 @bp.post("/admin/api/inbox/conv/<int:cid>/send")
-@guard
+@need("inbox")
 def inbox_send(cid):
     text = str((request.get_json(silent=True) or {}).get("text", "")).strip()[:3500]
     if not text:
@@ -405,7 +493,7 @@ def inbox_send(cid):
 
 
 @bp.post("/admin/api/inbox/conv/<int:cid>/status")
-@guard
+@need("inbox")
 def inbox_set_status(cid):
     st = (request.get_json(silent=True) or {}).get("status")
     if st not in ("ai", "manager", "closed"):
@@ -483,3 +571,45 @@ def ai_test():
         reply, hand = inbox.ai_reply(d, hist, text, image)
         reply = inbox.clean_reply(reply)
     return jsonify(ok=True, reply=reply, handoff=hand)
+
+
+# ---------- кто я и команда ----------
+@bp.get("/admin/api/me")
+def me():
+    w = who()
+    if not w:
+        return jsonify(ok=False, error="Войдите заново"), 401
+    return jsonify(ok=True, **w)
+
+
+@bp.get("/admin/api/team")
+@guard
+def team_list():
+    bot = oh.tg("getMe")["result"]["username"] if oh.BOT else ""
+    return jsonify(ok=True, staff=team.staff(force=True), invites=team.invites(), perms=team.PERMS, bot=bot, persist=bool(inbox.PG))
+
+
+@bp.post("/admin/api/team/invite")
+@guard
+def team_invite():
+    d = request.get_json(silent=True) or {}
+    code = team.create_invite(d.get("name"), d.get("perms") or [], d.get("notify", True))
+    bot = oh.tg("getMe")["result"]["username"]
+    return jsonify(ok=True, code=code, link=f"https://t.me/{bot}?start=stf_{code}")
+
+
+@bp.route("/admin/api/team/<int:sid>", methods=["PATCH", "DELETE"])
+@guard
+def team_edit(sid):
+    if request.method == "DELETE":
+        team.remove(sid)
+    else:
+        team.update(sid, request.get_json(silent=True) or {})
+    return jsonify(ok=True)
+
+
+@bp.delete("/admin/api/team/invite/<code>")
+@guard
+def team_invite_del(code):
+    team.remove_invite(code)
+    return jsonify(ok=True)

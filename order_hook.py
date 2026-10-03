@@ -208,7 +208,12 @@ def notify_staff(key, text, every=0, method="sendMessage", **data):
     if every and now - _alerts.get(key, 0) < every:
         return
     _alerts[key] = now
-    for c in [OWNER] + MANAGERS:
+    try:
+        import team
+        extra = team.notify_chats()
+    except Exception:
+        extra = []
+    for c in dict.fromkeys([OWNER] + MANAGERS + extra):
         if not c:
             continue
         try:
@@ -907,6 +912,20 @@ def tg_webhook(secret):
         return "", 200
     if text.strip().split("@")[0] == "/id":          # менеджер узнаёт свой chat_id, чтобы владелец добавил его в уведомления
         tg("sendMessage", chat_id=chat, text=f"Ваш chat_id: {chat}\nПередайте его владельцу, чтобы получать уведомления.")
+        return "", 200
+    sm = re.match(r"^/start\s+stf_([A-Za-z0-9]{10,40})$", text.strip())
+    if sm:                                           # сотрудник открыл ссылку-приглашение из панели
+        try:
+            import team
+            st = team.accept_invite(sm.group(1), chat, msg.get("from") or {})
+        except Exception as e:
+            print("Приглашение не принято:", e, flush=True)
+            st = None
+        if st:
+            tg("sendMessage", chat_id=chat, text=f"{st['name']}, вы добавлены в команду AMURA ✅\nУведомления по клиентам будут приходить сюда. Вход в панель: страница /admin, введите свой @username и код из этого чата.")
+            tg("sendMessage", chat_id=OWNER, text=f"✅ В команду добавлен: {st['name']}" + (f" (@{st['username']})" if st["username"] else ""))
+        else:
+            tg("sendMessage", chat_id=chat, text="Приглашение недействительно или устарело. Попросите владельца создать новое.")
         return "", 200
     am = re.match(r"^/start\s+adm_([A-Za-z0-9]{20,40})$", text.strip())
     if am:

@@ -36,7 +36,9 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 @media(max-width:800px){html,body{background:#0E3B2C}.app{background:var(--bg)}}
 </style></head><body>
 <div id="login" hidden><div class="logo" style="color:var(--g)">AMURA<small style="color:var(--mut)">панель управления</small></div>
-<p class="mut">Вход только для владельца: подтвердите его в Telegram.</p><button class="btn" id="go">Войти через Telegram</button><p class="mut" id="lmsg"></p></div>
+<div id="l1"><p class="mut">Введите ваш Telegram-@username. Бот пришлёт в Telegram одноразовый код.</p><input id="lu" placeholder="@username" autocapitalize="off" autocomplete="username" style="margin-bottom:12px"><button class="btn" id="go">Получить код</button></div>
+<div id="l2" hidden><p class="mut">Код отправлен вам в Telegram (бот AMURA Orders). Введите его здесь.</p><input id="lc" inputmode="numeric" maxlength="6" placeholder="Код из 6 цифр" autocomplete="one-time-code" style="margin-bottom:12px;text-align:center;font-size:22px;letter-spacing:.3em"><button class="btn" id="vf">Войти</button><p><a href="#" id="lb" class="mut">Ввести другой @username</a></p></div>
+<p class="mut" id="lmsg"></p></div>
 <div class="app" id="app" hidden><aside><div class="logo">AMURA<small>панель сайта</small></div>
 <button class="nav on" data-p="overview">Обзор</button><button class="nav" data-p="products">Товары на сайте</button><button class="nav" data-p="orders">Заказы</button><button class="nav" data-p="inbox">Сообщения</button><button class="nav" data-p="ai">ИИ-продажник</button>
 <div class="soon">Каналы — скоро</div>
@@ -49,17 +51,29 @@ const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&g
 const fmt=n=>Number(n).toLocaleString("ru-RU").replace(/ /g," ");
 async function api(p,o={}){const r=await fetch("/admin/api/"+p,{...o,headers:{"Content-Type":"application/json",Authorization:"Bearer "+tok}});
  if(r.status===401){localStorage.removeItem(T);tok="";boot();throw Error("401")}const j=await r.json();if(!j.ok)throw Error(j.error||"Ошибка");return j}
-function boot(){const a=!!tok;$("#login").hidden=a;$("#app").hidden=!a;if(a)show(cur)}
-$("#go").onclick=async()=>{const b=$("#go");b.disabled=true;$("#lmsg").textContent="Открываю Telegram…";
- try{const r=await fetch("/admin/api/login",{method:"POST"}).then(r=>r.json());if(!r.ok)throw Error(r.error);window.open(r.link,"_blank");
-  $("#lmsg").textContent="Нажмите Start в боте — вход откроется сам.";
-  for(let i=0;i<150;i++){await new Promise(r=>setTimeout(r,2000));const p=await fetch("/admin/api/login/poll?nonce="+r.nonce).then(r=>r.json());
-   if(p.token){tok=p.token;localStorage.setItem(T,tok);return boot()}if(!p.ok)break}$("#lmsg").textContent="Время вышло, попробуйте ещё раз."}
- catch(e){$("#lmsg").textContent=e.message}b.disabled=false};
+const ALLOW={overview:"owner",pay:"owner",banners:"owner",ai:"owner",team:"owner",products:"products",orders:"orders",inbox:"inbox"};
+let ME=null;const can=p=>!!ME&&(ME.role==="owner"||(ALLOW[p]!=="owner"&&ME.perms.includes(ALLOW[p])));
+async function boot(){const a=!!tok;$("#login").hidden=a;$("#app").hidden=!a;if(!a){ME=null;return}
+ try{ME=await api("me")}catch(e){return}
+ const bs=document.querySelectorAll(".nav,.tabbar button");bs.forEach(b=>b.hidden=!can(b.dataset.p));
+ $(".tabbar").style.gridTemplateColumns="repeat("+document.querySelectorAll(".tabbar button:not([hidden])").length+",1fr)";
+ if(!can(cur))cur=["overview","products","orders","inbox"].find(can)||"orders";
+ bs.forEach(x=>x.classList.toggle("on",x.dataset.p===cur||(cur==="pay"||cur==="team")&&x.dataset.p==="overview"||cur==="banners"&&x.dataset.p==="products"));show(cur)}
+const lmsg=t=>$("#lmsg").textContent=t||"";
+$("#lu").value=localStorage.getItem("amura_user")||"";
+$("#go").onclick=async()=>{const b=$("#go");b.disabled=true;lmsg("Отправляю код…");
+ try{const u=$("#lu").value.trim();localStorage.setItem("amura_user",u);const r=await fetch("/admin/api/login/code",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:u})}).then(r=>r.json());
+  if(!r.ok)throw Error(r.error);$("#l1").hidden=true;$("#l2").hidden=false;lmsg("");$("#lc").focus()}catch(e){lmsg(e.message)}b.disabled=false};
+$("#lu").onkeydown=e=>{if(e.key==="Enter")$("#go").click()};
+const verify=async()=>{const b=$("#vf");b.disabled=true;
+ try{const r=await fetch("/admin/api/login/verify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:$("#lu").value.trim(),code:$("#lc").value})}).then(r=>r.json());
+  if(!r.ok)throw Error(r.error);tok=r.token;localStorage.setItem(T,tok);$("#lc").value="";$("#l1").hidden=false;$("#l2").hidden=true;lmsg("");boot()}catch(e){lmsg(e.message)}b.disabled=false};
+$("#vf").onclick=verify;$("#lc").onkeydown=e=>{if(e.key==="Enter")verify()};
+$("#lb").onclick=e=>{e.preventDefault();$("#l1").hidden=false;$("#l2").hidden=true;lmsg("")};
 $("#out").onclick=$("#out2").onclick=e=>{e.preventDefault();localStorage.removeItem(T);tok="";boot()};
 let cur="overview";document.querySelectorAll(".nav,.tabbar button").forEach(b=>b.onclick=()=>{document.querySelectorAll(".nav,.tabbar button").forEach(x=>x.classList.toggle("on",x.dataset.p===b.dataset.p));scrollTo(0,0);show(b.dataset.p)});
-const SEG={products:[["products","Товары"],["banners","Баннеры на главной"]],overview:[["overview","Состояние"],["pay","Оплата и реквизиты"]]};
-const seg=a=>{const g=SEG[a==="banners"?"products":a==="pay"?"overview":a];return `<div class="seg">${g.map(([k,t])=>`<button class="${k===a?"on":""}" data-go="${k}">${t}</button>`).join("")}</div>`};
+const SEG={products:[["products","Товары"],["banners","Баннеры на главной"]],overview:[["overview","Состояние"],["pay","Оплата и реквизиты"],["team","Команда"]]};
+const seg=a=>{const g=SEG[a==="banners"?"products":(a==="pay"||a==="team")?"overview":a].filter(([k])=>can(k));if(g.length<2)return "";return `<div class="seg">${g.map(([k,t])=>`<button class="${k===a?"on":""}" data-go="${k}">${t}</button>`).join("")}</div>`};
 const bindSeg=()=>document.querySelectorAll("[data-go]").forEach(b=>b.onclick=()=>show(b.dataset.go));
 const head=(t,s)=>`<h1>${t}</h1><div class="sub">${s}</div>`;
 let timer=null;
@@ -152,6 +166,32 @@ async ai(){const a=await api("ai");
   try{const r=await api("ai/test",{method:"POST",body:JSON.stringify({text:t,image:pic,history:hist})});th.push({role:"ai",text:r.reply});if(r.handoff)th.push({role:"sys",text:"ИИ передал бы этот диалог менеджеру"})}catch(e){th.push({role:"sys",text:"Ошибка: "+e.message})}
   $("#tb").disabled=false;drawT();$("#tq").focus()};
  $("#tb").onclick=sendT;$("#tq").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();sendT()}}},
+async team(){const t=await api("team");const P=t.perms;
+ const chk=(perms,id)=>Object.entries(P).map(([k,n])=>`<label style="display:inline-flex;gap:6px;align-items:center;margin:4px 16px 4px 0;font-size:14px"><input type="checkbox" style="width:auto" data-p="${k}" ${perms.includes(k)?"checked":""}>${n}</label>`).join("");
+ const link=c=>`https://t.me/${t.bot}?start=stf_${c}`;
+ $("#main").innerHTML=head("Команда","Сотрудники входят в панель по коду из Telegram и получают уведомления по клиентам")+seg("team")+
+ (t.persist?"":'<div class="b x" style="display:block;margin-bottom:14px">База данных не подключена: список сотрудников пропадёт при перезапуске сервера.</div>')+
+ `<div class="card" style="margin-bottom:14px"><b>Добавить сотрудника</b><div class="mut" style="margin:4px 0 10px">Создайте ссылку и отправьте её человеку. Он откроет её в Telegram и нажмёт «Старт».</div>
+ <input id="tn" placeholder="Имя, например «Айгерим» (необязательно)" style="margin-bottom:8px"><div id="tp">${chk(["inbox","orders"])}</div>
+ <div class="row"><div class="grow">Присылать уведомления по клиентам</div><button class="sw on" id="tnf"></button></div>
+ <button class="btn" id="ti" style="margin-top:6px">Создать ссылку-приглашение</button><div id="tl"></div></div>
+ <div class="card" style="margin-bottom:14px"><b>Сотрудники</b><div id="ts">${t.staff.length?"":'<div class="mut" style="padding:10px 0">Пока никого.</div>'}</div></div>
+ <div class="card" id="tiv" ${t.invites.length?"":"hidden"}><b>Ожидают приглашения</b><div id="tj"></div></div>`;
+ bindSeg();$("#tnf").onclick=e=>e.target.classList.toggle("on");
+ const perms=el=>[...el.querySelectorAll("input[data-p]:checked")].map(x=>x.dataset.p);
+ $("#ti").onclick=async()=>{const b=$("#ti");b.disabled=true;try{const r=await api("team/invite",{method:"POST",body:JSON.stringify({name:$("#tn").value,perms:perms($("#tp")),notify:$("#tnf").classList.contains("on")})});
+  $("#tl").innerHTML=`<div class="b w" style="display:block;margin-top:12px;white-space:normal;line-height:1.5">Ссылка одноразовая, действует 7 дней:<br><b style="word-break:break-all">${esc(r.link)}</b><br><button class="btn sm" id="tc" style="margin-top:8px">Скопировать</button></div>`;
+  $("#tc").onclick=()=>{navigator.clipboard?.writeText(r.link);$("#tc").textContent="Скопировано ✅"}}catch(e){$("#tl").textContent=e.message}b.disabled=false};
+ $("#ts").innerHTML=t.staff.map(s=>`<div class="row" data-id="${s.id}" style="flex-wrap:wrap;align-items:flex-start"><div class="grow" style="min-width:200px"><b>${esc(s.name)}</b> ${s.active?"":'<span class="b n">отключён</span>'}<div class="mut">${s.username?"@"+esc(s.username):"без @username — вход по коду невозможен"}</div><div style="margin-top:6px">${chk(s.perms)}</div></div>
+ <div style="display:grid;gap:8px;justify-items:end"><label class="mut" style="display:flex;gap:8px;align-items:center">Уведомления<button class="sw ${s.notify?"on":""}" data-a="nf"></button></label><div><button class="btn sm ghost" data-a="act">${s.active?"Отключить":"Включить"}</button> <button class="btn sm ghost" data-a="del">Удалить</button></div></div></div>`).join("");
+ document.querySelectorAll("#ts .row").forEach(r=>{const id=r.dataset.id,s=t.staff.find(x=>x.id==id),patch=async d=>{try{await api("team/"+id,{method:"PATCH",body:JSON.stringify(d)})}catch(e){alert(e.message)}};
+  r.querySelectorAll("input[data-p]").forEach(c=>c.onchange=()=>patch({perms:perms(r)}));
+  r.querySelector("[data-a=nf]").onclick=e=>{const on=!e.target.classList.contains("on");e.target.classList.toggle("on",on);patch({notify:on})};
+  r.querySelector("[data-a=act]").onclick=async()=>{await patch({active:!s.active});views.team()};
+  r.querySelector("[data-a=del]").onclick=async()=>{if(!confirm("Удалить сотрудника "+s.name+"? Он потеряет доступ и уведомления."))return;await api("team/"+id,{method:"DELETE"});views.team()}});
+ $("#tj").innerHTML=t.invites.map(v=>`<div class="row"><div class="grow"><b>${esc(v.name||"Без имени")}</b><div class="mut">${v.perms.map(p=>P[p]).join(", ")||"без доступа к разделам"}</div></div><button class="btn sm ghost" data-c="${v.code}" data-a="cp">Ссылка</button><button class="btn sm ghost" data-c="${v.code}" data-a="rm">Отозвать</button></div>`).join("");
+ document.querySelectorAll("#tj [data-a=cp]").forEach(b=>b.onclick=()=>{navigator.clipboard?.writeText(link(b.dataset.c));b.textContent="Скопировано ✅"});
+ document.querySelectorAll("#tj [data-a=rm]").forEach(b=>b.onclick=async()=>{await api("team/invite/"+b.dataset.c,{method:"DELETE"});views.team()})},
 async pay(){const p=await api("pay");$("#main").innerHTML=head("Оплата и реквизиты","Это сообщение бот отправляет клиенту сразу после накладной")+seg("pay")+`<div class="card" style="max-width:640px"><textarea id="t">${esc(p.text)}</textarea><div style="display:flex;gap:10px;align-items:center;margin-top:14px"><button class="btn" id="s">Сохранить и опубликовать</button><span class="mut" id="m">${p.at?"Изменено "+esc(p.at):""}</span></div></div>`;
  bindSeg();$("#s").onclick=async()=>{try{await api("pay",{method:"PUT",body:JSON.stringify({text:$("#t").value})});$("#m").textContent="Сохранено ✅"}catch(e){$("#m").textContent=e.message}}}};
 boot();
