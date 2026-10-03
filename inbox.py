@@ -109,7 +109,7 @@ MEDIA_RULES = """# Фото и голосовые
 Никогда не выдумывай то, чего не видно на фото."""
 
 SEARCH_RULES = """# Поиск товаров
-Названия брендов и товаров в каталоге написаны латиницей (Celimax, Axis-Y, Median). Поиск идёт по названию, описанию, бренду, группе, артикулу и штрихкоду. Клиент часто пишет по-русски («Селимакс», «тонер серый»): сам переведи в латиницу и вызови search_catalog, например query="Celimax toner". Если первый поиск пуст — попробуй ещё раз по бренду или по другому слову. Нельзя говорить «каталог недоступен» или «товара нет», пока не вызван search_catalog; говори, что товара нет, только если поиск реально ничего не вернул."""
+Названия брендов и товаров в каталоге написаны латиницей (Celimax, Axis-Y, Median). Поиск идёт по названию, описанию, бренду, группе, артикулу и штрихкоду. Клиент часто пишет по-русски («Селимакс», «тонер серый»): сам переведи в латиницу и вызови search_catalog, например query="Celimax toner". Если первый поиск пуст — попробуй ещё раз по бренду или по другому слову. Когда клиент спрашивает о категории или ингредиенте («центелла», «тонеры», «солнцезащитный»), вызови search_catalog несколько раз с разными словами и синонимами (Centella, Madecassoside, Cica) и покажи все найденные подходящие товары. На «ещё что-нибудь» или «другое» повтори поиск шире и не повторяй уже названные товары. Нельзя говорить «каталог недоступен» или «товара нет», пока не вызван search_catalog; говори, что товара нет, только если поиск реально ничего не вернул."""
 
 SEARCH_TOOL = {"type": "function", "function": {
     "name": "search_catalog",
@@ -178,8 +178,34 @@ def run_create_order(args, ctx, history):
 
 
 # ---------- ИИ ----------
+_TR = {"а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "e|yo", "ж": "zh|j", "з": "z", "и": "i", "й": "y|i",
+       "к": "k|c", "л": "l", "м": "m", "н": "n", "о": "o", "п": "p", "р": "r", "с": "s|c", "т": "t", "у": "u", "ф": "f|ph",
+       "х": "h|kh|x", "ц": "c|ts", "ч": "ch", "ш": "sh", "щ": "sch", "ъ": "", "ы": "y|i", "ь": "", "э": "e", "ю": "yu|u", "я": "ya|a"}
+
+
+def _stem(w):
+    """Основа слова: «центеллой» -> «центел», «тонеры» -> «тоне» (латиницу не трогаем)."""
+    if re.search(r"[а-яё]", w):
+        n = len(w)
+        return w[:-3] if n >= 8 else w[:-2] if n >= 6 else w[:-1] if n == 5 else w
+    return w
+
+
+def _forms(w):
+    """Формы слова для поиска: основа и (для русских слов) её варианты латиницей: центел -> centel, tsentel."""
+    s = _stem(w)
+    out = {s}
+    if re.search(r"[а-яё]", s):
+        outs = [""]
+        for ch in s.replace("кс", "x"):
+            opts = _TR.get(ch, ch if ch.isalnum() else "").split("|") if ch != "x" else ["x"]
+            outs = [o + p for o in outs for p in opts][:24]
+        out |= set(outs)
+    return {f for f in out if len(f) >= 2}
+
+
 def _words(t):
-    return [w for w in re.findall(r"[\w-]{2,}", t.lower())][:8]
+    return [w for w in re.findall(r"[\w-]{2,}", t.lower())][:10]
 
 
 def catalog_items():
@@ -198,12 +224,12 @@ def brand_list(items):
     return ", ".join(sorted({i.get("brand") for i in items if i.get("brand")}, key=str.lower))[:2500]
 
 
-def product_context(text):
+def product_context(text, limit=8):
     items = catalog_items()
     if items is None:
         return "Каталог сейчас не загрузился. Скажи клиенту, что уточнишь наличие и цену, и передай менеджеру (метка " + HANDOFF + ")."
     ws = oh.PUBLIC_WHOLESALE
-    ws_words = _words(text)
+    ws_words = [_forms(w) for w in _words(text)]
     descs = (oh._cache.get("descs") or (0, {}))[1]
     scored = []
     for i in items:
@@ -211,12 +237,12 @@ def product_context(text):
         tags = " ".join(str(i.get(k) or "") for k in ("brand", "group", "country")).lower()      # бренд, группа, страна
         ids = " ".join(str(i.get(k) or "") for k in ("code", "article", "barcode")).lower()
         desc = (descs.get(i["id"]) or i.get("desc") or "").lower()                                  # описание
-        sc = sum(3 * (w in name) + 2 * (w in tags) + 2 * (w in ids) + (w in desc) for w in ws_words)
+        sc = sum(3 * any(f in name for f in w) + 2 * any(f in tags for f in w) + 2 * any(f in ids for f in w) + any(f in desc for f in w) for w in ws_words)
         if sc:
             scored.append((sc, i))
     scored.sort(key=lambda x: -x[0])
     rows = []
-    for _, i in scored[:8]:
+    for _, i in scored[:limit]:
         p = f"розница {oh.fmt(i.get('rtl', 0))} ₸"
         if ws:
             p = f"опт {oh.fmt(i.get('opt', 0))} ₸" + (f", от 10 шт {oh.fmt(i['mid'])} ₸" if i.get("mid") else "") + (f", короб ({i['boxQty']} шт) {oh.fmt(i['box'])} ₸" if i.get("box") else "") + f", розница {oh.fmt(i.get('rtl', 0))} ₸"
@@ -252,9 +278,10 @@ def ai_reply(d, history, text, photo=None, ctx=None):
     """Ответ ИИ; возвращает (текст, нужен_менеджер). ctx — данные чата для оформления заказов (None — пробный чат)."""
     rules = get_setting(d, "rules", DEFAULT_RULES)
     kb = "\n\n".join(f"## {t}\n{b}" for t, b in d.run("SELECT title, body FROM kb ORDER BY id", many=True))
+    recent = " ".join([x for r_, x in history[-6:] if r_ == "client"][-2:] + [text or ""])      # слова из последних сообщений клиента
     cat = catalog_items()
     brands = brand_list(cat) if cat else ""
-    system = f"{rules}\n\n{ORDER_RULES}\n\n{MEDIA_RULES}\n\n{SEARCH_RULES}\n\n# Бренды в каталоге\n{brands or '(каталог не загружен)'}\n\n# База знаний\n{kb or '(пока пусто)'}\n\n# Товары из каталога по запросу клиента\n{product_context(text)}"
+    system = f"{rules}\n\n{ORDER_RULES}\n\n{MEDIA_RULES}\n\n{SEARCH_RULES}\n\n# Бренды в каталоге\n{brands or '(каталог не загружен)'}\n\n# База знаний\n{kb or '(пока пусто)'}\n\n# Товары из каталога по запросу клиента\n{product_context(recent)}"
     msgs = [{"role": "system", "content": system}]
     for role, t in history[-12:]:
         msgs.append({"role": "user" if role == "client" else "assistant", "content": t})
@@ -284,7 +311,7 @@ def ai_reply(d, history, text, photo=None, ctx=None):
                 a_ = json.loads(c["function"]["arguments"] or "{}")
                 fn = c["function"]["name"]
                 res = (run_create_order(a_, ctx, history) if fn == "create_order"
-                       else product_context(str(a_.get("query", ""))) if fn == "search_catalog" else "Неизвестный инструмент")
+                       else product_context(str(a_.get("query", "")), limit=15) if fn == "search_catalog" else "Неизвестный инструмент")
             except Exception as e:
                 print("ИИ-заказ:", e, flush=True)
                 oh.alert("aiorder", f"ИИ не смог оформить заказ: {str(e)[:250]}", every=300)
