@@ -125,18 +125,26 @@ def check():
 
 
 # ---------- подключение «одной кнопкой» (Embedded Signup) ----------
-def connect(code, phone_id, waba_id, webhook_url, verify_token, coex=False):
+def connect(code, phone_id, waba_id, webhook_url, verify_token, coex=False, redirect_uris=None):
     """Окно Facebook вернуло code и id аккаунта (и номера): меняем code на токен, подписываем вебхук, регистрируем номер, сохраняем настройки.
     coex=True — номер остаётся в приложении WhatsApp Business на телефоне и одновременно работает через API (сосуществование)."""
     import inbox
     c = cfg()
     if not (c["app_id"] and c["secret"]):
         raise RuntimeError("Сначала сохраните App ID и App Secret приложения Meta")
-    r = requests.get(f"{GRAPH}/oauth/access_token", params={"client_id": c["app_id"], "client_secret": c["secret"], "code": code}, timeout=30)
-    j = r.json()
-    if r.status_code >= 400 or not j.get("access_token"):
-        raise RuntimeError("Meta не выдала токен: " + str((j.get("error") or {}).get("message", r.text[:200])))
-    token = j["access_token"]
+    token, last = "", ""
+    for ru in (redirect_uris or [""]):                      # код из окна Facebook привязан к redirect_uri: пробуем пустой, адрес страницы и т.д.
+        p = {"client_id": c["app_id"], "client_secret": c["secret"], "code": code}
+        if ru is not None:
+            p["redirect_uri"] = ru
+        r = requests.get(f"{GRAPH}/oauth/access_token", params=p, timeout=30)
+        j = r.json()
+        if r.status_code < 400 and j.get("access_token"):
+            token = j["access_token"]
+            break
+        last = str((j.get("error") or {}).get("message", r.text[:200]))
+    if not token:
+        raise RuntimeError("Meta не выдала токен: " + last)
     h = {"Authorization": "Bearer " + token}
     if not waba_id:                                         # окно Facebook не прислало аккаунт (например, iPhone): берём из самого токена
         dt = requests.get(f"{GRAPH}/debug_token", params={"input_token": token, "access_token": f"{c['app_id']}|{c['secret']}"}, timeout=30).json()
