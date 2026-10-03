@@ -468,9 +468,14 @@ def kb_delete(kid):
 @bp.post("/admin/api/ai/test")
 @guard
 def ai_test():
-    text = str((request.get_json(silent=True) or {}).get("text", "")).strip()[:500]
+    j = request.get_json(silent=True) or {}
+    text = str(j.get("text", "")).strip()[:500]
+    hist = [("client" if m.get("role") == "client" else "ai", str(m.get("text", ""))[:500])
+            for m in (j.get("history") or [])[-12:] if isinstance(m, dict) and m.get("text")]
+    if not text:
+        return jsonify(ok=False, error="Напишите вопрос"), 400
     if not inbox.OPENAI_KEY:
         return jsonify(ok=False, error="Ключ OPENAI_API_KEY не добавлен в Render"), 400
     with inbox.db() as d:
-        reply, hand = inbox.ai_reply(d, [], text)
+        reply, hand = inbox.ai_reply(d, hist, text)
     return jsonify(ok=True, reply=reply, handoff=hand)
