@@ -332,7 +332,7 @@ def build_live(products):
         bq = max([int(p.get("quantity", 0)) for p in (r.get("packs") or []) if p.get("quantity", 0) > 1] or [0])
         upd = r.get("updated", "")
         items.append({
-            "id": r["id"], "name": r.get("name", ""), "brand": _brand(r), "code": r.get("code", ""),
+            "id": r["id"], "name": r.get("name", ""), "brand": _brand(r), "group": (r.get("pathName") or "").strip(), "code": r.get("code", ""),
             "article": r.get("article", ""), "country": _country(r), "barcode": _barcode(r), "qty": qty,
             "opt": opt, "mid": mid if 0 < mid < opt else 0,
             "box": box if (0 < box < opt and bq) else 0, "boxQty": bq, "rtl": rtl,
@@ -469,8 +469,8 @@ def is_wholesale(cid):
 def view_items(items, wholesale):
     """Что видит клиент: оптовик — опт / от 10 шт / короб; остальные — только розничную цену."""
     if wholesale:
-        return [{k: v for k, v in i.items() if k != "rtl"} for i in items if i.get("opt", 0) > 0]
-    return [{k: v for k, v in i.items() if k != "rtl"} | {"opt": i["rtl"], "mid": 0, "box": 0}
+        return [{k: v for k, v in i.items() if k not in ("rtl", "group")} for i in items if i.get("opt", 0) > 0]
+    return [{k: v for k, v in i.items() if k not in ("rtl", "group")} | {"opt": i["rtl"], "mid": 0, "box": 0}
             for i in items if i.get("rtl", 0) > 0]
 
 
