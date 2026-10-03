@@ -397,6 +397,19 @@ def save_msg(d, cid, role, text, photo=None, unread=0, media=None):
     d.run("UPDATE conv SET last_at=%s, last_text=%s, unread=unread+%s WHERE id=%s", (now, last[:120], unread, cid))
 
 
+def on_manager_echo(chat, text):
+    """Менеджер ответил клиенту прямо с телефона (приложение WhatsApp Business): показываем в панели и переводим диалог к менеджеру (ИИ молчит)."""
+    with _lock, db() as d:
+        row = d.run("SELECT id FROM conv WHERE chat_id=%s", (str(chat),), one=True)
+        if not row:
+            cid = d.run("INSERT INTO conv (chat_id, name, username, status, unread, last_at) VALUES (%s,%s,%s,'manager',0,%s)",
+                        (str(chat), "+" + wa.number(chat), "", time.time()), ins=True)
+        else:
+            cid = row[0]
+        save_msg(d, cid, "manager", text or "")
+        d.run("UPDATE conv SET status='manager' WHERE id=%s", (cid,))
+
+
 def on_client_message(chat, user, text, photo=None, voice=None, pdf=None, media=None):
     """Вызывается из вебхука бота в отдельном потоке."""
     try:

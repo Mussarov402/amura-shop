@@ -25,7 +25,7 @@ def cfg():
     if time.time() - _cfg["t"] < 30:
         return _cfg["v"]
     v = {"phone_id": os.environ.get("WA_PHONE_ID", ""), "token": os.environ.get("WA_TOKEN", ""), "secret": os.environ.get("WA_APP_SECRET", ""),
-         "app_id": os.environ.get("WA_APP_ID", ""), "config_id": os.environ.get("WA_CONFIG_ID", ""), "waba": ""}
+         "app_id": os.environ.get("WA_APP_ID", ""), "config_id": os.environ.get("WA_CONFIG_ID", ""), "config_coex": os.environ.get("WA_CONFIG_COEX", ""), "waba": ""}
     try:
         import inbox
         with inbox.db() as d:
@@ -125,8 +125,9 @@ def check():
 
 
 # ---------- подключение «одной кнопкой» (Embedded Signup) ----------
-def connect(code, phone_id, waba_id, webhook_url, verify_token):
-    """Окно Facebook вернуло code и id номера/аккаунта: меняем code на токен, подписываем вебхук, регистрируем номер, сохраняем настройки."""
+def connect(code, phone_id, waba_id, webhook_url, verify_token, coex=False):
+    """Окно Facebook вернуло code и id аккаунта (и номера): меняем code на токен, подписываем вебхук, регистрируем номер, сохраняем настройки.
+    coex=True — номер остаётся в приложении WhatsApp Business на телефоне и одновременно работает через API (сосуществование)."""
     import inbox
     c = cfg()
     if not (c["app_id"] and c["secret"]):
@@ -137,16 +138,29 @@ def connect(code, phone_id, waba_id, webhook_url, verify_token):
         raise RuntimeError("Meta не выдала токен: " + str((j.get("error") or {}).get("message", r.text[:200])))
     token = j["access_token"]
     h = {"Authorization": "Bearer " + token}
-    # вебхук именно для этого аккаунта: адрес и токен подтверждения задаём сами, без ручной настройки в кабинете
+    if not phone_id:                                        # при сосуществовании окно возвращает только аккаунт: номер берём из списка
+        pn = requests.get(f"{GRAPH}/{waba_id}/phone_numbers", headers=h, params={"fields": "id,display_phone_number"}, timeout=30).json()
+        rows = pn.get("data") or []
+        if not rows:
+            raise RuntimeError("В аккаунте WhatsApp не найден номер. Дойдите в окне Facebook до конца и повторите.")
+        phone_id = rows[0]["id"]
+    # подписка приложения на события, включая сообщения, написанные с телефона (smb_message_echoes) — на уровне приложения
+    try:
+        requests.post(f"{GRAPH}/{c['app_id']}/subscriptions", timeout=30, data={
+            "object": "whatsapp_business_account", "callback_url": webhook_url, "verify_token": verify_token,
+            "fields": "messages,smb_message_echoes", "access_token": f"{c['app_id']}|{c['secret']}"})
+    except Exception as e:
+        print("WA: подписка приложения:", e, flush=True)
     s = requests.post(f"{GRAPH}/{waba_id}/subscribed_apps", headers=h, timeout=30,
                       json={"override_callback_uri": webhook_url, "verify_token": verify_token})
     if s.status_code >= 400:
         raise RuntimeError("Не удалось подписать аккаунт на сообщения: " + str((s.json().get("error") or {}).get("message", s.text[:200])))
-    try:                                                    # номер из Embedded Signup нужно зарегистрировать в Cloud API (если ещё нет)
-        requests.post(f"{GRAPH}/{phone_id}/register", headers=h, timeout=30,
-                      json={"messaging_product": "whatsapp", "pin": f"{int.from_bytes(os.urandom(3), 'big') % 900000 + 100000}"})
-    except Exception as e:
-        print("WA: регистрация номера:", e, flush=True)
+    if not coex:                                            # у номера из приложения регистрация не нужна (он уже зарегистрирован)
+        try:
+            requests.post(f"{GRAPH}/{phone_id}/register", headers=h, timeout=30,
+                          json={"messaging_product": "whatsapp", "pin": f"{int.from_bytes(os.urandom(3), 'big') % 900000 + 100000}"})
+        except Exception as e:
+            print("WA: регистрация номера:", e, flush=True)
     with inbox.db() as d:
         inbox.set_setting(d, "wa_token", token)
         inbox.set_setting(d, "wa_phone_id", phone_id)
@@ -181,6 +195,10 @@ def parse(payload):
         for ch in e.get("changes", []):
             v = ch.get("value", {})
             names = {c.get("wa_id"): (c.get("profile") or {}).get("name", "") for c in v.get("contacts", [])}
+            for m in v.get("message_echoes", []):                      # менеджер написал клиенту с телефона (сосуществование)
+                t = m.get("type")
+                body = (m.get("text") or {}).get("body", "") if t == "text" else (f"[{t}]" if t else "")
+                out.append({"echo": True, "id": m.get("id"), "phone": m.get("to", ""), "name": "", "type": t, "text": body, "media": None})
             for m in v.get("messages", []):
                 t = m.get("type")
                 x = {"id": m.get("id"), "phone": m.get("from", ""), "name": names.get(m.get("from"), ""), "type": t, "text": "", "media": None}
@@ -209,6 +227,8 @@ def parse(payload):
 def handle(m):
     """Одно входящее сообщение -> инбокс (так же, как из Telegram)."""
     import inbox
+    if m.get("echo"):
+        return inbox.on_manager_echo("wa:" + m["phone"], m["text"])
     chat, med, text, photo, voice, pdf, att = "wa:" + m["phone"], m["media"], m["text"], None, None, None, None
     if med:
         mime, t = med["mime"], m["type"]
@@ -249,5 +269,5 @@ def webhook(secret):
         if not m["id"] or m["id"] in _seen:
             continue
         _seen[m["id"]] = now
-        threading.Thread(target=lambda m=m: (mark_read(m["id"]), handle(m)), daemon=True).start()
+        threading.Thread(target=lambda m=m: ((mark_read(m["id"]) if not m.get("echo") else None), handle(m)), daemon=True).start()
     return "", 200

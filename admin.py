@@ -791,7 +791,7 @@ def channels():
     if request.method == "PUT":
         b = request.get_json(silent=True) or {}
         with inbox.db() as d:
-            for k in ("phone_id", "token", "secret", "app_id", "config_id"):
+            for k in ("phone_id", "token", "secret", "app_id", "config_id", "config_coex"):
                 v = str(b.get(k, "")).strip()
                 if v and "•" not in v:                  # маска означает «не менять»
                     inbox.set_setting(d, "wa_" + k, v)
@@ -802,7 +802,8 @@ def channels():
     base = (oh.PUBLIC_URL or request.url_root).rstrip("/")
     return jsonify(ok=True, tg={"ok": bool(oh.BOT and oh.OWNER)}, persist=bool(inbox.PG),
                    wa={"ok": wa.configured(), "phone_id": c["phone_id"], "token": _mask(c["token"]), "secret": _mask(c["secret"]),
-                       "app_id": c["app_id"], "config_id": c["config_id"], "ready": bool(c["app_id"] and c["config_id"] and c["secret"]),
+                       "app_id": c["app_id"], "config_id": c["config_id"], "config_coex": c["config_coex"],
+                       "ready": bool(c["app_id"] and c["config_id"] and c["secret"]), "readyCoex": bool(c["app_id"] and c["config_coex"] and c["secret"]),
                        "url": f"{base}/wa/{oh.HOOK_SECRET}", "verify": oh.HOOK_SECRET})
 
 
@@ -821,12 +822,13 @@ def wa_test():
 def wa_connect():
     """Финал кнопки «Подключить WhatsApp»: страница прислала code из окна Facebook и id номера."""
     b = request.get_json(silent=True) or {}
-    code, pid, wid = str(b.get("code", "")), str(b.get("phone_id", "")), str(b.get("waba_id", ""))
-    if not (code and pid and wid):
+    code, pid, wid = str(b.get("code", "")), str(b.get("phone_id", "") or ""), str(b.get("waba_id", ""))
+    coex = bool(b.get("coex"))
+    if not (code and wid and (pid or coex)):
         return jsonify(ok=False, error="Facebook не передал данные номера. Попробуйте ещё раз и дойдите до конца."), 400
     base = (oh.PUBLIC_URL or request.url_root).rstrip("/")
     try:
-        j = wa.connect(code, pid, wid, f"{base}/wa/{oh.HOOK_SECRET}", oh.HOOK_SECRET)
+        j = wa.connect(code, pid, wid, f"{base}/wa/{oh.HOOK_SECRET}", oh.HOOK_SECRET, coex)
     except Exception as e:
         return jsonify(ok=False, error=str(e)[:300]), 400
     return jsonify(ok=True, name=j.get("verified_name", ""), phone=j.get("display_phone_number", ""))

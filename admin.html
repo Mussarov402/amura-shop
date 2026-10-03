@@ -317,12 +317,14 @@ async channels(){const c=await api("channels");const w=c.wa;
  $("#main").innerHTML=head("Каналы","Откуда приходят сообщения клиентов")+seg("channels")+
  `<div class="card" style="margin-bottom:14px"><div class="row" style="border:0;padding-top:0"><div class="grow"><b>Telegram</b><div class="mut">Бот заказов AMURA Orders</div></div>${badge(c.tg.ok,"Подключён","Не настроен")}</div></div>
  <div class="card"><div class="row" style="border:0;padding-top:0"><div class="grow"><b>WhatsApp Business</b><div class="mut">Официальное подключение через Meta</div></div>${badge(w.ok,"Подключён","Не подключён")}</div>
- <div style="margin-top:12px"><button class="btn wab" id="wcon" ${w.ready?"":"disabled"}>${w.ok?"Подключить другой номер":"Подключить WhatsApp Business"}</button> <button class="btn ghost" id="wtst" ${w.ok?"":"hidden"}>Проверить</button></div>
- <div class="mut" id="wm" style="margin-top:8px;white-space:pre-wrap">${w.ready?"Откроется окно Facebook: выберите компанию и номер, подтвердите кодом. Всё остальное сделается само.":"Сначала один раз заполните данные приложения Meta ниже."}</div>
+ <div style="margin-top:12px;display:grid;gap:8px"><button class="btn wab" id="wcoex" ${w.readyCoex?"":"disabled"}>Подключить номер из приложения WhatsApp Business</button>
+ <button class="btn ghost" id="wcon" ${w.ready?"":"disabled"}>Подключить новый номер (только для системы)</button> <button class="btn ghost" id="wtst" ${w.ok?"":"hidden"}>Проверить подключение</button></div>
+ <div class="mut" id="wm" style="margin-top:8px;white-space:pre-wrap">${w.readyCoex||w.ready?"Первая кнопка: номер продолжит работать в приложении на телефоне и одновременно в системе. Откроется окно Facebook, в нём покажется QR-код: отсканируйте его в приложении WhatsApp Business (Настройки → Связанные устройства или как подскажет окно).":"Сначала один раз заполните данные приложения Meta ниже."}</div>
  <details ${w.ready?"":"open"} style="margin-top:14px"><summary style="cursor:pointer;font-weight:700">Данные приложения Meta (один раз)</summary>
   <div class="wk"><label>App ID<input id="wai" value="${esc(w.app_id)}" autocomplete="off"></label>
   <label>App Secret<input id="wsc" type="password" value="${esc(w.secret)}" autocomplete="off"></label>
-  <label>Configuration ID (Embedded Signup)<input id="wcf" value="${esc(w.config_id)}" autocomplete="off"></label>
+  <label>Configuration ID для номера из приложения (Coexistence)<input id="wcx" value="${esc(w.config_coex)}" autocomplete="off"></label>
+  <label>Configuration ID для нового номера (Embedded Signup, необязательно)<input id="wcf" value="${esc(w.config_id)}" autocomplete="off"></label>
   <div><button class="btn" id="wsa">Сохранить</button></div></div>
   <ol class="stepl"><li>developers.facebook.com → ваше приложение → <b>Settings → Basic</b>: скопируйте <b>App ID</b> и <b>App Secret</b>.</li>
   <li>Слева <b>Вход через Facebook для бизнеса → Конфигурации → Создать</b>, шаблон <b>WhatsApp Embedded Signup</b>. Скопируйте <b>Configuration ID</b>.</li>
@@ -338,18 +340,19 @@ async channels(){const c=await api("channels");const w=c.wa;
  bindSeg();document.querySelectorAll("[data-c]").forEach(b=>b.onclick=()=>{navigator.clipboard?.writeText($("#"+b.dataset.c).value);b.textContent="Скопировано ✅"});
  const msg=t=>$("#wm").textContent=t;
  const save=async(d,ok)=>{try{await api("channels",{method:"PUT",body:JSON.stringify(d)});msg(ok||"Сохранено ✅");setTimeout(()=>views.channels(),700)}catch(e){msg(e.message)}};
- $("#wsa").onclick=()=>save({app_id:$("#wai").value,secret:$("#wsc").value,config_id:$("#wcf").value});
+ $("#wsa").onclick=()=>save({app_id:$("#wai").value,secret:$("#wsc").value,config_id:$("#wcf").value,config_coex:$("#wcx").value});
  $("#wsv").onclick=()=>save({phone_id:$("#wp").value,token:$("#wt").value});
  $("#wtst").onclick=async()=>{msg("Проверяю…");try{const r=await api("channels/wa-test",{method:"POST"});msg("Работает ✅ "+(r.name||"")+" "+(r.phone||""))}catch(e){msg(e.message)}};
  let sess=null;if(!window._waMsg){window._waMsg=1;window.addEventListener("message",e=>{try{if(!/(^|\.)facebook\.com$/.test(new URL(e.origin).hostname))return;const d=typeof e.data==="string"?JSON.parse(e.data):e.data;if(d&&d.type==="WA_EMBEDDED_SIGNUP"){window._waSess=d}}catch(_){}})}
  const loadFB=()=>new Promise((res,rej)=>{if(window.FB)return res();window.fbAsyncInit=()=>{FB.init({appId:w.app_id,autoLogAppEvents:true,xfbml:false,version:"v21.0"});res()};
   const s=document.createElement("script");s.src="https://connect.facebook.net/ru_RU/sdk.js";s.async=true;s.onerror=()=>rej(Error("Не загрузился Facebook. Отключите блокировщик рекламы и повторите."));document.head.appendChild(s)});
- $("#wcon").onclick=async()=>{window._waSess=null;msg("Открываю Facebook…");try{await loadFB()}catch(e){return msg(e.message)}
+ const connectWa=async(coex)=>{window._waSess=null;msg("Открываю Facebook…");try{await loadFB()}catch(e){return msg(e.message)}
   FB.login(async r=>{const code=r.authResponse&&r.authResponse.code;if(!code)return msg("Подключение отменено или не завершено.");
    msg("Завершаю подключение…");for(let i=0;i<40&&!window._waSess;i++)await new Promise(x=>setTimeout(x,250));const s=window._waSess;
-   if(!s||s.event==="CANCEL"||!s.data||!s.data.phone_number_id)return msg("Facebook не передал номер. Пройдите все шаги в окне до конца и повторите.");
-   try{const j=await api("channels/wa-connect",{method:"POST",body:JSON.stringify({code,phone_id:s.data.phone_number_id,waba_id:s.data.waba_id})});msg("Готово ✅ "+(j.name||"")+" "+(j.phone||""));setTimeout(()=>views.channels(),1500)}catch(e){msg(e.message)}},
-  {config_id:w.config_id,response_type:"code",override_default_response_type:true,extras:{setup:{},featureType:"",sessionInfoVersion:"3"}})}},
+   if(!s||s.event==="CANCEL"||!s.data||!s.data.waba_id)return msg("Facebook не передал данные номера. Пройдите все шаги в окне до конца и повторите.");
+   try{const j=await api("channels/wa-connect",{method:"POST",body:JSON.stringify({code,phone_id:s.data.phone_number_id||"",waba_id:s.data.waba_id,coex})});msg("Готово ✅ "+(j.name||"")+" "+(j.phone||""));setTimeout(()=>views.channels(),1500)}catch(e){msg(e.message)}},
+  {config_id:coex?w.config_coex:w.config_id,response_type:"code",override_default_response_type:true,extras:{setup:{},featureType:coex?"whatsapp_business_app_onboarding":"",sessionInfoVersion:"3"}})};
+ $("#wcoex").onclick=()=>connectWa(true);$("#wcon").onclick=()=>connectWa(false)},
 async pay(){const p=await api("pay");$("#main").innerHTML=head("Оплата и реквизиты","Это сообщение бот отправляет клиенту сразу после накладной")+seg("pay")+`<div class="card" style="max-width:640px"><textarea id="t">${esc(p.text)}</textarea><div style="display:flex;gap:10px;align-items:center;margin-top:14px"><button class="btn" id="s">Сохранить и опубликовать</button><span class="mut" id="m">${p.at?"Изменено "+esc(p.at):""}</span></div></div>`;
  bindSeg();$("#s").onclick=async()=>{try{await api("pay",{method:"PUT",body:JSON.stringify({text:$("#t").value})});$("#m").textContent="Сохранено ✅"}catch(e){$("#m").textContent=e.message}}}};
 boot();
