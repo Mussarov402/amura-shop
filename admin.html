@@ -346,13 +346,17 @@ async channels(){const c=await api("channels");const w=c.wa;
  let sess=null;if(!window._waMsg){window._waMsg=1;window.addEventListener("message",e=>{try{if(!/(^|\.)facebook\.com$/.test(new URL(e.origin).hostname))return;const d=typeof e.data==="string"?JSON.parse(e.data):e.data;if(d&&d.type==="WA_EMBEDDED_SIGNUP"){window._waSess=d}}catch(_){}})}
  const loadFB=()=>new Promise((res,rej)=>{if(window.FB)return res();window.fbAsyncInit=()=>{FB.init({appId:w.app_id,autoLogAppEvents:true,xfbml:false,version:"v21.0"});res()};
   const s=document.createElement("script");s.src="https://connect.facebook.net/ru_RU/sdk.js";s.async=true;s.onerror=()=>rej(Error("Не загрузился Facebook. Отключите блокировщик рекламы и повторите."));document.head.appendChild(s)});
- const connectWa=async(coex)=>{window._waSess=null;msg("Открываю Facebook…");try{await loadFB()}catch(e){return msg(e.message)}
-  FB.login(async r=>{const code=r.authResponse&&r.authResponse.code;if(!code)return msg("Подключение отменено или не завершено.");
+ const connectWa=(coex)=>{
+  if(!window.FB)return msg("Facebook ещё загружается. Нажмите кнопку снова через пару секунд.");
+  window._waSess=null;msg("Открываю Facebook…");
+  const tm=setTimeout(()=>msg("Окно Facebook не открылось. Разрешите всплывающие окна для этого сайта (iPhone: Настройки → Safari → Блокировка всплывающих окон) и нажмите кнопку ещё раз."),45000);
+  const finish=async(r)=>{clearTimeout(tm);const code=r&&r.authResponse&&r.authResponse.code;if(!code)return msg("Подключение отменено или не завершено.");
    msg("Завершаю подключение…");for(let i=0;i<40&&!window._waSess;i++)await new Promise(x=>setTimeout(x,250));const s=window._waSess;
    if(!s||s.event==="CANCEL"||!s.data||!s.data.waba_id)return msg("Facebook не передал данные номера. Пройдите все шаги в окне до конца и повторите.");
-   try{const j=await api("channels/wa-connect",{method:"POST",body:JSON.stringify({code,phone_id:s.data.phone_number_id||"",waba_id:s.data.waba_id,coex})});msg("Готово ✅ "+(j.name||"")+" "+(j.phone||""));setTimeout(()=>views.channels(),1500)}catch(e){msg(e.message)}},
-  {config_id:coex?w.config_coex:w.config_id,response_type:"code",override_default_response_type:true,extras:{setup:{},featureType:coex?"whatsapp_business_app_onboarding":"",sessionInfoVersion:"3"}})};
- $("#wcoex").onclick=()=>connectWa(true);$("#wcon").onclick=()=>connectWa(false)},
+   try{const j=await api("channels/wa-connect",{method:"POST",body:JSON.stringify({code,phone_id:s.data.phone_number_id||"",waba_id:s.data.waba_id,coex})});msg("Готово ✅ "+(j.name||"")+" "+(j.phone||""));setTimeout(()=>views.channels(),1500)}catch(e){msg(e.message)}};
+  FB.login(r=>{finish(r)},{config_id:coex?w.config_coex:w.config_id,response_type:"code",override_default_response_type:true,extras:{setup:{},featureType:coex?"whatsapp_business_app_onboarding":"",sessionInfoVersion:"3"}})};      // вызов FB.login — сразу по нажатию, иначе Safari блокирует окно
+ $("#wcoex").onclick=()=>connectWa(true);$("#wcon").onclick=()=>connectWa(false);
+ if(w.readyCoex||w.ready){msg("Загружаю Facebook…");loadFB().then(()=>msg("Готово к подключению. Нажмите зелёную кнопку: откроется окно Facebook.")).catch(e=>msg(e.message))}},
 async pay(){const p=await api("pay");$("#main").innerHTML=head("Оплата и реквизиты","Это сообщение бот отправляет клиенту сразу после накладной")+seg("pay")+`<div class="card" style="max-width:640px"><textarea id="t">${esc(p.text)}</textarea><div style="display:flex;gap:10px;align-items:center;margin-top:14px"><button class="btn" id="s">Сохранить и опубликовать</button><span class="mut" id="m">${p.at?"Изменено "+esc(p.at):""}</span></div></div>`;
  bindSeg();$("#s").onclick=async()=>{try{await api("pay",{method:"PUT",body:JSON.stringify({text:$("#t").value})});$("#m").textContent="Сохранено ✅"}catch(e){$("#m").textContent=e.message}}}};
 boot();
