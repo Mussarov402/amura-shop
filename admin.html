@@ -78,6 +78,7 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 .accmenu.side{left:12px;bottom:76px}.accmenu.top{right:12px;top:calc(60px + env(safe-area-inset-top,0px))}
 .amh{display:flex;gap:10px;align-items:center;padding:8px 8px 10px}.amh small{display:block;color:var(--mut);font-size:12.5px}
 .accmenu button{all:unset;box-sizing:border-box;width:100%;padding:11px 10px;border-radius:10px;cursor:pointer;color:#B3261E;font-weight:700;font-size:14.5px}.accmenu button:hover{background:#FBEAE8}
+.btn.wab{background:#128C4A;font-size:16px;padding:14px 22px}.btn[disabled]{opacity:.45;cursor:not-allowed}details summary{outline:0}
 </style></head><body>
 <div id="login" hidden><div class="logo" style="color:var(--g)">AMURA<small style="color:var(--mut)">панель управления</small></div>
 <div id="l1"><p class="mut">Введите ваш Telegram-@username. Бот пришлёт в Telegram одноразовый код.</p><input id="lu" placeholder="@username" autocapitalize="off" autocomplete="username" style="margin-bottom:12px"><button class="btn" id="go">Получить код</button></div>
@@ -315,18 +316,40 @@ async team(){const t=await api("team");const P=t.perms;
 async channels(){const c=await api("channels");const w=c.wa;
  $("#main").innerHTML=head("Каналы","Откуда приходят сообщения клиентов")+seg("channels")+
  `<div class="card" style="margin-bottom:14px"><div class="row" style="border:0;padding-top:0"><div class="grow"><b>Telegram</b><div class="mut">Бот заказов AMURA Orders</div></div>${badge(c.tg.ok,"Подключён","Не настроен")}</div></div>
- <div class="card"><div class="row" style="border:0;padding-top:0"><div class="grow"><b>WhatsApp Business</b><div class="mut">Официальный Cloud API от Meta</div></div>${badge(w.ok,"Подключён","Не подключён")}</div>
- <div class="wk"><label>Phone number ID<input id="wp" value="${esc(w.phone_id)}" placeholder="например 123456789012345" autocomplete="off"></label>
- <label>Постоянный токен доступа<input id="wt" type="password" value="${esc(w.token)}" placeholder="EAAG…" autocomplete="off"></label>
- <label>App Secret (необязательно, для проверки подписи)<input id="ws" type="password" value="${esc(w.secret)}" autocomplete="off"></label>
- <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button class="btn" id="wsv">Сохранить</button><button class="btn ghost" id="wtst">Проверить подключение</button><span class="mut" id="wm"></span></div></div>
- <div style="margin-top:18px"><b>Адрес для Meta (Webhook)</b><div class="mut" style="margin:2px 0 8px">Вставьте в Meta: WhatsApp → Configuration → Webhook, и подпишитесь на поле <b>messages</b>.</div>
- <label class="mut">Callback URL</label><div class="cp"><input readonly id="wu" value="${esc(w.url)}"><button class="btn sm ghost" data-c="wu">Копировать</button></div>
- <label class="mut" style="margin-top:8px;display:block">Verify token</label><div class="cp"><input readonly id="wv" value="${esc(w.verify)}"><button class="btn sm ghost" data-c="wv">Копировать</button></div></div>
- ${c.persist?"":'<div class="b x" style="display:block;margin-top:12px;white-space:normal">База данных не подключена: настройки пропадут при перезапуске сервера.</div>'}</div>`;
+ <div class="card"><div class="row" style="border:0;padding-top:0"><div class="grow"><b>WhatsApp Business</b><div class="mut">Официальное подключение через Meta</div></div>${badge(w.ok,"Подключён","Не подключён")}</div>
+ <div style="margin-top:12px"><button class="btn wab" id="wcon" ${w.ready?"":"disabled"}>${w.ok?"Подключить другой номер":"Подключить WhatsApp Business"}</button> <button class="btn ghost" id="wtst" ${w.ok?"":"hidden"}>Проверить</button></div>
+ <div class="mut" id="wm" style="margin-top:8px;white-space:pre-wrap">${w.ready?"Откроется окно Facebook: выберите компанию и номер, подтвердите кодом. Всё остальное сделается само.":"Сначала один раз заполните данные приложения Meta ниже."}</div>
+ <details ${w.ready?"":"open"} style="margin-top:14px"><summary style="cursor:pointer;font-weight:700">Данные приложения Meta (один раз)</summary>
+  <div class="wk"><label>App ID<input id="wai" value="${esc(w.app_id)}" autocomplete="off"></label>
+  <label>App Secret<input id="wsc" type="password" value="${esc(w.secret)}" autocomplete="off"></label>
+  <label>Configuration ID (Embedded Signup)<input id="wcf" value="${esc(w.config_id)}" autocomplete="off"></label>
+  <div><button class="btn" id="wsa">Сохранить</button></div></div>
+  <ol class="stepl"><li>developers.facebook.com → ваше приложение → <b>Settings → Basic</b>: скопируйте <b>App ID</b> и <b>App Secret</b>.</li>
+  <li>Слева <b>Вход через Facebook для бизнеса → Конфигурации → Создать</b>, шаблон <b>WhatsApp Embedded Signup</b>. Скопируйте <b>Configuration ID</b>.</li>
+  <li>Там же <b>Настройки</b>: включите «Вход через JavaScript SDK» и добавьте в разрешённые домены <b>${esc(location.origin)}</b></li></ol></details>
+ <details style="margin-top:10px"><summary style="cursor:pointer;font-weight:700">Вручную (для разработчиков)</summary>
+  <div class="wk"><label>Phone number ID<input id="wp" value="${esc(w.phone_id)}" autocomplete="off"></label>
+  <label>Токен доступа<input id="wt" type="password" value="${esc(w.token)}" autocomplete="off"></label>
+  <div><button class="btn ghost" id="wsv">Сохранить</button></div></div>
+  <div style="margin-top:12px" class="mut">Webhook вручную (если не используете кнопку выше):</div>
+  <div class="cp" style="margin-top:6px"><input readonly id="wu" value="${esc(w.url)}"><button class="btn sm ghost" data-c="wu">Копировать</button></div>
+  <div class="cp" style="margin-top:6px"><input readonly id="wv" value="${esc(w.verify)}"><button class="btn sm ghost" data-c="wv">Копировать</button></div></details>
+ ${c.persist?"":'<div class="b x" style="display:block;margin-top:12px;white-space:normal;border-radius:10px;padding:10px 14px">База данных не подключена: настройки пропадут при перезапуске сервера.</div>'}</div>`;
  bindSeg();document.querySelectorAll("[data-c]").forEach(b=>b.onclick=()=>{navigator.clipboard?.writeText($("#"+b.dataset.c).value);b.textContent="Скопировано ✅"});
- $("#wsv").onclick=async()=>{try{await api("channels",{method:"PUT",body:JSON.stringify({phone_id:$("#wp").value,token:$("#wt").value,secret:$("#ws").value})});$("#wm").textContent="Сохранено ✅";setTimeout(()=>views.channels(),700)}catch(e){$("#wm").textContent=e.message}};
- $("#wtst").onclick=async()=>{$("#wm").textContent="Проверяю…";try{const r=await api("channels/wa-test",{method:"POST"});$("#wm").textContent="Работает ✅ "+(r.name||"")+" "+(r.phone||"")}catch(e){$("#wm").textContent=e.message}}},
+ const msg=t=>$("#wm").textContent=t;
+ const save=async(d,ok)=>{try{await api("channels",{method:"PUT",body:JSON.stringify(d)});msg(ok||"Сохранено ✅");setTimeout(()=>views.channels(),700)}catch(e){msg(e.message)}};
+ $("#wsa").onclick=()=>save({app_id:$("#wai").value,secret:$("#wsc").value,config_id:$("#wcf").value});
+ $("#wsv").onclick=()=>save({phone_id:$("#wp").value,token:$("#wt").value});
+ $("#wtst").onclick=async()=>{msg("Проверяю…");try{const r=await api("channels/wa-test",{method:"POST"});msg("Работает ✅ "+(r.name||"")+" "+(r.phone||""))}catch(e){msg(e.message)}};
+ let sess=null;if(!window._waMsg){window._waMsg=1;window.addEventListener("message",e=>{try{if(!/(^|\.)facebook\.com$/.test(new URL(e.origin).hostname))return;const d=typeof e.data==="string"?JSON.parse(e.data):e.data;if(d&&d.type==="WA_EMBEDDED_SIGNUP"){window._waSess=d}}catch(_){}})}
+ const loadFB=()=>new Promise((res,rej)=>{if(window.FB)return res();window.fbAsyncInit=()=>{FB.init({appId:w.app_id,autoLogAppEvents:true,xfbml:false,version:"v21.0"});res()};
+  const s=document.createElement("script");s.src="https://connect.facebook.net/ru_RU/sdk.js";s.async=true;s.onerror=()=>rej(Error("Не загрузился Facebook. Отключите блокировщик рекламы и повторите."));document.head.appendChild(s)});
+ $("#wcon").onclick=async()=>{window._waSess=null;msg("Открываю Facebook…");try{await loadFB()}catch(e){return msg(e.message)}
+  FB.login(async r=>{const code=r.authResponse&&r.authResponse.code;if(!code)return msg("Подключение отменено или не завершено.");
+   msg("Завершаю подключение…");for(let i=0;i<40&&!window._waSess;i++)await new Promise(x=>setTimeout(x,250));const s=window._waSess;
+   if(!s||s.event==="CANCEL"||!s.data||!s.data.phone_number_id)return msg("Facebook не передал номер. Пройдите все шаги в окне до конца и повторите.");
+   try{const j=await api("channels/wa-connect",{method:"POST",body:JSON.stringify({code,phone_id:s.data.phone_number_id,waba_id:s.data.waba_id})});msg("Готово ✅ "+(j.name||"")+" "+(j.phone||""));setTimeout(()=>views.channels(),1500)}catch(e){msg(e.message)}},
+  {config_id:w.config_id,response_type:"code",override_default_response_type:true,extras:{setup:{},featureType:"",sessionInfoVersion:"3"}})}},
 async pay(){const p=await api("pay");$("#main").innerHTML=head("Оплата и реквизиты","Это сообщение бот отправляет клиенту сразу после накладной")+seg("pay")+`<div class="card" style="max-width:640px"><textarea id="t">${esc(p.text)}</textarea><div style="display:flex;gap:10px;align-items:center;margin-top:14px"><button class="btn" id="s">Сохранить и опубликовать</button><span class="mut" id="m">${p.at?"Изменено "+esc(p.at):""}</span></div></div>`;
  bindSeg();$("#s").onclick=async()=>{try{await api("pay",{method:"PUT",body:JSON.stringify({text:$("#t").value})});$("#m").textContent="Сохранено ✅"}catch(e){$("#m").textContent=e.message}}}};
 boot();
