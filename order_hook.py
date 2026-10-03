@@ -909,12 +909,13 @@ def tg_webhook(secret):
             return "", 200
     doc = msg.get("document") or {}
     media = msg.get("voice") or msg.get("audio") or msg.get("video_note")                # голосовые, аудио, «кружки»
-    if msg.get("photo") or media or str(doc.get("mime_type", "")).startswith("image/") or (text and not text.startswith("/")):
+    pdf = doc if (doc.get("mime_type") == "application/pdf" or str(doc.get("file_name", "")).lower().endswith(".pdf")) else None
+    if msg.get("photo") or media or pdf or str(doc.get("mime_type", "")).startswith("image/") or (text and not text.startswith("/")):
         try:                                       # обычное сообщение клиента — в инбокс (ИИ или менеджер)
             import inbox
             photo = msg["photo"][-1]["file_id"] if msg.get("photo") else (doc["file_id"] if doc.get("mime_type", "").startswith("image/") else None)
             voice = media["file_id"] if media else None
-            threading.Thread(target=inbox.on_client_message, args=(chat, msg.get("from") or {}, text or msg.get("caption", ""), photo, voice), daemon=True).start()
+            threading.Thread(target=inbox.on_client_message, args=(chat, msg.get("from") or {}, text or msg.get("caption", ""), photo, voice, ({"id": pdf["file_id"], "name": pdf.get("file_name", "документ.pdf"), "size": pdf.get("file_size", 0)} if pdf else None)), daemon=True).start()
             return "", 200
         except Exception as e:
             print("Инбокс недоступен:", e, flush=True)

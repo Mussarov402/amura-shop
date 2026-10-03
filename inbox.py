@@ -2,6 +2,7 @@
 Хранение — Postgres (DATABASE_URL); без неё временный SQLite-файл (при перезапуске сервера пропадёт).
 ИИ: OPENAI_API_KEY, модель OPENAI_MODEL (по умолчанию gpt-4o-mini)."""
 import base64
+import io
 import json
 import os
 import re
@@ -111,6 +112,7 @@ ORDER_RULES = """# Оформление заказа
 MEDIA_RULES = """# Фото и голосовые
 Клиент может прислать фото или голосовое (оно уже расшифровано и помечено 🎤). Относись к ним как к обычному тексту.
 - Фото товара или упаковки: прочитай бренд и название на упаковке, найди товар инструментом search_catalog и назови цену и наличие. Если уверенно определить не получилось — честно скажи и попроси название или артикул.
+- PDF-чек (в сообщении видно «📄 PDF» и текст внутри) — то же самое, что фото чека. Если текст прочитать не удалось, так и скажи и передай менеджеру.
 - Фото чека об оплате, скриншот перевода или слова «оплатил(а)»: оплату сам не проверяй и не подтверждай — у тебя нет доступа к банку. Ответь коротко и по-человечески, что передал чек менеджеру на проверку и сообщите, когда оплата подтвердится (метка """ + HANDOFF + """). Если не ясно, за какой заказ оплата, спроси номер заказа. Сумму и получателя с чека не озвучивай и ничего не обещай по срокам отгрузки.
 - Фото брака, повреждения, жалобы: извинись, попроси номер заказа и передай менеджеру (метка """ + HANDOFF + """).
 - Фото, на котором нет ничего про заказ или товары, — вежливо уточни, чем помочь.
@@ -282,6 +284,19 @@ def transcribe(file_id):
     return (j.json().get("text") or "").strip()
 
 
+def pdf_text(file_id, size=0):
+    """Текст из PDF-чека (банковские и Kaspi-чеки — текстовые). Пусто, если это скан или файл слишком большой."""
+    if size and size > 8_000_000:
+        return ""
+    info = oh.tg("getFile", file_id=file_id)["result"]
+    r = requests.get(f"https://api.telegram.org/file/bot{oh.BOT}/{info['file_path']}", timeout=30)
+    r.raise_for_status()
+    from pypdf import PdfReader
+    rd = PdfReader(io.BytesIO(r.content))
+    txt = "\n".join((p.extract_text() or "") for p in rd.pages[:3])
+    return re.sub(r"[ \t]+", " ", re.sub(r"\n\s*\n+", "\n", txt)).strip()[:3000]
+
+
 def photo_data_url(file_id):
     if file_id.startswith("data:"):              # фото из пробного чата панели
         return file_id
@@ -345,7 +360,7 @@ def save_msg(d, cid, role, text, photo=None, unread=0):
     d.run("UPDATE conv SET last_at=%s, last_text=%s, unread=unread+%s WHERE id=%s", (now, (text or "[фото]")[:120], unread, cid))
 
 
-def on_client_message(chat, user, text, photo=None, voice=None):
+def on_client_message(chat, user, text, photo=None, voice=None, pdf=None):
     """Вызывается из вебхука бота в отдельном потоке."""
     try:
         voice_failed = False
@@ -359,6 +374,13 @@ def on_client_message(chat, user, text, photo=None, voice=None):
                 print("Голосовое не расшифровано:", e, flush=True)
                 text = "🎤 [голосовое сообщение, расшифровать не удалось]"
                 voice_failed = True
+        if pdf:                                            # PDF (чаще всего чек): достаём текст и дальше как обычное сообщение
+            try:
+                body = pdf_text(pdf["id"], pdf.get("size", 0))
+            except Exception as e:
+                print("PDF не прочитан:", e, flush=True)
+                body = ""
+            text = f"📄 PDF «{pdf['name']}»" + (f"\n{body}" if body else " (текст прочитать не удалось)") + (f"\n{text}" if text else "")
         with _lock, db() as d:
             row = d.run("SELECT id, status FROM conv WHERE chat_id=%s", (str(chat),), one=True)
             name = " ".join(x for x in (user.get("first_name"), user.get("last_name")) if x) or user.get("username") or "Клиент"
@@ -399,6 +421,11 @@ def on_client_message(chat, user, text, photo=None, voice=None):
                 d.run("UPDATE conv SET status='manager' WHERE id=%s", (cid,))
         if hand:
             oh.alert(f"inbox:{cid}", f"{name} ждёт менеджера: {(text or '[фото]')[:200]}\nОтветьте в панели → Сообщения", every=0)
+            if pdf and oh.OWNER:
+                try:
+                    oh.tg("sendDocument", chat_id=oh.OWNER, document=pdf["id"], caption=f"PDF от {name} (передано менеджеру)"[:200])
+                except Exception as e:
+                    print("PDF владельцу не ушёл:", e, flush=True)
             if photo and oh.OWNER:                      # чек или фото брака — сразу владельцу, без захода в панель
                 try:
                     oh.tg("sendPhoto", chat_id=oh.OWNER, photo=photo, caption=f"Фото от {name} (передано менеджеру)"[:200])
