@@ -481,4 +481,5 @@ def ai_test():
         return jsonify(ok=False, error="Ключ OPENAI_API_KEY не добавлен в Render"), 400
     with inbox.db() as d:
         reply, hand = inbox.ai_reply(d, hist, text, image)
+        reply = inbox.clean_reply(reply)
     return jsonify(ok=True, reply=reply, handoff=hand)
