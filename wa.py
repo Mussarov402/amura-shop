@@ -14,7 +14,8 @@ from flask import Blueprint, Response, jsonify, request
 import order_hook as oh
 
 bp = Blueprint("wa", __name__)
-GRAPH = "https://graph.facebook.com/v21.0"
+GRAPH_VER = "v21.0"
+GRAPH = "https://graph.facebook.com/" + GRAPH_VER
 _seen = {}                                   # id входящих сообщений: Meta повторяет доставку, дубли не нужны
 _cfg = {"t": 0.0, "v": {}}
 
@@ -23,7 +24,8 @@ def cfg():
     """Настройки WhatsApp (кэш 30 с): база, затем env."""
     if time.time() - _cfg["t"] < 30:
         return _cfg["v"]
-    v = {"phone_id": os.environ.get("WA_PHONE_ID", ""), "token": os.environ.get("WA_TOKEN", ""), "secret": os.environ.get("WA_APP_SECRET", "")}
+    v = {"phone_id": os.environ.get("WA_PHONE_ID", ""), "token": os.environ.get("WA_TOKEN", ""), "secret": os.environ.get("WA_APP_SECRET", ""),
+         "app_id": os.environ.get("WA_APP_ID", ""), "config_id": os.environ.get("WA_CONFIG_ID", ""), "waba": ""}
     try:
         import inbox
         with inbox.db() as d:
@@ -120,6 +122,37 @@ def check():
     """Проверка настроек: имя и номер из кабинета Meta."""
     c = cfg()
     return _call("GET", f"{c['phone_id']}", params={"fields": "display_phone_number,verified_name,quality_rating"})
+
+
+# ---------- подключение «одной кнопкой» (Embedded Signup) ----------
+def connect(code, phone_id, waba_id, webhook_url, verify_token):
+    """Окно Facebook вернуло code и id номера/аккаунта: меняем code на токен, подписываем вебхук, регистрируем номер, сохраняем настройки."""
+    import inbox
+    c = cfg()
+    if not (c["app_id"] and c["secret"]):
+        raise RuntimeError("Сначала сохраните App ID и App Secret приложения Meta")
+    r = requests.get(f"{GRAPH}/oauth/access_token", params={"client_id": c["app_id"], "client_secret": c["secret"], "code": code}, timeout=30)
+    j = r.json()
+    if r.status_code >= 400 or not j.get("access_token"):
+        raise RuntimeError("Meta не выдала токен: " + str((j.get("error") or {}).get("message", r.text[:200])))
+    token = j["access_token"]
+    h = {"Authorization": "Bearer " + token}
+    # вебхук именно для этого аккаунта: адрес и токен подтверждения задаём сами, без ручной настройки в кабинете
+    s = requests.post(f"{GRAPH}/{waba_id}/subscribed_apps", headers=h, timeout=30,
+                      json={"override_callback_uri": webhook_url, "verify_token": verify_token})
+    if s.status_code >= 400:
+        raise RuntimeError("Не удалось подписать аккаунт на сообщения: " + str((s.json().get("error") or {}).get("message", s.text[:200])))
+    try:                                                    # номер из Embedded Signup нужно зарегистрировать в Cloud API (если ещё нет)
+        requests.post(f"{GRAPH}/{phone_id}/register", headers=h, timeout=30,
+                      json={"messaging_product": "whatsapp", "pin": f"{int.from_bytes(os.urandom(3), 'big') % 900000 + 100000}"})
+    except Exception as e:
+        print("WA: регистрация номера:", e, flush=True)
+    with inbox.db() as d:
+        inbox.set_setting(d, "wa_token", token)
+        inbox.set_setting(d, "wa_phone_id", phone_id)
+        inbox.set_setting(d, "wa_waba", waba_id)
+    reset_cache()
+    return check()
 
 
 # ---------- вебхук ----------

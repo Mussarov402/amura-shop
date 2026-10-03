@@ -788,20 +788,21 @@ def _mask(v):
 @bp.route("/admin/api/channels", methods=["GET", "PUT"])
 @guard
 def channels():
-    with inbox.db() as d:
-        if request.method == "PUT":
-            b = request.get_json(silent=True) or {}
-            for k in ("phone_id", "token", "secret"):
+    if request.method == "PUT":
+        b = request.get_json(silent=True) or {}
+        with inbox.db() as d:
+            for k in ("phone_id", "token", "secret", "app_id", "config_id"):
                 v = str(b.get(k, "")).strip()
                 if v and "•" not in v:                  # маска означает «не менять»
                     inbox.set_setting(d, "wa_" + k, v)
                 elif k in b and not v:
                     inbox.set_setting(d, "wa_" + k, "")
-            wa.reset_cache()
-        c = wa.cfg()
-        base = (oh.PUBLIC_URL or request.url_root).rstrip("/")
+        wa.reset_cache()                                # читаем только после записи (коммит при выходе из with)
+    c = wa.cfg()
+    base = (oh.PUBLIC_URL or request.url_root).rstrip("/")
     return jsonify(ok=True, tg={"ok": bool(oh.BOT and oh.OWNER)}, persist=bool(inbox.PG),
                    wa={"ok": wa.configured(), "phone_id": c["phone_id"], "token": _mask(c["token"]), "secret": _mask(c["secret"]),
+                       "app_id": c["app_id"], "config_id": c["config_id"], "ready": bool(c["app_id"] and c["config_id"] and c["secret"]),
                        "url": f"{base}/wa/{oh.HOOK_SECRET}", "verify": oh.HOOK_SECRET})
 
 
@@ -813,3 +814,19 @@ def wa_test():
         return jsonify(ok=True, name=j.get("verified_name", ""), phone=j.get("display_phone_number", ""), quality=j.get("quality_rating", ""))
     except Exception as e:
         return jsonify(ok=False, error=str(e)[:300]), 400
+
+
+@bp.post("/admin/api/channels/wa-connect")
+@guard
+def wa_connect():
+    """Финал кнопки «Подключить WhatsApp»: страница прислала code из окна Facebook и id номера."""
+    b = request.get_json(silent=True) or {}
+    code, pid, wid = str(b.get("code", "")), str(b.get("phone_id", "")), str(b.get("waba_id", ""))
+    if not (code and pid and wid):
+        return jsonify(ok=False, error="Facebook не передал данные номера. Попробуйте ещё раз и дойдите до конца."), 400
+    base = (oh.PUBLIC_URL or request.url_root).rstrip("/")
+    try:
+        j = wa.connect(code, pid, wid, f"{base}/wa/{oh.HOOK_SECRET}", oh.HOOK_SECRET)
+    except Exception as e:
+        return jsonify(ok=False, error=str(e)[:300]), 400
+    return jsonify(ok=True, name=j.get("verified_name", ""), phone=j.get("display_phone_number", ""))
