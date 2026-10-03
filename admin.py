@@ -261,6 +261,11 @@ def panel_icon(size):
     return send_from_directory(HERE, f"panel-icon-{size}.png", max_age=86400)
 
 
+@bp.get("/admin/spider.png")
+def panel_spider():
+    return send_from_directory(HERE, "spider.png", max_age=86400)
+
+
 @bp.get("/admin")
 def page():
     return send_from_directory(HERE, "admin.html", max_age=0)
