@@ -1190,33 +1190,34 @@ document.body.dataset.view = "home";
 boot();
 </script>
 <script>
-/* Потянуть вниз — обновить (только когда сайт добавлен на экран телефона). Индикатор: паучок на нитке с пружинной инерцией. */
+/* Потянуть вниз — обновить (только когда сайт добавлен на экран телефона). Индикатор: Человек-паук на нити, гнётся в двух местах, пружинная инерция. */
 (function(){
  var sa=(window.matchMedia&&matchMedia("(display-mode: standalone)").matches)||window.navigator.standalone===true;if(!sa)return;
- var st=document.createElement("style");st.textContent="#ptr{position:fixed;left:50%;top:0;width:26px;height:40px;margin-left:-13px;z-index:9999;opacity:0;pointer-events:none;transform:translateY(-70px)}#ptr:before{content:'';position:absolute;left:50%;bottom:100%;width:1.4px;height:400px;margin-left:-.7px;background:linear-gradient(rgba(150,160,155,0),#98a39d)}#ptr svg{width:26px;height:40px;display:block;overflow:visible;transform-origin:50% 0;filter:drop-shadow(0 2px 2px rgba(0,0,0,.25))}#ptr g{transform-box:view-box}";document.head.appendChild(st);
- var ind=document.createElement("div");ind.id="ptr";
- ind.innerHTML='<svg viewBox="0 0 36 56"><path d="M18 0V9" stroke="#98a39d" stroke-width="1.4" fill="none"/><g class="lg" style="transform-origin:18px 10px"><rect x="12.3" y="9.5" width="5.9" height="15.5" rx="2.9" fill="#D62828"/><rect x="17.8" y="9.5" width="5.9" height="15.5" rx="2.9" fill="#D62828"/><path d="M11.8 11Q11 18 12.2 24M24.2 11Q25 18 23.8 24" stroke="#1b1b1b" stroke-width="1.7" fill="none" stroke-linecap="round"/><ellipse cx="14.4" cy="9.6" rx="3" ry="2.4" fill="#D62828"/><ellipse cx="21.6" cy="9.6" rx="3" ry="2.4" fill="#D62828"/></g><path d="M11 24H25L27.5 38H8.5Z" fill="#D62828"/><path d="M11 24L8.5 38H12L13 24ZM25 24L27.5 38H24L23 24Z" fill="#1b1b1b"/><g stroke="#1b1b1b" stroke-width=".9" stroke-linecap="round"><path d="M18 29.5V35M15.2 31.2L20.8 33.6M20.8 31.2L15.2 33.6"/></g><circle cx="18" cy="32.3" r="1.2" fill="#1b1b1b"/><g class="ar" style="transform-origin:18px 36px"><path d="M9.2 37Q2.5 27 14.6 15.2M26.8 37Q33.5 27 21.4 15.2" stroke="#D62828" stroke-width="3.6" fill="none" stroke-linecap="round"/><path d="M9.6 36Q4 28 14 16.5M26.4 36Q32 28 22 16.5" stroke="#1b1b1b" stroke-width=".9" fill="none" stroke-linecap="round" opacity=".7"/><circle cx="14.8" cy="15" r="2" fill="#D62828"/><circle cx="21.2" cy="15" r="2" fill="#D62828"/></g><circle cx="18" cy="46.2" r="8" fill="#D62828"/><g stroke="#1b1b1b" stroke-width=".55" fill="none" opacity=".85"><path d="M18 38.6V54.2M10.2 46.2H25.8M11.4 41.2Q18 44.6 24.6 41.2M11.4 51.2Q18 47.8 24.6 51.2"/></g><path d="M9.6 47.6Q12 43.8 16.3 47Q14.6 51 11.3 50.6Q9.4 49.8 9.6 47.6Z" fill="#fff" stroke="#1b1b1b" stroke-width="1.1" stroke-linejoin="round"/><path d="M26.4 47.6Q24 43.8 19.7 47Q21.4 51 24.7 50.6Q26.6 49.8 26.4 47.6Z" fill="#fff" stroke="#1b1b1b" stroke-width="1.1" stroke-linejoin="round"/></svg>';
- document.body.appendChild(ind);
- var svg=ind.firstChild,lg=svg.querySelector(".lg"),ar=svg.querySelector(".ar");
- var y0=0,x0=0,base=8,TH=62,MAX=100,on=false,pull=0,state="idle",y=0,vy=0,target=0,ang=0,t0=0,raf=0;
- function draw(){ind.style.transform="translateY("+(base+y-70)+"px)";ind.style.opacity=Math.min(1,y/22);
-  svg.style.transform="rotate("+ang+"deg)";lg.style.transform="rotate("+(-ang*.55)+"deg)";ar.style.transform="rotate("+(ang*.7)+"deg)"}
+ var SRC=location.pathname.indexOf("/admin")===0?"/admin/spider.png":"spider.png",W=27,H=64,J1=.27*H,J2=.62*H;
+ var st=document.createElement("style");st.textContent="#ptr{position:fixed;left:50%;top:0;width:"+W+"px;height:"+H+"px;margin-left:-"+W/2+"px;z-index:9999;opacity:0;pointer-events:none;transform:translateY(-90px)}#ptr:before{content:'';position:absolute;left:50%;bottom:100%;width:1.4px;height:400px;margin-left:-.7px;background:linear-gradient(rgba(150,160,155,0),#98a39d)}#ptr i{position:absolute;left:0;top:0;width:"+W+"px;height:"+H+"px;background:url("+SRC+") 0 0/100% 100% no-repeat;transform-origin:50% 0;filter:drop-shadow(0 2px 2px rgba(0,0,0,.28))}#ptr .a{clip-path:inset(0 0 "+(100-33)+"% 0)}#ptr .b{clip-path:inset(22% 0 "+(100-68)+"% 0)}#ptr .c{clip-path:inset(56% 0 0 0)}";document.head.appendChild(st);
+ var ind=document.createElement("div");ind.id="ptr";ind.innerHTML='<i class="a"></i><i class="b"></i><i class="c"></i>';document.body.appendChild(ind);
+ new Image().src=SRC;
+ var a=ind.querySelector(".a"),b=ind.querySelector(".b"),c=ind.querySelector(".c");
+ var y0=0,x0=0,base=8,TH=62,MAX=100,on=false,pull=0,state="idle",y=0,vy=0,target=0,ang=0,t0=0,raf=0,e1=0,e2=0;
+ function draw(){ind.style.transform="translateY("+(base+y-90)+"px)";ind.style.opacity=Math.min(1,y/22);
+  var r1="translate(0,"+J1+"px) rotate("+e1+"deg) translate(0,"+(-J1)+"px)",r2="translate(0,"+J2+"px) rotate("+e2+"deg) translate(0,"+(-J2)+"px)",g="rotate("+ang+"deg) ";
+  a.style.transform=g;b.style.transform=g+r1;c.style.transform=g+r1+r2}
  function loop(ts){
-  if(state==="pull"){vy=(vy+(target-y)*.2)*.74;y+=vy;ang+=((Math.max(-24,Math.min(24,vy*2.4)))-ang)*.35}
-  else if(state==="go"){var t=(ts-t0)/1000;y+=(target-y)*.25;ang=24*Math.sin(t*6.4)*Math.exp(-t*.28)+3*Math.sin(t*11)}
-  else if(state==="back"){y+=(0-y)*.2;ang*=.85;if(y<.6){state="idle";y=0;ang=0;draw();return}}
+  if(state==="pull"){vy=(vy+(target-y)*.2)*.74;y+=vy;ang+=((Math.max(-22,Math.min(22,vy*2.4)))-ang)*.35;e1=-ang*.5;e2=-ang*.45}
+  else if(state==="go"){var t=(ts-t0)/1000;y+=(target-y)*.25;ang=22*Math.sin(t*6.2)*Math.exp(-t*.28);e1=-ang*.5+5*Math.sin(t*6.2-1.1);e2=-ang*.4+7*Math.sin(t*6.2-2.2)}
+  else if(state==="back"){y+=(0-y)*.2;ang*=.85;e1*=.85;e2*=.85;if(y<.6){state="idle";y=0;ang=e1=e2=0;draw();return}}
   draw();raf=requestAnimationFrame(loop)}
  function run(s,ts){state=s;if(s==="go")t0=ts||performance.now();cancelAnimationFrame(raf);raf=requestAnimationFrame(loop)}
  function blocked(t){if(document.body.classList.contains("inchat")||document.querySelector(".modal.open,.scrim.open"))return true;
   for(var e=t;e&&e!==document.body&&e!==document.documentElement;e=e.parentElement){var s=getComputedStyle(e);if((s.overflowY==="auto"||s.overflowY==="scroll")&&e.scrollHeight>e.clientHeight+1)return true}return false}
  addEventListener("touchstart",function(e){on=false;pull=0;if(state==="go"||window.scrollY>0||e.touches.length!==1||blocked(e.target))return;
   var h=document.querySelector(".mtop"),r=h&&h.offsetParent!==null?h.getBoundingClientRect().bottom:0;base=(r||0)+10;ind.style.top=r?0:"env(safe-area-inset-top,0px)";
-  y0=e.touches[0].clientY;x0=e.touches[0].clientX;on=true;y=0;vy=0;target=0;ang=0},{passive:true});
+  y0=e.touches[0].clientY;x0=e.touches[0].clientX;on=true;y=0;vy=0;target=0;ang=e1=e2=0},{passive:true});
  addEventListener("touchmove",function(e){if(!on)return;var t=e.touches[0],dy=t.clientY-y0;
   if(Math.abs(t.clientX-x0)>Math.abs(dy)||dy<=0||window.scrollY>0){on=false;pull=0;target=0;run("back");return}
   if(e.cancelable)e.preventDefault();pull=Math.min(dy*.5,MAX);target=pull;if(state!=="pull")run("pull")},{passive:false});
  addEventListener("touchend",function(){if(!on)return;on=false;
-  if(pull>=TH){target=TH;run("go");setTimeout(function(){location.reload()},900)}else if(state==="pull")run("back");pull=0},{passive:true});
+  if(pull>=TH){target=TH;run("go");setTimeout(function(){location.reload()},1000)}else if(state==="pull")run("back");pull=0},{passive:true});
 })();
 </script>
 </body>
