@@ -115,6 +115,13 @@ const verify=async()=>{const b=$("#vf");b.disabled=true;
   if(!r.ok)throw Error(r.error);tok=r.token;localStorage.setItem(T,tok);$("#lc").value="";$("#l1").hidden=false;$("#l2").hidden=true;lmsg("");boot()}catch(e){lmsg(e.message)}b.disabled=false};
 $("#vf").onclick=verify;$("#lc").onkeydown=e=>{if(e.key==="Enter")verify()};
 $("#lb").onclick=e=>{e.preventDefault();$("#l1").hidden=false;$("#l2").hidden=true;lmsg("")};
+const pdfCache={};
+async function sharePdf(url,number,el){const old=el.textContent;
+ try{el.textContent="Готовлю…";let f=pdfCache[url];if(!f){const r=await fetch(url);if(!r.ok)throw new Error("pdf");f=pdfCache[url]=new File([await r.blob()],"AMURA-"+number+".pdf",{type:"application/pdf"})}
+  if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f],title:f.name});return}
+  const a=document.createElement("a");a.href=URL.createObjectURL(f);a.download=f.name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},4000)}
+ catch(e){if(e&&e.name==="AbortError")return;if(e&&e.name==="NotAllowedError"){el.textContent="Нажмите ещё раз";setTimeout(()=>el.textContent=old,2500);return}window.open(url,"_blank")}
+ finally{if(el.textContent==="Готовлю…")el.textContent=old}}
 const hueOf=n=>{let h=0;for(const c of String(n))h=(h*31+c.charCodeAt(0))%360;return h};
 const avatar=(n,s)=>`<span class="av" style="width:${s}px;height:${s}px;font-size:${Math.round(s*.44)}px;background:hsl(${hueOf(n)} 36% 40%)">${esc((String(n||"?").trim()[0]||"?").toUpperCase())}</span>`;
 const logout=()=>{localStorage.removeItem(T);tok="";boot()};
@@ -145,7 +152,8 @@ async overview(){const o=await api("overview");$("#main").innerHTML=head("Обз
 <div class="row"><div class="grow"><b>Вход по SMS</b></div>${badge(o.sms,"Подключён","Не подключён")}</div>
 <div class="row"><div class="grow"><b>WhatsApp</b></div>${badge(o.wa,"Подключён","Не подключён")}</div></div>`;bindSeg()},
 async orders(){const o=await api("orders");const st=s=>/оплач/i.test(s)&&!/ждё|не /i.test(s)?"ok":/нов|ждё/i.test(s)?"w":"n";
- $("#main").innerHTML=head("Заказы с сайта","Заказы создаются в МойСклад; последние 30")+`<div class="card">`+o.orders.map(x=>`<div class="ord"><div class="o1"><b>№${esc(x.number)}</b><span class="mut">${esc(x.moment.replace("T"," ").slice(5))}</span><span class="b ${st(x.state)}" style="margin-left:auto">${esc(x.state)}</span></div><div class="o2"><span class="cl">${esc(x.client)}</span><b>${fmt(x.sum)} ₸</b></div><div class="o3"><span class="mut">${esc(x.ship)||"&nbsp;"}</span><a href="${esc(x.pdf)}" target="_blank">PDF</a></div></div>`).join("")+`</div>`},
+ $("#main").innerHTML=head("Заказы с сайта","Заказы создаются в МойСклад; последние 30")+`<div class="card">`+o.orders.map(x=>`<div class="ord"><div class="o1"><b>№${esc(x.number)}</b><span class="mut">${esc(x.moment.replace("T"," ").slice(5))}</span><span class="b ${st(x.state)}" style="margin-left:auto">${esc(x.state)}</span></div><div class="o2"><span class="cl">${esc(x.client)}</span><b>${fmt(x.sum)} ₸</b></div><div class="o3"><span class="mut">${esc(x.ship)||"&nbsp;"}</span><a href="${esc(x.pdf)}" target="_blank" data-pdf="${esc(x.pdf)}" data-n="${esc(x.number)}">PDF</a></div></div>`).join("")+`</div>`;
+ document.querySelectorAll("a[data-pdf]").forEach(l=>l.onclick=e=>{e.preventDefault();sharePdf(l.dataset.pdf,l.dataset.n,l)})},
 async products(q="",brand="",page=0){const size=+(localStorage.getItem("amura_psize")||100);const [o,bs]=await Promise.all([api("products?q="+encodeURIComponent(q)+"&brand="+encodeURIComponent(brand)+"&size="+size+"&offset="+page*size),api("brands")]);const pages=Math.max(1,Math.ceil(o.total/size));
  const cb=brand?bs.brands.find(b=>b.brand===brand):null;
  $("#main").innerHTML=head("Товары на сайте","Цены и остатки идут из МойСклад. Здесь только видимость.")+seg("products")+`<div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap"><select id="br" style="padding:12px;border:1px solid #CBD4CE;border-radius:10px;font:15px inherit;background:#fff"><option value="">Все бренды (${bs.brands.length})</option>${bs.brands.map(b=>`<option value="${esc(b.brand)}" ${b.brand===brand?"selected":""}>${esc(b.brand)} — ${b.total}${b.hidden?`, скрыто ${b.hidden}`:""}</option>`).join("")}</select><input id="q" placeholder="Поиск по названию, бренду, коду" value="${esc(q)}" style="flex:1;min-width:200px"></div>

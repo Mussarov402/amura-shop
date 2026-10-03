@@ -611,7 +611,7 @@ def too_many(ip, limit=5, window=600):
 @bp.after_request
 def cors(resp):
     origin = request.headers.get("Origin", "")
-    allowed = {SITE_URL.split("/amura-shop")[0], "https://amura.kz", "https://www.amura.kz"}
+    allowed = {SITE_URL.split("/amura-shop")[0], "https://amura.kz", "https://www.amura.kz", "https://admin.amura.kz"}
     if origin in allowed:
         resp.headers["Access-Control-Allow-Origin"] = origin
         resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"

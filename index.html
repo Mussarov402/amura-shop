@@ -970,9 +970,10 @@ function showDone(res, f, t){
     ${f.contact === "tg"
       ? `<p>Нажмите кнопку и «Старт» — бот сразу пришлёт PDF-накладную и реквизиты для оплаты.</p><a class="btn tg" href="${tg}" target="_blank" rel="noopener">Получить накладную в Telegram</a>`
       : `<p>Нажмите кнопку — выберите WhatsApp, и текст заказа вместе с PDF уйдёт менеджеру. В ответ он пришлёт реквизиты для оплаты.</p><button class="btn wa" id="waSend" type="button">Отправить в WhatsApp</button>`}
-    ${res.pdfUrl ? `<a class="btn ghost" href="${esc(res.pdfUrl)}" target="_blank" rel="noopener">Скачать PDF-накладную</a>` : (res.demo ? `<p class="kv">В демо-режиме PDF не создаётся.</p>` : "")}
+    ${res.pdfUrl ? `<button class="btn ghost" id="pdfShare" type="button">Скопировать / отправить PDF-накладную</button>` : (res.demo ? `<p class="kv">В демо-режиме PDF не создаётся.</p>` : "")}
     <button class="btn ghost" id="backShop" type="button">Вернуться в каталог</button></div>`;
   $("#backShop").onclick = () => go("home");
+  if(res.pdfUrl){ pdfFile(res.pdfUrl, res.number).catch(() => {}); $("#pdfShare").onclick = e => sharePdf(res.pdfUrl, res.number, e.currentTarget); }
   const waBtn = $("#waSend");
   if(waBtn){
     // PDF скачиваем заранее, чтобы по нажатию сразу открылось меню «Поделиться» с файлом и текстом
@@ -989,6 +990,27 @@ function showDone(res, f, t){
       if(res.pdfUrl) toast("PDF скачайте кнопкой ниже и приложите в чат");
     };
   }
+}
+
+/* ===== PDF-накладная как файл: «Поделиться» открывает меню телефона, где «Копировать» копирует сам документ, а не ссылку ===== */
+const pdfCache = {};
+function pdfFile(url, number){
+  if(pdfCache[url]) return Promise.resolve(pdfCache[url]);
+  return fetch(url).then(r => { if(!r.ok) throw new Error("pdf"); return r.blob(); }).then(b => (pdfCache[url] = new File([b], `AMURA-${number}.pdf`, { type: "application/pdf" })));
+}
+async function sharePdf(url, number, btn){
+  const old = btn && btn.textContent;
+  try{
+    if(btn){ btn.disabled = true; btn.textContent = "Готовлю файл…"; }
+    const f = await pdfFile(url, number);
+    if(navigator.canShare && navigator.canShare({ files: [f] })){ await navigator.share({ files: [f], title: f.name }); return; }
+    const a = document.createElement("a"); a.href = URL.createObjectURL(f); a.download = f.name; document.body.appendChild(a); a.click();     // компьютер: файл просто скачивается
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000); toast("PDF сохранён в загрузки");
+  }catch(e){
+    if(e && e.name === "AbortError") return;
+    if(e && e.name === "NotAllowedError") toast("Нажмите ещё раз — файл уже готов");     // iPhone просит нажатие сразу после загрузки
+    else window.open(url, "_blank", "noopener");
+  }finally{ if(btn){ btn.disabled = false; btn.textContent = old; } }
 }
 
 /* ===== UI ===== */
@@ -1055,9 +1077,10 @@ function paintMe(p, orders){
           <div class="top"><b>№ ${esc(o.number)}</b><span class="kv">${esc(o.date)}</span></div>
           <div class="top"><span class="pill"${STATUS_TONE(o.status)}>${esc(o.status)}</span><b>${fmt(o.sum)} ₸</b></div>
           <details><summary>${fmt(o.count)} шт · ${o.items.length} ${o.items.length === 1 ? "товар" : "товаров"}</summary><ul>${o.items.map(it => `<li>${esc(it.name)} — ${fmt(it.qty)} × ${fmt(it.price)} ₸</li>`).join("")}</ul></details>
-          <div class="row">${o.pdfUrl ? `<a class="btn ghost" href="${esc(o.pdfUrl)}" target="_blank" rel="noopener">PDF</a>` : ""}<button class="btn" type="button" data-repeat="${i}">Повторить заказ</button></div>
+          <div class="row">${o.pdfUrl ? `<button class="btn ghost" type="button" data-pdf="${i}">Скопировать PDF</button>` : ""}<button class="btn" type="button" data-repeat="${i}">Повторить заказ</button></div>
         </div>`).join("")}</div>
     <button class="btn ghost" type="button" id="logout" style="margin-top:22px">Выйти</button>`;
+  document.querySelectorAll("[data-pdf]").forEach(b => b.onclick = () => { const o = orders[+b.dataset.pdf]; sharePdf(o.pdfUrl, o.number, b); });
   $("#logout").onclick = () => { setAuth("", null); renderMe(); };
   $("#editProfile").onclick = () => editProfile(p);
   $("#orders").onclick = e => {
