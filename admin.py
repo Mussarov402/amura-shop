@@ -844,7 +844,13 @@ def wa_connect():
         return jsonify(ok=False, error="Facebook не передал данные номера. Попробуйте ещё раз и дойдите до конца."), 400
     base = (oh.PUBLIC_URL or request.url_root).rstrip("/")
     try:
-        j = wa.connect(code, pid, wid, f"{base}/wa/{oh.HOOK_SECRET}", oh.HOOK_SECRET, coex)
+        page = str(b.get("redirect", "")).split("#")[0][:300]
+        origin = request.url_root.rstrip("/")
+        reds = []
+        for ru in ("", None, page, origin, origin + "/", origin + "/admin"):      # None — параметр не передавать
+            if ru not in reds and (ru is None or ru == "" or ru.startswith("http")):
+                reds.append(ru)
+        j = wa.connect(code, pid, wid, f"{base}/wa/{oh.HOOK_SECRET}", oh.HOOK_SECRET, coex, reds)
     except oh.requests.exceptions.RequestException:
         return jsonify(ok=False, error="Не удалось связаться с Meta. Повторите через минуту."), 502
     except Exception as e:
