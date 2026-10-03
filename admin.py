@@ -472,10 +472,13 @@ def ai_test():
     text = str(j.get("text", "")).strip()[:500]
     hist = [("client" if m.get("role") == "client" else "ai", str(m.get("text", ""))[:500])
             for m in (j.get("history") or [])[-12:] if isinstance(m, dict) and m.get("text")]
-    if not text:
+    image = str(j.get("image", ""))
+    if not image.startswith("data:image/") or len(image) > 3_000_000:
+        image = None
+    if not text and not image:
         return jsonify(ok=False, error="Напишите вопрос"), 400
     if not inbox.OPENAI_KEY:
         return jsonify(ok=False, error="Ключ OPENAI_API_KEY не добавлен в Render"), 400
     with inbox.db() as d:
-        reply, hand = inbox.ai_reply(d, hist, text)
+        reply, hand = inbox.ai_reply(d, hist, text, image)
     return jsonify(ok=True, reply=reply, handoff=hand)
