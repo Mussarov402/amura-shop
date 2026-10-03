@@ -4,6 +4,7 @@
 import hashlib
 import hmac
 import json
+import mimetypes
 import os
 import secrets
 import time
@@ -462,6 +463,18 @@ def inbox_convs():
     return jsonify(ok=True, convs=[{"id": r[0], "name": r[1], "username": r[2], "status": r[3], "unread": r[4], "at": r[5], "text": r[6]} for r in rows])
 
 
+def _msg_json(m):
+    media = None
+    if len(m) > 5 and m[5]:
+        try:
+            media = json.loads(m[5])
+            media["url"] = f"/admin/api/inbox/file/{media['id']}?t={_sig('fl' + media['id'])}"
+        except Exception:
+            media = None
+    return {"id": m[0], "role": m[1], "text": m[2], "at": m[4], "media": media,
+            "photo": (f"/admin/api/inbox/photo/{m[3]}?t={_sig('ph' + m[3])}" if m[3] else "")}
+
+
 @bp.get("/admin/api/inbox/conv/<int:cid>")
 @need("inbox")
 def inbox_conv(cid):
@@ -470,10 +483,9 @@ def inbox_conv(cid):
         if not c:
             return jsonify(ok=False, error="Диалог не найден"), 404
         d.run("UPDATE conv SET unread=0 WHERE id=%s", (cid,))
-        ms_ = d.run("SELECT id, role, text, photo, at FROM msg WHERE conv_id=%s ORDER BY id DESC LIMIT 100", (cid,), many=True)[::-1]
+        ms_ = d.run("SELECT id, role, text, photo, at, media FROM msg WHERE conv_id=%s ORDER BY id DESC LIMIT 100", (cid,), many=True)[::-1]
     return jsonify(ok=True, conv={"id": c[0], "name": c[1], "username": c[2], "status": c[3]},
-                   messages=[{"id": m[0], "role": m[1], "text": m[2], "at": m[4],
-                              "photo": (f"/admin/api/inbox/photo/{m[3]}?t={_sig('ph' + m[3])}" if m[3] else "")} for m in ms_])
+                   messages=[_msg_json(m) for m in ms_])
 
 
 @bp.post("/admin/api/inbox/conv/<int:cid>/send")
@@ -501,6 +513,100 @@ def inbox_set_status(cid):
     with inbox.db() as d:
         d.run("UPDATE conv SET status=%s WHERE id=%s", (st, cid))
     return jsonify(ok=True)
+
+
+MAX_UPLOAD = 20 * 1024 * 1024        # лимит Telegram на скачивание файлов ботом
+
+
+def _ffmpeg():
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        import shutil
+        return shutil.which("ffmpeg")
+
+
+def _convert(data, args, suffix_in=".bin"):
+    """Прогоняет аудио через ffmpeg. Возвращает байты или None, если ffmpeg недоступен или упал."""
+    import subprocess
+    import tempfile
+    exe = _ffmpeg()
+    if not exe:
+        return None
+    with tempfile.TemporaryDirectory() as td:
+        src = os.path.join(td, "in" + suffix_in)
+        out = os.path.join(td, "out" + args[-1])
+        open(src, "wb").write(data)
+        r = subprocess.run([exe, "-y", "-loglevel", "error", "-i", src] + args[:-1] + [out], capture_output=True, timeout=60)
+        return open(out, "rb").read() if r.returncode == 0 and os.path.exists(out) else None
+
+
+@bp.post("/admin/api/inbox/conv/<int:cid>/send-file")
+@need("inbox")
+def inbox_send_file(cid):
+    """Менеджер отправляет клиенту фото, файл или голосовое (kind=voice) из панели."""
+    f = request.files.get("file")
+    if not f:
+        return jsonify(ok=False, error="Файл не выбран"), 400
+    data = f.read()
+    if len(data) > MAX_UPLOAD:
+        return jsonify(ok=False, error="Файл больше 20 МБ"), 413
+    caption = str(request.form.get("caption", "")).strip()[:900]
+    kind, mime = request.form.get("kind", ""), (f.mimetype or "application/octet-stream")
+    name = (f.filename or "file").replace("/", "_")[:80]
+    with inbox.db() as d:
+        c = d.run("SELECT chat_id FROM conv WHERE id=%s", (cid,), one=True)
+        if not c:
+            return jsonify(ok=False, error="Диалог не найден"), 404
+        chat, media, photo = c[0], None, None
+        if kind == "voice":
+            dur = int(float(request.form.get("dur", 0) or 0))
+            ogg = None
+            if "mp4" in mime or "m4a" in mime or "aac" in mime:
+                voice, vname, vmime = data, "voice.m4a", "audio/mp4"
+            else:                                       # webm/ogg с Opus -> ogg для голосового Telegram
+                ogg = _convert(data, ["-vn", "-c:a", "libopus", "-b:a", "32k", ".ogg"], ".webm")
+                voice, vname, vmime = ogg or data, "voice.ogg" if ogg else name, "audio/ogg" if ogg else mime
+            try:
+                j = oh.tg("sendVoice", chat_id=chat, duration=dur, _files={"voice": (vname, voice, vmime)})
+                media = {"t": "voice", "id": j["result"]["voice"]["file_id"], "dur": dur}
+            except Exception:                           # не приняли как голосовое — отправим как файл
+                j = oh.tg("sendDocument", chat_id=chat, _files={"document": (vname, voice, vmime)})
+                media = {"t": "doc", "id": j["result"]["document"]["file_id"], "name": vname, "size": len(voice)}
+        elif mime.startswith("image/") and len(data) <= 10 * 1024 * 1024 and mime != "image/gif":
+            j = oh.tg("sendPhoto", chat_id=chat, caption=caption, _files={"photo": (name, data, mime)})
+            photo = j["result"]["photo"][-1]["file_id"]
+        elif mime.startswith("video/") and len(data) <= 20 * 1024 * 1024:
+            j = oh.tg("sendVideo", chat_id=chat, caption=caption, _files={"video": (name, data, mime)})
+            media = {"t": "video", "id": j["result"]["video"]["file_id"], "dur": j["result"]["video"].get("duration", 0)}
+        else:
+            j = oh.tg("sendDocument", chat_id=chat, caption=caption, _files={"document": (name, data, mime)})
+            media = {"t": "doc", "id": j["result"]["document"]["file_id"], "name": name, "size": len(data), "mime": mime}
+        inbox.save_msg(d, cid, "manager", caption if kind != "voice" else "", photo, media=media)
+        d.run("UPDATE conv SET status='manager' WHERE id=%s", (cid,))
+    return jsonify(ok=True)
+
+
+@bp.get("/admin/api/inbox/file/<path:file_id>")
+def inbox_file(file_id):
+    """Файл из Telegram для показа в панели (голосовые, видео, документы). ?fmt=mp3 — перекодировать для браузеров без Opus (iPhone)."""
+    if not oh.ORDER_SECRET or not oh.hmac.compare_digest(request.args.get("t", ""), _sig("fl" + file_id)):
+        return "", 403
+    info = oh.tg("getFile", file_id=file_id)["result"]
+    r = oh.requests.get(f"https://api.telegram.org/file/bot{oh.BOT}/{info['file_path']}", timeout=60)
+    data, fname = r.content, info["file_path"].rsplit("/", 1)[-1]
+    mime = mimetypes.guess_type(fname)[0] or "application/octet-stream"
+    if fname.endswith((".oga", ".ogg")):
+        mime = "audio/ogg"
+    if request.args.get("fmt") == "mp3":
+        out = _convert(data, ["-vn", "-c:a", "libmp3lame", "-b:a", "48k", ".mp3"], os.path.splitext(fname)[1] or ".ogg")
+        if out:
+            data, mime = out, "audio/mpeg"
+    import io
+    from flask import send_file
+    return send_file(io.BytesIO(data), mimetype=mime, conditional=True, max_age=86400,       # conditional — поддержка Range, без неё Safari не играет аудио
+                     as_attachment=bool(request.args.get("dl")), download_name=request.args.get("name") or fname)
 
 
 @bp.get("/admin/api/inbox/photo/<path:file_id>")

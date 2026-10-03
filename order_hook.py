@@ -949,12 +949,26 @@ def tg_webhook(secret):
     doc = msg.get("document") or {}
     media = msg.get("voice") or msg.get("audio") or msg.get("video_note")                # голосовые, аудио, «кружки»
     pdf = doc if (doc.get("mime_type") == "application/pdf" or str(doc.get("file_name", "")).lower().endswith(".pdf")) else None
-    if msg.get("photo") or media or pdf or str(doc.get("mime_type", "")).startswith("image/") or (text and not text.startswith("/")):
+    vid = msg.get("video")
+    if msg.get("photo") or media or vid or doc or (text and not text.startswith("/")):
         try:                                       # обычное сообщение клиента — в инбокс (ИИ или менеджер)
             import inbox
             photo = msg["photo"][-1]["file_id"] if msg.get("photo") else (doc["file_id"] if doc.get("mime_type", "").startswith("image/") else None)
             voice = media["file_id"] if media else None
-            threading.Thread(target=inbox.on_client_message, args=(chat, msg.get("from") or {}, text or msg.get("caption", ""), photo, voice, ({"id": pdf["file_id"], "name": pdf.get("file_name", "документ.pdf"), "size": pdf.get("file_size", 0)} if pdf else None)), daemon=True).start()
+            att = None                                                                        # вложение для показа в панели
+            if msg.get("voice") or msg.get("audio"):
+                att = {"t": "voice" if msg.get("voice") else "audio", "id": media["file_id"], "dur": media.get("duration", 0)}
+            elif vid or msg.get("video_note"):
+                v = vid or msg["video_note"]
+                att = {"t": "video", "id": v["file_id"], "dur": v.get("duration", 0)}
+            elif doc and not str(doc.get("mime_type", "")).startswith("image/"):
+                att = {"t": "doc", "id": doc["file_id"], "name": doc.get("file_name", "файл"), "size": doc.get("file_size", 0), "mime": doc.get("mime_type", "")}
+            cap = text or msg.get("caption", "")
+            if att and att["t"] == "doc" and not pdf:
+                cap = (f"📎 Файл «{att['name']}»" + (f"\n{cap}" if cap else ""))
+            elif att and att["t"] == "video":
+                cap = "🎥 Видео" + (f"\n{cap}" if cap else "")
+            threading.Thread(target=inbox.on_client_message, args=(chat, msg.get("from") or {}, cap, photo, voice, ({"id": pdf["file_id"], "name": pdf.get("file_name", "документ.pdf"), "size": pdf.get("file_size", 0)} if pdf else None), att), daemon=True).start()
             return "", 200
         except Exception as e:
             print("Инбокс недоступен:", e, flush=True)

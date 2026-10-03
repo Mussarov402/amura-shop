@@ -81,6 +81,11 @@ def db():
         ):
             d.run(s)
         d.c.commit()
+        try:                                              # вложения диалога (голос, файлы, видео)
+            d.run("ALTER TABLE msg ADD COLUMN media TEXT")
+            d.c.commit()
+        except Exception:
+            d.c.rollback()
         _ready[0] = True
     return d
 
@@ -116,6 +121,7 @@ MEDIA_RULES = """# Фото и голосовые
 - Фото товара или упаковки: прочитай бренд и название на упаковке, найди товар инструментом search_catalog и назови цену и наличие. Если уверенно определить не получилось — честно скажи и попроси название или артикул.
 - PDF-чек (в сообщении видно «📄 PDF» и текст внутри) — то же самое, что фото чека. Если текст прочитать не удалось, так и скажи и передай менеджеру.
 - Фото чека об оплате, скриншот перевода или слова «оплатил(а)»: оплату сам не проверяй и не подтверждай — у тебя нет доступа к банку. Ответь коротко и по-человечески, что передал чек менеджеру на проверку и сообщите, когда оплата подтвердится (метка """ + HANDOFF + """). Если не ясно, за какой заказ оплата, спроси номер заказа. Сумму и получателя с чека не озвучивай и ничего не обещай по срокам отгрузки.
+- Файл любого типа (в сообщении «📎 Файл»), видео («🎥 Видео») — ты их открыть не можешь: коротко скажи, что передал менеджеру, и добавь метку """ + HANDOFF + """.
 - Фото брака, повреждения, жалобы: извинись, попроси номер заказа и передай менеджеру (метка """ + HANDOFF + """).
 - Фото, на котором нет ничего про заказ или товары, — вежливо уточни, чем помочь.
 Никогда не выдумывай то, чего не видно на фото."""
@@ -356,13 +362,18 @@ def ai_reply(d, history, text, photo=None, ctx=None):
 
 
 # ---------- входящие сообщения из Telegram ----------
-def save_msg(d, cid, role, text, photo=None, unread=0):
+MEDIA_LABEL = {"voice": "🎤 Голосовое", "audio": "🎵 Аудио", "video": "🎥 Видео", "doc": "📎 Файл"}
+
+
+def save_msg(d, cid, role, text, photo=None, unread=0, media=None):
     now = time.time()
-    d.run("INSERT INTO msg (conv_id, role, text, photo, at) VALUES (%s,%s,%s,%s,%s)", (cid, role, text, photo, now))
-    d.run("UPDATE conv SET last_at=%s, last_text=%s, unread=unread+%s WHERE id=%s", (now, (text or "[фото]")[:120], unread, cid))
+    d.run("INSERT INTO msg (conv_id, role, text, photo, media, at) VALUES (%s,%s,%s,%s,%s,%s)",
+          (cid, role, text, photo, json.dumps(media, ensure_ascii=False) if media else None, now))
+    last = text or (MEDIA_LABEL.get((media or {}).get("t"), "[фото]"))
+    d.run("UPDATE conv SET last_at=%s, last_text=%s, unread=unread+%s WHERE id=%s", (now, last[:120], unread, cid))
 
 
-def on_client_message(chat, user, text, photo=None, voice=None, pdf=None):
+def on_client_message(chat, user, text, photo=None, voice=None, pdf=None, media=None):
     """Вызывается из вебхука бота в отдельном потоке."""
     try:
         voice_failed = False
@@ -392,7 +403,7 @@ def on_client_message(chat, user, text, photo=None, voice=None, pdf=None):
                 status = "ai"
             else:
                 cid, status = row
-            save_msg(d, cid, "client", text or "", photo, unread=1)
+            save_msg(d, cid, "client", text or "", photo, unread=1, media=media)
             hist = [(r, t) for r, t in d.run("SELECT role, text FROM msg WHERE conv_id=%s ORDER BY id DESC LIMIT 14", (cid,), many=True)][::-1][:-1]
             use_ai = status == "ai" and ai_on(d) and not voice_failed
             if status == "closed":
