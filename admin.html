@@ -34,6 +34,27 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 .tabbar button{border:0;background:transparent;display:grid;justify-items:center;gap:4px;color:rgba(233,241,236,.55);font:700 11.5px inherit;font-family:inherit;padding:4px 0;cursor:pointer}.tabbar button.on{color:#fff}
 .tabbar svg{width:25px;height:25px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}}
 @media(max-width:800px){html,body{background:#0E3B2C}.app{background:var(--bg)}}
+.ibx2{display:grid;grid-template-columns:380px 1fr;gap:14px;align-items:start}
+.il2{background:#fff;border:1px solid var(--line);border-radius:16px;overflow:hidden}.ih{padding:16px 16px 10px;position:sticky;top:0;background:#fff;z-index:2}.ih h1{margin:0 0 10px;font-size:clamp(21px,3.4vw,26px)}
+.chips{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}.chips::-webkit-scrollbar{display:none}.chips button{flex:none;border:0;background:#EEF1EE;color:#33403A;border-radius:99px;padding:8px 14px;font:700 13px inherit;font-family:inherit;cursor:pointer}.chips button.on{background:var(--g);color:#fff}.chips i{font-style:normal;opacity:.75;margin-left:2px}
+.av{flex:none;border-radius:50%;color:#fff;display:grid;place-items:center;font-weight:700}
+.cv2{display:flex;gap:12px;padding:12px 16px;cursor:pointer;border-top:1px solid #F0F2F0}.cv2.on,.cv2:active{background:#F1F6F3}.cb{flex:1;min-width:0}
+.l1,.l2,.l3{display:flex;align-items:center;gap:8px}.l1 b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:16px}.tm{font-size:12.5px;color:var(--mut)}.tm.u{color:var(--g);font-weight:700}
+.l2{margin-top:2px}.pv{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#5E6A63;font-size:14.5px}.bdg{background:var(--g);color:#fff;font-size:12px;font-weight:700;border-radius:99px;min-width:22px;height:22px;display:grid;place-items:center;padding:0 6px}
+.l3{margin-top:6px;flex-wrap:wrap;gap:6px}.un{font-size:12px;color:var(--mut)}
+.src{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:700;color:#1B7DB8;background:#E4F1FA;border-radius:99px;padding:2px 9px 2px 7px}.src svg{width:12px;height:12px;fill:#1B7DB8;stroke:none}
+.stt{font-size:11.5px;font-weight:700;border-radius:99px;padding:2px 9px}.stt.ai{background:#E1EEE7;color:#0E5A3A}.stt.mg{background:#FBE9C6;color:#8A5A00}.stt.cl{background:#E7EAE8;color:#4A4F4C}
+.ic2{background:#E9EEE9;border:1px solid var(--line);border-radius:16px;overflow:hidden;display:flex;flex-direction:column;height:calc(100vh - 70px);position:sticky;top:20px}.empty{margin:auto;color:var(--mut)}
+.ch{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#fff;border-bottom:1px solid var(--line)}.ch b{font-size:16px}.sb2{display:flex;gap:8px;align-items:center;margin-top:2px}
+.bk{display:none;border:0;background:transparent;padding:4px;margin-left:-6px;cursor:pointer}.bk svg{width:26px;height:26px;fill:none;stroke:var(--g);stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.acts{display:flex;align-items:center;gap:8px;padding:8px 14px;background:#F7F8F7;border-bottom:1px solid var(--line);flex-wrap:wrap}.acts .hint{flex:1 1 100%;font-size:12.5px;color:var(--mut)}.acts button{border:1px solid #CBD4CE;background:#fff;border-radius:99px;padding:7px 14px;font:700 13px inherit;font-family:inherit;cursor:pointer}
+.msgs{flex:1;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:6px}.dsep{align-self:center;margin:8px 0 4px}.dsep span{background:rgba(255,255,255,.75);color:#5E6A63;font-size:12px;font-weight:700;border-radius:99px;padding:3px 12px}
+.msgs .bub{position:relative;max-width:82%;padding:8px 12px 18px;border-radius:16px;font-size:15px;line-height:1.38;white-space:pre-wrap;overflow-wrap:anywhere;box-shadow:0 1px 1px rgba(0,0,0,.06)}.msgs .bub .who{font-size:11.5px;font-weight:700;margin-bottom:3px;opacity:1}
+.msgs .bub.client{align-self:flex-start;background:#fff;border-bottom-left-radius:5px}.msgs .bub.ai{align-self:flex-end;background:#D7ECDF;border-bottom-right-radius:5px}.msgs .bub.ai .who{color:#0E5A3A}.msgs .bub.manager{align-self:flex-end;background:#0E3B2C;color:#fff;border-bottom-right-radius:5px}.msgs .bub.manager .who{color:#BFE3CF}
+.bub .tt{position:absolute;right:10px;bottom:3px;font-size:10.5px;opacity:.6}.mph{max-width:240px;width:100%;border-radius:10px;display:block;margin:2px 0 6px}
+.cmp{display:flex;align-items:flex-end;gap:8px;padding:8px 10px calc(8px + env(safe-area-inset-bottom,0px));background:#fff;border-top:1px solid var(--line)}.cmp textarea{min-height:44px;height:44px;max-height:120px;border-radius:22px;padding:11px 16px;resize:none;background:#F2F4F2;border-color:transparent}
+.snd{flex:none;width:44px;height:44px;border-radius:50%;border:0;background:var(--g);cursor:pointer;display:grid;place-items:center}.snd:disabled{opacity:.5}.snd svg{width:22px;height:22px;fill:#fff;stroke:#fff;stroke-width:1.2;stroke-linejoin:round;margin-left:-2px}
+@media(max-width:800px){.ibx2{display:block}.ibx2.chat .il2{display:none}.ibx2:not(.chat) .ic2{display:none}.ic2{position:fixed;inset:0;z-index:50;height:auto;border:0;border-radius:0}.ch{padding-top:calc(10px + env(safe-area-inset-top,0px))}.bk{display:block}body.inchat .tabbar,body.inchat .mtop{display:none}.msgs .bub{max-width:88%}.il2{margin:0 -14px;border-radius:0;border-left:0;border-right:0}.ih{padding-top:4px}}
 </style></head><body>
 <div id="login" hidden><div class="logo" style="color:var(--g)">AMURA<small style="color:var(--mut)">панель управления</small></div>
 <div id="l1"><p class="mut">Введите ваш Telegram-@username. Бот пришлёт в Telegram одноразовый код.</p><input id="lu" placeholder="@username" autocapitalize="off" autocomplete="username" style="margin-bottom:12px"><button class="btn" id="go">Получить код</button></div>
@@ -77,7 +98,7 @@ const seg=a=>{const g=SEG[a==="banners"?"products":(a==="pay"||a==="team")?"over
 const bindSeg=()=>document.querySelectorAll("[data-go]").forEach(b=>b.onclick=()=>show(b.dataset.go));
 const head=(t,s)=>`<h1>${t}</h1><div class="sub">${s}</div>`;
 let timer=null;
-async function show(p){clearInterval(timer);cur=p;$("#main").innerHTML='<div class="mut">Загрузка…</div>';try{await views[p]()}catch(e){if(e.message!=="401")$("#main").innerHTML=`<div class="b x">${esc(e.message)}</div>`}}
+async function show(p){clearInterval(timer);document.body.classList.remove("inchat");cur=p;$("#main").innerHTML='<div class="mut">Загрузка…</div>';try{await views[p]()}catch(e){if(e.message!=="401")$("#main").innerHTML=`<div class="b x">${esc(e.message)}</div>`}}
 const badge=(ok,a="Работает",b="Сбой")=>`<span class="b ${ok?"ok":"x"}">${ok?a:b}</span>`;
 const views={
 async overview(){const o=await api("overview");$("#main").innerHTML=head("Обзор","Данные с живого сайта")+seg("overview")+`
@@ -125,23 +146,47 @@ async banners(){const d=await api("banners");let S=d.slides,sec=d.autoplaySec;
   if(a==="up"&&i>0)[S[i-1],S[i]]=[S[i],S[i-1]];if(a==="dn"&&i<S.length-1)[S[i+1],S[i]]=[S[i],S[i+1]];draw()});
  $("#save").onclick=async()=>{read();try{const r=await api("banners",{method:"PUT",body:JSON.stringify({autoplaySec:sec,slides:S})});S=r.slides;sec=r.autoplaySec;draw();$("#m").textContent="Сохранено ✅"}catch(e){$("#m").textContent=e.message}}};
  draw()},
-async inbox(openId){const st=await api("inbox/status");let cur=openId||null;
- const when=t=>{const d=new Date(t*1000),n=new Date();return d.toDateString()===n.toDateString()?d.toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"}):d.toLocaleDateString("ru-RU",{day:"2-digit",month:"2-digit"})};
- const stb=s=>s==="manager"?'<span class="b w">Менеджер</span>':s==="closed"?'<span class="b n">Закрыт</span>':'<span class="b ok">ИИ</span>';
- $("#main").innerHTML=head("Сообщения","Диалоги клиентов из Telegram-бота. ИИ отвечает первым")+(st.persistent?"":'<div class="b x" style="display:block;margin-bottom:12px;border-radius:10px;padding:10px 14px;white-space:normal">База данных не подключена: диалоги пропадут при перезапуске сервера.</div>')+'<div class="ibx"><div class="card" id="il" style="padding:0;overflow:hidden"></div><div class="card" id="ic" style="padding:0;display:flex;flex-direction:column;min-height:420px"></div></div>';
- const box=$(".ibx");
- const list=async()=>{const r=await api("inbox/convs");$("#il").innerHTML=r.convs.length?r.convs.map(c=>`<div class="cv ${c.id===cur?"on":""}" data-id="${c.id}"><div style="display:flex;gap:8px;align-items:center"><b class="grow">${esc(c.name)}${c.username?` <span class="mut">@${esc(c.username)}</span>`:""}</b><span class="mut">${when(c.at)}</span></div><div style="display:flex;gap:8px;align-items:center;margin-top:4px"><span class="mut grow" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.text)}</span>${c.unread?`<span class="b x">${c.unread}</span>`:stb(c.status)}</div></div>`).join(""):'<div class="mut" style="padding:18px">Пока нет диалогов. Они появятся, когда клиент напишет боту.</div>';
-  document.querySelectorAll(".cv").forEach(e=>e.onclick=()=>{cur=+e.dataset.id;open_()})};
- const open_=async()=>{box.classList.toggle("chat",!!cur);if(!cur){$("#ic").innerHTML='<div class="mut" style="padding:24px">Выберите диалог слева</div>';return}
-  const r=await api("inbox/conv/"+cur);const c=r.conv;
-  $("#ic").innerHTML=`<div style="padding:12px 16px;border-bottom:1px solid #EEF1EE;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn ghost sm back" id="bk">←</button><b class="grow" style="min-width:110px">${esc(c.name)}</b>${stb(c.status)}${c.status==="ai"?'<button class="btn ghost sm" data-s="manager">Взять себе</button>':'<button class="btn ghost sm" data-s="ai">Вернуть ИИ</button>'}<button class="btn ghost sm" data-s="closed">Закрыть</button></div>
-  <div id="msgs" style="flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:8px;max-height:56vh;background:#FAFBFA">${r.messages.map(m=>`<div class="bub ${m.role}"><div class="who">${m.role==="client"?esc(c.name):m.role==="ai"?"ИИ-продажник":"Менеджер"} · ${when(m.at)}</div>${m.photo?`<img src="${esc(m.photo)}" style="max-width:220px;border-radius:10px;display:block;margin:4px 0">`:""}${esc(m.text)}</div>`).join("")}</div>
-  <div style="padding:12px;border-top:1px solid #EEF1EE;display:flex;gap:8px"><textarea id="tx" placeholder="Написать клиенту…" style="min-height:48px;height:48px"></textarea><button class="btn" id="sd">Отправить</button></div>`;
-  const ms=$("#msgs");ms.scrollTop=ms.scrollHeight;$("#bk").onclick=()=>{cur=null;open_();list()};
-  document.querySelectorAll("[data-s]").forEach(b=>b.onclick=async()=>{await api(`inbox/conv/${cur}/status`,{method:"POST",body:JSON.stringify({status:b.dataset.s})});open_();list()});
-  $("#sd").onclick=async()=>{const t=$("#tx").value.trim();if(!t)return;$("#sd").disabled=true;try{await api(`inbox/conv/${cur}/send`,{method:"POST",body:JSON.stringify({text:t})})}catch(e){alert(e.message)}open_();list()}};
- await list();await open_();
- timer=setInterval(async()=>{try{await list();if(cur&&!document.activeElement?.matches("textarea")){const sc=$("#msgs"),keep=sc?sc.scrollTop:0;await open_();const s2=$("#msgs");if(s2)s2.scrollTop=keep}}catch(e){}},8000)},
+async inbox(openId){const st=await api("inbox/status");let cur=openId||null,flt="all",convs=[],built=0,lastMsg=0;
+ const hue=n=>{let h=0;for(const c of String(n))h=(h*31+c.charCodeAt(0))%360;return h};
+ const av=(n,s=50)=>`<span class="av" style="width:${s}px;height:${s}px;font-size:${Math.round(s*.42)}px;background:hsl(${hue(n)} 36% 40%)">${esc((String(n||"?").trim()[0]||"?").toUpperCase())}</span>`;
+ const tm=t=>new Date(t*1000).toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"});
+ const when=t=>{const d=new Date(t*1000),n=new Date();return d.toDateString()===n.toDateString()?tm(t):d.toLocaleDateString("ru-RU",{day:"2-digit",month:"2-digit"})};
+ const dayS=t=>{const d=new Date(t*1000),n=new Date(),y=new Date(Date.now()-864e5);return d.toDateString()===n.toDateString()?"Сегодня":d.toDateString()===y.toDateString()?"Вчера":d.toLocaleDateString("ru-RU",{day:"numeric",month:"long"})};
+ const src=`<span class="src"><svg viewBox="0 0 24 24"><path d="M21 4L3 11l6 2 2 6 3-4 5 4z"/></svg>Telegram</span>`;
+ const ST={ai:["ИИ","ai"],manager:["Менеджер","mg"],closed:["Закрыт","cl"]},stb=s=>`<span class="stt ${(ST[s]||ST.ai)[1]}">${(ST[s]||ST.ai)[0]}</span>`;
+ const warn=st.persistent?"":'<div class="b x" style="display:block;margin-bottom:10px;border-radius:10px;padding:10px 14px;white-space:normal">База данных не подключена: диалоги пропадут при перезапуске сервера.</div>';
+ $("#main").innerHTML=`<div class="ibx2" id="ibx"><section class="il2"><div class="ih"><h1>Сообщения</h1><div class="chips" id="fl"></div></div>${warn}<div id="lst"></div></section><section class="ic2" id="ic2"></section></div>`;
+ const box=$("#ibx");
+ const drawList=()=>{const n=k=>convs.filter(c=>k==="all"?c.status!=="closed":c.status===k).length;
+  $("#fl").innerHTML=[["all","Все"],["manager","Ждут менеджера"],["ai","ИИ"],["closed","Закрытые"]].map(([k,t])=>`<button class="${flt===k?"on":""}" data-f="${k}">${t}${k!=="closed"&&n(k)?` <i>${n(k)}</i>`:""}</button>`).join("");
+  document.querySelectorAll("#fl [data-f]").forEach(b=>b.onclick=()=>{flt=b.dataset.f;drawList()});
+  const rows=convs.filter(c=>flt==="all"?c.status!=="closed":c.status===flt);
+  $("#lst").innerHTML=rows.length?rows.map(c=>`<div class="cv2 ${c.id===cur?"on":""}" data-id="${c.id}">${av(c.name)}<div class="cb"><div class="l1"><b>${esc(c.name)}</b><span class="tm ${c.unread?"u":""}">${when(c.at)}</span></div><div class="l2"><span class="pv">${esc(c.text)||"…"}</span>${c.unread?`<span class="bdg">${c.unread}</span>`:""}</div><div class="l3">${src}${stb(c.status)}${c.username?`<span class="un">@${esc(c.username)}</span>`:""}</div></div></div>`).join(""):'<div class="mut" style="padding:22px;text-align:center">'+(convs.length?"В этом разделе пусто.":"Пока нет диалогов. Они появятся, когда клиент напишет боту.")+"</div>";
+  document.querySelectorAll(".cv2").forEach(e=>e.onclick=()=>{cur=+e.dataset.id;built=0;openChat(true)})};
+ const list=async()=>{convs=(await api("inbox/convs")).convs;drawList()};
+ const paintMsgs=(r,stick)=>{const ms=$("#msgs");if(!ms)return;const near=ms.scrollHeight-ms.scrollTop-ms.clientHeight<90;let prev="",o="";
+  for(const m of r.messages){const d=dayS(m.at);if(d!==prev){o+=`<div class="dsep"><span>${d}</span></div>`;prev=d}
+   const lab=m.role==="ai"?"🤖 ИИ-продажник":m.role==="manager"?"👤 Менеджер":"";
+   o+=`<div class="bub ${m.role}">${lab?`<div class="who">${lab}</div>`:""}${m.photo?`<img src="${esc(m.photo)}" class="mph">`:""}${esc(m.text)}<span class="tt">${tm(m.at)}</span></div>`}
+  ms.innerHTML=o||'<div class="mut" style="text-align:center;margin:auto">Сообщений нет</div>';lastMsg=r.messages.length?r.messages[r.messages.length-1].id:0;
+  if(stick||near)ms.scrollTop=ms.scrollHeight};
+ const openChat=async(first)=>{document.body.classList.toggle("inchat",!!cur);box.classList.toggle("chat",!!cur);
+  if(!cur){$("#ic2").innerHTML='<div class="empty">Выберите диалог слева</div>';built=0;return}
+  const r=await api("inbox/conv/"+cur),c=r.conv;
+  if(built!==cur){built=cur;
+   $("#ic2").innerHTML=`<header class="ch"><button class="bk" id="bk" aria-label="Назад"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>${av(c.name,40)}<div class="grow"><b>${esc(c.name)}</b><div class="sb2">${src}${c.username?`<span class="un">@${esc(c.username)}</span>`:""}</div></div><span id="sbx"></span></header>
+   <div class="acts" id="acts"></div><div id="msgs" class="msgs"></div>
+   <footer class="cmp"><textarea id="tx" rows="1" placeholder="Сообщение клиенту…"></textarea><button class="snd" id="sd" aria-label="Отправить"><svg viewBox="0 0 24 24"><path d="M3 11l18-8-8 18-2-8z"/></svg></button></footer>`;
+   $("#bk").onclick=()=>{cur=null;built=0;openChat();list()};
+   const tx=$("#tx");tx.oninput=()=>{tx.style.height="auto";tx.style.height=Math.min(tx.scrollHeight,120)+"px"};
+   const send=async()=>{const t=tx.value.trim();if(!t)return;$("#sd").disabled=true;try{await api(`inbox/conv/${cur}/send`,{method:"POST",body:JSON.stringify({text:t})});tx.value="";tx.style.height="auto";built=0;await openChat(true);list()}catch(e){alert(e.message)}$("#sd").disabled=false;tx.focus()};
+   $("#sd").onclick=send;
+   paintMsgs(r,true)}else paintMsgs(r,false);
+  $("#sbx").innerHTML=stb(c.status);
+  $("#acts").innerHTML=(c.status==="ai"?'<span class="hint">Сейчас отвечает ИИ. Если вы напишете, диалог перейдёт к менеджеру.</span><button data-s="manager">Взять себе</button>':c.status==="closed"?'<span class="hint">Диалог закрыт. Новое сообщение клиента откроет его снова.</span>':'<span class="hint">Отвечает менеджер, ИИ молчит.</span><button data-s="ai">Вернуть ИИ</button>')+(c.status!=="closed"?'<button data-s="closed">Закрыть</button>':"");
+  document.querySelectorAll("#acts [data-s]").forEach(b=>b.onclick=async()=>{await api(`inbox/conv/${cur}/status`,{method:"POST",body:JSON.stringify({status:b.dataset.s})});built=0;openChat(true);list()})};
+ await list();await openChat(true);
+ timer=setInterval(async()=>{try{await list();if(cur){const r=await api("inbox/conv/"+cur);const last=r.messages.length?r.messages[r.messages.length-1].id:0;if(last!==lastMsg)paintMsgs(r,false);$("#sbx").innerHTML=stb(r.conv.status)}}catch(e){}},6000)},
 async ai(){const a=await api("ai");
  $("#main").innerHTML=head("ИИ-продажник","Отвечает клиентам в Telegram по базе знаний и каталогу, оформляет заказы в МойСклад после подтверждения клиента, сложное передаёт менеджеру")+`
  <div class="card" style="margin-bottom:14px"><div class="row"><div class="grow"><b>Ответы ИИ</b><div class="mut">Модель: ${esc(a.model)}</div></div>${a.key?`<button class="sw ${a.enabled?"on":""}" id="en"></button>`:'<span class="b x">Нет ключа OPENAI_API_KEY</span>'}</div>
