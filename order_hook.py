@@ -750,6 +750,7 @@ def _create_order_impl(key):
     def notify_owner():                        # PDF и Telegram — в фоне, клиент не ждёт
         try:
             pdf = build_pdf(data)
+            pdf_store(number, pdf)             # накладная откроется мгновенно, без запроса в МойСклад
             caption = (f"🛒 Заказ с сайта № {number}\n{name} · {contact}\n{city} · {ship_name}\n\n"
                        + "\n".join(f"{l['name']} — {l['qty']} × {fmt(l['price'])} = {fmt(l['qty'] * l['price'])} ₸" for l in lines)
                        + (f"\nУслуга грузчика — {fmt(loader)} ₸" if loader else "")
@@ -771,11 +772,11 @@ def _create_order_impl(key):
 
 # ---------- PDF ----------
 def order_from_ms(number):
-    rows = ms("GET", "/entity/customerorder", params={"filter": f"name={number}", "limit": 1,
-                                                      "expand": "positions.assortment,agent"})["rows"]
+    rows = ms("GET", "/entity/customerorder", params={"filter": f"name={number}", "limit": 1, "expand": "agent"}, timeout=15)["rows"]
     if not rows:
         return None
     o = rows[0]
+    o["positions"] = {"rows": ms("GET", f"/entity/customerorder/{o['id']}/positions", params={"expand": "assortment", "limit": 100}, timeout=15)["rows"]}
     desc = (o.get("description") or "").split("\n")
     lines, loader, fee = [], 0, 0
     for p in o["positions"]["rows"]:
@@ -830,14 +831,32 @@ def build_pdf(o):
     return buf.getvalue()
 
 
+_pdfs = {}                    # номер заказа -> PDF (последние 200)
+
+
+def pdf_store(number, pdf):
+    _pdfs[str(number)] = pdf
+    while len(_pdfs) > 200:
+        _pdfs.pop(next(iter(_pdfs)))
+
+
 @bp.route("/order/<number>/pdf")
 def order_pdf(number):
     if not hmac.compare_digest(sign(number), request.args.get("t", "")):
         return "Ссылка недействительна", 403
-    o = order_from_ms(number)
-    if not o:
-        return "Заказ не найден", 404
-    return Response(build_pdf(o), mimetype="application/pdf",
+    pdf = _pdfs.get(str(number))
+    if pdf is None:
+        try:
+            o = order_from_ms(number)
+        except Exception as e:                 # МойСклад завис — не пугаем клиента ошибкой и не шлём оповещение
+            print("PDF заказа", number, "— МойСклад не ответил:", e, flush=True)
+            return Response("МойСклад отвечает медленно. Обновите страницу через минуту.", 503, mimetype="text/plain; charset=utf-8",
+                            headers={"Retry-After": "30"})
+        if not o:
+            return "Заказ не найден", 404
+        pdf = build_pdf(o)
+        pdf_store(number, pdf)
+    return Response(pdf, mimetype="application/pdf",
                     headers={"Content-Disposition": f'inline; filename="AMURA-{number}.pdf"'})
 
 
