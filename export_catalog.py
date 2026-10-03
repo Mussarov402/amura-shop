@@ -169,6 +169,7 @@ def main():
             "id": pid,
             "name": it.get("name", ""),
             "brand": brand_of(it),
+            "group": (it.get("pathName") or "").strip(),
             "code": it.get("code", ""),
             "article": it.get("article", ""),
             "desc": (it.get("description") or "")[:4000],

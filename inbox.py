@@ -109,11 +109,11 @@ MEDIA_RULES = """# Фото и голосовые
 Никогда не выдумывай то, чего не видно на фото."""
 
 SEARCH_RULES = """# Поиск товаров
-Названия брендов и товаров в каталоге написаны латиницей (Celimax, Axis-Y, Median). Клиент часто пишет по-русски («Селимакс», «тонер серый»): сам переведи в латиницу и вызови search_catalog, например query="Celimax toner". Если первый поиск пуст — попробуй ещё раз по бренду или по другому слову. Нельзя говорить «каталог недоступен» или «товара нет», пока не вызван search_catalog; говори, что товара нет, только если поиск реально ничего не вернул."""
+Названия брендов и товаров в каталоге написаны латиницей (Celimax, Axis-Y, Median). Поиск идёт по названию, описанию, бренду, группе, артикулу и штрихкоду. Клиент часто пишет по-русски («Селимакс», «тонер серый»): сам переведи в латиницу и вызови search_catalog, например query="Celimax toner". Если первый поиск пуст — попробуй ещё раз по бренду или по другому слову. Нельзя говорить «каталог недоступен» или «товара нет», пока не вызван search_catalog; говори, что товара нет, только если поиск реально ничего не вернул."""
 
 SEARCH_TOOL = {"type": "function", "function": {
     "name": "search_catalog",
-    "description": "Найти товары в каталоге по названию, бренду или артикулу. Запрос пиши латиницей, как в каталоге (Celimax toner). Возвращает id, цены и наличие.",
+    "description": "Найти товары в каталоге по названию, описанию, бренду, группе, артикулу или штрихкоду. Запрос пиши латиницей, как в каталоге (Celimax toner). Возвращает id, цены и наличие.",
     "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}}
 
 ORDER_TOOL = [{"type": "function", "function": {
@@ -204,10 +204,14 @@ def product_context(text):
         return "Каталог сейчас не загрузился. Скажи клиенту, что уточнишь наличие и цену, и передай менеджеру (метка " + HANDOFF + ")."
     ws = oh.PUBLIC_WHOLESALE
     ws_words = _words(text)
+    descs = (oh._cache.get("descs") or (0, {}))[1]
     scored = []
     for i in items:
-        hay = " ".join(str(i.get(k) or "") for k in ("name", "brand", "code", "article")).lower()
-        sc = sum(w in hay for w in ws_words)
+        name = i["name"].lower()
+        tags = " ".join(str(i.get(k) or "") for k in ("brand", "group", "country")).lower()      # бренд, группа, страна
+        ids = " ".join(str(i.get(k) or "") for k in ("code", "article", "barcode")).lower()
+        desc = (descs.get(i["id"]) or i.get("desc") or "").lower()                                  # описание
+        sc = sum(3 * (w in name) + 2 * (w in tags) + 2 * (w in ids) + (w in desc) for w in ws_words)
         if sc:
             scored.append((sc, i))
     scored.sort(key=lambda x: -x[0])
@@ -216,7 +220,8 @@ def product_context(text):
         p = f"розница {oh.fmt(i.get('rtl', 0))} ₸"
         if ws:
             p = f"опт {oh.fmt(i.get('opt', 0))} ₸" + (f", от 10 шт {oh.fmt(i['mid'])} ₸" if i.get("mid") else "") + (f", короб ({i['boxQty']} шт) {oh.fmt(i['box'])} ₸" if i.get("box") else "") + f", розница {oh.fmt(i.get('rtl', 0))} ₸"
-        rows.append(f"- {i['name']} ({i.get('brand') or '—'}) [id={i['id']}]: {p}; в наличии")
+        grp = f"; группа: {i['group']}" if i.get("group") else ""
+        rows.append(f"- {i['name']} ({i.get('brand') or '—'}{grp}) [id={i['id']}]: {p}; в наличии")
     return "\n".join(rows) or "По этому запросу ничего не найдено. Попробуй вызвать search_catalog с названием латиницей, как в каталоге."
 
 
