@@ -829,6 +829,8 @@ def wa_connect():
     base = (oh.PUBLIC_URL or request.url_root).rstrip("/")
     try:
         j = wa.connect(code, pid, wid, f"{base}/wa/{oh.HOOK_SECRET}", oh.HOOK_SECRET, coex)
+    except oh.requests.exceptions.RequestException:
+        return jsonify(ok=False, error="Не удалось связаться с Meta. Повторите через минуту."), 502
     except Exception as e:
         return jsonify(ok=False, error=str(e)[:300]), 400
     return jsonify(ok=True, name=j.get("verified_name", ""), phone=j.get("display_phone_number", ""))
