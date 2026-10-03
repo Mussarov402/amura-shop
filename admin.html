@@ -338,10 +338,10 @@ async channels(){const c=await api("channels");const w=c.wa;
   <ol class="stepl"><li>developers.facebook.com → ваше приложение → <b>Settings → Basic</b>: скопируйте <b>App ID</b> и <b>App Secret</b>.</li>
   <li>Слева <b>Вход через Facebook для бизнеса → Конфигурации</b>. Нужна конфигурация с вариантом входа <b>«Встроенная регистрация в WhatsApp»</b> (Embedded Signup). Скопируйте её номер в первое поле. Конфигурации типа «General» не подходят.</li>
   <li>Там же <b>Настройки</b>: включите «Вход через JavaScript SDK» и добавьте в разрешённые домены <b>${esc(location.origin)}</b></li></ol></details>
- <details style="margin-top:10px"><summary style="cursor:pointer;font-weight:700">Вручную (для разработчиков)</summary>
+ <details style="margin-top:10px"><summary style="cursor:pointer;font-weight:700">Подключить по токену (если окно Facebook не сработало)</summary>
   <div class="wk"><label>Phone number ID<input id="wp" value="${esc(w.phone_id)}" autocomplete="off"></label>
   <label>Токен доступа<input id="wt" type="password" value="${esc(w.token)}" autocomplete="off"></label>
-  <div><button class="btn ghost" id="wsv">Сохранить</button></div></div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="wtk">Подключить по токену</button><button class="btn ghost" id="wsv">Только сохранить</button></div><div class="mut">Phone number ID можно оставить пустым: панель найдёт ваш номер сама. Токен: Business Settings → Users → System users → Generate new token.</div></div>
   <div style="margin-top:12px" class="mut">Webhook вручную (если не используете кнопку выше):</div>
   <div class="cp" style="margin-top:6px"><input readonly id="wu" value="${esc(w.url)}"><button class="btn sm ghost" data-c="wu">Копировать</button></div>
   <div class="cp" style="margin-top:6px"><input readonly id="wv" value="${esc(w.verify)}"><button class="btn sm ghost" data-c="wv">Копировать</button></div></details>
@@ -351,6 +351,8 @@ async channels(){const c=await api("channels");const w=c.wa;
  const save=async(d,ok)=>{try{await api("channels",{method:"PUT",body:JSON.stringify(d)});msg(ok||"Сохранено ✅");setTimeout(()=>views.channels(),700)}catch(e){msg(e.message)}};
  $("#wsa").onclick=()=>save({app_id:$("#wai").value,secret:$("#wsc").value,config_id:$("#wcf").value,config_coex:$("#wcx").value});
  $("#wsv").onclick=()=>save({phone_id:$("#wp").value,token:$("#wt").value});
+ $("#wtk").onclick=async()=>{const t=$("#wt").value.trim();if(!t||t.includes("•"))return msg("Вставьте токен целиком в поле выше.");msg("Подключаю…");
+  try{const j=await api("channels/wa-token",{method:"POST",body:JSON.stringify({token:t,phone_id:$("#wp").value})});msg("Готово ✅ "+(j.name||"")+" "+(j.phone||""));setTimeout(()=>views.channels(),1500)}catch(e){msg(e.message)}};
  $("#wtst").onclick=async()=>{msg("Проверяю…");try{const r=await api("channels/wa-test",{method:"POST"});msg("Работает ✅ "+(r.name||"")+" "+(r.phone||""))}catch(e){msg(e.message)}};
  let sess=null;if(!window._waMsg){window._waMsg=1;window.addEventListener("message",e=>{try{if(!/(^|\.)facebook\.com$/.test(new URL(e.origin).hostname))return;const d=typeof e.data==="string"?JSON.parse(e.data):e.data;if(d&&d.type==="WA_EMBEDDED_SIGNUP"){window._waSess=d}}catch(_){}})}
  const loadFB=()=>new Promise((res,rej)=>{if(window.FB)return res();window.fbAsyncInit=()=>{FB.init({appId:w.app_id,autoLogAppEvents:true,xfbml:false,version:"v21.0"});res()};

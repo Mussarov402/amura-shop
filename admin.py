@@ -861,3 +861,21 @@ def wa_connect():
     except Exception as e:
         return jsonify(ok=False, error=str(e)[:300]), 400
     return jsonify(ok=True, name=j.get("verified_name", ""), phone=j.get("display_phone_number", ""))
+
+
+@bp.post("/admin/api/channels/wa-token")
+@guard
+def wa_token():
+    """Запасное подключение: токен системного пользователя (если окно Facebook не отдало код)."""
+    b = request.get_json(silent=True) or {}
+    tok_, pid = str(b.get("token", "")).strip(), str(b.get("phone_id", "")).strip()
+    if not tok_ or "•" in tok_:
+        return jsonify(ok=False, error="Вставьте токен целиком"), 400
+    base = (oh.PUBLIC_URL or request.url_root).rstrip("/")
+    try:
+        j = wa.connect_token(tok_, pid, f"{base}/wa/{oh.HOOK_SECRET}", oh.HOOK_SECRET)
+    except oh.requests.exceptions.RequestException:
+        return jsonify(ok=False, error="Не удалось связаться с Meta. Повторите через минуту."), 502
+    except Exception as e:
+        return jsonify(ok=False, error=str(e)[:300]), 400
+    return jsonify(ok=True, name=j.get("verified_name", ""), phone=j.get("display_phone_number", ""))
