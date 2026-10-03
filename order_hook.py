@@ -659,9 +659,15 @@ def _post_order(body):
 
 def _create_order_impl(key):
     ip = request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip()
+    payload, status = order_core(request.get_json(silent=True) or {}, key, ip, session_cid())
+    payload.pop("_data", None)
+    return jsonify(**payload) if status == 200 else (jsonify(**payload), status)
+
+
+def order_core(d, key, ip, me, source="с сайта"):
+    """Создание заказа в МойСклад (общее для сайта и ИИ-продажника). Возвращает (словарь, http-статус)."""
     if too_many(ip):
-        return jsonify(ok=False, error="Слишком много заказов подряд, подождите 10 минут"), 429
-    d = request.get_json(silent=True) or {}
+        return dict(ok=False, error="Слишком много заказов подряд, подождите 10 минут"), 429
     name = str(d.get("name", "")).strip()[:80]
     city = str(d.get("city", "")).strip()[:80]
     phone = re.sub(r"\D", "", str(d.get("phone", "")))[:15]
@@ -672,7 +678,7 @@ def _create_order_impl(key):
     telegram = re.sub(r"[^A-Za-z0-9_]", "", str(d.get("telegram", "")))[:32]
     ship = d.get("shipping")
     if not name or not city or ship not in SHIPPING or not (len(phone) >= 10 or len(telegram) >= 4):
-        return jsonify(ok=False, error="Заполните имя, контакт, город и способ отправки"), 400
+        return dict(ok=False, error="Заполните имя, контакт, город и способ отправки"), 400
 
     # Цены и остатки пересчитываются на сервере по МойСклад — цены из браузера не используются
     try:
@@ -681,9 +687,8 @@ def _create_order_impl(key):
         print("Заказ: МойСклад не ответил по остаткам:", e, flush=True)
         v = _cache.get("live")
         if not v:
-            return jsonify(ok=False, error="Склад сейчас не отвечает, попробуйте через минуту"), 503
+            return dict(ok=False, error="Склад сейчас не отвечает, попробуйте через минуту"), 503
         cat = {i["id"]: i for i in v[1]["items"]}
-    me = session_cid()                         # клиент вошёл в «Я» — заказ на его контрагента
     ws = is_wholesale(me)
     lines = []
     for p in (d.get("items") or [])[:200]:
@@ -697,7 +702,7 @@ def _create_order_impl(key):
             continue
         lines.append({"id": item["id"], "name": item["name"], "qty": qty, "price": price})
     if not lines:
-        return jsonify(ok=False, error="Корзина пуста или товаров нет в наличии"), 400
+        return dict(ok=False, error="Корзина пуста или товаров нет в наличии"), 400
 
     ship_name, need_loader = SHIPPING[ship]
     logistics = str(d.get("logistics", "")).strip()[:80]
@@ -705,11 +710,11 @@ def _create_order_impl(key):
     zipcode = re.sub(r"\D", "", str(d.get("zip", "")))[:6]
     address = str(d.get("address", "")).strip()[:200]
     if need_loader and not logistics:
-        return jsonify(ok=False, error="Укажите, через какую логистику отправить"), 400
+        return dict(ok=False, error="Укажите, через какую логистику отправить"), 400
     if ship == "kazpost" and not (recipient and len(zipcode) == 6 and address):
-        return jsonify(ok=False, error="Для Казпочты укажите ФИО, индекс и адрес"), 400
+        return dict(ok=False, error="Для Казпочты укажите ФИО, индекс и адрес"), 400
     if ship == "courier" and not address:
-        return jsonify(ok=False, error="Укажите адрес доставки по Алматы"), 400
+        return dict(ok=False, error="Укажите адрес доставки по Алматы"), 400
     if ship == "courier":
         ship_name += f" — {address}"
     if need_loader:
@@ -734,13 +739,13 @@ def _create_order_impl(key):
             "organization": meta("organization", organization()),
             "agent": meta("counterparty", agent),
             "shipmentAddress": city,
-            "description": f"Заказ с сайта\n{name}, {contact}\nГород: {city}\nОтправка: {ship_name}",
+            "description": f"Заказ {source}\n{name}, {contact}\nГород: {city}\nОтправка: {ship_name}",
             "positions": positions,
         })
     except Exception as e:
         # МойСклад упал — заказ всё равно не теряем: шлём владельцу
         tg("sendMessage", chat_id=OWNER, text=f"⚠️ Заказ с сайта НЕ записан в МойСклад ({e})\n\n{json.dumps(d, ensure_ascii=False)[:3500]}")
-        return jsonify(ok=False, error="Не удалось сохранить заказ, менеджер уже получил его и свяжется с вами"), 502
+        return dict(ok=False, error="Не удалось сохранить заказ, менеджер уже получил его и свяжется с вами"), 502
 
     number = order["name"]
     tok = sign(number)
@@ -751,7 +756,7 @@ def _create_order_impl(key):
         try:
             pdf = build_pdf(data)
             pdf_store(number, pdf)             # накладная откроется мгновенно, без запроса в МойСклад
-            caption = (f"🛒 Заказ с сайта № {number}\n{name} · {contact}\n{city} · {ship_name}\n\n"
+            caption = (f"🛒 Заказ {source} № {number}\n{name} · {contact}\n{city} · {ship_name}\n\n"
                        + "\n".join(f"{l['name']} — {l['qty']} × {fmt(l['price'])} = {fmt(l['qty'] * l['price'])} ₸" for l in lines)
                        + (f"\nУслуга грузчика — {fmt(loader)} ₸" if loader else "")
                        + f"\n{FEE_NAME} 0,95% — {fmt(fee)} ₸\nИтого: {fmt(total)} ₸")
@@ -766,8 +771,8 @@ def _create_order_impl(key):
 
     notify_bg(notify_owner)
 
-    return jsonify(ok=True, number=number, total=total, startToken=f"{number}_{tok}",
-                   pdfUrl=f"{PUBLIC_URL}/order/{number}/pdf?t={tok}")
+    return dict(ok=True, number=number, total=total, startToken=f"{number}_{tok}",
+                pdfUrl=f"{PUBLIC_URL}/order/{number}/pdf?t={tok}", _data=data), 200
 
 
 # ---------- PDF ----------

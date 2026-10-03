@@ -2,6 +2,7 @@
 Хранение — Postgres (DATABASE_URL); без неё временный SQLite-файл (при перезапуске сервера пропадёт).
 ИИ: OPENAI_API_KEY, модель OPENAI_MODEL (по умолчанию gpt-4o-mini)."""
 import base64
+import json
 import os
 import re
 import sqlite3
@@ -23,7 +24,7 @@ _ready = [False]
 DEFAULT_RULES = """Ты — менеджер по продажам оптового интернет-магазина корейской косметики AMURA (склад в Алматы, доставка по Казахстану).
 Отвечай коротко, дружелюбно, на языке клиента (русский или казахский), без выдумок: цены и наличие бери только из блока «Товары из каталога», остальное — из базы знаний.
 Если не знаешь ответа, клиент просит скидку сверх правил, жалуется, спорит об оплате, хочет изменить или отменить заказ, или просит живого менеджера — коротко скажи, что передаёшь менеджеру, и добавь в самом конце ответа метку """ + HANDOFF + """.
-Оформить заказ клиент может на сайте, реквизиты оплаты бот присылает после заказа."""
+Заказ можно оформить прямо в этом чате (см. раздел «Оформление заказа») или клиент оформит его сам на сайте."""
 
 
 # ---------- база ----------
@@ -89,6 +90,76 @@ def ai_on(d):
     return bool(OPENAI_KEY) and get_setting(d, "ai_enabled", "1") == "1"
 
 
+# ---------- оформление заказа ИИ ----------
+ORDER_RULES = """# Оформление заказа
+Ты можешь оформить заказ в МойСклад инструментом create_order. Порядок строго такой:
+1. Собери у клиента: какие товары и сколько (бери id из блока «Товары из каталога»), имя, телефон, город, способ отправки (kamaz КАМАЗ, rail ЖД, avia Авиа — для них нужна логистическая компания; kazpost Казпочта — нужны ФИО получателя, индекс из 6 цифр и адрес; courier курьер по Алматы — нужен адрес; pickup самовывоз).
+2. Покажи клиенту сводку: товары, количество, цену за штуку, итог с учётом комиссии банка 0,95% (и услуги грузчика 1 000 ₸ для КАМАЗ/ЖД/Авиа), способ отправки, имя, телефон, город. Строку с итогом начни словом «Итого».
+3. Только после явного согласия клиента («да», «подтверждаю», «оформляй») вызови create_order с client_confirmed=true. Никогда не оформляй заказ без подтверждения сводки.
+4. Если заказ не удалось создать или сумма очень большая — не пытайся ещё раз, передай менеджеру (метка """ + HANDOFF + """).
+После успешного заказа накладная и реквизиты оплаты уходят клиенту автоматически — просто коротко подтверди номер заказа."""
+
+ORDER_TOOL = [{"type": "function", "function": {
+    "name": "create_order",
+    "description": "Оформить заказ клиента в МойСклад. Вызывать только после того, как клиент подтвердил сводку заказа.",
+    "parameters": {"type": "object", "properties": {
+        "items": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string", "description": "id товара из каталога"}, "qty": {"type": "integer"}}, "required": ["id", "qty"]}},
+        "name": {"type": "string"}, "phone": {"type": "string"}, "city": {"type": "string"},
+        "shipping": {"type": "string", "enum": ["kamaz", "rail", "avia", "kazpost", "courier", "pickup"]},
+        "logistics": {"type": "string", "description": "логистическая компания для kamaz/rail/avia"},
+        "recipient": {"type": "string"}, "zip": {"type": "string"}, "address": {"type": "string"},
+        "client_confirmed": {"type": "boolean", "description": "true только если клиент явно подтвердил сводку"}},
+        "required": ["items", "name", "phone", "city", "shipping", "client_confirmed"]}}}]
+
+AI_ORDER_MAX = int(os.environ.get("AI_ORDER_MAX", "3000000"))      # заказы дороже ИИ не оформляет — только менеджер
+AI_ORDERS_PER_DAY = 3
+_ai_orders = {}
+_ai_done = {}          # ключ заказа -> (время, ответ модели): повторный вызов не создаёт второй заказ
+
+
+def run_create_order(args, ctx, history):
+    """Выполняет вызов create_order от модели. Возвращает текст-результат для модели."""
+    if ctx is None:                                              # пробный чат в панели: ничего не создаём
+        return "ТЕСТОВЫЙ РЕЖИМ: заказ в МойСклад не создавался. Скажи клиенту, что заказ оформлен (тест), номер 0000."
+    if not args.get("client_confirmed"):
+        return "Ошибка: клиент не подтвердил сводку. Покажи сводку и дождись согласия."
+    last_ai = next((t for r, t in reversed(history) if r == "ai"), "")
+    if "итого" not in last_ai.lower():
+        return "Ошибка: сначала покажи клиенту сводку заказа со словом «Итого» и дождись подтверждения."
+    chat, now = str(ctx["chat"]), time.time()
+    done = [x for x in _ai_orders.get(chat, []) if now - x < 86400]
+    if len(done) >= AI_ORDERS_PER_DAY:
+        return "Ошибка: лимит заказов через чат на сегодня. Передай диалог менеджеру (метка " + HANDOFF + ")."
+    items = [{"id": str(i.get("id")), "qty": int(i.get("qty") or 0)} for i in (args.get("items") or [])][:50]
+    d = {"items": items, "name": args.get("name", ""), "phone": args.get("phone", ""), "city": args.get("city", ""),
+         "shipping": args.get("shipping"), "logistics": args.get("logistics", ""), "recipient": args.get("recipient", ""),
+         "zip": args.get("zip", ""), "address": args.get("address", ""), "telegram": ctx.get("username", "")}
+    key = "tg:" + chat + ":" + oh.hashlib.sha1(json.dumps([items, d["shipping"], time.strftime("%Y%m%d")], sort_keys=True).encode()).hexdigest()[:16]
+    for k in [k for k, v in _ai_done.items() if now - v[0] > 600]:
+        _ai_done.pop(k, None)
+    if key in _ai_done:
+        return _ai_done[key][1]
+    payload, status = oh.order_core(d, key, "tg:" + chat, None, source="из Telegram (ИИ-продажник)")
+    if status != 200:
+        return "Ошибка: " + str(payload.get("error", "не удалось оформить")) + ". Исправь данные с клиентом или передай менеджеру."
+    if payload["total"] > AI_ORDER_MAX:
+        oh.alert("aiorder", f"ИИ оформил заказ № {payload['number']} на {oh.fmt(payload['total'])} ₸ — выше лимита, проверьте", every=0)
+    _ai_orders.setdefault(chat, []).append(now)
+    data = payload["_data"]
+    done_msg = f"Заказ № {data['number']} уже создан на сумму {oh.fmt(data['total'])} ₸ и повторно не создаётся. Накладная и реквизиты отправлены клиенту."
+    _ai_done[key] = (now, done_msg)
+    try:
+        pdf = oh.build_pdf(data)
+        oh.pdf_store(data["number"], pdf)
+        oh.tg("sendDocument", chat_id=chat, caption=f"Ваш заказ AMURA № {data['number']} на {oh.fmt(data['total'])} ₸.",
+              _files={"document": (f"AMURA-{data['number']}.pdf", pdf, "application/pdf")})
+        oh.tg("sendMessage", chat_id=chat, text=oh.pay_text())
+    except Exception as e:
+        print("ИИ-заказ: накладная не ушла клиенту:", e, flush=True)
+        return f"Заказ № {data['number']} создан на {oh.fmt(data['total'])} ₸, но накладную отправит менеджер. Сообщи клиенту номер заказа."
+    return f"Заказ № {data['number']} создан на сумму {oh.fmt(data['total'])} ₸. Накладная и реквизиты оплаты отправлены клиенту в чат."
+
+
 # ---------- ИИ ----------
 def _words(t):
     return [w for w in re.findall(r"[\w-]{3,}", t.lower())][:8]
@@ -112,7 +183,7 @@ def product_context(text):
         p = f"розница {oh.fmt(i.get('rtl', 0))} ₸"
         if ws:
             p = f"опт {oh.fmt(i.get('opt', 0))} ₸" + (f", от 10 шт {oh.fmt(i['mid'])} ₸" if i.get("mid") else "") + (f", короб ({i['boxQty']} шт) {oh.fmt(i['box'])} ₸" if i.get("box") else "") + f", розница {oh.fmt(i.get('rtl', 0))} ₸"
-        rows.append(f"- {i['name']} ({i.get('brand') or '—'}): {p}; в наличии")
+        rows.append(f"- {i['name']} ({i.get('brand') or '—'}) [id={i['id']}]: {p}; в наличии")
     return "\n".join(rows) or "По запросу товаров в наличии не найдено."
 
 
@@ -123,11 +194,11 @@ def photo_data_url(file_id):
     return "data:image/jpeg;base64," + base64.b64encode(r.content).decode()
 
 
-def ai_reply(d, history, text, photo=None):
-    """Ответ ИИ; возвращает (текст, нужен_менеджер)."""
+def ai_reply(d, history, text, photo=None, ctx=None):
+    """Ответ ИИ; возвращает (текст, нужен_менеджер). ctx — данные чата для оформления заказов (None — пробный чат)."""
     rules = get_setting(d, "rules", DEFAULT_RULES)
     kb = "\n\n".join(f"## {t}\n{b}" for t, b in d.run("SELECT title, body FROM kb ORDER BY id", many=True))
-    system = f"{rules}\n\n# База знаний\n{kb or '(пока пусто)'}\n\n# Товары из каталога по запросу клиента\n{product_context(text)}"
+    system = f"{rules}\n\n{ORDER_RULES}\n\n# База знаний\n{kb or '(пока пусто)'}\n\n# Товары из каталога по запросу клиента\n{product_context(text)}"
     msgs = [{"role": "system", "content": system}]
     for role, t in history[-12:]:
         msgs.append({"role": "user" if role == "client" else "assistant", "content": t})
@@ -138,14 +209,29 @@ def ai_reply(d, history, text, photo=None):
         except Exception as e:
             print("Фото клиента не загружено:", e, flush=True)
     msgs.append({"role": "user", "content": content})
-    r = requests.post("https://api.openai.com/v1/chat/completions", timeout=45,
-                      headers={"Authorization": f"Bearer {OPENAI_KEY}"},
-                      json={"model": OPENAI_MODEL, "messages": msgs, "temperature": 0.3, "max_tokens": 500})
-    if r.status_code >= 400:
-        raise RuntimeError(f"OpenAI {r.status_code}: {r.text[:200]}")
-    out = r.json()["choices"][0]["message"]["content"].strip()
-    hand = HANDOFF in out
-    return out.replace(HANDOFF, "").strip(), hand
+    for step in range(4):                                         # модель может вызвать инструмент и затем ответить
+        r = requests.post("https://api.openai.com/v1/chat/completions", timeout=45,
+                          headers={"Authorization": f"Bearer {OPENAI_KEY}"},
+                          json={"model": OPENAI_MODEL, "messages": msgs, "temperature": 0.3, "max_tokens": 600,
+                                "tools": ORDER_TOOL})
+        if r.status_code >= 400:
+            raise RuntimeError(f"OpenAI {r.status_code}: {r.text[:200]}")
+        m = r.json()["choices"][0]["message"]
+        calls = m.get("tool_calls") or []
+        if not calls:
+            out = (m.get("content") or "").strip()
+            hand = HANDOFF in out
+            return out.replace(HANDOFF, "").strip(), hand
+        msgs.append({"role": "assistant", "content": m.get("content"), "tool_calls": calls})
+        for c in calls:
+            try:
+                res = run_create_order(json.loads(c["function"]["arguments"] or "{}"), ctx, history) if c["function"]["name"] == "create_order" else "Неизвестный инструмент"
+            except Exception as e:
+                print("ИИ-заказ:", e, flush=True)
+                oh.alert("aiorder", f"ИИ не смог оформить заказ: {str(e)[:250]}", every=300)
+                res = "Ошибка при оформлении заказа. Передай диалог менеджеру (метка " + HANDOFF + ")."
+            msgs.append({"role": "tool", "tool_call_id": c["id"], "content": res})
+    return "Передал менеджеру — он поможет оформить заказ.", True
 
 
 # ---------- входящие сообщения из Telegram ----------
@@ -184,8 +270,8 @@ def on_client_message(chat, user, text, photo=None):
             oh.alert(f"inbox:{cid}", f"новое сообщение от {name}: {(text or '[фото]')[:200]}\nОтветьте в панели → Сообщения", every=300)
             return
         try:
-            with _lock, db() as d:
-                reply, hand = ai_reply(d, hist, text, photo)
+            with db() as d:                       # без общей блокировки: ответ ИИ и заказ могут занять до минуты
+                reply, hand = ai_reply(d, hist, text, photo, ctx={"chat": chat, "username": user.get("username", "")})
         except Exception as e:
             print("ИИ не ответил:", e, flush=True)
             oh.alert("ai", f"ИИ не ответил клиенту {name}: {str(e)[:200]}. Диалог передан менеджеру.", every=600)
