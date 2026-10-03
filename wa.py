@@ -144,28 +144,49 @@ def connect(code, phone_id, waba_id, webhook_url, verify_token, coex=False, redi
             break
         m = str((j.get("error") or {}).get("message", r.text[:200]))
         lab = "пусто" if ru == "" else "без адреса" if ru is None else ru.replace("https://", "")[:42]
-        errs.append(f"[{lab}] {m[:110]}")
+        errs.append(f"[{lab}] {m[:34]}")
     if not token:
         hint = ""
         if any("domain" in e.lower() for e in errs):
             from urllib.parse import urlparse
             hint = f" Добавьте {urlparse(webhook_url).netloc} в поле «Домены приложения» (Настройки приложения → Основные), нажмите «Сохранить изменения» и повторите."
-        raise RuntimeError("Meta не выдала токен: " + " | ".join(errs)[:400] + hint)
+        raise RuntimeError("Meta не выдала токен: " + " | ".join(errs)[:700] + hint)
+    return finish(token, phone_id, waba_id, webhook_url, verify_token, coex)
+
+
+def connect_token(token, phone_id, webhook_url, verify_token):
+    """Запасной путь без кода из окна Facebook: токен системного пользователя (создаётся в Business Settings)."""
+    c = cfg()
+    if not (c["app_id"] and c["secret"]):
+        raise RuntimeError("Сначала сохраните App ID и App Secret приложения Meta")
+    return finish(token.strip(), phone_id.strip(), "", webhook_url, verify_token, coex=True)
+
+
+def finish(token, phone_id, waba_id, webhook_url, verify_token, coex):
+    import inbox
+    c = cfg()
     h = {"Authorization": "Bearer " + token}
-    if not waba_id:                                         # окно Facebook не прислало аккаунт (например, iPhone): берём из самого токена
+    wabas = [waba_id] if waba_id else []
+    if not wabas:                                           # окно Facebook не прислало аккаунт (iPhone) или вход по токену: берём аккаунты из самого токена
         dt = requests.get(f"{GRAPH}/debug_token", params={"input_token": token, "access_token": f"{c['app_id']}|{c['secret']}"}, timeout=30).json()
+        if (dt.get("data") or {}).get("is_valid") is False:
+            raise RuntimeError("Токен недействителен: " + str((dt["data"].get("error") or {}).get("message", "")))
         for g in (dt.get("data") or {}).get("granular_scopes", []):
-            if g.get("scope") in ("whatsapp_business_management", "whatsapp_business_messaging") and g.get("target_ids"):
-                waba_id = g["target_ids"][0]
-                break
-        if not waba_id:
-            raise RuntimeError("Не удалось определить аккаунт WhatsApp. Пройдите все шаги в окне Facebook до конца и повторите.")
-    if not phone_id:                                        # при сосуществовании окно возвращает только аккаунт: номер берём из списка
-        pn = requests.get(f"{GRAPH}/{waba_id}/phone_numbers", headers=h, params={"fields": "id,display_phone_number"}, timeout=30).json()
-        rows = pn.get("data") or []
-        if not rows:
+            if g.get("scope") in ("whatsapp_business_management", "whatsapp_business_messaging"):
+                wabas += [t for t in g.get("target_ids", []) if t not in wabas]
+        if not wabas:
+            raise RuntimeError("К токену не привязан ни один аккаунт WhatsApp. В Business Settings добавьте аккаунт WhatsApp в доступы системного пользователя.")
+    if not phone_id:                                        # номер: из списка аккаунта; тестовый номер Meta (+1 555…) берём только если других нет
+        found = []
+        for wb in wabas:
+            pn = requests.get(f"{GRAPH}/{wb}/phone_numbers", headers=h, params={"fields": "id,display_phone_number"}, timeout=30).json()
+            found += [(wb, r["id"], r.get("display_phone_number", "")) for r in (pn.get("data") or [])]
+        if not found:
             raise RuntimeError("В аккаунте WhatsApp не найден номер. Дойдите в окне Facebook до конца и повторите.")
-        phone_id = rows[0]["id"]
+        real = [x for x in found if not x[2].replace(" ", "").replace("-", "").startswith("+1555")]
+        waba_id, phone_id, _ = (real or found)[0]
+    elif not waba_id:
+        waba_id = wabas[0]
     # подписка приложения на события, включая сообщения, написанные с телефона (smb_message_echoes) — на уровне приложения
     try:
         requests.post(f"{GRAPH}/{c['app_id']}/subscriptions", timeout=30, data={
