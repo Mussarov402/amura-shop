@@ -76,6 +76,8 @@ def db():
             f"CREATE TABLE IF NOT EXISTS msg (id {pk}, conv_id INTEGER, role TEXT, text TEXT, photo TEXT, at DOUBLE PRECISION)",
             f"CREATE TABLE IF NOT EXISTS kb (id {pk}, title TEXT, body TEXT, at DOUBLE PRECISION)",
             "CREATE TABLE IF NOT EXISTS setting (key TEXT PRIMARY KEY, value TEXT)",
+            "CREATE TABLE IF NOT EXISTS staff (id " + pk + ", chat_id TEXT UNIQUE, name TEXT, username TEXT, perms TEXT, notify INTEGER DEFAULT 1, active INTEGER DEFAULT 1, at DOUBLE PRECISION)",
+            "CREATE TABLE IF NOT EXISTS invite (code TEXT PRIMARY KEY, name TEXT, perms TEXT, notify INTEGER DEFAULT 1, at DOUBLE PRECISION)",
         ):
             d.run(s)
         d.c.commit()
