@@ -14,6 +14,7 @@ from flask import Blueprint, jsonify, request, send_from_directory
 
 import order_hook as oh
 import team
+import wa
 
 bp = Blueprint("admin", __name__)
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -250,7 +251,7 @@ def overview():
     return jsonify(ok=True, products=len(items), hidden=len(hidden_ids()), ordersToday=len(today),
                    sumToday=sum(o["sum"] for o in today) / 100, catalogUpdated=(v[1]["updated"] if v else ""),
                    siteUpdated=oh._cache.get("site_updated", ""), msOk=ms_ok, msSec=round(time.time() - t0, 1),
-                   tgOk=bool(oh.BOT and oh.OWNER), sms=bool(oh.MOBIZON_KEY))
+                   tgOk=bool(oh.BOT and oh.OWNER), sms=bool(oh.MOBIZON_KEY), wa=wa.configured())
 
 
 def fresh(key, ttl, fn):
@@ -459,8 +460,9 @@ def inbox_status():
 @need("inbox")
 def inbox_convs():
     with inbox.db() as d:
-        rows = d.run("SELECT id, name, username, status, unread, last_at, last_text FROM conv ORDER BY last_at DESC LIMIT 100", many=True)
-    return jsonify(ok=True, convs=[{"id": r[0], "name": r[1], "username": r[2], "status": r[3], "unread": r[4], "at": r[5], "text": r[6]} for r in rows])
+        rows = d.run("SELECT id, name, username, status, unread, last_at, last_text, chat_id FROM conv ORDER BY last_at DESC LIMIT 100", many=True)
+    return jsonify(ok=True, convs=[{"id": r[0], "name": r[1], "username": r[2], "status": r[3], "unread": r[4], "at": r[5], "text": r[6],
+                                    "channel": "wa" if wa.is_wa(r[7]) else "tg", "phone": wa.number(r[7]) if wa.is_wa(r[7]) else ""} for r in rows])
 
 
 def _msg_json(m):
@@ -479,12 +481,15 @@ def _msg_json(m):
 @need("inbox")
 def inbox_conv(cid):
     with inbox.db() as d:
-        c = d.run("SELECT id, name, username, status FROM conv WHERE id=%s", (cid,), one=True)
+        c = d.run("SELECT id, name, username, status, chat_id FROM conv WHERE id=%s", (cid,), one=True)
         if not c:
             return jsonify(ok=False, error="Диалог не найден"), 404
         d.run("UPDATE conv SET unread=0 WHERE id=%s", (cid,))
         ms_ = d.run("SELECT id, role, text, photo, at, media FROM msg WHERE conv_id=%s ORDER BY id DESC LIMIT 100", (cid,), many=True)[::-1]
-    return jsonify(ok=True, conv={"id": c[0], "name": c[1], "username": c[2], "status": c[3]},
+    lastc = max([m[4] for m in ms_ if m[1] == "client"] or [0])
+    isw = wa.is_wa(c[4])
+    return jsonify(ok=True, conv={"id": c[0], "name": c[1], "username": c[2], "status": c[3], "channel": "wa" if isw else "tg",
+                                  "phone": wa.number(c[4]) if isw else "", "open": (not isw) or (time.time() - lastc < 86400 - 60)},
                    messages=[_msg_json(m) for m in ms_])
 
 
@@ -498,7 +503,10 @@ def inbox_send(cid):
         c = d.run("SELECT chat_id FROM conv WHERE id=%s", (cid,), one=True)
         if not c:
             return jsonify(ok=False, error="Диалог не найден"), 404
-        oh.tg("sendMessage", chat_id=c[0], text=text)
+        try:
+            inbox.send_text(c[0], text)
+        except Exception as e:
+            return jsonify(ok=False, error=str(e)[:300]), 502
         inbox.save_msg(d, cid, "manager", text)
         d.run("UPDATE conv SET status='manager' WHERE id=%s", (cid,))     # менеджер ответил — ИИ молчит
     return jsonify(ok=True)
@@ -542,6 +550,20 @@ def _convert(data, args, suffix_in=".bin"):
         return open(out, "rb").read() if r.returncode == 0 and os.path.exists(out) else None
 
 
+def _send_file_wa(chat, data, name, mime, kind, caption, dur):
+    """Файл менеджера -> WhatsApp. Возвращает (media, photo) для записи в диалог."""
+    if kind == "voice":
+        ogg = _convert(data, ["-vn", "-c:a", "libopus", "-b:a", "32k", ".ogg"], ".m4a" if ("mp4" in mime or "m4a" in mime) else ".webm")
+        if not ogg:
+            raise RuntimeError("Не удалось подготовить голосовое для WhatsApp")
+        return {"t": "voice", "id": "wa:" + wa.send_media(chat, "audio", ogg, "voice.ogg", "audio/ogg"), "dur": int(float(dur or 0))}, None
+    if mime in ("image/jpeg", "image/png") and len(data) <= 5 * 1024 * 1024:
+        return None, "wa:" + wa.send_media(chat, "image", data, name, mime, caption)
+    if mime in ("video/mp4", "video/3gpp") and len(data) <= 16 * 1024 * 1024:
+        return {"t": "video", "id": "wa:" + wa.send_media(chat, "video", data, name, mime, caption), "dur": 0}, None
+    return {"t": "doc", "id": "wa:" + wa.send_media(chat, "document", data, name, mime, caption), "name": name, "size": len(data), "mime": mime}, None
+
+
 @bp.post("/admin/api/inbox/conv/<int:cid>/send-file")
 @need("inbox")
 def inbox_send_file(cid):
@@ -560,6 +582,14 @@ def inbox_send_file(cid):
         if not c:
             return jsonify(ok=False, error="Диалог не найден"), 404
         chat, media, photo = c[0], None, None
+        if wa.is_wa(chat):
+            try:
+                media, photo = _send_file_wa(chat, data, name, mime, kind, caption, request.form.get("dur", 0))
+            except Exception as e:
+                return jsonify(ok=False, error=str(e)[:300]), 502
+            inbox.save_msg(d, cid, "manager", caption if kind != "voice" else "", photo, media=media)
+            d.run("UPDATE conv SET status='manager' WHERE id=%s", (cid,))
+            return jsonify(ok=True)
         if kind == "voice":
             dur = int(float(request.form.get("dur", 0) or 0))
             ogg = None
@@ -593,12 +623,19 @@ def inbox_file(file_id):
     """Файл из Telegram для показа в панели (голосовые, видео, документы). ?fmt=mp3 — перекодировать для браузеров без Opus (iPhone)."""
     if not oh.ORDER_SECRET or not oh.hmac.compare_digest(request.args.get("t", ""), _sig("fl" + file_id)):
         return "", 403
-    info = oh.tg("getFile", file_id=file_id)["result"]
-    r = oh.requests.get(f"https://api.telegram.org/file/bot{oh.BOT}/{info['file_path']}", timeout=60)
-    data, fname = r.content, info["file_path"].rsplit("/", 1)[-1]
-    mime = mimetypes.guess_type(fname)[0] or "application/octet-stream"
-    if fname.endswith((".oga", ".ogg")):
-        mime = "audio/ogg"
+    if file_id.startswith("wa:"):
+        try:
+            data, mime = wa.download(file_id)
+        except Exception as e:
+            return str(e), 502
+        fname = "file" + (mimetypes.guess_extension(mime.split(";")[0]) or "")
+    else:
+        info = oh.tg("getFile", file_id=file_id)["result"]
+        r = oh.requests.get(f"https://api.telegram.org/file/bot{oh.BOT}/{info['file_path']}", timeout=60)
+        data, fname = r.content, info["file_path"].rsplit("/", 1)[-1]
+        mime = mimetypes.guess_type(fname)[0] or "application/octet-stream"
+        if fname.endswith((".oga", ".ogg")):
+            mime = "audio/ogg"
     if request.args.get("fmt") == "mp3":
         out = _convert(data, ["-vn", "-c:a", "libmp3lame", "-b:a", "48k", ".mp3"], os.path.splitext(fname)[1] or ".ogg")
         if out:
@@ -614,6 +651,12 @@ def inbox_photo(file_id):
     t = request.args.get("t", "")
     if not oh.ORDER_SECRET or not oh.hmac.compare_digest(t, _sig("ph" + file_id)):
         return "", 403
+    if file_id.startswith("wa:"):
+        try:
+            data, mime = wa.download(file_id)
+        except Exception as e:
+            return str(e), 502
+        return oh.Response(data, mimetype=mime if mime.startswith("image/") else "image/jpeg", headers={"Cache-Control": "private, max-age=86400"})
     info = oh.tg("getFile", file_id=file_id)["result"]
     r = oh.requests.get(f"https://api.telegram.org/file/bot{oh.BOT}/{info['file_path']}", timeout=30)
     return oh.Response(r.content, mimetype="image/jpeg", headers={"Cache-Control": "private, max-age=86400"})
@@ -719,3 +762,38 @@ def team_edit(sid):
 def team_invite_del(code):
     team.remove_invite(code)
     return jsonify(ok=True)
+
+
+# ---------- каналы: подключение WhatsApp без правки сервера ----------
+def _mask(v):
+    return ("•" * 8 + v[-4:]) if len(v) > 6 else ""
+
+
+@bp.route("/admin/api/channels", methods=["GET", "PUT"])
+@guard
+def channels():
+    with inbox.db() as d:
+        if request.method == "PUT":
+            b = request.get_json(silent=True) or {}
+            for k in ("phone_id", "token", "secret"):
+                v = str(b.get(k, "")).strip()
+                if v and "•" not in v:                  # маска означает «не менять»
+                    inbox.set_setting(d, "wa_" + k, v)
+                elif k in b and not v:
+                    inbox.set_setting(d, "wa_" + k, "")
+            wa.reset_cache()
+        c = wa.cfg()
+        base = (oh.PUBLIC_URL or request.url_root).rstrip("/")
+    return jsonify(ok=True, tg={"ok": bool(oh.BOT and oh.OWNER)}, persist=bool(inbox.PG),
+                   wa={"ok": wa.configured(), "phone_id": c["phone_id"], "token": _mask(c["token"]), "secret": _mask(c["secret"]),
+                       "url": f"{base}/wa/{oh.HOOK_SECRET}", "verify": oh.HOOK_SECRET})
+
+
+@bp.post("/admin/api/channels/wa-test")
+@guard
+def wa_test():
+    try:
+        j = wa.check()
+        return jsonify(ok=True, name=j.get("verified_name", ""), phone=j.get("display_phone_number", ""), quality=j.get("quality_rating", ""))
+    except Exception as e:
+        return jsonify(ok=False, error=str(e)[:300]), 400
