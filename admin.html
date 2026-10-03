@@ -55,6 +55,18 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 .cmp{display:flex;align-items:flex-end;gap:8px;padding:8px 10px calc(8px + env(safe-area-inset-bottom,0px));background:#fff;border-top:1px solid var(--line)}.cmp textarea{min-height:44px;height:44px;max-height:120px;border-radius:22px;padding:11px 16px;resize:none;background:#F2F4F2;border-color:transparent}
 .snd{flex:none;width:44px;height:44px;border-radius:50%;border:0;background:var(--g);cursor:pointer;display:grid;place-items:center}.snd:disabled{opacity:.5}.snd svg{width:22px;height:22px;fill:#fff;stroke:#fff;stroke-width:1.2;stroke-linejoin:round;margin-left:-2px}
 @media(max-width:800px){.ibx2{display:block}.ibx2.chat .il2{display:none}.ibx2:not(.chat) .ic2{display:none}.ic2{position:fixed;inset:0;z-index:50;height:auto;border:0;border-radius:0}.ch{padding-top:calc(10px + env(safe-area-inset-top,0px))}.bk{display:block}body.inchat .tabbar,body.inchat .mtop{display:none}.msgs .bub{max-width:88%}.il2{margin:0 -14px;border-radius:0;border-left:0;border-right:0}.ih{padding-top:4px}}
+.ic{flex:none;width:40px;height:44px;border:0;background:transparent;cursor:pointer;display:grid;place-items:center}.ic svg{width:25px;height:25px;fill:none;stroke:#6B7A72;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.snd.mic{background:var(--g)}.snd .mic{width:23px;height:23px;fill:none;stroke:#fff;stroke-width:1.9;stroke-linecap:round;margin:0}.snd .mic rect{fill:#fff}
+.pend{display:flex;align-items:center;gap:10px;padding:8px 14px;background:#F7F8F7;border-top:1px solid var(--line)}.pend[hidden],.rec[hidden],.cmp[hidden]{display:none}.pend img{width:44px;height:44px;border-radius:8px;object-fit:cover}.pend .fi{font-size:30px}.pend b{display:block;max-width:60vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pend .x{border:0;background:#E7EAE8;border-radius:50%;width:30px;height:30px;cursor:pointer}
+.rec{display:flex;align-items:center;gap:10px;padding:8px 12px calc(8px + env(safe-area-inset-bottom,0px));background:#fff;border-top:1px solid var(--line)}.dot{width:12px;height:12px;border-radius:50%;background:#D93025;animation:bl 1s infinite}@keyframes bl{50%{opacity:.25}}.rec b{font-variant-numeric:tabular-nums;font-size:17px}
+.msgs audio{display:block;width:240px;max-width:100%;height:40px;margin:2px 0 6px}.msgs video.mph{max-height:320px}.fcard{display:flex;gap:10px;align-items:center;text-decoration:none;color:inherit;background:rgba(0,0,0,.06);border-radius:12px;padding:8px 12px;margin:2px 0 6px}.fcard .fi{font-size:26px}.fcard small{opacity:.65}.bub.manager .fcard{background:rgba(255,255,255,.14)}
+
+.cmp{align-items:flex-end;gap:6px;padding:8px 10px max(8px,calc(env(safe-area-inset-bottom,0px) - 12px)) 6px;background:#F6F7F6;border-top:1px solid #E1E6E2}
+.cmp textarea{flex:1;min-width:0;min-height:42px;height:42px;max-height:120px;padding:10px 16px;border-radius:21px;background:#fff;border:1px solid #D5DCD7;font-size:16px;line-height:20px;box-shadow:none}.cmp textarea:focus{outline:0;border-color:#8FB5A2}
+.ic{height:42px;width:38px}.snd{width:42px;height:42px;background:var(--g);box-shadow:0 1px 3px rgba(14,59,44,.35)}
+.snd svg{width:22px;height:22px;fill:none;stroke:#fff;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;margin:0}.snd .mic{width:22px;height:22px;stroke-width:1.9}
+.rec{background:#F6F7F6;padding:8px 10px max(8px,calc(env(safe-area-inset-bottom,0px) - 12px)) 14px;min-height:58px}
+@media(max-width:800px){.ic2{height:100dvh}}
 </style></head><body>
 <div id="login" hidden><div class="logo" style="color:var(--g)">AMURA<small style="color:var(--mut)">панель управления</small></div>
 <div id="l1"><p class="mut">Введите ваш Telegram-@username. Бот пришлёт в Telegram одноразовый код.</p><input id="lu" placeholder="@username" autocapitalize="off" autocomplete="username" style="margin-bottom:12px"><button class="btn" id="go">Получить код</button></div>
@@ -98,7 +110,7 @@ const seg=a=>{const g=SEG[a==="banners"?"products":(a==="pay"||a==="team")?"over
 const bindSeg=()=>document.querySelectorAll("[data-go]").forEach(b=>b.onclick=()=>show(b.dataset.go));
 const head=(t,s)=>`<h1>${t}</h1><div class="sub">${s}</div>`;
 let timer=null;
-async function show(p){clearInterval(timer);document.body.classList.remove("inchat");cur=p;$("#main").innerHTML='<div class="mut">Загрузка…</div>';try{await views[p]()}catch(e){if(e.message!=="401")$("#main").innerHTML=`<div class="b x">${esc(e.message)}</div>`}}
+async function show(p){clearInterval(timer);window.onpopstate=null;document.body.classList.remove("inchat");cur=p;$("#main").innerHTML='<div class="mut">Загрузка…</div>';try{await views[p]()}catch(e){if(e.message!=="401")$("#main").innerHTML=`<div class="b x">${esc(e.message)}</div>`}}
 const badge=(ok,a="Работает",b="Сбой")=>`<span class="b ${ok?"ok":"x"}">${ok?a:b}</span>`;
 const views={
 async overview(){const o=await api("overview");$("#main").innerHTML=head("Обзор","Данные с живого сайта")+seg("overview")+`
@@ -164,23 +176,58 @@ async inbox(openId){const st=await api("inbox/status");let cur=openId||null,flt=
   $("#lst").innerHTML=rows.length?rows.map(c=>`<div class="cv2 ${c.id===cur?"on":""}" data-id="${c.id}">${av(c.name)}<div class="cb"><div class="l1"><b>${esc(c.name)}</b><span class="tm ${c.unread?"u":""}">${when(c.at)}</span></div><div class="l2"><span class="pv">${esc(c.text)||"…"}</span>${c.unread?`<span class="bdg">${c.unread}</span>`:""}</div><div class="l3">${src}${stb(c.status)}${c.username?`<span class="un">@${esc(c.username)}</span>`:""}</div></div></div>`).join(""):'<div class="mut" style="padding:22px;text-align:center">'+(convs.length?"В этом разделе пусто.":"Пока нет диалогов. Они появятся, когда клиент напишет боту.")+"</div>";
   document.querySelectorAll(".cv2").forEach(e=>e.onclick=()=>{cur=+e.dataset.id;built=0;openChat(true)})};
  const list=async()=>{convs=(await api("inbox/convs")).convs;drawList()};
+ const canOgg=!!document.createElement("audio").canPlayType('audio/ogg; codecs=opus');
+ const fsz=n=>n>1048576?(n/1048576).toFixed(1)+" МБ":Math.max(1,Math.round(n/1024))+" КБ";
+ const mediaHtml=m=>{const x=m.media;let o=m.photo?`<a href="${esc(m.photo)}" target="_blank"><img src="${esc(m.photo)}" class="mph"></a>`:"";
+  if(x){if(x.t==="voice"||x.t==="audio")o+=`<audio controls preload="none" src="${esc(x.url)}${canOgg?"":"&fmt=mp3"}"></audio>`;
+   else if(x.t==="video")o+=`<video controls preload="metadata" playsinline class="mph" src="${esc(x.url)}"></video>`;
+   else o+=`<a class="fcard" href="${esc(x.url)}&dl=1&name=${encodeURIComponent(x.name||"file")}" target="_blank"><span class="fi">📎</span><span><b>${esc(x.name||"Файл")}</b><br><small>${fsz(x.size||0)}</small></span></a>`}
+  return o};
+ const bodyText=m=>{const t=m.media&&(m.media.t==="doc"||m.media.t==="video")?(m.text||"").replace(/^(📎 Файл «[^»]*»|🎥 Видео)\n?/,""):(m.text||"");return esc(t)};
  const paintMsgs=(r,stick)=>{const ms=$("#msgs");if(!ms)return;const near=ms.scrollHeight-ms.scrollTop-ms.clientHeight<90;let prev="",o="";
   for(const m of r.messages){const d=dayS(m.at);if(d!==prev){o+=`<div class="dsep"><span>${d}</span></div>`;prev=d}
    const lab=m.role==="ai"?"🤖 ИИ-продажник":m.role==="manager"?"👤 Менеджер":"";
-   o+=`<div class="bub ${m.role}">${lab?`<div class="who">${lab}</div>`:""}${m.photo?`<img src="${esc(m.photo)}" class="mph">`:""}${esc(m.text)}<span class="tt">${tm(m.at)}</span></div>`}
+   o+=`<div class="bub ${m.role}">${lab?`<div class="who">${lab}</div>`:""}${mediaHtml(m)}${bodyText(m)}<span class="tt">${tm(m.at)}</span></div>`}
   ms.innerHTML=o||'<div class="mut" style="text-align:center;margin:auto">Сообщений нет</div>';lastMsg=r.messages.length?r.messages[r.messages.length-1].id:0;
   if(stick||near)ms.scrollTop=ms.scrollHeight};
- const openChat=async(first)=>{document.body.classList.toggle("inchat",!!cur);box.classList.toggle("chat",!!cur);
+ const closeChat=()=>{if(history.state&&history.state.chat)history.back();else{cur=null;built=0;openChat();list()}};
+ window.onpopstate=()=>{if(cur){cur=null;built=0;openChat();list()}};
+ const openChat=async(first)=>{document.body.classList.toggle("inchat",!!cur);if(cur&&!(history.state&&history.state.chat))history.pushState({chat:cur},"");box.classList.toggle("chat",!!cur);
   if(!cur){$("#ic2").innerHTML='<div class="empty">Выберите диалог слева</div>';built=0;return}
   const r=await api("inbox/conv/"+cur),c=r.conv;
   if(built!==cur){built=cur;
    $("#ic2").innerHTML=`<header class="ch"><button class="bk" id="bk" aria-label="Назад"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>${av(c.name,40)}<div class="grow"><b>${esc(c.name)}</b><div class="sb2">${src}${c.username?`<span class="un">@${esc(c.username)}</span>`:""}</div></div><span id="sbx"></span></header>
    <div class="acts" id="acts"></div><div id="msgs" class="msgs"></div>
-   <footer class="cmp"><textarea id="tx" rows="1" placeholder="Сообщение клиенту…"></textarea><button class="snd" id="sd" aria-label="Отправить"><svg viewBox="0 0 24 24"><path d="M3 11l18-8-8 18-2-8z"/></svg></button></footer>`;
-   $("#bk").onclick=()=>{cur=null;built=0;openChat();list()};
-   const tx=$("#tx");tx.oninput=()=>{tx.style.height="auto";tx.style.height=Math.min(tx.scrollHeight,120)+"px"};
-   const send=async()=>{const t=tx.value.trim();if(!t)return;$("#sd").disabled=true;try{await api(`inbox/conv/${cur}/send`,{method:"POST",body:JSON.stringify({text:t})});tx.value="";tx.style.height="auto";built=0;await openChat(true);list()}catch(e){alert(e.message)}$("#sd").disabled=false;tx.focus()};
+   <div class="pend" id="pend" hidden></div>
+   <footer class="cmp" id="cmp"><button class="ic" id="att" aria-label="Прикрепить"><svg viewBox="0 0 24 24"><path d="M21 11.5l-8.6 8.6a5.5 5.5 0 01-7.8-7.8l9-9a3.7 3.7 0 015.2 5.2l-9 9a1.8 1.8 0 01-2.6-2.6l8.2-8.2"/></svg></button><input type="file" id="fi" hidden><textarea id="tx" rows="1" placeholder="Сообщение клиенту…"></textarea><button class="snd" id="sd" aria-label="Отправить"></button></footer>
+   <div class="rec" id="rec" hidden><span class="dot"></span><b id="rt">0:00</b><span class="grow mut">Идёт запись…</span><button class="btn ghost sm" id="rc">Отмена</button><button class="snd" id="rs" aria-label="Отправить голосовое"><svg viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5L12 5l6.5 6.5"/></svg></button></div>`;
+   $("#bk").onclick=closeChat;
+   const tx=$("#tx"),SEND='<svg viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5L12 5l6.5 6.5"/></svg>',MIC='<svg viewBox="0 0 24 24" class="mic"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/></svg>';let pend=null,mr=null,chunks=[],t0=0,rtimer=null,rstream=null,cancelled=false;
+   const mode=()=>{const has=!!tx.value.trim()||!!pend;$("#sd").innerHTML=has?SEND:MIC;$("#sd").classList.toggle("mic",!has)};
+   tx.oninput=()=>{tx.style.height="auto";tx.style.height=Math.min(tx.scrollHeight,120)+"px";mode()};mode();
+   const upload=async(file,f)=>{const fd=new FormData();fd.append("file",file,file.name);for(const k in f)fd.append(k,f[k]);
+    const r=await fetch(`/admin/api/inbox/conv/${cur}/send-file`,{method:"POST",headers:{Authorization:"Bearer "+tok},body:fd});if(r.status===401){localStorage.removeItem(T);tok="";boot();throw Error("401")}
+    const j=await r.json().catch(()=>({}));if(!j.ok)throw Error(j.error||"Не отправилось ("+r.status+")")};
+   const shrink=f=>new Promise(res=>{if(!f.type.startsWith("image/")||f.type==="image/gif"||f.size<2.5e6)return res(f);const im=new Image(),u=URL.createObjectURL(f);im.onload=()=>{const k=Math.min(1,2200/Math.max(im.width,im.height)),c=document.createElement("canvas");c.width=im.width*k;c.height=im.height*k;c.getContext("2d").drawImage(im,0,0,c.width,c.height);c.toBlob(b=>res(b?new File([b],f.name.replace(/\.\w+$/,"")+".jpg",{type:"image/jpeg"}):f),"image/jpeg",.86);URL.revokeObjectURL(u)};im.onerror=()=>res(f);im.src=u});
+   const drawPend=()=>{const p=$("#pend");p.hidden=!pend;if(!pend){mode();return}const img=pend.type.startsWith("image/");p.innerHTML=`${img?`<img src="${URL.createObjectURL(pend)}">`:'<span class="fi">📎</span>'}<div class="grow"><b>${esc(pend.name)}</b><div class="mut">${fsz(pend.size)} · подпись можно написать ниже</div></div><button class="x" id="px" aria-label="Убрать">✕</button>`;$("#px").onclick=()=>{pend=null;drawPend()};mode()};
+   $("#att").onclick=()=>$("#fi").click();
+   $("#fi").onchange=e=>{const f=e.target.files[0];e.target.value="";if(!f)return;if(f.size>20*1024*1024)return alert("Файл больше 20 МБ");pend=f;drawPend();tx.focus()};
+   const send=async()=>{const t=tx.value.trim();if(!t&&!pend)return startRec();$("#sd").disabled=true;
+    try{if(pend){await upload(await shrink(pend),{caption:t});pend=null}else await api(`inbox/conv/${cur}/send`,{method:"POST",body:JSON.stringify({text:t})});
+     tx.value="";tx.style.height="auto";built=0;await openChat(true);list()}catch(e){if(e.message!=="401")alert(e.message)}$("#sd").disabled=false;mode()};
    $("#sd").onclick=send;
+   const startRec=async()=>{if(!navigator.mediaDevices||!window.MediaRecorder)return alert("Этот браузер не умеет записывать голос. Откройте панель в Safari или Chrome.");
+    try{rstream=await navigator.mediaDevices.getUserMedia({audio:true})}catch(e){return alert("Нет доступа к микрофону. Разрешите его для этого сайта в настройках браузера.")}
+    const mt=["audio/webm;codecs=opus","audio/mp4","audio/ogg;codecs=opus"].find(t=>MediaRecorder.isTypeSupported(t))||"";mr=new MediaRecorder(rstream,mt?{mimeType:mt}:{});chunks=[];cancelled=false;
+    mr.ondataavailable=e=>e.data.size&&chunks.push(e.data);
+    mr.onstop=async()=>{clearInterval(rtimer);rstream.getTracks().forEach(t=>t.stop());$("#rec").hidden=true;$("#cmp").hidden=false;const dur=(Date.now()-t0)/1000;if(cancelled||dur<.7)return;
+     const ty=mr.mimeType||mt||"audio/webm";try{await upload(new File([new Blob(chunks,{type:ty})],"voice."+(ty.includes("mp4")?"m4a":"webm"),{type:ty}),{kind:"voice",dur:Math.round(dur)});built=0;await openChat(true);list()}catch(e){if(e.message!=="401")alert(e.message)}};
+    mr.start();t0=Date.now();$("#rec").hidden=false;$("#cmp").hidden=true;$("#rt").textContent="0:00";rtimer=setInterval(()=>{const s=Math.floor((Date.now()-t0)/1000);$("#rt").textContent=Math.floor(s/60)+":"+String(s%60).padStart(2,"0")},250)};
+   $("#rc").onclick=()=>{cancelled=true;mr&&mr.state!=="inactive"&&mr.stop()};$("#rs").onclick=()=>{mr&&mr.state!=="inactive"&&mr.stop()};
+   const el=$("#ic2");let sx=0,sy=0,dx=0,sw=false;
+   el.ontouchstart=e=>{const t=e.touches[0];sw=t.clientX<=40;sx=t.clientX;sy=t.clientY;dx=0};
+   el.ontouchmove=e=>{if(!sw)return;const t=e.touches[0];dx=t.clientX-sx;if(Math.abs(t.clientY-sy)>Math.abs(dx)&&dx<40){sw=false;el.style.transform="";return}if(dx>0)el.style.transform=`translateX(${dx}px)`};
+   el.ontouchend=()=>{if(!sw)return;el.style.transition="transform .18s";if(dx>90){el.style.transform="translateX(100%)";setTimeout(()=>{closeChat();el.style.transform="";el.style.transition=""},170)}else{el.style.transform="";setTimeout(()=>el.style.transition="",200)}sw=false};
    paintMsgs(r,true)}else paintMsgs(r,false);
   $("#sbx").innerHTML=stb(c.status);
   $("#acts").innerHTML=(c.status==="ai"?'<span class="hint">Сейчас отвечает ИИ. Если вы напишете, диалог перейдёт к менеджеру.</span><button data-s="manager">Взять себе</button>':c.status==="closed"?'<span class="hint">Диалог закрыт. Новое сообщение клиента откроет его снова.</span>':'<span class="hint">Отвечает менеджер, ИИ молчит.</span><button data-s="ai">Вернуть ИИ</button>')+(c.status!=="closed"?'<button data-s="closed">Закрыть</button>':"");
