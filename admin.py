@@ -245,6 +245,22 @@ def pay_text_saved():
 
 
 # ---------- API ----------
+@bp.get("/admin/manifest.webmanifest")
+def panel_manifest():
+    """Панель как приложение на экране телефона: своё имя и золотая иконка, чтобы не путать с магазином."""
+    return jsonify({"name": "AMURA — панель управления", "short_name": "AMURA Панель", "start_url": "/admin", "scope": "/admin", "display": "standalone",
+                    "background_color": "#0E3B2C", "theme_color": "#0E3B2C", "lang": "ru",
+                    "icons": [{"src": "/admin/icon/192", "sizes": "192x192", "type": "image/png"},
+                              {"src": "/admin/icon/512", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}]}), 200, {"Content-Type": "application/manifest+json"}
+
+
+@bp.get("/admin/icon/<int:size>")
+def panel_icon(size):
+    if size not in (180, 192, 512):
+        return "", 404
+    return send_from_directory(HERE, f"panel-icon-{size}.png", max_age=86400)
+
+
 @bp.get("/admin")
 def page():
     return send_from_directory(HERE, "admin.html", max_age=0)

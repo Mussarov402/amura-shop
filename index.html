@@ -11,7 +11,7 @@
 <meta name="theme-color" content="#0E3B2C">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="AMURA">
-<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-180.png">
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Unbounded:wght@500;700&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -1188,6 +1188,25 @@ const DEMO_ITEMS = [
 document.body.dataset.view = "home";
 { const h = location.hash.slice(1); if(h === "cart" || h === "me" || h === "fav") go(h, true); }
 boot();
+</script>
+<script>
+/* Потянуть вниз — обновить. Работает только когда сайт добавлен на экран телефона (как приложение): в обычном браузере есть своё обновление. */
+(function(){
+ var sa=(window.matchMedia&&matchMedia("(display-mode: standalone)").matches)||window.navigator.standalone===true;if(!sa)return;
+ var st=document.createElement("style");st.textContent="#ptr{position:fixed;left:50%;top:0;width:40px;height:40px;margin-left:-20px;border-radius:50%;background:#fff;box-shadow:0 4px 14px rgba(8,25,18,.28);display:grid;place-items:center;z-index:9999;opacity:0;pointer-events:none;transform:translateY(-60px)}#ptr svg{width:22px;height:22px;fill:none;stroke:#0E3B2C;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;transition:transform .1s}#ptr.go svg{animation:ptrs .8s linear infinite}@keyframes ptrs{to{transform:rotate(360deg)}}";document.head.appendChild(st);
+ var ind=document.createElement("div");ind.id="ptr";ind.innerHTML='<svg viewBox="0 0 24 24"><path d="M12 5v10M7.5 11l4.5 4.5 4.5-4.5"/></svg>';document.body.appendChild(ind);
+ var y0=0,x0=0,pull=0,on=false,base=8,TH=62,MAX=96;
+ function blocked(t){if(document.body.classList.contains("inchat")||document.querySelector(".modal.open,.scrim.open"))return true;
+  for(var e=t;e&&e!==document.body&&e!==document.documentElement;e=e.parentElement){var s=getComputedStyle(e);if((s.overflowY==="auto"||s.overflowY==="scroll")&&e.scrollHeight>e.clientHeight+1)return true}return false}
+ function set(p){ind.style.transform="translateY("+(base+p-60)+"px)";ind.style.opacity=Math.min(1,p/30);ind.firstChild.style.transform="rotate("+(p/TH*180)+"deg)"}
+ addEventListener("touchstart",function(e){on=false;pull=0;if(window.scrollY>0||e.touches.length!==1||blocked(e.target)||ind.classList.contains("go"))return;
+  var h=document.querySelector(".mtop"),r=h&&h.offsetParent!==null?h.getBoundingClientRect().bottom:0;base=(r||0)+8;ind.style.top=(r?0:"calc(env(safe-area-inset-top,0px))");y0=e.touches[0].clientY;x0=e.touches[0].clientX;on=true},{passive:true});
+ addEventListener("touchmove",function(e){if(!on)return;var t=e.touches[0],dy=t.clientY-y0;
+  if(Math.abs(t.clientX-x0)>Math.abs(dy)||dy<=0||window.scrollY>0){on=false;pull=0;set(0);return}
+  if(e.cancelable)e.preventDefault();pull=Math.min(dy*.5,MAX);set(pull)},{passive:false});
+ addEventListener("touchend",function(){if(!on)return;on=false;
+  if(pull>=TH){ind.classList.add("go");ind.style.transform="translateY("+(base+TH-60)+"px)";ind.style.opacity=1;setTimeout(function(){location.reload()},250)}else set(0);pull=0},{passive:true});
+})();
 </script>
 </body>
 </html>
