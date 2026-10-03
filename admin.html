@@ -71,6 +71,13 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 .wk{display:grid;gap:10px;margin-top:10px}.wk label{font-size:13px;color:var(--mut);display:grid;gap:4px}.cp{display:flex;gap:8px}.cp input{flex:1;font-size:13px}.stepl{margin:8px 0 0 18px;padding:0;line-height:1.55;font-size:14px}
 .seg{display:flex;max-width:100%;overflow-x:auto;scrollbar-width:none}.seg::-webkit-scrollbar{display:none}.seg button{white-space:nowrap;flex:none}
 .tabbar button{min-width:0;font-size:11px;white-space:nowrap}
+.acc{border:0;background:transparent;padding:0;cursor:pointer;display:grid;place-items:center}.acc .av{border:2px solid rgba(255,255,255,.35)}
+.accrow{all:unset;box-sizing:border-box;display:flex;align-items:center;gap:10px;margin-top:10px;padding:10px 10px;border-radius:12px;cursor:pointer;color:#fff}.accrow:hover{background:rgba(255,255,255,.1)}
+.ai1{flex:1;min-width:0;display:grid}.ai1 b{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ai1 small{font-size:12px;color:#A9C3B7}.accrow .dots{color:#A9C3B7;font-size:20px}
+.accmenu{position:fixed;z-index:60;background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:0 10px 30px rgba(8,25,18,.22);padding:8px;min-width:220px}.accmenu[hidden]{display:none}
+.accmenu.side{left:12px;bottom:76px}.accmenu.top{right:12px;top:calc(60px + env(safe-area-inset-top,0px))}
+.amh{display:flex;gap:10px;align-items:center;padding:8px 8px 10px}.amh small{display:block;color:var(--mut);font-size:12.5px}
+.accmenu button{all:unset;box-sizing:border-box;width:100%;padding:11px 10px;border-radius:10px;cursor:pointer;color:#B3261E;font-weight:700;font-size:14.5px}.accmenu button:hover{background:#FBEAE8}
 </style></head><body>
 <div id="login" hidden><div class="logo" style="color:var(--g)">AMURA<small style="color:var(--mut)">панель управления</small></div>
 <div id="l1"><p class="mut">Введите ваш Telegram-@username. Бот пришлёт в Telegram одноразовый код.</p><input id="lu" placeholder="@username" autocapitalize="off" autocomplete="username" style="margin-bottom:12px"><button class="btn" id="go">Получить код</button></div>
@@ -78,8 +85,8 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 <p class="mut" id="lmsg"></p></div>
 <div class="app" id="app" hidden><aside><div class="logo">AMURA<small>панель сайта</small></div>
 <button class="nav on" data-p="overview">Обзор</button><button class="nav" data-p="products">Товары на сайте</button><button class="nav" data-p="orders">Заказы</button><button class="nav" data-p="inbox">Сообщения</button><button class="nav" data-p="ai">Ассистент</button>
-<div class="note">Склад и цены ведутся в МойСклад. Панель показывает, что видит сайт, и управляет настройками.<br><br><a href="#" id="out" style="color:#fff">Выйти</a></div></aside>
-<div class="mtop"><span>AMURA · панель</span><a href="#" id="out2">Выйти</a></div><main id="main"></main><nav class="tabbar" aria-label="Разделы"><button data-p="overview" class="on"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Обзор</button><button data-p="products"><svg viewBox="0 0 24 24"><path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>Товары</button><button data-p="orders"><svg viewBox="0 0 24 24"><path d="M6 3h12l2 4v13a1 1 0 01-1 1H5a1 1 0 01-1-1V7z"/><path d="M4 7h16M9 11a3 3 0 006 0"/></svg>Заказы</button><button data-p="inbox"><svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 01-11.6 7.1L4 20l1-4.6A8 8 0 1121 12z"/></svg>Сообщения</button><button data-p="ai"><svg viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="12" rx="3"/><path d="M12 7V4M9 12v1.5M15 12v1.5"/></svg>Ассистент</button></nav></div>
+<div class="note">Склад и цены ведутся в МойСклад. Панель показывает, что видит сайт, и управляет настройками.</div><button class="accrow" id="acd" aria-label="Аккаунт"></button></aside>
+<div class="mtop"><span>AMURA · панель</span><button class="acc" id="acm" aria-label="Аккаунт"></button></div><div class="accmenu" id="accmenu" hidden></div><main id="main"></main><nav class="tabbar" aria-label="Разделы"><button data-p="overview" class="on"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Обзор</button><button data-p="products"><svg viewBox="0 0 24 24"><path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>Товары</button><button data-p="orders"><svg viewBox="0 0 24 24"><path d="M6 3h12l2 4v13a1 1 0 01-1 1H5a1 1 0 01-1-1V7z"/><path d="M4 7h16M9 11a3 3 0 006 0"/></svg>Заказы</button><button data-p="inbox"><svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 01-11.6 7.1L4 20l1-4.6A8 8 0 1121 12z"/></svg>Сообщения</button><button data-p="ai"><svg viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="12" rx="3"/><path d="M12 7V4M9 12v1.5M15 12v1.5"/></svg>Ассистент</button></nav></div>
 <script>
 if(/github\.io$/.test(location.hostname)){location.replace("https://amura-shop-api.onrender.com/admin");}   // панель живёт на сервере, а не на GitHub Pages
 const $=s=>document.querySelector(s),T="amura_admin";let tok=localStorage.getItem(T)||"";
@@ -91,6 +98,7 @@ const ALLOW={overview:"owner",pay:"owner",banners:"owner",ai:"owner",team:"owner
 let ME=null;const can=p=>!!ME&&(ME.role==="owner"||(ALLOW[p]!=="owner"&&ME.perms.includes(ALLOW[p])));
 async function boot(){const a=!!tok;$("#login").hidden=a;$("#app").hidden=!a;if(!a){ME=null;return}
  try{ME=await api("me")}catch(e){return}
+ drawAcc();
  const bs=document.querySelectorAll(".nav,.tabbar button");bs.forEach(b=>b.hidden=!can(b.dataset.p));
  $(".tabbar").style.gridTemplateColumns="repeat("+document.querySelectorAll(".tabbar button:not([hidden])").length+",minmax(0,1fr))";
  if(!can(cur))cur=["overview","products","orders","inbox"].find(can)||"orders";
@@ -106,7 +114,15 @@ const verify=async()=>{const b=$("#vf");b.disabled=true;
   if(!r.ok)throw Error(r.error);tok=r.token;localStorage.setItem(T,tok);$("#lc").value="";$("#l1").hidden=false;$("#l2").hidden=true;lmsg("");boot()}catch(e){lmsg(e.message)}b.disabled=false};
 $("#vf").onclick=verify;$("#lc").onkeydown=e=>{if(e.key==="Enter")verify()};
 $("#lb").onclick=e=>{e.preventDefault();$("#l1").hidden=false;$("#l2").hidden=true;lmsg("")};
-$("#out").onclick=$("#out2").onclick=e=>{e.preventDefault();localStorage.removeItem(T);tok="";boot()};
+const hueOf=n=>{let h=0;for(const c of String(n))h=(h*31+c.charCodeAt(0))%360;return h};
+const avatar=(n,s)=>`<span class="av" style="width:${s}px;height:${s}px;font-size:${Math.round(s*.44)}px;background:hsl(${hueOf(n)} 36% 40%)">${esc((String(n||"?").trim()[0]||"?").toUpperCase())}</span>`;
+const logout=()=>{localStorage.removeItem(T);tok="";boot()};
+function drawAcc(){if(!ME)return;const role=ME.role==="owner"?"Владелец":"Сотрудник";
+ $("#acm").innerHTML=avatar(ME.name,36);$("#acd").innerHTML=`${avatar(ME.name,38)}<span class="ai1"><b>${esc(ME.name)}</b><small>${role}</small></span><span class="dots">⋮</span>`;
+ $("#accmenu").innerHTML=`<div class="amh">${avatar(ME.name,44)}<div><b>${esc(ME.name)}</b><small>${role}</small></div></div><button id="outb">Выйти из панели</button>`;$("#outb").onclick=logout}
+const accToggle=(e,from)=>{e.stopPropagation();const m=$("#accmenu");const open=m.hidden||m.dataset.from!==from;m.hidden=!open;m.dataset.from=from;m.className="accmenu "+from};
+$("#acm").onclick=e=>accToggle(e,"top");$("#acd").onclick=e=>accToggle(e,"side");
+document.addEventListener("click",e=>{const m=$("#accmenu");if(!m.hidden&&!m.contains(e.target))m.hidden=true});
 let cur="overview";document.querySelectorAll(".nav,.tabbar button").forEach(b=>b.onclick=()=>{document.querySelectorAll(".nav,.tabbar button").forEach(x=>x.classList.toggle("on",x.dataset.p===b.dataset.p));scrollTo(0,0);show(b.dataset.p)});
 const SEG={products:[["products","Товары"],["banners","Баннеры на главной"]],overview:[["overview","Состояние"],["pay","Оплата"]],ai:[["ai","Чат-проверка"],["rules","Правила"],["kb","База знаний"],["channels","Каналы"],["team","Команда"]]};
 const grp=a=>({banners:"products",pay:"overview",team:"ai",rules:"ai",kb:"ai",channels:"ai"}[a]||a);
