@@ -13,6 +13,7 @@ import time
 import requests
 
 import order_hook as oh
+import wa
 
 DB_URL = os.environ.get("DATABASE_URL", "")
 OPENAI_KEY = os.environ.get("OPENAI_API_KEY", "")
@@ -178,12 +179,14 @@ def run_create_order(args, ctx, history):
     d = {"items": items, "name": args.get("name", ""), "phone": args.get("phone", ""), "city": args.get("city", ""),
          "shipping": args.get("shipping"), "logistics": args.get("logistics", ""), "recipient": args.get("recipient", ""),
          "zip": args.get("zip", ""), "address": args.get("address", ""), "telegram": ctx.get("username", "")}
+    if wa.is_wa(chat) and not re.sub(r"\D", "", d["phone"]):
+        d["phone"] = wa.number(chat)                # номер из WhatsApp — контакт по умолчанию
     key = "tg:" + chat + ":" + oh.hashlib.sha1(json.dumps([items, d["shipping"], time.strftime("%Y%m%d")], sort_keys=True).encode()).hexdigest()[:16]
     for k in [k for k, v in _ai_done.items() if now - v[0] > 600]:
         _ai_done.pop(k, None)
     if key in _ai_done:
         return _ai_done[key][1]
-    payload, status = oh.order_core(d, key, "tg:" + chat, None, source="из Telegram (ИИ-продажник)")
+    payload, status = oh.order_core(d, key, "tg:" + chat, None, source=f"из {channel_name(chat)} (ИИ-продажник)")
     if status != 200:
         return "Ошибка: " + str(payload.get("error", "не удалось оформить")) + ". Исправь данные с клиентом или передай менеджеру."
     if payload["total"] > AI_ORDER_MAX:
@@ -195,9 +198,8 @@ def run_create_order(args, ctx, history):
     try:
         pdf = oh.build_pdf(data)
         oh.pdf_store(data["number"], pdf)
-        oh.tg("sendDocument", chat_id=chat, caption=f"Ваш заказ AMURA № {data['number']} на {oh.fmt(data['total'])} ₸.",
-              _files={"document": (f"AMURA-{data['number']}.pdf", pdf, "application/pdf")})
-        oh.tg("sendMessage", chat_id=chat, text=oh.pay_text())
+        send_pdf(chat, f"AMURA-{data['number']}.pdf", pdf, f"Ваш заказ AMURA № {data['number']} на {oh.fmt(data['total'])} ₸.")
+        send_text(chat, oh.pay_text())
     except Exception as e:
         print("ИИ-заказ: накладная не ушла клиенту:", e, flush=True)
         return f"Заказ № {data['number']} создан на {oh.fmt(data['total'])} ₸, но накладную отправит менеджер. Сообщи клиенту номер заказа."
@@ -278,15 +280,41 @@ def product_context(text, limit=8):
     return "\n".join(rows) or "По этому запросу ничего не найдено. Попробуй вызвать search_catalog с названием латиницей, как в каталоге."
 
 
-def transcribe(file_id):
-    """Голосовое/аудио из Telegram -> текст (OpenAI)."""
+def fetch_file(file_id, timeout=40):
+    """Файл из Telegram или WhatsApp (id вида «wa:...») -> (байты, имя файла)."""
+    if str(file_id).startswith("wa:"):
+        data, mime = wa.download(file_id)
+        return data, "voice.ogg" if "ogg" in mime else "file." + (mime.split("/")[-1].split(";")[0] or "bin")
     info = oh.tg("getFile", file_id=file_id)["result"]
-    r = requests.get(f"https://api.telegram.org/file/bot{oh.BOT}/{info['file_path']}", timeout=40)
+    r = requests.get(f"https://api.telegram.org/file/bot{oh.BOT}/{info['file_path']}", timeout=timeout)
     r.raise_for_status()
-    name = info["file_path"].rsplit("/", 1)[-1] or "voice.ogg"
+    return r.content, info["file_path"].rsplit("/", 1)[-1]
+
+
+def send_text(chat, text):
+    if wa.is_wa(chat):
+        wa.send_text(chat, text)
+    else:
+        oh.tg("sendMessage", chat_id=chat, text=text)
+
+
+def send_pdf(chat, name, pdf, caption):
+    if wa.is_wa(chat):
+        wa.send_media(chat, "document", pdf, name, "application/pdf", caption)
+    else:
+        oh.tg("sendDocument", chat_id=chat, caption=caption, _files={"document": (name, pdf, "application/pdf")})
+
+
+def channel_name(chat):
+    return "WhatsApp" if wa.is_wa(chat) else "Telegram"
+
+
+def transcribe(file_id):
+    """Голосовое/аудио -> текст (OpenAI)."""
+    data, name = fetch_file(file_id)
     j = requests.post("https://api.openai.com/v1/audio/transcriptions", timeout=60,
                       headers={"Authorization": f"Bearer {OPENAI_KEY}"},
-                      files={"file": (name, r.content)}, data={"model": TRANSCRIBE_MODEL})
+                      files={"file": (name or "voice.ogg", data)}, data={"model": TRANSCRIBE_MODEL})
     if j.status_code >= 400:
         raise RuntimeError(f"OpenAI audio {j.status_code}: {j.text[:200]}")
     return (j.json().get("text") or "").strip()
@@ -296,11 +324,9 @@ def pdf_text(file_id, size=0):
     """Текст из PDF-чека (банковские и Kaspi-чеки — текстовые). Пусто, если это скан или файл слишком большой."""
     if size and size > 8_000_000:
         return ""
-    info = oh.tg("getFile", file_id=file_id)["result"]
-    r = requests.get(f"https://api.telegram.org/file/bot{oh.BOT}/{info['file_path']}", timeout=30)
-    r.raise_for_status()
+    data, _ = fetch_file(file_id, 30)
     from pypdf import PdfReader
-    rd = PdfReader(io.BytesIO(r.content))
+    rd = PdfReader(io.BytesIO(data))
     txt = "\n".join((p.extract_text() or "") for p in rd.pages[:3])
     return re.sub(r"[ \t]+", " ", re.sub(r"\n\s*\n+", "\n", txt)).strip()[:3000]
 
@@ -308,10 +334,8 @@ def pdf_text(file_id, size=0):
 def photo_data_url(file_id):
     if file_id.startswith("data:"):              # фото из пробного чата панели
         return file_id
-    info = oh.tg("getFile", file_id=file_id)["result"]
-    r = requests.get(f"https://api.telegram.org/file/bot{oh.BOT}/{info['file_path']}", timeout=30)
-    r.raise_for_status()
-    return "data:image/jpeg;base64," + base64.b64encode(r.content).decode()
+    data, _ = fetch_file(file_id, 30)
+    return "data:image/jpeg;base64," + base64.b64encode(data).decode()
 
 
 def ai_reply(d, history, text, photo=None, ctx=None):
@@ -412,36 +436,42 @@ def on_client_message(chat, user, text, photo=None, voice=None, pdf=None, media=
                 use_ai = ai_on(d) and not voice_failed
         if status == "ai" and not use_ai:                  # ИИ выключен или нет ключа: диалог — менеджеру, клиенту короткий ответ
             ack = "Спасибо за сообщение! Передал менеджеру — он ответит в ближайшее время."
-            oh.tg("sendMessage", chat_id=chat, text=ack)
+            send_text(chat, ack)
             with _lock, db() as d:
                 save_msg(d, cid, "ai", ack)
                 d.run("UPDATE conv SET status='manager' WHERE id=%s", (cid,))
         if status == "manager" or not use_ai:
-            oh.notify_staff(f"inbox:{cid}", f"💬 Новое сообщение от {name}: {(text or '[фото]')[:200]}\nОтветьте в панели → Сообщения", every=300)
+            oh.notify_staff(f"inbox:{cid}", f"💬 Новое сообщение ({channel_name(chat)}) от {name}: {(text or '[фото]')[:200]}\nОтветьте в панели → Сообщения", every=300)
             return
         try:
             with db() as d:                       # без общей блокировки: ответ ИИ и заказ могут занять до минуты
-                reply, hand = ai_reply(d, hist, text, photo, ctx={"chat": chat, "username": user.get("username", "")})
+                reply, hand = ai_reply(d, hist, text, photo, ctx={"chat": chat, "username": user.get("username", ""), "channel": channel_name(chat)})
         except Exception as e:
             print("ИИ не ответил:", e, flush=True)
             oh.alert("ai", f"ИИ не ответил клиенту {name}: {str(e)[:200]}. Диалог передан менеджеру.", every=600)
             reply, hand = "Спасибо за сообщение! Передал менеджеру — он ответит в ближайшее время.", True
         reply = clean_reply(reply)
-        oh.tg("sendMessage", chat_id=chat, text=reply)
+        send_text(chat, reply)
         with _lock, db() as d:
             save_msg(d, cid, "ai", reply)
             if hand:
                 d.run("UPDATE conv SET status='manager' WHERE id=%s", (cid,))
         if hand:
-            oh.notify_staff(f"inbox:{cid}", f"🙋 {name} ждёт менеджера: {(text or '[фото]')[:200]}\nОтветьте в панели → Сообщения")
+            oh.notify_staff(f"inbox:{cid}", f"🙋 {name} ({channel_name(chat)}) ждёт менеджера: {(text or '[фото]')[:200]}\nОтветьте в панели → Сообщения")
             if pdf and oh.OWNER:
                 try:
-                    oh.notify_staff(f"pdf:{cid}", f"PDF от {name} (передано менеджеру)", method="sendDocument", document=pdf["id"])
+                    if wa.is_wa(chat):                  # из WhatsApp файл отправляем байтами
+                        oh.notify_staff(f"pdf:{cid}", f"PDF от {name} (WhatsApp, передано менеджеру)", method="sendDocument", _files={"document": (pdf["name"], fetch_file(pdf["id"])[0], "application/pdf")})
+                    else:
+                        oh.notify_staff(f"pdf:{cid}", f"PDF от {name} (передано менеджеру)", method="sendDocument", document=pdf["id"])
                 except Exception as e:
                     print("PDF владельцу не ушёл:", e, flush=True)
             if photo and oh.OWNER:                      # чек или фото брака — сразу владельцу, без захода в панель
                 try:
-                    oh.notify_staff(f"photo:{cid}", f"Фото от {name} (передано менеджеру)", method="sendPhoto", photo=photo)
+                    if wa.is_wa(chat):
+                        oh.notify_staff(f"photo:{cid}", f"Фото от {name} (WhatsApp, передано менеджеру)", method="sendPhoto", _files={"photo": ("photo.jpg", fetch_file(photo)[0], "image/jpeg")})
+                    else:
+                        oh.notify_staff(f"photo:{cid}", f"Фото от {name} (передано менеджеру)", method="sendPhoto", photo=photo)
                 except Exception as e:
                     print("Фото владельцу не ушло:", e, flush=True)
     except Exception as e:
