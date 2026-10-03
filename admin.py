@@ -35,6 +35,22 @@ def make_admin_token(role="owner", chat=None):
     return body + "." + _sig(body)
 
 
+_oname = {"t": 0.0, "v": "Владелец"}
+
+
+def _owner_name():
+    """Имя владельца из Telegram (кэш 1 час); без него — «Владелец»."""
+    if time.time() - _oname["t"] > 3600 and oh.OWNER and oh.BOT:
+        _oname["t"] = time.time()
+        try:
+            c = oh.tg("getChat", chat_id=oh.OWNER)["result"]
+            n = " ".join(x for x in (c.get("first_name"), c.get("last_name")) if x)
+            _oname["v"] = n or "Владелец"
+        except Exception:
+            pass
+    return _oname["v"]
+
+
 def who():
     """Кто вошёл: {"role": "owner"|"staff", "perms": [...], "name": ...} или None. Права сотрудника берутся из базы при каждом запросе —
     отключили человека, и доступ пропал сразу."""
@@ -49,7 +65,7 @@ def who():
         if not d.get("a") or d["e"] <= time.time():
             return None
         if d.get("r", "owner") == "owner":
-            return {"role": "owner", "perms": list(team.PERMS), "name": "Владелец"}
+            return {"role": "owner", "perms": list(team.PERMS), "name": _owner_name()}
         s = team.by_chat(d.get("c"))
         return {"role": "staff", "perms": s["perms"], "name": s["name"]} if s else None
     except Exception:
