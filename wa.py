@@ -132,7 +132,7 @@ def connect(code, phone_id, waba_id, webhook_url, verify_token, coex=False, redi
     c = cfg()
     if not (c["app_id"] and c["secret"]):
         raise RuntimeError("Сначала сохраните App ID и App Secret приложения Meta")
-    token, last = "", ""
+    token, errs = "", []
     for ru in (redirect_uris or [""]):                      # код из окна Facebook привязан к redirect_uri: пробуем пустой, адрес страницы и т.д.
         p = {"client_id": c["app_id"], "client_secret": c["secret"], "code": code}
         if ru is not None:
@@ -142,9 +142,15 @@ def connect(code, phone_id, waba_id, webhook_url, verify_token, coex=False, redi
         if r.status_code < 400 and j.get("access_token"):
             token = j["access_token"]
             break
-        last = str((j.get("error") or {}).get("message", r.text[:200]))
+        m = str((j.get("error") or {}).get("message", r.text[:200]))
+        if m not in errs:
+            errs.append(m)
     if not token:
-        raise RuntimeError("Meta не выдала токен: " + last)
+        hint = ""
+        if any("domain" in e.lower() for e in errs):
+            from urllib.parse import urlparse
+            hint = f" Добавьте {urlparse(webhook_url).netloc} в поле «Домены приложения» (Настройки приложения → Основные), нажмите «Сохранить изменения» и повторите."
+        raise RuntimeError("Meta не выдала токен: " + " | ".join(errs)[:400] + hint)
     h = {"Authorization": "Bearer " + token}
     if not waba_id:                                         # окно Facebook не прислало аккаунт (например, iPhone): берём из самого токена
         dt = requests.get(f"{GRAPH}/debug_token", params={"input_token": token, "access_token": f"{c['app_id']}|{c['secret']}"}, timeout=30).json()
