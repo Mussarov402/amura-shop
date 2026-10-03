@@ -819,7 +819,7 @@ def channels():
     return jsonify(ok=True, tg={"ok": bool(oh.BOT and oh.OWNER)}, persist=bool(inbox.PG),
                    wa={"ok": wa.configured(), "phone_id": c["phone_id"], "token": _mask(c["token"]), "secret": _mask(c["secret"]),
                        "app_id": c["app_id"], "config_id": c["config_id"], "config_coex": c["config_coex"],
-                       "ready": bool(c["app_id"] and c["config_id"] and c["secret"]), "readyCoex": bool(c["app_id"] and c["config_coex"] and c["secret"]),
+                       "ready": bool(c["app_id"] and c["config_id"] and c["secret"]), "readyCoex": bool(c["app_id"] and (c["config_coex"] or c["config_id"]) and c["secret"]),
                        "url": f"{base}/wa/{oh.HOOK_SECRET}", "verify": oh.HOOK_SECRET})
 
 
@@ -840,7 +840,7 @@ def wa_connect():
     b = request.get_json(silent=True) or {}
     code, pid, wid = str(b.get("code", "")), str(b.get("phone_id", "") or ""), str(b.get("waba_id", ""))
     coex = bool(b.get("coex"))
-    if not (code and wid and (pid or coex)):
+    if not code:
         return jsonify(ok=False, error="Facebook не передал данные номера. Попробуйте ещё раз и дойдите до конца."), 400
     base = (oh.PUBLIC_URL or request.url_root).rstrip("/")
     try:

@@ -138,6 +138,14 @@ def connect(code, phone_id, waba_id, webhook_url, verify_token, coex=False):
         raise RuntimeError("Meta не выдала токен: " + str((j.get("error") or {}).get("message", r.text[:200])))
     token = j["access_token"]
     h = {"Authorization": "Bearer " + token}
+    if not waba_id:                                         # окно Facebook не прислало аккаунт (например, iPhone): берём из самого токена
+        dt = requests.get(f"{GRAPH}/debug_token", params={"input_token": token, "access_token": f"{c['app_id']}|{c['secret']}"}, timeout=30).json()
+        for g in (dt.get("data") or {}).get("granular_scopes", []):
+            if g.get("scope") in ("whatsapp_business_management", "whatsapp_business_messaging") and g.get("target_ids"):
+                waba_id = g["target_ids"][0]
+                break
+        if not waba_id:
+            raise RuntimeError("Не удалось определить аккаунт WhatsApp. Пройдите все шаги в окне Facebook до конца и повторите.")
     if not phone_id:                                        # при сосуществовании окно возвращает только аккаунт: номер берём из списка
         pn = requests.get(f"{GRAPH}/{waba_id}/phone_numbers", headers=h, params={"fields": "id,display_phone_number"}, timeout=30).json()
         rows = pn.get("data") or []
