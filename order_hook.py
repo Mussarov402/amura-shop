@@ -18,6 +18,7 @@
     SMS_DAILY_LIMIT     максимум SMS в день (по умолчанию 300)
     ORDER_BOT_TOKEN     токен бота заказов (отдельный бот, напр. @amura_orders_bot)
     OWNER_CHAT_ID       chat_id владельца в Telegram
+    MANAGER_CHAT_IDS    chat_id менеджеров через запятую (получают уведомления по клиентам; узнать: написать боту /id)
     TG_WEBHOOK_SECRET   случайная строка для адреса вебхука
     ORDER_SECRET        случайная строка для подписи ссылок на PDF
     PUBLIC_URL          https://amura-shop-api.onrender.com
@@ -51,6 +52,7 @@ API = "https://api.moysklad.ru/api/remap/1.2"
 MS_TOKEN = os.environ.get("MS_TOKEN", "")
 BOT = os.environ.get("ORDER_BOT_TOKEN", "")
 OWNER = os.environ.get("OWNER_CHAT_ID", "")
+MANAGERS = [x.strip() for x in os.environ.get("MANAGER_CHAT_IDS", "").replace(";", ",").split(",") if x.strip() and x.strip() != OWNER]
 HOOK_SECRET = os.environ.get("TG_WEBHOOK_SECRET", "")
 ORDER_SECRET = os.environ.get("ORDER_SECRET", "").encode()
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "").rstrip("/")
@@ -198,6 +200,21 @@ def alert(key, text, every=600):
         tg("sendMessage", chat_id=OWNER, text="⚠️ Сайт AMURA: " + text)
     except Exception as e:
         print("Оповещение не отправлено:", e, flush=True)
+
+
+def notify_staff(key, text, every=0, method="sendMessage", **data):
+    """Уведомление по клиентам: владельцу и всем менеджерам (MANAGER_CHAT_IDS). Не чаще раза в `every` секунд на key."""
+    now = time.time()
+    if every and now - _alerts.get(key, 0) < every:
+        return
+    _alerts[key] = now
+    for c in [OWNER] + MANAGERS:
+        if not c:
+            continue
+        try:
+            tg(method, chat_id=c, **({"text": text} if method == "sendMessage" else {"caption": text[:200]}), **data)
+        except Exception as e:
+            print("Уведомление не отправлено", c, e, flush=True)
 
 
 # ---------- кэш каталога и справочников ----------
@@ -887,6 +904,9 @@ def tg_webhook(secret):
     chat = (msg.get("chat") or {}).get("id")
     text = msg.get("text", "")
     if not chat:
+        return "", 200
+    if text.strip().split("@")[0] == "/id":          # менеджер узнаёт свой chat_id, чтобы владелец добавил его в уведомления
+        tg("sendMessage", chat_id=chat, text=f"Ваш chat_id: {chat}\nПередайте его владельцу, чтобы получать уведомления.")
         return "", 200
     am = re.match(r"^/start\s+adm_([A-Za-z0-9]{20,40})$", text.strip())
     if am:

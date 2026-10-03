@@ -404,7 +404,7 @@ def on_client_message(chat, user, text, photo=None, voice=None, pdf=None):
                 save_msg(d, cid, "ai", ack)
                 d.run("UPDATE conv SET status='manager' WHERE id=%s", (cid,))
         if status == "manager" or not use_ai:
-            oh.alert(f"inbox:{cid}", f"новое сообщение от {name}: {(text or '[фото]')[:200]}\nОтветьте в панели → Сообщения", every=300)
+            oh.notify_staff(f"inbox:{cid}", f"💬 Новое сообщение от {name}: {(text or '[фото]')[:200]}\nОтветьте в панели → Сообщения", every=300)
             return
         try:
             with db() as d:                       # без общей блокировки: ответ ИИ и заказ могут занять до минуты
@@ -420,15 +420,15 @@ def on_client_message(chat, user, text, photo=None, voice=None, pdf=None):
             if hand:
                 d.run("UPDATE conv SET status='manager' WHERE id=%s", (cid,))
         if hand:
-            oh.alert(f"inbox:{cid}", f"{name} ждёт менеджера: {(text or '[фото]')[:200]}\nОтветьте в панели → Сообщения", every=0)
+            oh.notify_staff(f"inbox:{cid}", f"🙋 {name} ждёт менеджера: {(text or '[фото]')[:200]}\nОтветьте в панели → Сообщения")
             if pdf and oh.OWNER:
                 try:
-                    oh.tg("sendDocument", chat_id=oh.OWNER, document=pdf["id"], caption=f"PDF от {name} (передано менеджеру)"[:200])
+                    oh.notify_staff(f"pdf:{cid}", f"PDF от {name} (передано менеджеру)", method="sendDocument", document=pdf["id"])
                 except Exception as e:
                     print("PDF владельцу не ушёл:", e, flush=True)
             if photo and oh.OWNER:                      # чек или фото брака — сразу владельцу, без захода в панель
                 try:
-                    oh.tg("sendPhoto", chat_id=oh.OWNER, photo=photo, caption=f"Фото от {name} (передано менеджеру)"[:200])
+                    oh.notify_staff(f"photo:{cid}", f"Фото от {name} (передано менеджеру)", method="sendPhoto", photo=photo)
                 except Exception as e:
                     print("Фото владельцу не ушло:", e, flush=True)
     except Exception as e:
