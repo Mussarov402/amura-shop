@@ -323,11 +323,11 @@ async channels(){const c=await api("channels");const w=c.wa;
  <details ${w.ready?"":"open"} style="margin-top:14px"><summary style="cursor:pointer;font-weight:700">Данные приложения Meta (один раз)</summary>
   <div class="wk"><label>App ID<input id="wai" value="${esc(w.app_id)}" autocomplete="off"></label>
   <label>App Secret<input id="wsc" type="password" value="${esc(w.secret)}" autocomplete="off"></label>
-  <label>Configuration ID для номера из приложения (Coexistence)<input id="wcx" value="${esc(w.config_coex)}" autocomplete="off"></label>
-  <label>Configuration ID для нового номера (Embedded Signup, необязательно)<input id="wcf" value="${esc(w.config_id)}" autocomplete="off"></label>
+  <label>Configuration ID (Embedded Signup), основной<input id="wcf" value="${esc(w.config_id)}" autocomplete="off"></label>
+  <label>Другой Configuration ID для режима «из приложения» (необязательно)<input id="wcx" value="${esc(w.config_coex)}" autocomplete="off"></label>
   <div><button class="btn" id="wsa">Сохранить</button></div></div>
   <ol class="stepl"><li>developers.facebook.com → ваше приложение → <b>Settings → Basic</b>: скопируйте <b>App ID</b> и <b>App Secret</b>.</li>
-  <li>Слева <b>Вход через Facebook для бизнеса → Конфигурации → Создать</b>, шаблон <b>WhatsApp Embedded Signup</b>. Скопируйте <b>Configuration ID</b>.</li>
+  <li>Слева <b>Вход через Facebook для бизнеса → Конфигурации</b>. Нужна конфигурация с вариантом входа <b>«Встроенная регистрация в WhatsApp»</b> (Embedded Signup). Скопируйте её номер в первое поле. Конфигурации типа «General» не подходят.</li>
   <li>Там же <b>Настройки</b>: включите «Вход через JavaScript SDK» и добавьте в разрешённые домены <b>${esc(location.origin)}</b></li></ol></details>
  <details style="margin-top:10px"><summary style="cursor:pointer;font-weight:700">Вручную (для разработчиков)</summary>
   <div class="wk"><label>Phone number ID<input id="wp" value="${esc(w.phone_id)}" autocomplete="off"></label>
@@ -352,9 +352,10 @@ async channels(){const c=await api("channels");const w=c.wa;
   const tm=setTimeout(()=>msg("Окно Facebook не открылось. Разрешите всплывающие окна для этого сайта (iPhone: Настройки → Safari → Блокировка всплывающих окон) и нажмите кнопку ещё раз."),45000);
   const finish=async(r)=>{clearTimeout(tm);const code=r&&r.authResponse&&r.authResponse.code;if(!code)return msg("Подключение отменено или не завершено.");
    msg("Завершаю подключение…");for(let i=0;i<40&&!window._waSess;i++)await new Promise(x=>setTimeout(x,250));const s=window._waSess;
-   if(!s||s.event==="CANCEL"||!s.data||!s.data.waba_id)return msg("Facebook не передал данные номера. Пройдите все шаги в окне до конца и повторите.");
-   try{const j=await api("channels/wa-connect",{method:"POST",body:JSON.stringify({code,phone_id:s.data.phone_number_id||"",waba_id:s.data.waba_id,coex})});msg("Готово ✅ "+(j.name||"")+" "+(j.phone||""));setTimeout(()=>views.channels(),1500)}catch(e){msg(e.message)}};
-  FB.login(r=>{finish(r)},{config_id:coex?w.config_coex:w.config_id,response_type:"code",override_default_response_type:true,extras:{setup:{},featureType:coex?"whatsapp_business_app_onboarding":"",sessionInfoVersion:"3"}})};      // вызов FB.login — сразу по нажатию, иначе Safari блокирует окно
+   if(s&&s.event==="CANCEL")return msg("Подключение отменено в окне Facebook.");
+   const sd=(s&&s.data)||{};
+   try{const j=await api("channels/wa-connect",{method:"POST",body:JSON.stringify({code,phone_id:sd.phone_number_id||"",waba_id:sd.waba_id||"",coex})});msg("Готово ✅ "+(j.name||"")+" "+(j.phone||""));setTimeout(()=>views.channels(),1500)}catch(e){msg(e.message)}};
+  FB.login(r=>{finish(r)},{config_id:(coex&&w.config_coex)?w.config_coex:w.config_id||w.config_coex,response_type:"code",override_default_response_type:true,extras:{setup:{},featureType:coex?"whatsapp_business_app_onboarding":"",sessionInfoVersion:"3"}})};      // вызов FB.login — сразу по нажатию, иначе Safari блокирует окно
  $("#wcoex").onclick=()=>connectWa(true);$("#wcon").onclick=()=>connectWa(false);
  if(w.readyCoex||w.ready){msg("Загружаю Facebook…");loadFB().then(()=>msg("Готово к подключению. Нажмите зелёную кнопку: откроется окно Facebook.")).catch(e=>msg(e.message))}},
 async pay(){const p=await api("pay");$("#main").innerHTML=head("Оплата и реквизиты","Это сообщение бот отправляет клиенту сразу после накладной")+seg("pay")+`<div class="card" style="max-width:640px"><textarea id="t">${esc(p.text)}</textarea><div style="display:flex;gap:10px;align-items:center;margin-top:14px"><button class="btn" id="s">Сохранить и опубликовать</button><span class="mut" id="m">${p.at?"Изменено "+esc(p.at):""}</span></div></div>`;
