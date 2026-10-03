@@ -16,6 +16,7 @@ import order_hook as oh
 DB_URL = os.environ.get("DATABASE_URL", "")
 OPENAI_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+TRANSCRIBE_MODEL = os.environ.get("OPENAI_TRANSCRIBE_MODEL", "whisper-1")
 HANDOFF = "[[MANAGER]]"
 PG = bool(DB_URL)
 _lock = threading.Lock()
@@ -99,6 +100,19 @@ ORDER_RULES = """# Оформление заказа
 4. Если заказ не удалось создать или сумма очень большая — не пытайся ещё раз, передай менеджеру (метка """ + HANDOFF + """).
 После успешного заказа накладная и реквизиты оплаты уходят клиенту автоматически — просто коротко подтверди номер заказа."""
 
+MEDIA_RULES = """# Фото и голосовые
+Клиент может прислать фото или голосовое (оно уже расшифровано и помечено 🎤). Относись к ним как к обычному тексту.
+- Фото товара или упаковки: прочитай бренд и название на упаковке, найди товар инструментом search_catalog и назови цену и наличие. Если уверенно определить не получилось — честно скажи и попроси название или артикул.
+- Фото чека об оплате или скриншот перевода: поблагодари и передай менеджеру на проверку (метка """ + HANDOFF + """), оплату сам не подтверждай.
+- Фото брака, повреждения, жалобы: извинись, попроси номер заказа и передай менеджеру (метка """ + HANDOFF + """).
+- Фото, на котором нет ничего про заказ или товары, — вежливо уточни, чем помочь.
+Никогда не выдумывай то, чего не видно на фото."""
+
+SEARCH_TOOL = {"type": "function", "function": {
+    "name": "search_catalog",
+    "description": "Найти товары в каталоге по названию, бренду или артикулу (например, по тексту с фото упаковки). Возвращает id, цены и наличие.",
+    "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}}
+
 ORDER_TOOL = [{"type": "function", "function": {
     "name": "create_order",
     "description": "Оформить заказ клиента в МойСклад. Вызывать только после того, как клиент подтвердил сводку заказа.",
@@ -109,7 +123,7 @@ ORDER_TOOL = [{"type": "function", "function": {
         "logistics": {"type": "string", "description": "логистическая компания для kamaz/rail/avia"},
         "recipient": {"type": "string"}, "zip": {"type": "string"}, "address": {"type": "string"},
         "client_confirmed": {"type": "boolean", "description": "true только если клиент явно подтвердил сводку"}},
-        "required": ["items", "name", "phone", "city", "shipping", "client_confirmed"]}}}]
+        "required": ["items", "name", "phone", "city", "shipping", "client_confirmed"]}}}, SEARCH_TOOL]
 
 AI_ORDER_MAX = int(os.environ.get("AI_ORDER_MAX", "3000000"))      # заказы дороже ИИ не оформляет — только менеджер
 AI_ORDERS_PER_DAY = 3
@@ -187,7 +201,23 @@ def product_context(text):
     return "\n".join(rows) or "По запросу товаров в наличии не найдено."
 
 
+def transcribe(file_id):
+    """Голосовое/аудио из Telegram -> текст (OpenAI)."""
+    info = oh.tg("getFile", file_id=file_id)["result"]
+    r = requests.get(f"https://api.telegram.org/file/bot{oh.BOT}/{info['file_path']}", timeout=40)
+    r.raise_for_status()
+    name = info["file_path"].rsplit("/", 1)[-1] or "voice.ogg"
+    j = requests.post("https://api.openai.com/v1/audio/transcriptions", timeout=60,
+                      headers={"Authorization": f"Bearer {OPENAI_KEY}"},
+                      files={"file": (name, r.content)}, data={"model": TRANSCRIBE_MODEL})
+    if j.status_code >= 400:
+        raise RuntimeError(f"OpenAI audio {j.status_code}: {j.text[:200]}")
+    return (j.json().get("text") or "").strip()
+
+
 def photo_data_url(file_id):
+    if file_id.startswith("data:"):              # фото из пробного чата панели
+        return file_id
     info = oh.tg("getFile", file_id=file_id)["result"]
     r = requests.get(f"https://api.telegram.org/file/bot{oh.BOT}/{info['file_path']}", timeout=30)
     r.raise_for_status()
@@ -198,7 +228,7 @@ def ai_reply(d, history, text, photo=None, ctx=None):
     """Ответ ИИ; возвращает (текст, нужен_менеджер). ctx — данные чата для оформления заказов (None — пробный чат)."""
     rules = get_setting(d, "rules", DEFAULT_RULES)
     kb = "\n\n".join(f"## {t}\n{b}" for t, b in d.run("SELECT title, body FROM kb ORDER BY id", many=True))
-    system = f"{rules}\n\n{ORDER_RULES}\n\n# База знаний\n{kb or '(пока пусто)'}\n\n# Товары из каталога по запросу клиента\n{product_context(text)}"
+    system = f"{rules}\n\n{ORDER_RULES}\n\n{MEDIA_RULES}\n\n# База знаний\n{kb or '(пока пусто)'}\n\n# Товары из каталога по запросу клиента\n{product_context(text)}"
     msgs = [{"role": "system", "content": system}]
     for role, t in history[-12:]:
         msgs.append({"role": "user" if role == "client" else "assistant", "content": t})
@@ -225,7 +255,10 @@ def ai_reply(d, history, text, photo=None, ctx=None):
         msgs.append({"role": "assistant", "content": m.get("content"), "tool_calls": calls})
         for c in calls:
             try:
-                res = run_create_order(json.loads(c["function"]["arguments"] or "{}"), ctx, history) if c["function"]["name"] == "create_order" else "Неизвестный инструмент"
+                a_ = json.loads(c["function"]["arguments"] or "{}")
+                fn = c["function"]["name"]
+                res = (run_create_order(a_, ctx, history) if fn == "create_order"
+                       else product_context(str(a_.get("query", ""))) if fn == "search_catalog" else "Неизвестный инструмент")
             except Exception as e:
                 print("ИИ-заказ:", e, flush=True)
                 oh.alert("aiorder", f"ИИ не смог оформить заказ: {str(e)[:250]}", every=300)
@@ -241,9 +274,20 @@ def save_msg(d, cid, role, text, photo=None, unread=0):
     d.run("UPDATE conv SET last_at=%s, last_text=%s, unread=unread+%s WHERE id=%s", (now, (text or "[фото]")[:120], unread, cid))
 
 
-def on_client_message(chat, user, text, photo=None):
+def on_client_message(chat, user, text, photo=None, voice=None):
     """Вызывается из вебхука бота в отдельном потоке."""
     try:
+        voice_failed = False
+        if voice:                                          # голосовое -> текст, дальше как обычное сообщение
+            try:
+                if not OPENAI_KEY:
+                    raise RuntimeError("нет ключа OpenAI")
+                heard = transcribe(voice)
+                text = "🎤 " + (heard or "(тишина)") + (f"\n{text}" if text else "")
+            except Exception as e:
+                print("Голосовое не расшифровано:", e, flush=True)
+                text = "🎤 [голосовое сообщение, расшифровать не удалось]"
+                voice_failed = True
         with _lock, db() as d:
             row = d.run("SELECT id, status FROM conv WHERE chat_id=%s", (str(chat),), one=True)
             name = " ".join(x for x in (user.get("first_name"), user.get("last_name")) if x) or user.get("username") or "Клиент"
@@ -255,11 +299,11 @@ def on_client_message(chat, user, text, photo=None):
                 cid, status = row
             save_msg(d, cid, "client", text or "", photo, unread=1)
             hist = [(r, t) for r, t in d.run("SELECT role, text FROM msg WHERE conv_id=%s ORDER BY id DESC LIMIT 14", (cid,), many=True)][::-1][:-1]
-            use_ai = status == "ai" and ai_on(d)
+            use_ai = status == "ai" and ai_on(d) and not voice_failed
             if status == "closed":
                 d.run("UPDATE conv SET status=%s WHERE id=%s", ("ai", cid))
                 status = "ai"
-                use_ai = ai_on(d)
+                use_ai = ai_on(d) and not voice_failed
         if status == "ai" and not use_ai:                  # ИИ выключен или нет ключа: диалог — менеджеру, клиенту короткий ответ
             ack = "Спасибо за сообщение! Передал менеджеру — он ответит в ближайшее время."
             oh.tg("sendMessage", chat_id=chat, text=ack)
