@@ -108,9 +108,12 @@ MEDIA_RULES = """# Фото и голосовые
 - Фото, на котором нет ничего про заказ или товары, — вежливо уточни, чем помочь.
 Никогда не выдумывай то, чего не видно на фото."""
 
+SEARCH_RULES = """# Поиск товаров
+Названия брендов и товаров в каталоге написаны латиницей (Celimax, Axis-Y, Median). Клиент часто пишет по-русски («Селимакс», «тонер серый»): сам переведи в латиницу и вызови search_catalog, например query="Celimax toner". Если первый поиск пуст — попробуй ещё раз по бренду или по другому слову. Нельзя говорить «каталог недоступен» или «товара нет», пока не вызван search_catalog; говори, что товара нет, только если поиск реально ничего не вернул."""
+
 SEARCH_TOOL = {"type": "function", "function": {
     "name": "search_catalog",
-    "description": "Найти товары в каталоге по названию, бренду или артикулу (например, по тексту с фото упаковки). Возвращает id, цены и наличие.",
+    "description": "Найти товары в каталоге по названию, бренду или артикулу. Запрос пиши латиницей, как в каталоге (Celimax toner). Возвращает id, цены и наличие.",
     "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}}
 
 ORDER_TOOL = [{"type": "function", "function": {
@@ -176,29 +179,45 @@ def run_create_order(args, ctx, history):
 
 # ---------- ИИ ----------
 def _words(t):
-    return [w for w in re.findall(r"[\w-]{3,}", t.lower())][:8]
+    return [w for w in re.findall(r"[\w-]{2,}", t.lower())][:8]
+
+
+def catalog_items():
+    """Каталог из памяти сервера; если его ещё нет (после перезапуска) — загружаем из МойСклад."""
+    v = oh._cache.get("live")
+    if v:
+        return v[1]["items"]
+    try:
+        return oh.live()["items"]
+    except Exception as e:
+        print("ИИ: каталог не загружен:", e, flush=True)
+        return None
+
+
+def brand_list(items):
+    return ", ".join(sorted({i.get("brand") for i in items if i.get("brand")}, key=str.lower))[:2500]
 
 
 def product_context(text):
-    v = oh._cache.get("live")
-    if not v:
-        return "Каталог сейчас недоступен."
+    items = catalog_items()
+    if items is None:
+        return "Каталог сейчас не загрузился. Скажи клиенту, что уточнишь наличие и цену, и передай менеджеру (метка " + HANDOFF + ")."
     ws = oh.PUBLIC_WHOLESALE
     ws_words = _words(text)
     scored = []
-    for i in v[1]["items"]:
-        hay = (i["name"] + " " + (i.get("brand") or "")).lower()
+    for i in items:
+        hay = " ".join(str(i.get(k) or "") for k in ("name", "brand", "code", "article")).lower()
         sc = sum(w in hay for w in ws_words)
         if sc:
             scored.append((sc, i))
     scored.sort(key=lambda x: -x[0])
     rows = []
-    for _, i in scored[:6]:
+    for _, i in scored[:8]:
         p = f"розница {oh.fmt(i.get('rtl', 0))} ₸"
         if ws:
             p = f"опт {oh.fmt(i.get('opt', 0))} ₸" + (f", от 10 шт {oh.fmt(i['mid'])} ₸" if i.get("mid") else "") + (f", короб ({i['boxQty']} шт) {oh.fmt(i['box'])} ₸" if i.get("box") else "") + f", розница {oh.fmt(i.get('rtl', 0))} ₸"
         rows.append(f"- {i['name']} ({i.get('brand') or '—'}) [id={i['id']}]: {p}; в наличии")
-    return "\n".join(rows) or "По запросу товаров в наличии не найдено."
+    return "\n".join(rows) or "По этому запросу ничего не найдено. Попробуй вызвать search_catalog с названием латиницей, как в каталоге."
 
 
 def transcribe(file_id):
@@ -228,7 +247,9 @@ def ai_reply(d, history, text, photo=None, ctx=None):
     """Ответ ИИ; возвращает (текст, нужен_менеджер). ctx — данные чата для оформления заказов (None — пробный чат)."""
     rules = get_setting(d, "rules", DEFAULT_RULES)
     kb = "\n\n".join(f"## {t}\n{b}" for t, b in d.run("SELECT title, body FROM kb ORDER BY id", many=True))
-    system = f"{rules}\n\n{ORDER_RULES}\n\n{MEDIA_RULES}\n\n# База знаний\n{kb or '(пока пусто)'}\n\n# Товары из каталога по запросу клиента\n{product_context(text)}"
+    cat = catalog_items()
+    brands = brand_list(cat) if cat else ""
+    system = f"{rules}\n\n{ORDER_RULES}\n\n{MEDIA_RULES}\n\n{SEARCH_RULES}\n\n# Бренды в каталоге\n{brands or '(каталог не загружен)'}\n\n# База знаний\n{kb or '(пока пусто)'}\n\n# Товары из каталога по запросу клиента\n{product_context(text)}"
     msgs = [{"role": "system", "content": system}]
     for role, t in history[-12:]:
         msgs.append({"role": "user" if role == "client" else "assistant", "content": t})
