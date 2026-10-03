@@ -70,6 +70,7 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 .src.wa{color:#128C4A;background:#DDF5E7}.src.wa svg{fill:#128C4A}.cmp.off{opacity:.4;pointer-events:none}
 .wk{display:grid;gap:10px;margin-top:10px}.wk label{font-size:13px;color:var(--mut);display:grid;gap:4px}.cp{display:flex;gap:8px}.cp input{flex:1;font-size:13px}.stepl{margin:8px 0 0 18px;padding:0;line-height:1.55;font-size:14px}
 .seg{display:flex;max-width:100%;overflow-x:auto;scrollbar-width:none}.seg::-webkit-scrollbar{display:none}.seg button{white-space:nowrap;flex:none}
+.tabbar button{min-width:0;font-size:11px;white-space:nowrap}
 </style></head><body>
 <div id="login" hidden><div class="logo" style="color:var(--g)">AMURA<small style="color:var(--mut)">панель управления</small></div>
 <div id="l1"><p class="mut">Введите ваш Telegram-@username. Бот пришлёт в Telegram одноразовый код.</p><input id="lu" placeholder="@username" autocapitalize="off" autocomplete="username" style="margin-bottom:12px"><button class="btn" id="go">Получить код</button></div>
@@ -91,7 +92,7 @@ let ME=null;const can=p=>!!ME&&(ME.role==="owner"||(ALLOW[p]!=="owner"&&ME.perms
 async function boot(){const a=!!tok;$("#login").hidden=a;$("#app").hidden=!a;if(!a){ME=null;return}
  try{ME=await api("me")}catch(e){return}
  const bs=document.querySelectorAll(".nav,.tabbar button");bs.forEach(b=>b.hidden=!can(b.dataset.p));
- $(".tabbar").style.gridTemplateColumns="repeat("+document.querySelectorAll(".tabbar button:not([hidden])").length+",1fr)";
+ $(".tabbar").style.gridTemplateColumns="repeat("+document.querySelectorAll(".tabbar button:not([hidden])").length+",minmax(0,1fr))";
  if(!can(cur))cur=["overview","products","orders","inbox"].find(can)||"orders";
  bs.forEach(x=>x.classList.toggle("on",x.dataset.p===grp(cur)));show(cur)}
 const lmsg=t=>$("#lmsg").textContent=t||"";
@@ -107,8 +108,8 @@ $("#vf").onclick=verify;$("#lc").onkeydown=e=>{if(e.key==="Enter")verify()};
 $("#lb").onclick=e=>{e.preventDefault();$("#l1").hidden=false;$("#l2").hidden=true;lmsg("")};
 $("#out").onclick=$("#out2").onclick=e=>{e.preventDefault();localStorage.removeItem(T);tok="";boot()};
 let cur="overview";document.querySelectorAll(".nav,.tabbar button").forEach(b=>b.onclick=()=>{document.querySelectorAll(".nav,.tabbar button").forEach(x=>x.classList.toggle("on",x.dataset.p===b.dataset.p));scrollTo(0,0);show(b.dataset.p)});
-const SEG={products:[["products","Товары"],["banners","Баннеры на главной"]],overview:[["overview","Состояние"],["pay","Оплата"],["team","Команда"]],ai:[["ai","Чат-проверка"],["rules","Правила"],["kb","База знаний"],["channels","Каналы"]]};
-const grp=a=>({banners:"products",pay:"overview",team:"overview",rules:"ai",kb:"ai",channels:"ai"}[a]||a);
+const SEG={products:[["products","Товары"],["banners","Баннеры на главной"]],overview:[["overview","Состояние"],["pay","Оплата"]],ai:[["ai","Чат-проверка"],["rules","Правила"],["kb","База знаний"],["channels","Каналы"],["team","Команда"]]};
+const grp=a=>({banners:"products",pay:"overview",team:"ai",rules:"ai",kb:"ai",channels:"ai"}[a]||a);
 const seg=a=>{const g=SEG[grp(a)].filter(([k])=>can(k));if(g.length<2)return "";return `<div class="seg">${g.map(([k,t])=>`<button class="${k===a?"on":""}" data-go="${k}">${t}</button>`).join("")}</div>`};
 const bindSeg=()=>document.querySelectorAll("[data-go]").forEach(b=>b.onclick=()=>show(b.dataset.go));
 const head=(t,s)=>`<h1>${t}</h1><div class="sub">${s}</div>`;
@@ -273,7 +274,7 @@ async team(){const t=await api("team");const P=t.perms;
  const chk=(perms,id)=>Object.entries(P).map(([k,n])=>`<label style="display:inline-flex;gap:6px;align-items:center;margin:4px 16px 4px 0;font-size:14px"><input type="checkbox" style="width:auto" data-p="${k}" ${perms.includes(k)?"checked":""}>${n}</label>`).join("");
  const link=c=>`https://t.me/${t.bot}?start=stf_${c}`;
  $("#main").innerHTML=head("Команда","Сотрудники входят в панель по коду из Telegram и получают уведомления по клиентам")+seg("team")+
- (t.persist?"":'<div class="b x" style="display:block;margin-bottom:14px">База данных не подключена: список сотрудников пропадёт при перезапуске сервера.</div>')+
+ (t.persist?"":'<div class="b x" style="display:block;margin-bottom:14px;white-space:normal;border-radius:10px;padding:10px 14px">База данных не подключена: список сотрудников пропадёт при перезапуске сервера.</div>')+
  `<div class="card" style="margin-bottom:14px"><b>Добавить сотрудника</b><div class="mut" style="margin:4px 0 10px">Создайте ссылку и отправьте её человеку. Он откроет её в Telegram и нажмёт «Старт».</div>
  <input id="tn" placeholder="Имя, например «Айгерим» (необязательно)" style="margin-bottom:8px"><div id="tp">${chk(["inbox","orders"])}</div>
  <div class="row"><div class="grow">Присылать уведомления по клиентам</div><button class="sw on" id="tnf"></button></div>
