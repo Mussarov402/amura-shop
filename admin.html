@@ -33,6 +33,17 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 .tabbar{position:fixed;left:0;right:0;bottom:0;z-index:30;display:grid;grid-template-columns:repeat(5,1fr);background:#173A2A;border-radius:22px 22px 0 0;padding:10px 4px calc(8px + env(safe-area-inset-bottom,0px));box-shadow:0 -6px 24px rgba(8,25,18,.22)}
 .tabbar button{border:0;background:transparent;display:grid;justify-items:center;gap:4px;color:rgba(233,241,236,.55);font:700 11.5px inherit;font-family:inherit;padding:4px 0;cursor:pointer}.tabbar button.on{color:#fff}
 .tabbar svg{width:25px;height:25px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}}
+@media(max-width:800px){
+.tabbar{overflow:hidden;--cx:0px;--lo:0}
+.tabbar::before,.tabbar::after{content:"";position:absolute;top:0;left:0;pointer-events:none;opacity:var(--lo);transition:transform .5s cubic-bezier(.3,1.35,.5,1),opacity .3s}
+.tabbar::before{width:40px;height:3px;border-radius:0 0 6px 6px;background:#F2C66D;box-shadow:0 0 14px 3px rgba(242,198,109,.65);transform:translateX(calc(var(--cx) - 20px))}
+.tabbar::after{width:104px;height:66px;background:linear-gradient(180deg,rgba(242,198,109,.36),rgba(242,198,109,0) 92%);clip-path:polygon(24% 0,76% 0,100% 100%,0 100%);transform:translateX(calc(var(--cx) - 52px))}
+.tabbar.nt::before,.tabbar.nt::after{transition:none}
+.tabbar button{position:relative;transition:color .3s}
+.tabbar button svg{transition:filter .3s}
+.tabbar button[aria-current="page"],.tabbar button.on{color:#F6D58B}
+.tabbar button[aria-current="page"] svg,.tabbar button.on svg{filter:drop-shadow(0 0 6px rgba(242,198,109,.6))}
+}
 @media(max-width:800px){html,body{background:#0E3B2C}.app{background:var(--bg)}}
 .ibx2{display:grid;grid-template-columns:380px 1fr;gap:14px;align-items:start}
 .il2{background:#fff;border:1px solid var(--line);border-radius:16px;overflow:hidden}.ih{padding:16px 16px 10px;position:sticky;top:0;background:#fff;z-index:2}.ih h1{margin:0 0 10px;font-size:clamp(21px,3.4vw,26px)}
@@ -115,7 +126,7 @@ async function boot(){const a=!!tok;$("#login").hidden=a;$("#app").hidden=!a;if(
  try{ME=await api("me")}catch(e){return}
  drawAcc();
  const bs=document.querySelectorAll(".nav,.tabbar button");bs.forEach(b=>b.hidden=!can(b.dataset.p));
- $(".tabbar").style.gridTemplateColumns="repeat("+document.querySelectorAll(".tabbar button:not([hidden])").length+",minmax(0,1fr))";
+ $(".tabbar").style.gridTemplateColumns="repeat("+document.querySelectorAll(".tabbar button:not([hidden])").length+",minmax(0,1fr))";window.__lamp&&__lamp();
  if(!views[cur]||!can(cur))cur=["overview","products","orders","inbox"].find(can)||"orders";
  bs.forEach(x=>x.classList.toggle("on",x.dataset.p===grp(cur)));show(cur)}
 const lmsg=t=>$("#lmsg").textContent=t||"";
@@ -444,5 +455,14 @@ boot();
  addEventListener("touchend",function(){if(!on)return;on=false;
   if(pull>=TH){target=pull;run("go");setTimeout(function(){location.reload()},1000)}else if(state==="pull")run("back");pull=0},{passive:true});
 })();
+</script>
+<script>
+/* Нижняя панель: «лампа» над активной вкладкой с мягким конусом света, плавно переезжает между вкладками */
+(function(){var bar=document.querySelector(".tabbar");if(!bar)return;var first=true;
+ function lamp(){var a=bar.querySelector('[aria-current="page"],button.on');if(!a||!bar.offsetWidth)return;
+  if(first){first=false;bar.classList.add("nt");requestAnimationFrame(function(){requestAnimationFrame(function(){bar.classList.remove("nt")})})}
+  var r=a.getBoundingClientRect(),b=bar.getBoundingClientRect();bar.style.setProperty("--cx",(r.left-b.left+r.width/2)+"px");bar.style.setProperty("--lo","1")}
+ window.__lamp=lamp;new MutationObserver(lamp).observe(bar,{subtree:true,attributes:true,attributeFilter:["aria-current","class","hidden"]});
+ addEventListener("resize",lamp);addEventListener("load",lamp);if(document.fonts&&document.fonts.ready)document.fonts.ready.then(lamp);lamp()})();
 </script>
 </body></html>

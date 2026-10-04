@@ -187,6 +187,15 @@ body:not([data-view="home"]) .brandsBar{display:none}
 .tabbar svg{width:27px;height:27px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .tabbar .ic{position:relative;display:grid}
 .tabbar .count{position:absolute;right:-12px;top:-6px}
+.tabbar{overflow:hidden;--cx:0px;--lo:0}
+.tabbar::before,.tabbar::after{content:"";position:absolute;top:0;left:0;pointer-events:none;opacity:var(--lo);transition:transform .5s cubic-bezier(.3,1.35,.5,1),opacity .3s}
+.tabbar::before{width:40px;height:3px;border-radius:0 0 6px 6px;background:#F2C66D;box-shadow:0 0 14px 3px rgba(242,198,109,.65);transform:translateX(calc(var(--cx) - 20px))}
+.tabbar::after{width:104px;height:66px;background:linear-gradient(180deg,rgba(242,198,109,.36),rgba(242,198,109,0) 92%);clip-path:polygon(24% 0,76% 0,100% 100%,0 100%);transform:translateX(calc(var(--cx) - 52px))}
+.tabbar.nt::before,.tabbar.nt::after{transition:none}
+.tabbar button{position:relative;transition:color .3s}
+.tabbar button svg{transition:filter .3s}
+.tabbar button[aria-current="page"],.tabbar button.on{color:#F6D58B}
+.tabbar button[aria-current="page"] svg,.tabbar button.on svg{filter:drop-shadow(0 0 6px rgba(242,198,109,.6))}
 .count[hidden]{display:none}
 .pill{display:inline-block;border-radius:99px;padding:2px 10px;font-size:12px;font-weight:700;background:var(--mint);color:var(--green-3)}
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px;display:grid;gap:10px}
@@ -1243,6 +1252,15 @@ boot();
  addEventListener("touchend",function(){if(!on)return;on=false;
   if(pull>=TH){target=pull;run("go");setTimeout(function(){location.reload()},1000)}else if(state==="pull")run("back");pull=0},{passive:true});
 })();
+</script>
+<script>
+/* Нижняя панель: «лампа» над активной вкладкой с мягким конусом света, плавно переезжает между вкладками */
+(function(){var bar=document.querySelector(".tabbar");if(!bar)return;var first=true;
+ function lamp(){var a=bar.querySelector('[aria-current="page"],button.on');if(!a||!bar.offsetWidth)return;
+  if(first){first=false;bar.classList.add("nt");requestAnimationFrame(function(){requestAnimationFrame(function(){bar.classList.remove("nt")})})}
+  var r=a.getBoundingClientRect(),b=bar.getBoundingClientRect();bar.style.setProperty("--cx",(r.left-b.left+r.width/2)+"px");bar.style.setProperty("--lo","1")}
+ window.__lamp=lamp;new MutationObserver(lamp).observe(bar,{subtree:true,attributes:true,attributeFilter:["aria-current","class","hidden"]});
+ addEventListener("resize",lamp);addEventListener("load",lamp);if(document.fonts&&document.fonts.ready)document.fonts.ready.then(lamp);lamp()})();
 </script>
 </body>
 </html>
