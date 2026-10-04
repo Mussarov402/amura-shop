@@ -130,6 +130,12 @@ MEDIA_RULES = """# Фото и голосовые
 SEARCH_RULES = """# Поиск товаров
 Названия брендов и товаров в каталоге написаны латиницей (Celimax, Axis-Y, Median). Поиск идёт по названию, описанию, бренду, группе, артикулу и штрихкоду. Клиент часто пишет по-русски («Селимакс», «тонер серый»): сам переведи в латиницу и вызови search_catalog, например query="Celimax toner". Если первый поиск пуст — попробуй ещё раз по бренду или по другому слову. Когда клиент спрашивает о категории или ингредиенте («центелла», «тонеры», «солнцезащитный»), вызови search_catalog несколько раз с разными словами и синонимами (Centella, Madecassoside, Cica) и покажи все найденные подходящие товары. На «ещё что-нибудь» или «другое» повтори поиск шире и не повторяй уже названные товары. Нельзя говорить «каталог недоступен» или «товара нет», пока не вызван search_catalog; говори, что товара нет, только если поиск реально ничего не вернул."""
 
+PRICE_RULES = """# Цены — только из каталога
+Цену и наличие называй только из блока «Товары из каталога» или результата search_catalog. Никогда не называй цену по памяти, по догадке и не подтверждай цену, которую назвал клиент («по 3100 нужен» — не значит, что так и есть).
+Если клиент называет свою цену или просит конкретный товар «по такой-то цене» — найди товар и скажи фактическую цену из каталога, даже если она выше. Если товара нет в данных — сначала вызови search_catalog.
+Если по запросу подходит несколько товаров (например, несколько тонеров бренда), не выбирай сам: назови подходящие варианты с их ценами или спроси, какой именно. Название товара называй только точно как в каталоге.
+Скидок и особых цен не обещай: цена — из каталога, любые другие условия только через менеджера (метка """ + HANDOFF + """)."""
+
 STYLE_RULES = """# Как писать клиенту
 Пиши как живой менеджер в мессенджере: естественно, своими словами, коротко, на «вы». Никакой разметки (**, #, скобок) и никаких id товаров.
 Отвечай прямо на вопрос: «Да, Lagom Micro Foam Cleanser есть, 2 750 ₸ за штуку, в наличии». Не пиши «Вот информация:», «Вот что есть:» и подобные канцелярские вставки.
@@ -230,6 +236,7 @@ def _forms(w):
             opts = _TR.get(ch, ch if ch.isalnum() else "").split("|") if ch != "x" else ["x"]
             outs = [o + p for o in outs for p in opts][:24]
         out |= set(outs)
+    out |= {f.replace("kva", "qua").replace("cva", "qua") for f in out if "kva" in f or "cva" in f}      # аква -> aqua
     return {f for f in out if len(f) >= 2}
 
 
@@ -342,11 +349,11 @@ def ai_reply(d, history, text, photo=None, ctx=None):
     """Ответ ИИ; возвращает (текст, нужен_менеджер). ctx — данные чата для оформления заказов (None — пробный чат)."""
     rules = get_setting(d, "rules", DEFAULT_RULES)
     kb = "\n\n".join(f"## {t}\n{b}" for t, b in d.run("SELECT title, body FROM kb ORDER BY id", many=True))
-    recent = " ".join([x for r_, x in history[-6:] if r_ == "client"][-2:] + [text or ""])      # слова из последних сообщений клиента
+    recent = " ".join([text or ""] + [x for r_, x in history[-6:] if r_ == "client"][-2:])      # слова текущего и двух прошлых сообщений клиента (текущее — первым)
     cat = catalog_items()
     brands = brand_list(cat) if cat else ""
     order_rules = ORDER_RULES.replace("SITE_LINK", oh.SITE_URL or "https://mussarov402.github.io/amura-shop")
-    system = f"{rules}\n\n{order_rules}\n\n{MEDIA_RULES}\n\n{STYLE_RULES}\n\n{SEARCH_RULES}\n\n# Бренды в каталоге\n{brands or '(каталог не загружен)'}\n\n# База знаний\n{kb or '(пока пусто)'}\n\n# Товары из каталога по запросу клиента\n{product_context(recent)}"
+    system = f"{rules}\n\n{order_rules}\n\n{MEDIA_RULES}\n\n{STYLE_RULES}\n\n{PRICE_RULES}\n\n{SEARCH_RULES}\n\n# Бренды в каталоге\n{brands or '(каталог не загружен)'}\n\n# База знаний\n{kb or '(пока пусто)'}\n\n# Товары из каталога по запросу клиента\n{product_context(recent)}"
     msgs = [{"role": "system", "content": system}]
     for role, t in history[-12:]:
         msgs.append({"role": "user" if role == "client" else "assistant", "content": t})
