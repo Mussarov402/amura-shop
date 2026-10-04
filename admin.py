@@ -868,12 +868,12 @@ def wa_connect():
 def wa_token():
     """Запасное подключение: токен системного пользователя (если окно Facebook не отдало код)."""
     b = request.get_json(silent=True) or {}
-    tok_, pid = str(b.get("token", "")).strip(), str(b.get("phone_id", "")).strip()
+    tok_, pid, wid = str(b.get("token", "")).strip(), str(b.get("phone_id", "")).strip(), str(b.get("waba_id", "")).strip()
     if not tok_ or "•" in tok_:
         return jsonify(ok=False, error="Вставьте токен целиком"), 400
     base = (oh.PUBLIC_URL or request.url_root).rstrip("/")
     try:
-        j = wa.connect_token(tok_, pid, f"{base}/wa/{oh.HOOK_SECRET}", oh.HOOK_SECRET)
+        j = wa.connect_token(tok_, pid, f"{base}/wa/{oh.HOOK_SECRET}", oh.HOOK_SECRET, wid)
     except oh.requests.exceptions.RequestException:
         return jsonify(ok=False, error="Не удалось связаться с Meta. Повторите через минуту."), 502
     except Exception as e:
