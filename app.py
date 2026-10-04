@@ -3,7 +3,7 @@
 (один воркер — коды SMS и вход через Telegram хранятся в памяти процесса)."""
 import traceback
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, redirect, request
 from werkzeug.exceptions import HTTPException
 
 from admin import bp as admin_bp
@@ -18,6 +18,8 @@ app.register_blueprint(wa_bp)
 
 @app.get("/")
 def health():
+    if request.host.lower().startswith("admin."):   # admin.amura.kz открывает панель сразу
+        return redirect("/admin", 302)
     return jsonify(ok=True, service="amura-shop-api")
 
 
