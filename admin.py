@@ -320,7 +320,7 @@ def orders():
     out = []
     for o in rows:
         desc = (o.get("description") or "").split("\n")
-        out.append({"number": o["name"], "moment": o["moment"][:16], "client": o["agent"]["name"],
+        out.append({"id": o["id"], "number": o["name"], "moment": o["moment"][:16], "client": o["agent"]["name"],
                     "ship": (desc[3][len("Отправка: "):] if len(desc) > 3 and desc[3].startswith("Отправка: ") else ""),
                     "sum": o["sum"] / 100, "state": (o.get("state") or {}).get("name", "Новый"),
                     "color": "#%06x" % ((o.get("state") or {}).get("color") or 0) if (o.get("state") or {}).get("color") else "",
@@ -346,10 +346,13 @@ def order_state():
         st = next((s for s in md.get("states", []) if s["name"] == name), None)
         if not st:
             return jsonify(ok=False, error="Такого статуса нет в МойСклад"), 400
-        rows = oh.ms("GET", "/entity/customerorder", params={"filter": f"name={num}", "limit": 1}, timeout=15).get("rows", [])
-        if not rows:
-            return jsonify(ok=False, error="Заказ не найден в МойСклад"), 404
-        oh.ms("PUT", f"/entity/customerorder/{rows[0]['id']}", json={"state": {"meta": st["meta"]}}, timeout=20)
+        oid = str(b.get("id", ""))
+        if not oh.re.fullmatch(r"[0-9a-f-]{36}", oid):
+            rows = oh.ms("GET", "/entity/customerorder", params={"filter": f"name={num}", "limit": 1}, timeout=30).get("rows", [])
+            if not rows:
+                return jsonify(ok=False, error="Заказ не найден в МойСклад"), 404
+            oid = rows[0]["id"]
+        oh.ms("PUT", f"/entity/customerorder/{oid}", json={"state": {"meta": st["meta"]}}, timeout=30)
     except Busy:
         return jsonify(ok=False, error="МойСклад долго отвечает — повторите через минуту"), 503
     except Exception as e:
@@ -359,11 +362,19 @@ def order_state():
 
 
 def _order_fetch(number):
-    rows = oh.ms("GET", "/entity/customerorder", params={"filter": f"name={number}", "limit": 1, "expand": "agent,state"}, timeout=15).get("rows", [])
-    if not rows:
-        return None, None
-    pos = oh.ms("GET", f"/entity/customerorder/{rows[0]['id']}/positions", params={"expand": "assortment", "limit": 100}, timeout=15)["rows"]
-    return rows[0], pos
+    """Заказ и его позиции. Если в запросе есть id (из списка), поиск по номеру не нужен — это быстрее."""
+    oid = request.args.get("id", "")
+    if oh.re.fullmatch(r"[0-9a-f-]{36}", oid):
+        o = oh.ms("GET", f"/entity/customerorder/{oid}", params={"expand": "agent,state"}, timeout=30)
+        if o.get("name") != number:
+            return None, None
+    else:
+        rows = oh.ms("GET", "/entity/customerorder", params={"filter": f"name={number}", "limit": 1, "expand": "agent,state"}, timeout=30).get("rows", [])
+        if not rows:
+            return None, None
+        o = rows[0]
+    pos = oh.ms("GET", f"/entity/customerorder/{o['id']}/positions", params={"expand": "assortment", "limit": 100}, timeout=30)["rows"]
+    return o, pos
 
 
 @bp.get("/admin/api/orders/<number>")
@@ -439,7 +450,7 @@ def order_edit(number):
         body = {"positions": positions}
         if "description" in b:
             body["description"] = str(b.get("description") or "")[:2000]
-        oh.ms("PUT", f"/entity/customerorder/{o['id']}", json=body, timeout=30)
+        oh.ms("PUT", f"/entity/customerorder/{o['id']}", json=body, timeout=40)
     except Exception as e:
         return jsonify(ok=False, error="Не удалось сохранить: " + str(e)[:200]), 502
     oh._cache.pop("adm_orders", None)
