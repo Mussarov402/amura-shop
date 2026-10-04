@@ -323,6 +323,7 @@ def orders():
         out.append({"number": o["name"], "moment": o["moment"][:16], "client": o["agent"]["name"],
                     "ship": (desc[3][len("Отправка: "):] if len(desc) > 3 and desc[3].startswith("Отправка: ") else ""),
                     "sum": o["sum"] / 100, "state": (o.get("state") or {}).get("name", "Новый"),
+                    "color": "#%06x" % ((o.get("state") or {}).get("color") or 0) if (o.get("state") or {}).get("color") else "",
                     "pdf": f"{oh.PUBLIC_URL}/order/{o['name']}/pdf?t={oh.sign(o['name'])}"})
     return jsonify(ok=True, orders=out)
 
