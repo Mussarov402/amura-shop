@@ -859,7 +859,7 @@ def wa_connect():
     except oh.requests.exceptions.RequestException:
         return jsonify(ok=False, error="Не удалось связаться с Meta. Повторите через минуту."), 502
     except Exception as e:
-        return jsonify(ok=False, error=str(e)[:300]), 400
+        return jsonify(ok=False, error=str(e)[:1200]), 400
     return jsonify(ok=True, name=j.get("verified_name", ""), phone=j.get("display_phone_number", ""))
 
 
@@ -877,5 +877,5 @@ def wa_token():
     except oh.requests.exceptions.RequestException:
         return jsonify(ok=False, error="Не удалось связаться с Meta. Повторите через минуту."), 502
     except Exception as e:
-        return jsonify(ok=False, error=str(e)[:300]), 400
+        return jsonify(ok=False, error=str(e)[:1200]), 400
     return jsonify(ok=True, name=j.get("verified_name", ""), phone=j.get("display_phone_number", ""))
