@@ -422,12 +422,12 @@ boot();
  var ind=document.createElement("div");ind.id="ptr";ind.innerHTML='<i class="a"></i><i class="b"></i><i class="c"></i>';document.body.appendChild(ind);
  new Image().src=SRC;
  var a=ind.querySelector(".a"),b=ind.querySelector(".b"),c=ind.querySelector(".c");
- var y0=0,x0=0,base=8,TH=62,MAX=100,on=false,pull=0,state="idle",y=0,vy=0,target=0,ang=0,t0=0,raf=0,e1=0,e2=0;
+ var y0=0,x0=0,base=8,TH=62,MAX=100,on=false,pull=0,state="idle",y=0,vy=0,target=0,ang=0,t0=0,raf=0,e1=0,e2=0,sway=0;
  function draw(){ind.style.transform="translateY("+(base+y-90)+"px)";ind.style.opacity=Math.min(1,y/22);
   var r1="translate(0,"+J1+"px) rotate("+e1+"deg) translate(0,"+(-J1)+"px)",r2="translate(0,"+J2+"px) rotate("+e2+"deg) translate(0,"+(-J2)+"px)",g="rotate("+ang+"deg) ";
   a.style.transform=g;b.style.transform=g+r1;c.style.transform=g+r1+r2}
  function loop(ts){
-  if(state==="pull"){vy=(vy+(target-y)*.2)*.74;y+=vy;ang+=((Math.max(-22,Math.min(22,vy*2.4)))-ang)*.35;e1=-ang*.5;e2=-ang*.45}
+  if(state==="pull"){vy=(vy+(target-y)*.2)*.74;y+=vy;ang+=((Math.max(-22,Math.min(22,vy*2.4+sway)))-ang)*.35;e1=-ang*.5;e2=-ang*.45}
   else if(state==="go"){var t=(ts-t0)/1000;y+=(target-y)*.25;ang=22*Math.sin(t*6.2)*Math.exp(-t*.28);e1=-ang*.5+5*Math.sin(t*6.2-1.1);e2=-ang*.4+7*Math.sin(t*6.2-2.2)}
   else if(state==="back"){y+=(0-y)*.2;ang*=.85;e1*=.85;e2*=.85;if(y<.6){state="idle";y=0;ang=e1=e2=0;draw();return}}
   draw();raf=requestAnimationFrame(loop)}
@@ -436,10 +436,11 @@ boot();
   for(var e=t;e&&e!==document.body&&e!==document.documentElement;e=e.parentElement){var s=getComputedStyle(e);if((s.overflowY==="auto"||s.overflowY==="scroll")&&e.scrollHeight>e.clientHeight+1)return true}return false}
  addEventListener("touchstart",function(e){on=false;pull=0;if(state==="go"||window.scrollY>0||e.touches.length!==1||blocked(e.target))return;
   var h=document.querySelector(".mtop"),r=h&&h.offsetParent!==null?h.getBoundingClientRect().bottom:0;base=(r||0)+10;ind.style.top=r?0:"env(safe-area-inset-top,0px)";
-  y0=e.touches[0].clientY;x0=e.touches[0].clientX;on=true;y=0;vy=0;target=0;ang=e1=e2=0},{passive:true});
- addEventListener("touchmove",function(e){if(!on)return;var t=e.touches[0],dy=t.clientY-y0;
-  if(Math.abs(t.clientX-x0)>Math.abs(dy)||dy<=0||window.scrollY>0){on=false;pull=0;target=0;run("back");return}
-  if(e.cancelable)e.preventDefault();pull=Math.min(dy*.5,MAX);target=pull;if(state!=="pull")run("pull")},{passive:false});
+  y0=e.touches[0].clientY;x0=e.touches[0].clientX;on=true;y=0;vy=0;target=0;sway=0;ang=e1=e2=0},{passive:true});
+ addEventListener("touchmove",function(e){if(!on)return;var t=e.touches[0],dx=t.clientX-x0,dy=t.clientY-y0;
+  if(window.scrollY>0||(dy<=0&&Math.abs(dx)<=Math.abs(dy))){on=false;pull=0;sway=0;target=0;run("back");return}      /* вверх — отмена */
+  if(Math.abs(dx)>Math.abs(dy)){pull=0;target=Math.min(Math.abs(dx)*.14,20);sway=Math.max(-14,Math.min(14,dx*.1));if(state!=="pull")run("pull");return}      /* вбок: паучок чуть выглядывает и качается, обновления нет */
+  sway=0;if(e.cancelable)e.preventDefault();pull=Math.min(dy*.5,MAX);target=pull;if(state!=="pull")run("pull")},{passive:false});
  addEventListener("touchend",function(){if(!on)return;on=false;
   if(pull>=TH){target=pull;run("go");setTimeout(function(){location.reload()},1000)}else if(state==="pull")run("back");pull=0},{passive:true});
 })();
