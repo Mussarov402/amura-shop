@@ -187,6 +187,14 @@ def finish(token, phone_id, waba_id, webhook_url, verify_token, coex):
                     bizs.append(me["business"]["id"])
             except Exception as e:
                 print("WA: компания токена:", e, flush=True)
+            try:                                            # у системного пользователя нет поля business: компанию берём у самого приложения
+                ob = requests.get(f"{GRAPH}/{c['app_id']}", params={"fields": "owner_business", "access_token": f"{c['app_id']}|{c['secret']}"}, timeout=30).json()
+                oid = (ob.get("owner_business") or {}).get("id")
+                diag.append("компания приложения: " + str(oid or (ob.get("error") or {}).get("message", "нет")))
+                if oid and oid not in bizs:
+                    bizs.append(oid)
+            except Exception as e:
+                print("WA: компания приложения:", e, flush=True)
             for biz in bizs:
                 for edge in ("owned_whatsapp_business_accounts", "client_whatsapp_business_accounts"):
                     try:
