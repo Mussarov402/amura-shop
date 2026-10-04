@@ -718,7 +718,9 @@ getJSON(CONFIG.apiUrl + "/banners", 8000).catch(() => getJSON("banners.json", 80
   row.addEventListener("click", e => { if(moved){ e.stopImmediatePropagation(); e.preventDefault(); moved = false; } }, true);   // после перетаскивания бренд не выбирается
   upd();
 })();
+const nBrand = s => String(s || "").toLowerCase().replace(/[^a-zа-яё0-9]/g, "");
 function selectBrand(brand){
+  if(brand){ const real = [...new Set(ALL.map(i => i.brand).filter(Boolean))].find(b => nBrand(b) === nBrand(brand)); if(real) brand = real; }   /* «Skin1004» из баннера -> «SKIN1004» из каталога */
   if(VIEW !== "home") go("home");
   st.brand = brand; st.shown = PAGE;
   document.querySelectorAll("#brands .chip").forEach(c => c.setAttribute("aria-pressed", c.dataset.b === brand));
