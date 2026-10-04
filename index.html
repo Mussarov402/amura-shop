@@ -1240,7 +1240,7 @@ boot();
   if(Math.abs(t.clientX-x0)>Math.abs(dy)||dy<=0||window.scrollY>0){on=false;pull=0;target=0;run("back");return}
   if(e.cancelable)e.preventDefault();pull=Math.min(dy*.5,MAX);target=pull;if(state!=="pull")run("pull")},{passive:false});
  addEventListener("touchend",function(){if(!on)return;on=false;
-  if(pull>=TH){target=TH;run("go");setTimeout(function(){location.reload()},1000)}else if(state==="pull")run("back");pull=0},{passive:true});
+  if(pull>=TH){target=pull;run("go");setTimeout(function(){location.reload()},1000)}else if(state==="pull")run("back");pull=0},{passive:true});
 })();
 </script>
 </body>

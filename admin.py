@@ -7,6 +7,7 @@ import json
 import mimetypes
 import os
 import secrets
+import threading
 import time
 from datetime import datetime
 
@@ -276,31 +277,79 @@ def page():
 def overview():
     v = oh._cache.get("live")
     items = v[1]["items"] if v else []
-    t0 = time.time()
-    ms_ok = True
-    try:
-        oh.ms("GET", "/entity/organization", params={"limit": 1}, timeout=6)
-    except Exception:
-        ms_ok = False
-    day = datetime.now(oh.ALMATY).strftime("%Y-%m-%d")
-    today = fresh("adm_today", 60, lambda: oh.ms("GET", "/entity/customerorder", params={
-        "filter": f"moment>={day} 00:00:00", "limit": 100}, timeout=12)["rows"])
+    ping = fresh("adm_ping", 30, _ms_ping)
+    today = fresh("adm_today", 60, _ms_today)
     return jsonify(ok=True, products=len(items), hidden=len(hidden_ids()), ordersToday=len(today),
                    sumToday=sum(o["sum"] for o in today) / 100, catalogUpdated=(v[1]["updated"] if v else ""),
-                   siteUpdated=oh._cache.get("site_updated", ""), msOk=ms_ok, msSec=round(time.time() - t0, 1),
+                   siteUpdated=oh._cache.get("site_updated", ""), msOk=ping["ok"], msSec=ping["sec"],
                    tgOk=bool(oh.BOT and oh.OWNER), sms=bool(oh.MOBIZON_KEY), wa=wa.configured())
 
 
+def _ms_ping():
+    t0 = time.time()
+    try:
+        oh.ms("GET", "/entity/organization", params={"limit": 1}, timeout=6)
+        ok = True
+    except Exception:
+        ok = False
+    return {"ok": ok, "sec": round(time.time() - t0, 1)}
+
+
+def _ms_today():
+    day = datetime.now(oh.ALMATY).strftime("%Y-%m-%d")
+    return oh.ms("GET", "/entity/customerorder", params={"filter": f"moment>={day} 00:00:00", "limit": 100}, timeout=12)["rows"]
+
+
+def _ms_orders():
+    return oh.ms("GET", "/entity/customerorder", params={"order": "moment,desc", "limit": 30, "expand": "agent,state"}, timeout=12)["rows"]
+
+
+def _ms_states():
+    return oh.ms("GET", "/entity/customerorder/metadata", timeout=12)
+
+
+_refreshing = set()
+
+
 def fresh(key, ttl, fn):
-    """Данные из МойСклад с кэшем; если МойСклад завис — отдаём прошлые данные, а не ошибку (и не шлём оповещение)."""
+    """Данные из МойСклад с кэшем. Устарели — отдаём прошлые сразу, а обновляем в фоне (панель не ждёт МойСклад).
+    Данных ещё нет (первый запрос) — ждём; если МойСклад завис, вместо ошибки в панели «обновите через минуту»."""
+    v = oh._cache.get(key)
+    if v and time.time() - v[0] < ttl:
+        return v[1]
+    if v:
+        if key not in _refreshing:
+            _refreshing.add(key)
+            threading.Thread(target=_refresh_bg, args=(key, fn), daemon=True).start()
+        return v[1]
     try:
         return oh.cached(key, ttl, fn)
     except Exception as e:
         print("Панель:", key, e.__class__.__name__, flush=True)
-        v = oh._cache.get(key)
-        if v:
-            return v[1]
         raise Busy()
+
+
+def _refresh_bg(key, fn):
+    try:
+        oh._cache[key] = (time.time(), fn())
+    except Exception as e:
+        print("Панель (фон):", key, e.__class__.__name__, flush=True)
+    finally:
+        _refreshing.discard(key)
+
+
+def _warm():
+    """После запуска сервера заранее грузим то, что открывает панель: первый вход не ждёт МойСклад."""
+    time.sleep(8)
+    for key, ttl, fn in (("adm_ping", 30, _ms_ping), ("adm_today", 60, _ms_today), ("adm_orders", 45, _ms_orders), ("adm_order_states", 600, _ms_states)):
+        try:
+            oh._cache[key] = (time.time(), fn())
+        except Exception as e:
+            print("Прогрев панели:", key, e.__class__.__name__, flush=True)
+
+
+if os.environ.get("PORT"):          # только на сервере, не в тестах и скриптах
+    threading.Thread(target=_warm, daemon=True).start()
 
 
 class Busy(Exception):
@@ -315,8 +364,7 @@ def busy(_):
 @bp.get("/admin/api/orders")
 @need("orders")
 def orders():
-    rows = fresh("adm_orders", 45, lambda: oh.ms("GET", "/entity/customerorder", params={
-        "order": "moment,desc", "limit": 30, "expand": "agent,state"}, timeout=12)["rows"])
+    rows = fresh("adm_orders", 45, _ms_orders)
     out = []
     for o in rows:
         desc = (o.get("description") or "").split("\n")
@@ -329,7 +377,7 @@ def orders():
 
 
 def _order_states():
-    md = fresh("adm_order_states", 600, lambda: oh.ms("GET", "/entity/customerorder/metadata", timeout=12))
+    md = fresh("adm_order_states", 600, _ms_states)
     return [{"name": s["name"], "color": "#%06x" % s["color"] if s.get("color") else ""} for s in md.get("states", [])]
 
 
@@ -342,7 +390,7 @@ def order_state():
     if not num or not name:
         return jsonify(ok=False, error="Не указан заказ или статус"), 400
     try:
-        md = fresh("adm_order_states", 600, lambda: oh.ms("GET", "/entity/customerorder/metadata", timeout=12))
+        md = fresh("adm_order_states", 600, _ms_states)
         st = next((s for s in md.get("states", []) if s["name"] == name), None)
         if not st:
             return jsonify(ok=False, error="Такого статуса нет в МойСклад"), 400
