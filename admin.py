@@ -325,7 +325,37 @@ def orders():
                     "sum": o["sum"] / 100, "state": (o.get("state") or {}).get("name", "Новый"),
                     "color": "#%06x" % ((o.get("state") or {}).get("color") or 0) if (o.get("state") or {}).get("color") else "",
                     "pdf": f"{oh.PUBLIC_URL}/order/{o['name']}/pdf?t={oh.sign(o['name'])}"})
-    return jsonify(ok=True, orders=out)
+    return jsonify(ok=True, orders=out, states=_order_states(), can_edit=True)
+
+
+def _order_states():
+    md = fresh("adm_order_states", 600, lambda: oh.ms("GET", "/entity/customerorder/metadata", timeout=12))
+    return [{"name": s["name"], "color": "#%06x" % s["color"] if s.get("color") else ""} for s in md.get("states", [])]
+
+
+@bp.post("/admin/api/orders/state")
+@need("orders")
+def order_state():
+    """Сменить статус заказа в МойСклад (тот же, что в самом МойСклад)."""
+    b = request.get_json(silent=True) or {}
+    num, name = str(b.get("number", "")).strip(), str(b.get("state", "")).strip()
+    if not num or not name:
+        return jsonify(ok=False, error="Не указан заказ или статус"), 400
+    try:
+        md = fresh("adm_order_states", 600, lambda: oh.ms("GET", "/entity/customerorder/metadata", timeout=12))
+        st = next((s for s in md.get("states", []) if s["name"] == name), None)
+        if not st:
+            return jsonify(ok=False, error="Такого статуса нет в МойСклад"), 400
+        rows = oh.ms("GET", "/entity/customerorder", params={"filter": f"name={num}", "limit": 1}, timeout=15).get("rows", [])
+        if not rows:
+            return jsonify(ok=False, error="Заказ не найден в МойСклад"), 404
+        oh.ms("PUT", f"/entity/customerorder/{rows[0]['id']}", json={"state": {"meta": st["meta"]}}, timeout=20)
+    except Busy:
+        return jsonify(ok=False, error="МойСклад долго отвечает — повторите через минуту"), 503
+    except Exception as e:
+        return jsonify(ok=False, error="Не удалось сменить статус: " + str(e)[:200]), 502
+    oh._cache.pop("adm_orders", None)
+    return jsonify(ok=True)
 
 
 def _all_items():
