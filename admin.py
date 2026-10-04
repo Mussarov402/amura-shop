@@ -358,6 +358,94 @@ def order_state():
     return jsonify(ok=True)
 
 
+def _order_fetch(number):
+    rows = oh.ms("GET", "/entity/customerorder", params={"filter": f"name={number}", "limit": 1, "expand": "agent,state"}, timeout=15).get("rows", [])
+    if not rows:
+        return None, None
+    pos = oh.ms("GET", f"/entity/customerorder/{rows[0]['id']}/positions", params={"expand": "assortment", "limit": 100}, timeout=15)["rows"]
+    return rows[0], pos
+
+
+@bp.get("/admin/api/orders/<number>")
+@need("orders")
+def order_detail(number):
+    try:
+        o, pos = _order_fetch(number)
+    except Exception as e:
+        return jsonify(ok=False, error="МойСклад не ответил: " + str(e)[:150]), 502
+    if not o:
+        return jsonify(ok=False, error="Заказ не найден"), 404
+    lines, loader, fee = [], 0, 0
+    for p in pos:
+        a, price, qty = p["assortment"], p["price"] / 100, p["quantity"]
+        if a.get("code") == oh.LOADER_CODE:
+            loader += price * qty
+        elif a["meta"]["type"] == "service" and a.get("name") == oh.FEE_NAME:
+            fee += price * qty
+        else:
+            lines.append({"pos": p["id"], "type": a["meta"]["type"], "id": a["id"], "name": a["name"], "qty": int(qty), "price": price})
+    return jsonify(ok=True, number=o["name"], client=o["agent"]["name"], state=(o.get("state") or {}).get("name", ""),
+                   description=o.get("description") or "", lines=lines, loader=loader, fee=fee, total=o["sum"] / 100,
+                   feeRate=oh.FEE_RATE, hasFee=any(p["assortment"].get("name") == oh.FEE_NAME for p in pos))
+
+
+@bp.get("/admin/api/orders-search")
+@need("orders")
+def order_search():
+    q = request.args.get("q", "").strip().lower()
+    if len(q) < 2:
+        return jsonify(ok=True, items=[])
+    shown, _ = _all_items()
+    out = [i for i in shown if q in (i["name"] + " " + i.get("brand", "") + " " + i.get("code", "")).lower()][:20]
+    return jsonify(ok=True, items=[{"type": "product", "id": i["id"], "name": i["name"], "qty": i["qty"], "price": oh.unit_price(i, 1, True)} for i in out])
+
+
+@bp.put("/admin/api/orders/<number>")
+@need("orders")
+def order_edit(number):
+    """Правка заказа: состав, цены, комментарий. Комиссия банка пересчитывается сама."""
+    b = request.get_json(silent=True) or {}
+    lines = b.get("lines") or []
+    if not isinstance(lines, list) or not lines:
+        return jsonify(ok=False, error="В заказе должен остаться хотя бы один товар"), 400
+    try:
+        o, pos = _order_fetch(number)
+        if not o:
+            return jsonify(ok=False, error="Заказ не найден"), 404
+        positions, goods, loader = [], 0, 0
+        for l in lines[:200]:
+            qty, price = int(float(l.get("qty") or 0)), float(l.get("price") or 0)
+            if qty <= 0 or price < 0 or not oh.re.fullmatch(r"[0-9a-f-]{36}", str(l.get("id", ""))) or l.get("type") not in ("product", "bundle", "variant", "service"):
+                return jsonify(ok=False, error="Проверьте количество и цены"), 400
+            p = {"quantity": qty, "price": round(price * 100), "assortment": oh.meta(l["type"], l["id"])}
+            if l["type"] != "service":
+                p["reserve"] = qty
+            if l.get("pos") and oh.re.fullmatch(r"[0-9a-f-]{36}", str(l["pos"])):
+                p["id"] = l["pos"]
+            positions.append(p)
+            goods += qty * price
+        had_fee = False
+        for p in pos:                                  # грузчик остаётся как был, комиссия банка пересчитывается
+            a = p["assortment"]
+            if a.get("code") == oh.LOADER_CODE:
+                loader += p["price"] / 100 * p["quantity"]
+                positions.append({"id": p["id"], "quantity": p["quantity"], "price": p["price"], "assortment": {"meta": a["meta"]}})
+            elif a["meta"]["type"] == "service" and a.get("name") == oh.FEE_NAME:
+                had_fee = True
+                feep = {"id": p["id"], "quantity": 1, "assortment": {"meta": a["meta"]}}
+                positions.append(feep)
+        if had_fee:
+            feep["price"] = int((goods + loader) * oh.FEE_RATE + 0.5) * 100
+        body = {"positions": positions}
+        if "description" in b:
+            body["description"] = str(b.get("description") or "")[:2000]
+        oh.ms("PUT", f"/entity/customerorder/{o['id']}", json=body, timeout=30)
+    except Exception as e:
+        return jsonify(ok=False, error="Не удалось сохранить: " + str(e)[:200]), 502
+    oh._cache.pop("adm_orders", None)
+    return jsonify(ok=True)
+
+
 def _all_items():
     v = oh._cache.get("live")
     data = v[1] if v else oh.refresh(oh.LIVE_TTL)
