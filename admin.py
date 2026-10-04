@@ -768,7 +768,8 @@ def _convert(data, args, suffix_in=".bin"):
 def _send_file_wa(chat, data, name, mime, kind, caption, dur):
     """Файл менеджера -> WhatsApp. Возвращает (media, photo) для записи в диалог."""
     if kind == "voice":
-        ogg = _convert(data, ["-vn", "-c:a", "libopus", "-b:a", "32k", ".ogg"], ".m4a" if ("mp4" in mime or "m4a" in mime) else ".webm")
+        ogg = _convert(data, ["-vn", "-ac", "1", "-ar", "48000", "-c:a", "libopus", "-b:a", "32k", "-application", "voip", ".ogg"],      # WhatsApp принимает голосовые только в моно
+                       ".m4a" if ("mp4" in mime or "m4a" in mime) else ".webm")
         if not ogg:
             raise RuntimeError("Не удалось подготовить голосовое для WhatsApp")
         return {"t": "voice", "id": "wa:" + wa.send_media(chat, "audio", ogg, "voice.ogg", "audio/ogg"), "dur": int(float(dur or 0))}, None
