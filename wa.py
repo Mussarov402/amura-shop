@@ -154,12 +154,12 @@ def connect(code, phone_id, waba_id, webhook_url, verify_token, coex=False, redi
     return finish(token, phone_id, waba_id, webhook_url, verify_token, coex)
 
 
-def connect_token(token, phone_id, webhook_url, verify_token):
+def connect_token(token, phone_id, webhook_url, verify_token, waba_id=""):
     """Запасной путь без кода из окна Facebook: токен системного пользователя (создаётся в Business Settings)."""
     c = cfg()
     if not (c["app_id"] and c["secret"]):
         raise RuntimeError("Сначала сохраните App ID и App Secret приложения Meta")
-    return finish(token.strip(), phone_id.strip(), "", webhook_url, verify_token, coex=True)
+    return finish(token.strip(), phone_id.strip(), waba_id.strip(), webhook_url, verify_token, coex=True)
 
 
 def finish(token, phone_id, waba_id, webhook_url, verify_token, coex):
