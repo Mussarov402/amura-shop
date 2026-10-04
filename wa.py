@@ -171,11 +171,28 @@ def finish(token, phone_id, waba_id, webhook_url, verify_token, coex):
         dt = requests.get(f"{GRAPH}/debug_token", params={"input_token": token, "access_token": f"{c['app_id']}|{c['secret']}"}, timeout=30).json()
         if (dt.get("data") or {}).get("is_valid") is False:
             raise RuntimeError("Токен недействителен: " + str((dt["data"].get("error") or {}).get("message", "")))
+        bizs = []
         for g in (dt.get("data") or {}).get("granular_scopes", []):
             if g.get("scope") in ("whatsapp_business_management", "whatsapp_business_messaging"):
                 wabas += [t for t in g.get("target_ids", []) if t not in wabas]
+            elif g.get("scope") == "business_management":
+                bizs += [t for t in g.get("target_ids", []) if t not in bizs]
+        if not wabas:                                       # токен администратора (системный пользователь с ролью Admin) видит всё через компанию
+            try:
+                me = requests.get(f"{GRAPH}/me", headers=h, params={"fields": "business"}, timeout=30).json()
+                if (me.get("business") or {}).get("id") and me["business"]["id"] not in bizs:
+                    bizs.append(me["business"]["id"])
+            except Exception as e:
+                print("WA: компания токена:", e, flush=True)
+            for biz in bizs:
+                for edge in ("owned_whatsapp_business_accounts", "client_whatsapp_business_accounts"):
+                    try:
+                        r = requests.get(f"{GRAPH}/{biz}/{edge}", headers=h, params={"fields": "id,name", "limit": 50}, timeout=30).json()
+                        wabas += [x["id"] for x in (r.get("data") or []) if x["id"] not in wabas]
+                    except Exception as e:
+                        print("WA: аккаунты компании:", e, flush=True)
         if not wabas:
-            raise RuntimeError("К токену не привязан ни один аккаунт WhatsApp. В Business Settings добавьте аккаунт WhatsApp в доступы системного пользователя.")
+            raise RuntimeError("К токену не привязан ни один аккаунт WhatsApp, и компания их тоже не показала. В Business Settings добавьте ваш аккаунт WhatsApp в доступы этого системного пользователя («Добавить объекты» → «Аккаунты WhatsApp» → «Полный контроль») и создайте токен заново.")
     if not phone_id:                                        # номер: из списка аккаунта; тестовый номер Meta (+1 555…) берём только если других нет
         found = []
         for wb in wabas:
