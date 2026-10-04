@@ -172,6 +172,8 @@ def finish(token, phone_id, waba_id, webhook_url, verify_token, coex):
         if (dt.get("data") or {}).get("is_valid") is False:
             raise RuntimeError("Токен недействителен: " + str((dt["data"].get("error") or {}).get("message", "")))
         bizs = []
+        diag = ["права токена: " + (", ".join((dt.get("data") or {}).get("scopes", [])) or "нет") + "; тип: " + str((dt.get("data") or {}).get("type", "?")),
+                "granular: " + (", ".join(f"{g.get('scope')}={len(g.get('target_ids', []))}" for g in (dt.get("data") or {}).get("granular_scopes", [])) or "нет")]
         for g in (dt.get("data") or {}).get("granular_scopes", []):
             if g.get("scope") in ("whatsapp_business_management", "whatsapp_business_messaging"):
                 wabas += [t for t in g.get("target_ids", []) if t not in wabas]
@@ -179,7 +181,8 @@ def finish(token, phone_id, waba_id, webhook_url, verify_token, coex):
                 bizs += [t for t in g.get("target_ids", []) if t not in bizs]
         if not wabas:                                       # токен администратора (системный пользователь с ролью Admin) видит всё через компанию
             try:
-                me = requests.get(f"{GRAPH}/me", headers=h, params={"fields": "business"}, timeout=30).json()
+                me = requests.get(f"{GRAPH}/me", headers=h, params={"fields": "id,name,business"}, timeout=30).json()
+                diag.append("токен принадлежит: " + str(me.get("name") or me.get("id") or me.get("error", {}).get("message", "?")) + "; компания: " + str((me.get("business") or {}).get("id", "нет")))
                 if (me.get("business") or {}).get("id") and me["business"]["id"] not in bizs:
                     bizs.append(me["business"]["id"])
             except Exception as e:
@@ -189,10 +192,11 @@ def finish(token, phone_id, waba_id, webhook_url, verify_token, coex):
                     try:
                         r = requests.get(f"{GRAPH}/{biz}/{edge}", headers=h, params={"fields": "id,name", "limit": 50}, timeout=30).json()
                         wabas += [x["id"] for x in (r.get("data") or []) if x["id"] not in wabas]
+                        diag.append(f"{edge}: " + (str(len(r.get("data") or [])) + " шт." if "data" in r else str((r.get("error") or {}).get("message", "?"))[:120]))
                     except Exception as e:
                         print("WA: аккаунты компании:", e, flush=True)
         if not wabas:
-            raise RuntimeError("К токену не привязан ни один аккаунт WhatsApp, и компания их тоже не показала. В Business Settings добавьте ваш аккаунт WhatsApp в доступы этого системного пользователя («Добавить объекты» → «Аккаунты WhatsApp» → «Полный контроль») и создайте токен заново.")
+            raise RuntimeError("К токену не привязан ни один аккаунт WhatsApp, и компания их тоже не показала. В Business Settings добавьте ваш аккаунт WhatsApp в доступы этого системного пользователя («Добавить объекты» → «Аккаунты WhatsApp» → «Полный контроль») и создайте токен заново. Диагностика: " + " | ".join(diag))
     if not phone_id:                                        # номер: из списка аккаунта; тестовый номер Meta (+1 555…) берём только если других нет
         found = []
         for wb in wabas:
