@@ -33,6 +33,7 @@
   --green:#1B5E45; --green-2:#227152; --green-3:#5FC49A; --mint:#1C2A24; --brass:#CDB07E;
   --bg:#0F1512; --surface:#17201C; --ink:#E9EFEB; --muted:#9AA8A1; --line:#28342E; --danger:#E0816F; color-scheme:dark; --warn-bg:#3A301C; --warn-fg:#EBD3A0;
 }
+html,body{overscroll-behavior:none}   /* iPhone: без «резинки» страницы — иначе вместе с ней едут шапка и нижняя панель */
 *,*::before,*::after{box-sizing:border-box}
 html{overflow-x:hidden}body{overflow-x:clip}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased;padding-bottom:env(safe-area-inset-bottom,0px)}
