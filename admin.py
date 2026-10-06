@@ -118,18 +118,38 @@ def handle_admin_login(nonce, chat):
 
 
 _codes = {}     # ключ входа -> {"code", "t", "tries", "chat", "role"}
+_fails = {}     # chat -> время неверных вводов кода
+_locked = {}    # chat -> до какого времени вход по коду закрыт
+
+
+def _note_fail(chat):
+    """Неверный код: после 8 промахов за 30 минут вход по коду для этого аккаунта закрывается на 30 минут, владельцу — оповещение."""
+    now = time.time()
+    h = [t for t in _fails.get(chat, []) if now - t < 1800] + [now]
+    _fails[chat] = h
+    if len(h) >= 8:
+        _locked[chat] = now + 1800
+        _fails.pop(chat, None)
+        oh.alert("admlock", "кто-то подбирает код входа в панель — вход по коду закрыт на 30 минут.", every=600)
+
+
+def _notify_login(role, chat, ip):
+    try:
+        oh.tg("sendMessage", chat_id=oh.OWNER, text=f"🔐 Вход в панель AMURA ({'владелец' if role == 'owner' else 'сотрудник'}), IP {ip}. Если это не вы — удалите сотрудника в «Команда» или смените токены.")
+    except Exception as e:
+        print("Оповещение о входе не отправлено:", e, flush=True)
 
 
 def _find_login(username):
-    """Кому слать код: пустой username — владельцу, иначе сотруднику с таким @username (или владельцу, если это его @username)."""
+    """Кому слать код: владельцу — только по его @username, сотруднику — по @username из «Команды». Чужой/пустой @username — никому."""
     u = (username or "").strip().lstrip("@").lower()
     owner_u = ""
     try:
         owner_u = (oh.tg("getChat", chat_id=oh.OWNER)["result"].get("username") or "").lower() if oh.OWNER else ""
     except Exception:
         pass
-    if not u or (owner_u and u == owner_u):
-        return ("owner", str(oh.OWNER)) if oh.OWNER else (None, None)
+    if oh.OWNER and (u == owner_u if owner_u else not u):      # владелец: по своему @username (без @username у владельца — пустое поле)
+        return "owner", str(oh.OWNER)
     for st in team.staff():
         if st["active"] and st["username"].lower() == u:
             return "staff", st["chat"]
@@ -146,6 +166,8 @@ def login_code():
     now = time.time()
     for k in [k for k, v in _codes.items() if now - v["t"] > 300]:
         _codes.pop(k, None)
+    if chat and _locked.get(chat, 0) > now:
+        chat = None
     if chat and not oh.too_many("admt:" + chat, limit=3, window=600):
         code = f"{secrets.randbelow(900000) + 100000}"
         _codes[uname] = {"code": code, "t": now, "tries": 0, "chat": chat, "role": role}
@@ -159,6 +181,8 @@ def login_code():
 @bp.post("/admin/api/login/verify")
 def login_verify():
     """Шаг 2: человек вводит код со страницы бота."""
+    if oh.too_many("admv:" + oh.client_ip(), limit=15, window=600):
+        return jsonify(ok=False, error="Слишком много попыток, подождите 10 минут"), 429
     d = request.get_json(silent=True) or {}
     uname = (d.get("username") or "").strip().lstrip("@").lower()
     v = _codes.get(uname)
@@ -167,8 +191,10 @@ def login_verify():
         return jsonify(ok=False, error="Код не подошёл или устарел. Запросите новый."), 400
     v["tries"] += 1
     if not hmac.compare_digest(str(d.get("code", "")).strip(), v["code"]):
+        _note_fail(v["chat"])
         return jsonify(ok=False, error="Неверный код"), 400
     _codes.pop(uname, None)
+    threading.Thread(target=_notify_login, args=(v["role"], v["chat"], oh.client_ip()), daemon=True).start()
     return jsonify(ok=True, token=make_admin_token(v["role"], v["chat"]), role=v["role"])
 
 
