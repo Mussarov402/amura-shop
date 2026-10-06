@@ -482,7 +482,8 @@ def on_client_message(chat, user, text, photo=None, voice=None, pdf=None, media=
                 save_msg(d, cid, "ai", ack)
                 d.run("UPDATE conv SET status='manager' WHERE id=%s", (cid,))
         if status == "manager" or not use_ai:
-            oh.notify_staff(f"inbox:{cid}", f"💬 Новое сообщение ({channel_name(chat)}) от {name}: {(text or '[фото]')[:200]}\nОтветьте в панели → Сообщения", every=300)
+            if oh.notif_on("msg"):
+                oh.notify_staff(f"inbox:{cid}", f"💬 Новое сообщение ({channel_name(chat)}) от {name}: {(text or '[фото]')[:200]}\nОтветьте в панели → Сообщения", every=300)
             return
         try:
             with db() as d:                       # без общей блокировки: ответ ИИ и заказ могут занять до минуты
@@ -497,7 +498,13 @@ def on_client_message(chat, user, text, photo=None, voice=None, pdf=None, media=
             save_msg(d, cid, "ai", reply)
             if hand:
                 d.run("UPDATE conv SET status='manager' WHERE id=%s", (cid,))
-        if hand:
+        if hand:                                       # в системе — всегда: push «ждёт менеджера»
+            try:
+                import push
+                push.notify(f"🙋 {name} ждёт менеджера", text or "[фото]", f"/admin#inbox/{cid}", perm="inbox", tag=f"h{cid}")
+            except Exception as e:
+                print("Push «ждёт менеджера»:", e, flush=True)
+        if hand and oh.notif_on("handoff"):
             oh.notify_staff(f"inbox:{cid}", f"🙋 {name} ({channel_name(chat)}) ждёт менеджера: {(text or '[фото]')[:200]}\nОтветьте в панели → Сообщения")
             if pdf and oh.OWNER:
                 try:

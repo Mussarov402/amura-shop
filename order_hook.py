@@ -202,6 +202,31 @@ def alert(key, text, every=600):
         print("Оповещение не отправлено:", e, flush=True)
 
 
+# какие сообщения бот шлёт владельцу и сотрудникам (переключатели в панели: Обзор → Уведомления); ошибки сайта — всегда
+NOTIF = {"msg": "Сообщения от клиентов",
+         "handoff": "Клиент ждёт менеджера (передал ИИ), чеки и фото",
+         "order": "Новый заказ с сайта (PDF накладной)",
+         "invoice": "Клиент получил накладную",
+         "newclient": "Новый клиент на сайте",
+         "login": "Вход в панель"}
+
+
+def notif_settings():
+    def load():
+        import inbox
+        with inbox.db() as d:
+            return {k: inbox.get_setting(d, "notif_" + k, "1") == "1" for k in NOTIF}
+    try:
+        return cached("notif", 30, load)
+    except Exception as e:
+        print("Настройки уведомлений:", e, flush=True)
+        return {k: True for k in NOTIF}
+
+
+def notif_on(key):
+    return notif_settings().get(key, True)
+
+
 def notify_staff(key, text, every=0, method="sendMessage", **data):
     """Уведомление по клиентам: владельцу и всем менеджерам (MANAGER_CHAT_IDS). Не чаще раза в `every` секунд на key."""
     now = time.time()
@@ -784,8 +809,15 @@ def order_core(d, key, ip, me, source="с сайта"):
                 push.notify(f"🛒 Заказ № {number}", f"{name} · {fmt(total)} ₸ · {city}", "/admin#orders", perm="orders", tag=f"o{number}")
             except Exception as e:
                 print("Push о заказе:", e, flush=True)
-            tg("sendDocument", chat_id=OWNER, caption=caption, _files={"document": (f"AMURA-{number}.pdf", pdf, "application/pdf")})
-            print(f"Заказ {number}: уведомление владельцу отправлено", flush=True)
+            try:                                   # номер последнего заказа — для счётчика новых заказов в панели
+                import inbox
+                with inbox.db() as d:
+                    inbox.set_setting(d, "last_order", str(number))
+            except Exception as e:
+                print("Последний заказ не сохранён:", e, flush=True)
+            if notif_on("order"):
+                tg("sendDocument", chat_id=OWNER, caption=caption, _files={"document": (f"AMURA-{number}.pdf", pdf, "application/pdf")})
+                print(f"Заказ {number}: уведомление владельцу отправлено", flush=True)
         except Exception as e:                 # заказ уже в МойСклад — сбой Telegram не должен ломать ответ клиенту
             print("Заказ", number, "Telegram не ответил:", e, flush=True)
             alert("notify", f"заказ № {number} записан в МойСклад, но PDF в Telegram не ушёл: {str(e)[:200]}")
@@ -949,7 +981,8 @@ def tg_webhook(secret):
             except Exception as e:
                 print("Накладная: диалог в панели не создан:", e, flush=True)
             user = (msg.get("from") or {}).get("username", "")
-            tg("sendMessage", chat_id=OWNER, text=f"Клиент @{user or chat} получил накладную по заказу № {o['number']}")
+            if notif_on("invoice"):
+                tg("sendMessage", chat_id=OWNER, text=f"Клиент @{user or chat} получил накладную по заказу № {o['number']}")
             return "", 200
     doc = msg.get("document") or {}
     media = msg.get("voice") or msg.get("audio") or msg.get("video_note")                # голосовые, аудио, «кружки»
@@ -1259,7 +1292,7 @@ def me():
         if ph and not cur.get("phone"):          # телефон, подтверждённый SMS, не меняем
             body["phone"] = "+" + ph
         ms("PUT", f"/entity/counterparty/{cid}", json=body)
-        if not cur.get("actualAddress"):        # первое заполнение профиля — сообщаем владельцу
+        if not cur.get("actualAddress") and notif_on("newclient"):        # первое заполнение профиля — сообщаем владельцу
             tg("sendMessage", chat_id=OWNER, text=f"🆕 Клиент на сайте: {name}, {city}" + (f", {cur.get('phone') or ('+' + ph if ph else '')}"))
     cp = ms("GET", f"/entity/counterparty/{cid}")
     orders = []

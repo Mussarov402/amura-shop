@@ -135,6 +135,8 @@ def _note_fail(chat):
 
 
 def _notify_login(role, chat, ip):
+    if not oh.notif_on("login"):
+        return
     try:
         oh.tg("sendMessage", chat_id=oh.OWNER, text=f"🔐 Вход в панель AMURA ({'владелец' if role == 'owner' else 'сотрудник'}), IP {ip}. Если это не вы — удалите сотрудника в «Команда» или смените токены.")
     except Exception as e:
@@ -287,6 +289,36 @@ def panel_sw():
     """Service worker панели: push-уведомления со звуком и счётчик на иконке."""
     import push
     return push.SW_JS, 200, {"Content-Type": "application/javascript", "Service-Worker-Allowed": "/admin", "Cache-Control": "no-cache"}
+
+
+@bp.route("/admin/api/notif", methods=["GET", "PUT"])
+@guard
+def notif():
+    """Какие сообщения бот шлёт в Telegram владельцу и сотрудникам."""
+    if request.method == "PUT":
+        j = request.get_json(silent=True) or {}
+        with inbox.db() as d:
+            for k in oh.NOTIF:
+                if k in j:
+                    inbox.set_setting(d, "notif_" + k, "1" if j[k] else "0")
+        oh._cache.pop("notif", None)
+    st = oh.notif_settings()
+    return jsonify(ok=True, items=[{"key": k, "title": t, "on": st.get(k, True)} for k, t in oh.NOTIF.items()])
+
+
+@bp.get("/admin/api/pulse")
+def pulse():
+    """Для уведомлений в открытой панели: непрочитанные сообщения и номер последнего заказа."""
+    me = who()
+    if not me:
+        return jsonify(ok=False, error="Войдите заново"), 401
+    out = {"ok": True}
+    with inbox.db() as d:
+        if me["role"] == "owner" or "inbox" in me["perms"]:
+            out["unread"] = int((d.run("SELECT COALESCE(SUM(unread),0) FROM conv", one=True) or [0])[0])
+        if me["role"] == "owner" or "orders" in me["perms"]:
+            out["lastOrder"] = inbox.get_setting(d, "last_order", "")
+    return jsonify(out)
 
 
 @bp.get("/admin/api/push/key")
