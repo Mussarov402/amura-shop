@@ -42,6 +42,7 @@ button{cursor:pointer}
 :focus-visible{outline:2px solid var(--brass);outline-offset:2px}
 .wrap{max-width:1280px;margin:0 auto;padding:0 16px}
 
+body::before{content:"";position:fixed;left:0;right:0;top:0;height:env(safe-area-inset-top,0px);background:#0E3B2C;z-index:19;pointer-events:none}
 header.top{position:sticky;top:0;z-index:20;background:#0E3B2C;color:#F2F5F3;padding-top:env(safe-area-inset-top,0px)}
 .bar{display:flex;align-items:center;gap:14px;padding:12px 0}
 .logo{font-family:var(--display);font-weight:700;font-size:21px;letter-spacing:.02em;white-space:nowrap;color:#fff;text-decoration:none}
