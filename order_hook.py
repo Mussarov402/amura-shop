@@ -263,6 +263,7 @@ def notify_staff(key, text, every=0, method="sendMessage", **data):
 
 # ---------- кэш каталога и справочников ----------
 _cache = {}
+_names = {}                   # id товара/услуги -> (название, код): из каталога и уже прочитанных заказов
 
 
 def cached(key, ttl, fn):
@@ -376,6 +377,7 @@ def build_live(products):
     except Exception:
         hidden = set()
     for r in products:
+        _names[r["id"]] = (r.get("name", ""), r.get("code", ""))   # справочник названий для позиций заказов
         if r.get("_site"):                 # строка из catalog.json — цены уже готовы, обновляем только остаток
             qty = int(stock.get(r["id"], 0) or 0)
             if qty > 0:
@@ -844,14 +846,41 @@ def order_core(d, key, ip, me, source="с сайта"):
 
 # ---------- PDF ----------
 def order_positions(oid):
-    """Все позиции заказа. С expand МойСклад отдаёт не больше 100 за раз — читаем страницами, иначе большие заказы обрезаются."""
+    """Все позиции заказа. Без expand: с полными карточками товаров МойСклад на больших заказах не успевает ответить.
+    Названия берём из справочника каталога, недостающие — короткими пачками."""
     rows, off = [], 0
     while True:
-        part = ms("GET", f"/entity/customerorder/{oid}/positions", params={"expand": "assortment", "limit": 100, "offset": off}, timeout=20)["rows"]
+        part = ms("GET", f"/entity/customerorder/{oid}/positions", params={"limit": 1000, "offset": off}, timeout=25)["rows"]
         rows += part
-        if len(part) < 100 or off > 5000:
-            return rows
-        off += 100
+        if len(part) < 1000 or off > 10000:
+            break
+        off += 1000
+    need = {}
+    for p in rows:
+        a = p["assortment"]
+        a["id"] = a["meta"]["href"].rstrip("/").rsplit("/", 1)[-1]
+        if a["id"] not in _names:
+            need.setdefault(a["meta"]["type"], []).append(a["id"])
+    for typ, ids in need.items():
+        ids = list(dict.fromkeys(ids))
+        for k in range(0, len(ids), 40):
+            part = ids[k:k + 40]
+            try:
+                for r in ms("GET", f"/entity/{typ}", params={"filter": ";".join(f"id={i}" for i in part), "limit": 100}, timeout=20)["rows"]:
+                    _names[r["id"]] = (r.get("name", ""), r.get("code", ""))
+            except Exception as e:
+                print("Названия позиций пачкой не получены:", typ, e, flush=True)
+            for i in part:
+                if i not in _names:
+                    try:
+                        r = ms("GET", f"/entity/{typ}/{i}", timeout=15)
+                        _names[i] = (r.get("name", ""), r.get("code", ""))
+                    except Exception as e:
+                        print("Название позиции не получено:", i, e, flush=True)
+    for p in rows:
+        a = p["assortment"]
+        a["name"], a["code"] = _names.get(a["id"], ("Товар", ""))
+    return rows
 
 
 def order_from_ms(number, oid=None):
@@ -929,6 +958,7 @@ def pdf_store(number, pdf):
 
 
 _pdf_busy = set()
+_pdf_fail = {}                # номер -> время неудачи: не долбим МойСклад повторами
 _pdf_ver = {}                 # номер заказа -> время изменения заказа в МойСклад, по которому собран PDF
 
 
@@ -938,7 +968,7 @@ def pdf_prepare(orders):
     todo = []
     for n, i, *u in orders:
         n, upd = str(n), (u[0] if u else None)
-        if n in _pdf_busy or (n in _pdfs and (upd is None or _pdf_ver.get(n) == upd)):
+        if n in _pdf_busy or (n in _pdfs and (upd is None or _pdf_ver.get(n) == upd)) or time.time() - _pdf_fail.get(n, 0) < 900:
             continue
         todo.append((n, i, upd))
     if not todo:
@@ -953,6 +983,7 @@ def pdf_prepare(orders):
                     pdf_store(n, build_pdf(o))
                     _pdf_ver[n] = upd
             except Exception as e:
+                _pdf_fail[n] = time.time()
                 print("PDF заранее не собран:", n, e, flush=True)
             finally:
                 _pdf_busy.discard(n)
