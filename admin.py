@@ -6,6 +6,7 @@ import hmac
 import json
 import mimetypes
 import os
+import re
 import secrets
 import threading
 import time
@@ -415,6 +416,125 @@ class Busy(Exception):
 @bp.errorhandler(Busy)
 def busy(_):
     return jsonify(ok=False, error="МойСклад долго отвечает — обновите через минуту"), 503
+
+
+# ---------- клиенты: покупатели из МойСклад + переписка + заметки ----------
+def _notes_db():
+    d = inbox.db()
+    d.run("CREATE TABLE IF NOT EXISTS client_note (key TEXT PRIMARY KEY, text TEXT, author TEXT, at DOUBLE PRECISION)")
+    return d
+
+
+def _cp_row(c):
+    tgid = next((str(a.get("value") or "") for a in c.get("attributes") or [] if a.get("name") == oh.ATTR_TGID), "")
+    return {"id": c["id"], "name": c.get("name", ""), "phone": c.get("phone", ""), "email": c.get("email", ""),
+            "tags": c.get("tags") or [], "tg": tgid, "city": c.get("actualAddress", ""), "created": (c.get("created") or "")[:10]}
+
+
+def _chats_for(phone, tgid):
+    """Диалоги клиента в «Сообщениях»: WhatsApp — по номеру, Telegram — по Telegram ID из МойСклад."""
+    keys = []
+    ph = oh.norm_phone(phone)
+    if ph:
+        keys.append("wa:" + ph)
+    if tgid:
+        keys.append(str(tgid))
+    if not keys:
+        return []
+    with inbox.db() as d:
+        rows = d.run("SELECT id, chat_id, last_at, last_text, unread FROM conv WHERE chat_id IN (" + ",".join(["%s"] * len(keys)) + ")", tuple(keys), many=True)
+    return [{"id": r[0], "channel": "wa" if wa.is_wa(r[1]) else "tg", "at": r[2], "text": r[3], "unread": r[4]} for r in rows]
+
+
+@bp.get("/admin/api/clients")
+@need("orders")
+def clients():
+    """Список: src=ms — покупатели из МойСклад (последние изменённые сверху, поиск по имени/телефону);
+    src=chat — все, кто писал в Telegram/WhatsApp."""
+    q, page = str(request.args.get("q", "")).strip()[:60], max(0, int(request.args.get("page", 0) or 0))
+    if request.args.get("src") == "chat":
+        with inbox.db() as d:
+            rows = d.run("SELECT id, name, username, chat_id, last_at, last_text, unread FROM conv ORDER BY last_at DESC LIMIT 300", many=True)
+        out = [{"conv": r[0], "name": r[1], "username": r[2], "channel": "wa" if wa.is_wa(r[3]) else "tg",
+                "phone": wa.number(r[3]) if wa.is_wa(r[3]) else "", "at": r[4], "text": r[5], "unread": r[6]} for r in rows]
+        if q:
+            ql = q.lower()
+            out = [x for x in out if ql in (x["name"] + " " + x["username"] + " " + x["phone"]).lower()]
+        return jsonify(ok=True, clients=out[:100], more=False)
+    params = {"limit": 50, "offset": page * 50, "order": "updated,desc"}
+    if q:
+        params["search"] = q
+    rows = fresh(f"adm_cl:{q}:{page}", 60, lambda: oh.ms("GET", "/entity/counterparty", params=params, timeout=12)["rows"])
+    return jsonify(ok=True, clients=[_cp_row(c) for c in rows], more=len(rows) == 50)
+
+
+@bp.get("/admin/api/clients/<cid>")
+@need("orders")
+def client_card(cid):
+    """Карточка: контакты, заказы и сумма покупок, долг/переплата (МойСклад), переписка, заметки.
+    cid — id контрагента в МойСклад или «conv<номер>» для клиента, который только писал в мессенджер."""
+    conv, cp = None, None
+    if cid.startswith("conv"):
+        with inbox.db() as d:
+            conv = d.run("SELECT id, name, username, chat_id FROM conv WHERE id=%s", (int(cid[4:] or 0),), one=True)
+        if not conv:
+            return jsonify(ok=False, error="Клиент не найден"), 404
+        try:                                        # ищем такого же покупателя в МойСклад
+            if wa.is_wa(conv[3]):
+                found = oh.ms("GET", "/entity/counterparty", params={"search": wa.number(conv[3])[-10:], "limit": 1}, timeout=10)["rows"]
+            else:
+                found = oh.ms("GET", "/entity/counterparty", params={"filter": f"{oh.tg_attr()['meta']['href']}={conv[3]}", "limit": 1}, timeout=10)["rows"]
+            cp = found[0] if found else None
+        except Exception as e:
+            print("Клиент: поиск в МойСклад:", e, flush=True)
+    else:
+        if not re.fullmatch(r"[0-9a-f-]{36}", cid):
+            return jsonify(ok=False, error="Клиент не найден"), 404
+        cp = oh.ms("GET", f"/entity/counterparty/{cid}", timeout=12)
+    info = _cp_row(cp) if cp else {"id": "", "name": conv[1], "phone": wa.number(conv[3]) if wa.is_wa(conv[3]) else "",
+                                   "email": "", "tags": [], "tg": "" if wa.is_wa(conv[3]) else conv[3], "city": "", "created": ""}
+    if conv and not cp:
+        info["username"] = conv[2]
+    orders, total, paid, balance = [], 0.0, 0.0, None
+    if cp:
+        rows = oh.ms("GET", "/entity/customerorder", params={"filter": f"agent={oh.API}/entity/counterparty/{cp['id']}",
+                                                            "order": "moment,desc", "limit": 50, "expand": "state"}, timeout=12)["rows"]
+        for o in rows:
+            st = o.get("state") or {}
+            cancelled = bool(re.search(r"отмен", st.get("name", ""), re.I))
+            if not cancelled:
+                total += o["sum"] / 100
+                paid += o.get("payedSum", 0) / 100
+            orders.append({"number": o["name"], "date": o["moment"][:10], "sum": o["sum"] / 100, "paid": o.get("payedSum", 0) / 100,
+                           "state": st.get("name", "Новый"), "color": "#%06x" % st["color"] if st.get("color") else "",
+                           "pdf": f"{oh.PUBLIC_URL}/order/{o['name']}/pdf?t={oh.sign(o['name'])}"})
+        try:                                        # баланс взаиморасчётов из МойСклад: минус — клиент должен, плюс — переплата
+            balance = oh.ms("GET", f"/report/counterparty/{cp['id']}", timeout=10).get("balance", 0) / 100
+        except Exception as e:
+            print("Клиент: баланс не получен:", e, flush=True)
+    chats = _chats_for(info["phone"], info["tg"])
+    if conv and not any(c["id"] == conv[0] for c in chats):
+        chats.append({"id": conv[0], "channel": "wa" if wa.is_wa(conv[3]) else "tg", "at": 0, "text": "", "unread": 0})
+    keys = [k for k in (("ms:" + cp["id"]) if cp else "", ("conv:" + str(conv[0])) if conv else "") if k]
+    with _notes_db() as d:
+        note = next((r for r in (d.run("SELECT text, author, at FROM client_note WHERE key=%s", (k,), one=True) for k in keys) if r), None)
+    return jsonify(ok=True, client=info, orders=orders, stats={"count": len([o for o in orders if not re.search(r"отмен", o["state"], re.I)]),
+                   "total": total, "paid": paid, "unpaid": max(0.0, total - paid), "balance": balance},
+                   chats=chats, note={"key": keys[0], "text": note[0] if note else "", "author": note[1] if note else "", "at": note[2] if note else 0})
+
+
+@bp.post("/admin/api/clients/note")
+@need("orders")
+def client_note():
+    d_ = request.get_json(silent=True) or {}
+    key, text = str(d_.get("key", ""))[:60], str(d_.get("text", "")).strip()[:4000]
+    if not re.fullmatch(r"(ms:[0-9a-f-]{36}|conv:\d+)", key):
+        return jsonify(ok=False, error="Неизвестный клиент"), 400
+    with _notes_db() as d:
+        d.run("DELETE FROM client_note WHERE key=%s", (key,))
+        if text:
+            d.run("INSERT INTO client_note (key, text, author, at) VALUES (%s,%s,%s,%s)", (key, text, (who() or {}).get("name", ""), time.time()))
+    return jsonify(ok=True)
 
 
 @bp.get("/admin/api/orders")
