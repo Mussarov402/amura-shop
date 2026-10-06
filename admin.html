@@ -4,7 +4,8 @@
 <style>
 :root{--g:#0E3B2C;--bg:#F4F5F3;--line:#E1E6E2;--mut:#5C6B63;--ok:#0E5A3A;--okbg:#DDF1E6;--warn:#7A4B00;--warnbg:#FCEBC8;--bad:#8A1C1C;--badbg:#F9DADA}
 [hidden]{display:none!important}
-*{box-sizing:border-box}body{margin:0;font-family:"Manrope",system-ui,-apple-system,"Segoe UI",sans-serif;color:#16201B;background:var(--bg);-webkit-font-smoothing:antialiased}
+*{box-sizing:border-box}html,body{overscroll-behavior:none}   /* iPhone: без «резинки» страницы — иначе вместе с ней едут шапка и нижняя панель */
+body{margin:0;font-family:"Manrope",system-ui,-apple-system,"Segoe UI",sans-serif;color:#16201B;background:var(--bg);-webkit-font-smoothing:antialiased}
 .logo,.mtop span,h1{font-family:"Unbounded","Manrope",system-ui,sans-serif}h1{font-weight:500;font-size:clamp(21px,3.4vw,26px)}.logo small{font-family:"Manrope",system-ui,sans-serif}
 .app{display:flex;min-height:100vh}aside{width:230px;flex:none;background:var(--g);color:#fff;padding:24px 16px;display:flex;flex-direction:column;gap:6px}
 .logo{font-size:22px;font-weight:700;letter-spacing:.04em;padding:0 14px 18px}.logo small{display:block;font-size:11px;font-weight:500;letter-spacing:0;color:#A9C3B7}
