@@ -573,6 +573,7 @@ def client_note():
 @need("orders")
 def orders():
     rows = fresh("adm_orders", 45, _ms_orders)
+    oh.pdf_prepare([(o["name"], o["id"], o.get("updated")) for o in rows[:30]])
     out = []
     for o in rows:
         desc = (o.get("description") or "").split("\n")
@@ -629,8 +630,7 @@ def _order_fetch(number):
         if not rows:
             return None, None
         o = rows[0]
-    pos = oh.ms("GET", f"/entity/customerorder/{o['id']}/positions", params={"expand": "assortment", "limit": 100}, timeout=30)["rows"]
-    return o, pos
+    return o, oh.order_positions(o["id"])
 
 
 @bp.get("/admin/api/orders/<number>")
@@ -680,7 +680,9 @@ def order_edit(number):
         if not o:
             return jsonify(ok=False, error="Заказ не найден"), 404
         positions, goods, loader = [], 0, 0
-        for l in lines[:200]:
+        if len(lines) > 1000:
+            return jsonify(ok=False, error="Слишком много позиций"), 400
+        for l in lines:
             qty, price = int(float(l.get("qty") or 0)), float(l.get("price") or 0)
             if qty <= 0 or price < 0 or not oh.re.fullmatch(r"[0-9a-f-]{36}", str(l.get("id", ""))) or l.get("type") not in ("product", "bundle", "variant", "service"):
                 return jsonify(ok=False, error="Проверьте количество и цены"), 400
@@ -706,10 +708,12 @@ def order_edit(number):
         body = {"positions": positions}
         if "description" in b:
             body["description"] = str(b.get("description") or "")[:2000]
-        oh.ms("PUT", f"/entity/customerorder/{o['id']}", json=body, timeout=40)
+        oh.ms("PUT", f"/entity/customerorder/{o['id']}", json=body, timeout=55)
     except Exception as e:
         return jsonify(ok=False, error="Не удалось сохранить: " + str(e)[:200]), 502
     oh._cache.pop("adm_orders", None)
+    oh._pdfs.pop(str(number), None)                 # старый PDF больше не верен — собираем новый в фоне
+    oh.pdf_prepare([(number, o["id"])])
     return jsonify(ok=True)
 
 

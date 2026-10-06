@@ -843,12 +843,28 @@ def order_core(d, key, ip, me, source="с сайта"):
 
 
 # ---------- PDF ----------
-def order_from_ms(number):
-    rows = ms("GET", "/entity/customerorder", params={"filter": f"name={number}", "limit": 1, "expand": "agent"}, timeout=15)["rows"]
-    if not rows:
-        return None
-    o = rows[0]
-    o["positions"] = {"rows": ms("GET", f"/entity/customerorder/{o['id']}/positions", params={"expand": "assortment", "limit": 100}, timeout=15)["rows"]}
+def order_positions(oid):
+    """Все позиции заказа. С expand МойСклад отдаёт не больше 100 за раз — читаем страницами, иначе большие заказы обрезаются."""
+    rows, off = [], 0
+    while True:
+        part = ms("GET", f"/entity/customerorder/{oid}/positions", params={"expand": "assortment", "limit": 100, "offset": off}, timeout=20)["rows"]
+        rows += part
+        if len(part) < 100 or off > 5000:
+            return rows
+        off += 100
+
+
+def order_from_ms(number, oid=None):
+    if oid:                                    # id известен (из списка заказов) — без поиска по номеру, быстрее
+        o = ms("GET", f"/entity/customerorder/{oid}", params={"expand": "agent"}, timeout=15)
+        if o.get("name") != str(number):
+            return None
+    else:
+        rows = ms("GET", "/entity/customerorder", params={"filter": f"name={number}", "limit": 1, "expand": "agent"}, timeout=15)["rows"]
+        if not rows:
+            return None
+        o = rows[0]
+    o["positions"] = {"rows": order_positions(o["id"])}
     desc = (o.get("description") or "").split("\n")
     lines, loader, fee = [], 0, 0
     for p in o["positions"]["rows"]:
@@ -910,6 +926,37 @@ def pdf_store(number, pdf):
     _pdfs[str(number)] = pdf
     while len(_pdfs) > 200:
         _pdfs.pop(next(iter(_pdfs)))
+
+
+_pdf_busy = set()
+_pdf_ver = {}                 # номер заказа -> время изменения заказа в МойСклад, по которому собран PDF
+
+
+def pdf_prepare(orders):
+    """Заранее собрать PDF для заказов [(номер, id, время изменения)]: «PDF» в панели открывается сразу.
+    Заказ изменили (в панели или прямо в МойСклад) — PDF пересобирается."""
+    todo = []
+    for n, i, *u in orders:
+        n, upd = str(n), (u[0] if u else None)
+        if n in _pdf_busy or (n in _pdfs and (upd is None or _pdf_ver.get(n) == upd)):
+            continue
+        todo.append((n, i, upd))
+    if not todo:
+        return
+    _pdf_busy.update(n for n, _, _ in todo)
+
+    def run():
+        for n, i, upd in todo:
+            try:
+                o = order_from_ms(n, i)
+                if o:
+                    pdf_store(n, build_pdf(o))
+                    _pdf_ver[n] = upd
+            except Exception as e:
+                print("PDF заранее не собран:", n, e, flush=True)
+            finally:
+                _pdf_busy.discard(n)
+    threading.Thread(target=run, daemon=True).start()
 
 
 @bp.route("/order/<number>/pdf")
