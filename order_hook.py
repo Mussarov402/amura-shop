@@ -778,13 +778,12 @@ def order_core(d, key, ip, me, source="с сайта"):
         try:
             pdf = build_pdf(data)
             pdf_store(number, pdf)             # накладная откроется мгновенно, без запроса в МойСклад
-            caption = (f"🛒 Заказ {source} № {number}\n{name} · {contact}\n{city} · {ship_name}\n\n"
-                       + "\n".join(f"{l['name']} — {l['qty']} × {fmt(l['price'])} = {fmt(l['qty'] * l['price'])} ₸" for l in lines)
-                       + (f"\nУслуга грузчика — {fmt(loader)} ₸" if loader else "")
-                       + f"\n{FEE_NAME} 0,95% — {fmt(fee)} ₸\nИтого: {fmt(total)} ₸")
-            if len(caption) > 1000:
-                tg("sendMessage", chat_id=OWNER, text=caption[:4000])
-                caption = f"Заказ № {number}, итого {fmt(total)} ₸"
+            caption = f"🛒 Заказ {source} № {number}\n{name} · {contact}\n{city} · {ship_name}"[:1000]   # состав и суммы — в PDF
+            try:                                   # push в панель: звук и счётчик на иконке
+                import push
+                push.notify(f"🛒 Заказ № {number}", f"{name} · {fmt(total)} ₸ · {city}", "/admin#orders", perm="orders", tag=f"o{number}")
+            except Exception as e:
+                print("Push о заказе:", e, flush=True)
             tg("sendDocument", chat_id=OWNER, caption=caption, _files={"document": (f"AMURA-{number}.pdf", pdf, "application/pdf")})
             print(f"Заказ {number}: уведомление владельцу отправлено", flush=True)
         except Exception as e:                 # заказ уже в МойСклад — сбой Telegram не должен ломать ответ клиенту
@@ -940,9 +939,15 @@ def tg_webhook(secret):
     if m and hmac.compare_digest(sign(m.group(1)), m.group(2)):
         o = order_from_ms(m.group(1))
         if o:
-            tg("sendDocument", chat_id=chat, caption=f"Ваш заказ AMURA № {o['number']} на {fmt(o['total'])} ₸.",
-               _files={"document": (f"AMURA-{o['number']}.pdf", build_pdf(o), "application/pdf")})
+            sent = tg("sendDocument", chat_id=chat, caption=f"Ваш заказ AMURA № {o['number']} на {fmt(o['total'])} ₸.",
+                      _files={"document": (f"AMURA-{o['number']}.pdf", build_pdf(o), "application/pdf")})
             tg("sendMessage", chat_id=chat, text=pay_text())   # реквизиты — только в мессенджер клиента, не на сайте и не в PDF
+            try:                                   # клиент появляется в «Сообщениях» панели — можно сразу ему написать
+                import inbox
+                doc_id = ((sent or {}).get("result") or {}).get("document", {}).get("file_id", "")
+                inbox.note_invoice(chat, msg.get("from") or {}, o["number"], o["total"], doc_id)
+            except Exception as e:
+                print("Накладная: диалог в панели не создан:", e, flush=True)
             user = (msg.get("from") or {}).get("username", "")
             tg("sendMessage", chat_id=OWNER, text=f"Клиент @{user or chat} получил накладную по заказу № {o['number']}")
             return "", 200

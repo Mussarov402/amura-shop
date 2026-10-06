@@ -66,9 +66,9 @@ def who():
         if not d.get("a") or d["e"] <= time.time():
             return None
         if d.get("r", "owner") == "owner":
-            return {"role": "owner", "perms": list(team.PERMS), "name": _owner_name()}
+            return {"role": "owner", "perms": list(team.PERMS), "name": _owner_name(), "chat": str(oh.OWNER)}
         s = team.by_chat(d.get("c"))
-        return {"role": "staff", "perms": s["perms"], "name": s["name"]} if s else None
+        return {"role": "staff", "perms": s["perms"], "name": s["name"], "chat": str(d.get("c"))} if s else None
     except Exception:
         return None
 
@@ -279,6 +279,36 @@ def panel_manifest():
                     "background_color": "#0E3B2C", "theme_color": "#0E3B2C", "lang": "ru",
                     "icons": [{"src": "/admin/icon/192", "sizes": "192x192", "type": "image/png"},
                               {"src": "/admin/icon/512", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}]}), 200, {"Content-Type": "application/manifest+json"}
+
+
+@bp.get("/admin/sw.js")
+def panel_sw():
+    """Service worker панели: push-уведомления со звуком и счётчик на иконке."""
+    import push
+    return push.SW_JS, 200, {"Content-Type": "application/javascript", "Service-Worker-Allowed": "/admin", "Cache-Control": "no-cache"}
+
+
+@bp.get("/admin/api/push/key")
+def push_key():
+    if not who():
+        return jsonify(ok=False, error="Войдите заново"), 401
+    import push
+    return jsonify(ok=True, key=push.keys()[1])
+
+
+@bp.post("/admin/api/push/sub")
+def push_sub():
+    me = who()
+    if not me:
+        return jsonify(ok=False, error="Войдите заново"), 401
+    import push
+    try:
+        push.subscribe((request.get_json(silent=True) or {}).get("sub") or {}, me["chat"])
+    except ValueError as e:
+        return jsonify(ok=False, error=str(e)), 400
+    if (request.get_json(silent=True) or {}).get("test"):
+        push.notify("Уведомления включены ✅", "Так будут приходить новые сообщения и заказы.", "/admin", only_chat=me["chat"])
+    return jsonify(ok=True)
 
 
 @bp.get("/admin/icon/<int:size>")

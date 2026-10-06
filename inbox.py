@@ -404,6 +404,21 @@ def save_msg(d, cid, role, text, photo=None, unread=0, media=None):
     d.run("UPDATE conv SET last_at=%s, last_text=%s, unread=unread+%s WHERE id=%s", (now, last[:120], unread, cid))
 
 
+def note_invoice(chat, user, number, total, doc_id):
+    """Клиент получил накладную в Telegram-боте: диалог появляется в «Сообщениях», можно сразу написать клиенту из панели."""
+    with _lock, db() as d:
+        row = d.run("SELECT id FROM conv WHERE chat_id=%s", (str(chat),), one=True)
+        name = " ".join(x for x in (user.get("first_name"), user.get("last_name")) if x) or user.get("username") or "Клиент"
+        if not row:
+            cid = d.run("INSERT INTO conv (chat_id, name, username, status, unread, last_at) VALUES (%s,%s,%s,'ai',0,%s)",
+                        (str(chat), name, user.get("username", ""), time.time()), ins=True)
+        else:
+            cid = row[0]
+        media = {"t": "doc", "id": doc_id, "name": f"AMURA-{number}.pdf", "size": 0, "mime": "application/pdf"} if doc_id else None
+        save_msg(d, cid, "manager", f"🧾 Накладная по заказу № {number} на {oh.fmt(total)} ₸ и реквизиты отправлены клиенту", media=media)
+    return cid
+
+
 def on_manager_echo(chat, text):
     """Менеджер ответил клиенту прямо с телефона (приложение WhatsApp Business): показываем в панели и переводим диалог к менеджеру (ИИ молчит)."""
     with _lock, db() as d:
@@ -448,6 +463,12 @@ def on_client_message(chat, user, text, photo=None, voice=None, pdf=None, media=
             else:
                 cid, status = row
             save_msg(d, cid, "client", text or "", photo, unread=1, media=media)
+        try:                                               # push в панель: звук и счётчик на иконке
+            import push
+            push.notify(f"💬 {name}", text or MEDIA_LABEL.get((media or {}).get("t"), "[фото]"), f"/admin#inbox/{cid}", perm="inbox", tag=f"c{cid}")
+        except Exception as e:
+            print("Push о сообщении:", e, flush=True)
+        with _lock, db() as d:
             hist = [(r, t) for r, t in d.run("SELECT role, text FROM msg WHERE conv_id=%s ORDER BY id DESC LIMIT 14", (cid,), many=True)][::-1][:-1]
             use_ai = status == "ai" and ai_on(d) and not voice_failed
             if status == "closed":

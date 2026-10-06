@@ -87,6 +87,7 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 .accrow{all:unset;box-sizing:border-box;display:flex;align-items:center;gap:10px;margin-top:10px;padding:10px 10px;border-radius:12px;cursor:pointer;color:#fff}.accrow:hover{background:rgba(255,255,255,.1)}
 .ai1{flex:1;min-width:0;display:grid}.ai1 b{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ai1 small{font-size:12px;color:#A9C3B7}.accrow .dots{color:#A9C3B7;font-size:20px}
 .accmenu{position:fixed;z-index:60;background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:0 10px 30px rgba(8,25,18,.22);padding:8px;min-width:220px}.accmenu[hidden]{display:none}
+.tbn{display:inline-block;min-width:17px;height:17px;padding:0 5px;border-radius:9px;background:#E5483A;color:#fff;font:700 10.5px/17px system-ui,sans-serif;font-style:normal;text-align:center;margin-left:6px}.tbn[hidden]{display:none}.tabbar .tbn{position:absolute;top:3px;left:calc(50% + 4px);margin:0}
 .accmenu.side{left:12px;bottom:76px}.accmenu.top{right:12px;top:calc(60px + env(safe-area-inset-top,0px))}
 .amh{display:flex;gap:10px;align-items:center;padding:8px 8px 10px}.amh small{display:block;color:var(--mut);font-size:12.5px}
 .accmenu button{all:unset;box-sizing:border-box;width:100%;padding:11px 10px;border-radius:10px;cursor:pointer;color:#B3261E;font-weight:700;font-size:14.5px}.accmenu button:hover{background:#FBEAE8}
@@ -130,7 +131,10 @@ async function boot(){const a=!!tok;$("#login").hidden=a;$("#app").hidden=!a;if(
  const bs=document.querySelectorAll(".nav,.tabbar button");bs.forEach(b=>b.hidden=!can(b.dataset.p));
  $(".tabbar").style.gridTemplateColumns="repeat("+document.querySelectorAll(".tabbar button:not([hidden])").length+",minmax(0,1fr))";window.__lamp&&__lamp();
  if(!views[cur]||!can(cur))cur=["overview","products","orders","inbox"].find(can)||"orders";
- bs.forEach(x=>x.classList.toggle("on",x.dataset.p===grp(cur)));show(cur)}
+ const hl=hashLink();if(hl&&can(hl.p))cur=hl.p;
+ bs.forEach(x=>x.classList.toggle("on",x.dataset.p===grp(cur)));show(cur,hl&&hl.p===cur?hl.id:undefined);if(window.startNotify)startNotify()}
+function hashLink(u){const m=String(u||location.hash).match(/#(\w+)(?:\/(\d+))?/);if(!m||!views[m[1]])return null;try{history.replaceState(null,"",location.pathname)}catch(e){}return {p:m[1],id:m[2]?+m[2]:undefined}}
+function openLink(u){const hl=hashLink(u);if(!hl||!can(hl.p))return;document.querySelectorAll(".nav,.tabbar button").forEach(x=>x.classList.toggle("on",x.dataset.p===grp(hl.p)));show(hl.p,hl.id)}
 const lmsg=t=>$("#lmsg").textContent=t||"";
 $("#lu").value=localStorage.getItem("amura_user")||"";
 $("#go").onclick=async()=>{const b=$("#go");b.disabled=true;lmsg("Отправляю код…");
@@ -154,7 +158,7 @@ const avatar=(n,s)=>`<span class="av" style="width:${s}px;height:${s}px;font-siz
 const logout=()=>{localStorage.removeItem(T);tok="";boot()};
 function drawAcc(){if(!ME)return;const role=ME.role==="owner"?"Владелец":"Сотрудник";
  $("#acm").innerHTML=avatar(ME.name,36);$("#acd").innerHTML=`${avatar(ME.name,38)}<span class="ai1"><b>${esc(ME.name)}</b><small>${role}</small></span><span class="dots">⋮</span>`;
- $("#accmenu").innerHTML=`<div class="amh">${avatar(ME.name,44)}<div><b>${esc(ME.name)}</b><small>${role}</small></div></div><button id="outb">Выйти из панели</button>`;$("#outb").onclick=logout}
+ $("#accmenu").innerHTML=`<div class="amh">${avatar(ME.name,44)}<div><b>${esc(ME.name)}</b><small>${role}</small></div></div>${typeof notifyState==="function"?(notifyState()==="granted"?`<button id="ntb" disabled>🔔 Уведомления включены</button>`:`<button id="ntb">🔔 Включить уведомления</button>`):""}<button id="outb">Выйти из панели</button>`;$("#outb").onclick=logout;const nb=$("#ntb");if(nb&&!nb.disabled)nb.onclick=()=>enableNotify()}
 const accToggle=(e,from)=>{e.stopPropagation();const m=$("#accmenu");const open=m.hidden||m.dataset.from!==from;m.hidden=!open;m.dataset.from=from;m.className="accmenu "+from};
 $("#acm").onclick=e=>accToggle(e,"top");$("#acd").onclick=e=>accToggle(e,"side");
 document.addEventListener("click",e=>{const m=$("#accmenu");if(!m.hidden&&!m.contains(e.target))m.hidden=true});
@@ -185,7 +189,7 @@ const editOrder=async(n,oid)=>{const ov=document.createElement("div");ov.style.c
  draw()};
 const head=(t,s)=>`<h1>${t}</h1><div class="sub">${s}</div>`;
 let timer=null;
-async function show(p){nav++;clearInterval(timer);window.onpopstate=null;try{localStorage.setItem("amura_view",p)}catch(e){}document.body.classList.remove("inchat");cur=p;renderSubs();$("#main").innerHTML='<div class="mut">Загрузка…</div>';try{await views[p]();if(restoreY&&p===cur){const y=restoreY;restoreY=0;setTimeout(()=>scrollTo(0,y),60)}}catch(e){if(e.message!=="401"&&e.message!=="stale"&&p===cur)$("#main").innerHTML=`<div class="b x">${esc(e.message)}</div>`}}
+async function show(p,arg){nav++;clearInterval(timer);window.onpopstate=null;try{localStorage.setItem("amura_view",p)}catch(e){}document.body.classList.remove("inchat");cur=p;renderSubs();$("#main").innerHTML='<div class="mut">Загрузка…</div>';try{await views[p](arg);if(restoreY&&p===cur){const y=restoreY;restoreY=0;setTimeout(()=>scrollTo(0,y),60)}}catch(e){if(e.message!=="401"&&e.message!=="stale"&&p===cur)$("#main").innerHTML=`<div class="b x">${esc(e.message)}</div>`}}
 const badge=(ok,a="Работает",b="Сбой")=>`<span class="b ${ok?"ok":"x"}">${ok?a:b}</span>`;
 const views={
 async overview(){const o=await api("overview");$("#main").innerHTML=head("Обзор","Данные с живого сайта")+seg("overview")+`
@@ -468,5 +472,35 @@ boot();
   var r=a.getBoundingClientRect(),b=bar.getBoundingClientRect();bar.style.setProperty("--cl",(r.left-b.left-bar.clientLeft)+"px");bar.style.setProperty("--cw",r.width+"px");bar.style.setProperty("--lo","1")}
  window.__lamp=pill;new MutationObserver(pill).observe(bar,{subtree:true,attributes:true,attributeFilter:["aria-current","class","hidden"]});
  addEventListener("resize",pill);addEventListener("load",pill);if(document.fonts&&document.fonts.ready)document.fonts.ready.then(pill);pill()})();
+</script>
+<script>
+/* Уведомления панели: звук и счётчик (на вкладке, в заголовке и на иконке приложения), push — когда панель закрыта */
+(function(){
+ let last=-1,ac=null,reg=null;
+ const unlock=()=>{try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();if(ac.state==="suspended")ac.resume()}catch(e){}};
+ addEventListener("pointerdown",unlock,{passive:true});
+ function beep(){try{if(!ac)return;const t=ac.currentTime;[[880,0],[1320,.13]].forEach(([f,d])=>{const o=ac.createOscillator(),g=ac.createGain();o.type="sine";o.frequency.value=f;g.gain.setValueAtTime(.0001,t+d);g.gain.exponentialRampToValueAtTime(.25,t+d+.02);g.gain.exponentialRampToValueAtTime(.0001,t+d+.2);o.connect(g).connect(ac.destination);o.start(t+d);o.stop(t+d+.22)})}catch(e){}}
+ function mark(el,n){if(!el)return;let i=el.querySelector(".tbn");if(!i){i=document.createElement("i");i.className="tbn";el.appendChild(i)}i.textContent=n>99?"99+":n;i.hidden=!(n>0)}
+ function badge(n){document.title=(n>0?"("+n+") ":"")+"AMURA";try{if(navigator.setAppBadge)(n>0?navigator.setAppBadge(n):navigator.clearAppBadge()).catch(()=>{})}catch(e){}
+  mark(document.querySelector('.tabbar button[data-p="inbox"]'),n);mark(document.querySelector('.nav[data-p="inbox"]'),n)}
+ async function poll(){if(typeof ME==="undefined"||!ME||!can("inbox")||!tok)return;try{const r=await fetch("/admin/api/inbox/status",{headers:{Authorization:"Bearer "+tok}});if(!r.ok)return;const j=await r.json();if(!j.ok)return;const n=j.unread|0;if(last>=0&&n>last)beep();last=n;badge(n)}catch(e){}}
+ const sup=()=>"serviceWorker" in navigator&&"PushManager" in window&&"Notification" in window;
+ async function sw(){if(!("serviceWorker" in navigator))return null;try{reg=reg||await navigator.serviceWorker.register("/admin/sw.js",{scope:"/admin"});return reg}catch(e){return null}}
+ const key8=s=>{s=s.replace(/-/g,"+").replace(/_/g,"/");const r=atob(s+"=".repeat((4-s.length%4)%4));return Uint8Array.from(r,c=>c.charCodeAt(0))};
+ async function subscribe(test){const r=await sw();if(!r)throw Error("Браузер не поддерживает уведомления");await navigator.serviceWorker.ready;
+  const k=await (await fetch("/admin/api/push/key",{headers:{Authorization:"Bearer "+tok}})).json();if(!k.ok)throw Error(k.error||"Нет ключа");
+  let s=await r.pushManager.getSubscription();
+  if(!s)s=await r.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:key8(k.key)});
+  const j=await (await fetch("/admin/api/push/sub",{method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+tok},body:JSON.stringify({sub:s.toJSON(),test:!!test})})).json();if(!j.ok)throw Error(j.error||"Ошибка")}
+ window.notifyState=()=>sup()?Notification.permission:"unsupported";
+ window.enableNotify=async()=>{unlock();
+  if(!sup()){const ios=/iP(hone|ad|od)/.test(navigator.userAgent),sa=navigator.standalone===true||(matchMedia&&matchMedia("(display-mode: standalone)").matches);
+   alert(ios&&!sa?"На iPhone уведомления работают, когда панель открыта с экрана «Домой»: в Safari нажмите «Поделиться» → «На экран „Домой“», откройте панель оттуда и включите уведомления снова.":"Этот браузер не поддерживает уведомления. Откройте панель в Chrome или Safari (iOS 16.4+).");return}
+  const p=await Notification.requestPermission();if(p!=="granted"){alert("Уведомления не разрешены. Разрешите их в настройках телефона для приложения AMURA и попробуйте снова.");return}
+  try{await subscribe(true);drawAcc()}catch(e){alert("Не удалось включить уведомления: "+e.message)}};
+ if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",e=>{if(e.data&&e.data.open)openLink(e.data.open)});
+ window.startNotify=()=>{drawAcc();sw().then(()=>{if(sup()&&Notification.permission==="granted")subscribe(false).catch(()=>{})});last=-1;poll();clearInterval(window.__nt);window.__nt=setInterval(poll,20000)};
+ document.addEventListener("visibilitychange",()=>{if(!document.hidden)poll()});
+})();
 </script>
 </body></html>
