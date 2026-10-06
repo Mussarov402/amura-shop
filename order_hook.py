@@ -227,6 +227,16 @@ def notif_on(key):
     return notif_settings().get(key, True)
 
 
+def _is_staff(chat):
+    if str(chat) in {str(OWNER)} | set(MANAGERS):
+        return True
+    try:
+        import team
+        return str(chat) in team.notify_chats() or bool(team.by_chat(chat))
+    except Exception:
+        return False
+
+
 def notify_staff(key, text, every=0, method="sendMessage", **data):
     """Уведомление по клиентам: владельцу и всем менеджерам (MANAGER_CHAT_IDS). Не чаще раза в `every` секунд на key."""
     now = time.time()
@@ -242,7 +252,11 @@ def notify_staff(key, text, every=0, method="sendMessage", **data):
         if not c:
             continue
         try:
-            tg(method, chat_id=c, **({"text": text} if method == "sendMessage" else {"caption": text[:200]}), **data)
+            j = tg(method, chat_id=c, **({"text": text} if method == "sendMessage" else {"caption": text[:200]}), **data)
+            mk = re.match(r"^(?:inbox|pdf|photo):(\d+)$", key)
+            if mk and j:                                   # ответ на это уведомление уйдёт клиенту этого диалога
+                import inbox
+                inbox.map_notice(c, j["result"]["message_id"], int(mk.group(1)))
         except Exception as e:
             print("Уведомление не отправлено", c, e, flush=True)
 
@@ -941,6 +955,13 @@ def tg_webhook(secret):
     text = msg.get("text", "")
     if not chat:
         return "", 200
+    if msg.get("reply_to_message") and _is_staff(chat):   # менеджер ответил на уведомление о клиенте — текст или голос клиенту
+        try:
+            import inbox
+            if inbox.staff_reply(chat, msg):
+                return "", 200
+        except Exception as e:
+            print("Ответ менеджера из Telegram:", e, flush=True)
     if text.strip().split("@")[0] == "/id":          # менеджер узнаёт свой chat_id, чтобы владелец добавил его в уведомления
         tg("sendMessage", chat_id=chat, text=f"Ваш chat_id: {chat}\nПередайте его владельцу, чтобы получать уведомления.")
         return "", 200

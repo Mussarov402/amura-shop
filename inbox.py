@@ -404,6 +404,75 @@ def save_msg(d, cid, role, text, photo=None, unread=0, media=None):
     d.run("UPDATE conv SET last_at=%s, last_text=%s, unread=unread+%s WHERE id=%s", (now, last[:120], unread, cid))
 
 
+# ---------- ответ менеджера прямо из Telegram: свайп по уведомлению бота -> клиенту ----------
+def map_notice(staff_chat, msg_id, cid):
+    """Запоминаем, к какому диалогу относится уведомление, чтобы ответ на него ушёл нужному клиенту."""
+    try:
+        with db() as d:
+            d.run("CREATE TABLE IF NOT EXISTS notif_map (chat TEXT, msg_id INTEGER, conv_id INTEGER, at DOUBLE PRECISION, PRIMARY KEY (chat, msg_id))")
+            d.run("DELETE FROM notif_map WHERE at < %s", (time.time() - 30 * 86400,))
+            d.run("INSERT INTO notif_map (chat, msg_id, conv_id, at) VALUES (%s,%s,%s,%s)", (str(staff_chat), int(msg_id), int(cid), time.time()))
+    except Exception as e:
+        print("Связка уведомления не сохранена:", e, flush=True)
+
+
+def staff_reply(staff_chat, msg):
+    """Менеджер ответил (свайпом) на уведомление бота: текст, голосовое, фото или файл уходят клиенту и сохраняются в диалоге.
+    Возвращает True, если это был ответ на уведомление о клиенте."""
+    r = msg.get("reply_to_message") or {}
+    try:
+        with db() as d:
+            d.run("CREATE TABLE IF NOT EXISTS notif_map (chat TEXT, msg_id INTEGER, conv_id INTEGER, at DOUBLE PRECISION, PRIMARY KEY (chat, msg_id))")
+            row = d.run("SELECT conv_id FROM notif_map WHERE chat=%s AND msg_id=%s", (str(staff_chat), int(r.get("message_id") or 0)), one=True)
+            c = d.run("SELECT id, chat_id, name FROM conv WHERE id=%s", (row[0],), one=True) if row else None
+    except Exception as e:
+        print("Ответ менеджера: связка не найдена:", e, flush=True)
+        c = None
+    if not c:
+        return False
+    cid, client, name = c
+    text = (msg.get("text") or msg.get("caption") or "").strip()
+    voice, doc = msg.get("voice") or msg.get("audio"), msg.get("document")
+    photo_tg = msg["photo"][-1]["file_id"] if msg.get("photo") else None
+    media, photo = None, None
+    try:
+        if wa.is_wa(client):
+            import admin
+            if voice:
+                data, _ = fetch_file(voice["file_id"])
+                media, photo = admin._send_file_wa(client, data, "voice.ogg", voice.get("mime_type") or "audio/ogg", "voice", "", voice.get("duration", 0))
+            elif photo_tg or doc:
+                data, fname = fetch_file(photo_tg or doc["file_id"])
+                mime = "image/jpeg" if photo_tg else (doc.get("mime_type") or "application/octet-stream")
+                media, photo = admin._send_file_wa(client, data, (doc or {}).get("file_name") or fname, mime, "", text, 0)
+            elif text:
+                wa.send_text(client, text)
+            else:
+                raise RuntimeError("такой тип сообщения не поддерживается")
+        else:
+            if voice:
+                oh.tg("sendVoice", chat_id=client, voice=voice["file_id"])
+                media = {"t": "voice", "id": voice["file_id"], "dur": voice.get("duration", 0)}
+            elif photo_tg:
+                oh.tg("sendPhoto", chat_id=client, photo=photo_tg, caption=text)
+                photo = photo_tg
+            elif doc:
+                oh.tg("sendDocument", chat_id=client, document=doc["file_id"], caption=text)
+                media = {"t": "doc", "id": doc["file_id"], "name": doc.get("file_name", "файл"), "size": doc.get("file_size", 0), "mime": doc.get("mime_type", "")}
+            elif text:
+                send_text(client, text)
+            else:
+                raise RuntimeError("такой тип сообщения не поддерживается")
+    except Exception as e:
+        oh.tg("sendMessage", chat_id=staff_chat, text=f"⚠️ Не отправлено клиенту {name}: {str(e)[:200]}", reply_to_message_id=msg.get("message_id"))
+        return True
+    with _lock, db() as d:
+        save_msg(d, cid, "manager", text if not voice else "", photo, media=media)
+        d.run("UPDATE conv SET status='manager' WHERE id=%s", (cid,))
+    oh.tg("sendMessage", chat_id=staff_chat, text=f"✅ Отправлено клиенту {name}", reply_to_message_id=msg.get("message_id"))
+    return True
+
+
 def note_invoice(chat, user, number, total, doc_id):
     """Клиент получил накладную в Telegram-боте: диалог появляется в «Сообщениях», можно сразу написать клиенту из панели."""
     with _lock, db() as d:
@@ -483,7 +552,7 @@ def on_client_message(chat, user, text, photo=None, voice=None, pdf=None, media=
                 d.run("UPDATE conv SET status='manager' WHERE id=%s", (cid,))
         if status == "manager" or not use_ai:
             if oh.notif_on("msg"):
-                oh.notify_staff(f"inbox:{cid}", f"💬 Новое сообщение ({channel_name(chat)}) от {name}: {(text or '[фото]')[:200]}\nОтветьте в панели → Сообщения", every=300)
+                oh.notify_staff(f"inbox:{cid}", f"💬 Новое сообщение ({channel_name(chat)}) от {name}: {(text or '[фото]')[:200]}\nОтветьте в панели → Сообщения или прямо здесь: свайп влево по сообщению → текст или голосовое", every=300)
             return
         try:
             with db() as d:                       # без общей блокировки: ответ ИИ и заказ могут занять до минуты
@@ -505,7 +574,7 @@ def on_client_message(chat, user, text, photo=None, voice=None, pdf=None, media=
             except Exception as e:
                 print("Push «ждёт менеджера»:", e, flush=True)
         if hand and oh.notif_on("handoff"):
-            oh.notify_staff(f"inbox:{cid}", f"🙋 {name} ({channel_name(chat)}) ждёт менеджера: {(text or '[фото]')[:200]}\nОтветьте в панели → Сообщения")
+            oh.notify_staff(f"inbox:{cid}", f"🙋 {name} ({channel_name(chat)}) ждёт менеджера: {(text or '[фото]')[:200]}\nОтветьте в панели → Сообщения или прямо здесь: свайп влево по сообщению → текст или голосовое")
             if pdf and oh.OWNER:
                 try:
                     if wa.is_wa(chat):                  # из WhatsApp файл отправляем байтами
