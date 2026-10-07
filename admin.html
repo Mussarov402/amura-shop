@@ -431,7 +431,7 @@ async inbox(openId){const st=await api("inbox/status");let cur=openId||null,flt=
    $("#ic2").innerHTML=`<header class="ch"><button class="bk" id="bk" aria-label="Назад"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>${av(c.name,40)}<div class="grow"><b>${esc(c.name)}</b><div class="sb2">${srcOf(c)}${unOf(c)}</div></div><span id="sbx"></span></header>
    <div class="acts" id="acts"></div><div id="msgs" class="msgs"></div>
    <div class="pend" id="pend" hidden></div>
-   <footer class="cmp" id="cmp"><button class="ic" id="att" aria-label="Прикрепить"><svg viewBox="0 0 24 24"><path d="M21 11.5l-8.6 8.6a5.5 5.5 0 01-7.8-7.8l9-9a3.7 3.7 0 015.2 5.2l-9 9a1.8 1.8 0 01-2.6-2.6l8.2-8.2"/></svg></button><input type="file" id="fi" hidden><textarea id="tx" rows="1" placeholder="Сообщение клиенту…"></textarea><button class="snd" id="sd" aria-label="Отправить"></button></footer>
+   <footer class="cmp" id="cmp"><button class="ic" id="att" aria-label="Прикрепить"><svg viewBox="0 0 24 24"><path d="M21 11.5l-8.6 8.6a5.5 5.5 0 01-7.8-7.8l9-9a3.7 3.7 0 015.2 5.2l-9 9a1.8 1.8 0 01-2.6-2.6l8.2-8.2"/></svg></button><input type="file" id="fi" hidden><textarea id="tx" rows="1" enterkeyhint="send" placeholder="Сообщение клиенту…"></textarea><button class="snd" id="sd" aria-label="Отправить"></button></footer>
    <div class="rec" id="rec" hidden><span class="dot"></span><b id="rt">0:00</b><span class="grow mut">Идёт запись…</span><button class="btn ghost sm" id="rc">Отмена</button><button class="snd" id="rs" aria-label="Отправить голосовое"><svg viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5L12 5l6.5 6.5"/></svg></button></div>`;
    $("#bk").onclick=closeChat;
    const tx=$("#tx"),SEND='<svg viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5L12 5l6.5 6.5"/></svg>',MIC='<svg viewBox="0 0 24 24" class="mic"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/></svg>';let pend=null,mr=null,chunks=[],t0=0,rtimer=null,rstream=null,cancelled=false;
@@ -448,6 +448,7 @@ async inbox(openId){const st=await api("inbox/status");let cur=openId||null,flt=
     try{if(pend){await upload(await shrink(pend),{caption:t});pend=null}else await api(`inbox/conv/${cur}/send`,{method:"POST",body:JSON.stringify({text:t})});
      tx.value="";tx.style.height="auto";built=0;await openChat(true);list()}catch(e){if(e.message!=="401")alert(e.message)}$("#sd").disabled=false;mode()};
    $("#sd").onclick=send;
+   tx.onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing&&e.keyCode!==229){e.preventDefault();if(tx.value.trim()||pend)send()}};   // Enter — отправить, Shift+Enter — новая строка
    const startRec=async()=>{if(!navigator.mediaDevices||!window.MediaRecorder)return alert("Этот браузер не умеет записывать голос. Откройте панель в Safari или Chrome.");
     try{rstream=await navigator.mediaDevices.getUserMedia({audio:true})}catch(e){return alert("Нет доступа к микрофону. Разрешите его для этого сайта в настройках браузера.")}
     const mt=["audio/webm;codecs=opus","audio/mp4","audio/ogg;codecs=opus"].find(t=>MediaRecorder.isTypeSupported(t))||"";mr=new MediaRecorder(rstream,mt?{mimeType:mt}:{});chunks=[];cancelled=false;
