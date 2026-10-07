@@ -244,11 +244,13 @@ const newOrder=async()=>{const ov=document.createElement("div");ov.className="ov
   catch(er){b.disabled=false;b.textContent="Создать заказ";if(er.message!=="401")m.textContent=er.message}}};
 /* Просмотр заказа без правки: позиции с фото, PDF / Excel / поделиться */
 const fileCache={};
-async function getFile(url,name,type){let f=fileCache[url];if(!f){const r=await fetch(url);if(!r.ok)throw new Error(r.status===503?"МойСклад отвечает медленно — попробуйте через минуту":"Файл не получен");const bl=await r.blob();f=fileCache[url]=new File([bl],name,{type:type||bl.type})}return f}
+const touchDev=matchMedia("(pointer:coarse)").matches;   // телефон/планшет: «Поделиться»; компьютер: просто скачать
+function getFile(url,name,type){if(!fileCache[url])fileCache[url]=(async()=>{const r=await fetch(url);if(!r.ok)throw new Error(r.status===503?"МойСклад отвечает медленно — попробуйте через минуту":"Файл не получен");
+ const bl=await r.blob();return new File([bl],name,{type:type||bl.type})})().catch(e=>{delete fileCache[url];throw e});return fileCache[url]}
 function saveFile(f){const a=document.createElement("a");a.href=URL.createObjectURL(f);a.download=f.name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},4000)}
 async function fileAct(el,url,name,type,share){const old=el.innerHTML;el.disabled=true;el.innerHTML="Готовлю…";
- try{const f=await getFile(url,name,type);if(share&&navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f],title:f.name});return}saveFile(f)}
- catch(e){if(e&&e.name==="AbortError")return;if(e&&e.name==="NotAllowedError"){toast("Нажмите ещё раз");return}toast(e.message||"Не получилось")}
+ let f;try{f=await getFile(url,name,type);if(share&&touchDev&&navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f],title:f.name});return}saveFile(f)}
+ catch(e){if(e&&e.name==="AbortError")return;if(e&&e.name==="NotAllowedError"&&f){if(touchDev)toast("Файл готов — нажмите ещё раз");else saveFile(f);return}toast(e.message||"Не получилось")}
  finally{el.disabled=false;el.innerHTML=old}}
 const viewOrder=async(n,oid)=>{const ov=document.createElement("div");ov.className="ovx";ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:flex-end;justify-content:center";document.body.appendChild(ov);
  ov.innerHTML='<div class="eo vo"><div class="mut">Загружаю заказ №'+esc(n)+'…</div></div>';ov.onclick=e=>{if(e.target===ov)ov.remove()};
@@ -261,6 +263,7 @@ const viewOrder=async(n,oid)=>{const ov=document.createElement("div");ov.classNa
   <div>${d.lines.map((x,i)=>`<div class="vol">${x.img?`<a class="phl voi" href="${esc(x.img)}"><img src="${esc(x.img)}" loading="lazy" alt=""></a>`:`<span class="voi">🧴</span>`}<div class="von"><div>${esc(x.name)}</div><div class="mut">${x.code?esc(x.code)+" · ":""}${fmt(x.qty)} × ${fmt(x.price)} ₸</div></div><b class="vos">${fmt(x.qty*x.price)} ₸</b></div>`).join("")}</div>
   <div class="vot"><div><span>Товары</span><span>${fmt(goods)} ₸</span></div>${d.loader?`<div><span>Грузчик</span><span>${fmt(d.loader)} ₸</span></div>`:""}${d.fee?`<div><span>Комиссия банка</span><span>${fmt(d.fee)} ₸</span></div>`:""}<div class="vott"><span>Итого</span><span>${fmt(d.total)} ₸</span></div></div>`;
  ov.querySelector(".vox").onclick=()=>ov.remove();
+ if(touchDev){const nm="AMURA-"+d.number;getFile(d.pdf,nm+".pdf","application/pdf").catch(()=>{});getFile(d.xlsx,nm+".xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet").catch(()=>{})}   // заранее: «Поделиться» откроется с первого нажатия
  ov.querySelectorAll(".voa button").forEach(b=>b.onclick=()=>{const a=b.dataset.a,nm="AMURA-"+d.number;
   if(a==="edit"){ov.remove();editOrder(d.number,d.id)}
   else if(a==="xlsx")fileAct(b,d.xlsx,nm+".xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",true);
