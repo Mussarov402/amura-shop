@@ -62,6 +62,8 @@ TIER_MID = 10                  # цена типа «От 10шт» действ�
 LIVE_TTL = 150                 # сек: как часто сервер перечитывает МойСклад для сайта
 PRICE_RTL, PRICE_OPT, PRICE_MID, PRICE_BOX = "Розничная цена", "Оптовая цена", ("От 10шт",), "Короб"
 WHOLESALE_TAG = os.environ.get("WHOLESALE_TAG", "опт").strip().lower()
+RETAIL_SOURCE = "с розничного сайта"   # «Заказ с розничного сайта» в описании — по нему панель отделяет розничные заказы
+RETAIL_MARK = "Заказ " + RETAIL_SOURCE
 PUBLIC_WHOLESALE = os.environ.get("PRICE_MODE", "opt") == "opt"   # opt — опт видят все; retail — всем розница, опт по тегу
 LOADER_CODE = "00308"          # «Услуга грузчика» (товар в МойСклад)
 LOADER_PRICE = 1000
@@ -547,7 +549,7 @@ def catalog_route():
         if not v:
             return jsonify(error=str(e)[:200]), 502
         data = v[1]                        # МойСклад не ответил — отдаём последние данные
-    ws = is_wholesale(session_cid())
+    ws = False if request.args.get("mode") == "retail" else is_wholesale(session_cid())   # розничный сайт — всегда розница
     ck = ("catjson", ws)                     # JSON и gzip собираются раз на обновление каталога, а не на каждого посетителя
     hit = _cache.get(ck)
     if hit and hit[0] is data:
@@ -767,7 +769,10 @@ def order_core(d, key, ip, me, source="с сайта", panel=False):
         if not v:
             return dict(ok=False, error="Склад сейчас не отвечает, попробуйте через минуту"), 503
         cat = {i["id"]: i for i in v[1]["items"]}
-    ws = True if panel else is_wholesale(me)
+    retail = not panel and str(d.get("mode", "")) == "retail"      # заказ с розничного сайта (amura.kz/shop)
+    if retail:
+        source = RETAIL_SOURCE
+    ws = True if panel else (False if retail else is_wholesale(me))
     lines = []
     for p in (d.get("items") or [])[:1000 if panel else 200]:
         item = cat.get(str(p.get("id")))
