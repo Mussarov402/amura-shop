@@ -1,10 +1,14 @@
 """Модуль «Доставка»: подключение служб доставки и правила цены для клиента.
 
 Шаг 1 (этот файл): настройки в панели (Обзор → Доставка) — ключи Яндекс Доставки и СДЭК с проверкой подключения,
-склад, фиксированная цена и порог бесплатной доставки по Алматы и по Казахстану, вес посылки по умолчанию.
+склад, цена для клиента как на Kaspi (единая в пункт выдачи / постамат и единая до двери, от порога — бесплатно),
+график работы и интервалы доставки, из которых клиент выбирает удобный, вес посылки по умолчанию.
 Следующие шаги: цена в корзине сайта, автоматический вызов курьера, статусы и отслеживание.
 Службы подключаемые (PROVIDERS); выключенная служба ни на что не влияет. Ключи хранятся на сервере и в панель целиком не отдаются.
 """
+import json
+from datetime import datetime, timedelta
+
 import requests
 
 import inbox
@@ -67,10 +71,19 @@ SECRET = {"token", "secret"}
 
 # правила цены для клиента и склад: ключ настройки → (подпись, значение по умолчанию)
 RULES = {
-    "city_price": 990, "city_free": 5000,        # по Алматы: до порога — фиксированная цена, от порога — бесплатно
-    "kz_price": 1990, "kz_free": 15000,          # по Казахстану
-    "weight": 300,                               # вес посылки на 1 товар, г (в МойСклад у товаров вес 0)
+    "pvz_price": 500,            # в пункт выдачи / постамат — по всему Казахстану одна цена (как на Kaspi)
+    "door_price": 995,           # курьером до двери — одна цена
+    "free_from": 12000,          # от этой суммы товаров доставка бесплатная; 0 — бесплатной нет
+    "weight": 300,               # вес на 1 товар, г — если в карточке МойСклад поле «Вес» пустое
+    "box_w": 20, "box_h": 15, "box_d": 10,   # коробка по умолчанию, см — если у товаров не заполнены ШВГ
+    "cutoff": 90,                # интервал можно выбрать, если до его начала больше N минут
 }
+# график: дни недели Пн…Вс (1 — работаем), часы работы и интервалы доставки курьером
+SCHEDULE_DEFAULT = {"days": "0111111", "open": "08:00", "close": "18:00",
+                    "slots": [{"name": "Утро", "from": "08:00", "to": "11:00"},
+                              {"name": "Обед", "from": "11:00", "to": "14:00"},
+                              {"name": "После обеда", "from": "14:00", "to": "18:00"}]}
+DAYS = ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
 STORE = ("wh_addr", "wh_phone", "wh_hours")
 
 
@@ -85,7 +98,11 @@ def conf():
                     **{f: g(_k(s, f)) for f, _, _ in P.fields}} for s, P in PROVIDERS.items()}
         rules = {k: int(g("dlv_" + k, str(v)) or v) for k, v in RULES.items()}
         store = {k: g("dlv_" + k) for k in STORE}
-    return {"svc": svcs, "rules": rules, "store": store}
+        try:
+            sched = {**SCHEDULE_DEFAULT, **json.loads(g("dlv_schedule") or "{}")}
+        except ValueError:
+            sched = dict(SCHEDULE_DEFAULT)
+    return {"svc": svcs, "rules": rules, "store": store, "schedule": sched}
 
 
 def public_conf():
@@ -101,7 +118,7 @@ def public_conf():
                            "value": "" if secret else val, "tail": val[-4:] if secret and val else ""})
         out[s] = {"name": P.name, "on": v["on"], "test": v["test"] == "1", "fields": fields,
                   "ready": all(v.get(f) for f, _, _ in P.fields)}
-    return {"services": out, "rules": c["rules"], "store": c["store"]}
+    return {"services": out, "rules": c["rules"], "store": c["store"], "schedule": c["schedule"], "days": DAYS}
 
 
 def save(b):
@@ -126,6 +143,8 @@ def save(b):
         for k in STORE:
             if k in (b.get("store") or {}):
                 inbox.set_setting(d, "dlv_" + k, str(b["store"][k] or "").strip()[:300])
+        if isinstance(b.get("schedule"), dict):
+            inbox.set_setting(d, "dlv_schedule", json.dumps(_clean_schedule(b["schedule"]), ensure_ascii=False))
     oh._cache.pop("dlv_conf", None)
 
 
@@ -135,7 +154,77 @@ def test(svc):
     return PROVIDERS[svc](conf()["svc"][svc]).test()
 
 
-def price(goods_sum, zone):
-    """Цена доставки для клиента: zone = "city" (Алматы) или "kz". До порога — фиксированная, от порога — 0."""
+def _hm(v, dflt):
+    try:
+        h, m = (int(x) for x in str(v).split(":"))
+        if 0 <= h <= 23 and 0 <= m <= 59:
+            return f"{h:02d}:{m:02d}"
+    except (TypeError, ValueError):
+        pass
+    return dflt
+
+
+def _clean_schedule(sc):
+    days = "".join("1" if c == "1" else "0" for c in str(sc.get("days", SCHEDULE_DEFAULT["days"]))[:7]).ljust(7, "0")
+    slots = []
+    for x in (sc.get("slots") or [])[:6]:
+        name = str(x.get("name", "")).strip()[:30]
+        a, b = _hm(x.get("from"), ""), _hm(x.get("to"), "")
+        if name and a and b and a < b:
+            slots.append({"name": name, "from": a, "to": b})
+    slots.sort(key=lambda x: x["from"])
+    return {"days": days, "open": _hm(sc.get("open"), "08:00"), "close": _hm(sc.get("close"), "18:00"), "slots": slots}
+
+
+def price(goods_sum, kind):
+    """Цена доставки для клиента, как на Kaspi: kind = "pvz" (пункт выдачи / постамат) или "door" (курьер до двери).
+    От порога free_from — бесплатно (0 — бесплатной нет)."""
     r = conf()["rules"]
-    return 0 if goods_sum >= r[zone + "_free"] else r[zone + "_price"]
+    return 0 if r["free_from"] and goods_sum >= r["free_from"] else r[kind + "_price"]
+
+
+def slots_ahead(now=None, days=7):
+    """Интервалы доставки курьером на ближайшие дни по графику (время Алматы): [{date, day, name, from, to}].
+    Интервал доступен, если до его начала больше cutoff минут; выходные дни пропускаются."""
+    c = conf()
+    sc, cutoff = c["schedule"], c["rules"]["cutoff"]
+    now = now or datetime.now(oh.ALMATY).replace(tzinfo=None)
+    out = []
+    for i in range(days + 7):
+        day = (now + timedelta(days=i)).date()
+        if sc["days"][day.weekday()] != "1":
+            continue
+        for s in sc["slots"]:
+            start = datetime.combine(day, datetime.strptime(s["from"], "%H:%M").time())
+            if start - now > timedelta(minutes=cutoff):
+                out.append({"date": day.isoformat(), "day": DAYS[day.weekday()], **s})
+        if len({x["date"] for x in out}) >= days:
+            break
+    return out
+
+
+# ---------- габариты товара в МойСклад ----------
+# «Вес» и «Объём» — стандартные поля карточки товара; ширины/высоты/глубины в МойСклад нет — добавляем доп. полями
+DIM_ATTRS = ("Ширина, см", "Высота, см", "Глубина, см")
+
+
+def ensure_dims():
+    """Создаёт в карточке товара МойСклад доп. поля «Ширина, см», «Высота, см», «Глубина, см», если их ещё нет."""
+    import admin
+    for n in DIM_ATTRS:
+        admin._attr("product", n, "double")
+
+
+def _boot():
+    import time
+    time.sleep(45)
+    try:
+        ensure_dims()
+        print("Доставка: поля ШВГ в карточке товара МойСклад на месте", flush=True)
+    except Exception as e:
+        print("Доставка: поля ШВГ не созданы:", str(e)[:200], flush=True)
+
+
+if __import__("os").environ.get("PORT"):
+    import threading
+    threading.Thread(target=_boot, daemon=True).start()

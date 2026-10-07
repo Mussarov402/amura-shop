@@ -51,13 +51,36 @@ class DeliveryTest(unittest.TestCase):
         self.assertEqual(delivery.conf()["svc"]["yandex"]["token"], "y-secret-ABCD")
 
     def test_price_rules(self):
-        delivery.save({"rules": {"city_price": "990", "city_free": "5000", "kz_price": 1990, "kz_free": 15000}})
-        self.assertEqual(delivery.price(4500, "city"), 990)
-        self.assertEqual(delivery.price(5000, "city"), 0)
-        self.assertEqual(delivery.price(12000, "kz"), 1990)
-        self.assertEqual(delivery.price(15000, "kz"), 0)
-        delivery.save({"rules": {"city_price": "abc"}})                # мусор не ломает настройки
-        self.assertEqual(delivery.price(100, "city"), 990)
+        delivery.save({"rules": {"pvz_price": "500", "door_price": "995", "free_from": "12000"}})
+        self.assertEqual(delivery.price(4500, "pvz"), 500)
+        self.assertEqual(delivery.price(4500, "door"), 995)
+        self.assertEqual(delivery.price(12000, "door"), 0)
+        delivery.save({"rules": {"free_from": 0}})                     # 0 — бесплатной доставки нет
+        self.assertEqual(delivery.price(50000, "pvz"), 500)
+        delivery.save({"rules": {"pvz_price": "abc"}})                 # мусор не ломает настройки
+        self.assertEqual(delivery.price(100, "pvz"), 500)
+
+    def test_schedule_and_slots(self):
+        from datetime import datetime
+        delivery.save({"rules": {"cutoff": 90}, "schedule": {"days": "0111111", "open": "08:00", "close": "18:00", "slots": [
+            {"name": "После обеда", "from": "14:00", "to": "18:00"}, {"name": "Утро", "from": "08:00", "to": "11:00"},
+            {"name": "Обед", "from": "11:00", "to": "14:00"}, {"name": "", "from": "18:00", "to": "20:00"},
+            {"name": "Кривой", "from": "15:00", "to": "12:00"}]}})
+        sc = delivery.conf()["schedule"]
+        self.assertEqual([x["name"] for x in sc["slots"]], ["Утро", "Обед", "После обеда"])   # пустые и кривые отброшены, по времени
+        # воскресенье 11.10.2026, 12:00: сегодня — только «После обеда» (до 14:00 больше 90 мин), понедельник — выходной
+        got = delivery.slots_ahead(datetime(2026, 10, 11, 12, 0), days=2)
+        self.assertEqual([(x["date"], x["name"]) for x in got[:2]], [("2026-10-11", "После обеда"), ("2026-10-13", "Утро")])
+        self.assertNotIn("2026-10-12", {x["date"] for x in got})
+        got = delivery.slots_ahead(datetime(2026, 10, 11, 12, 45), days=1)   # до 14:00 меньше 90 мин — сегодня уже нельзя
+        self.assertEqual(got[0]["date"], "2026-10-13")
+
+    def test_ensure_dims(self):
+        import admin
+        made = []
+        with mock.patch.object(admin, "_attr", side_effect=lambda e, n, t: made.append((e, n, t))):
+            delivery.ensure_dims()
+        self.assertEqual(made, [("product", "Ширина, см", "double"), ("product", "Высота, см", "double"), ("product", "Глубина, см", "double")])
 
     def test_yandex_test(self):
         delivery.save({"yandex": {"token": "tok"}})
