@@ -730,7 +730,8 @@ def order_search():
         return jsonify(ok=True, items=[])
     shown, _ = _all_items()
     out = [i for i in shown if q in (i["name"] + " " + i.get("brand", "") + " " + i.get("code", "")).lower()][:20]
-    return jsonify(ok=True, items=[{"type": "product", "id": i["id"], "name": i["name"], "qty": i["qty"], "price": oh.unit_price(i, 1, True)} for i in out])
+    return jsonify(ok=True, items=[{"type": "product", "id": i["id"], "name": i["name"], "qty": i["qty"], "price": oh.unit_price(i, 1, True),
+                                    "img": f"{oh.SITE_URL}/{i['img']}" if i.get("img") else ""} for i in out])
 
 
 @bp.put("/admin/api/orders/<number>")
