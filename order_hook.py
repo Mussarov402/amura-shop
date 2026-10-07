@@ -58,9 +58,9 @@ ORDER_SECRET = os.environ.get("ORDER_SECRET", "").encode()
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "").rstrip("/")
 SITE_URL = os.environ.get("SITE_URL", "").rstrip("/")
 
-TIER_MID = 10                  # цена типа «От 15шт» действует от 10 шт
+TIER_MID = 10                  # цена типа «От 10шт» действует от 10 шт
 LIVE_TTL = 150                 # сек: как часто сервер перечитывает МойСклад для сайта
-PRICE_RTL, PRICE_OPT, PRICE_MID, PRICE_BOX = "Розничная цена", "Оптовая цена", ("От 10шт", "От 15шт"), "Короб"
+PRICE_RTL, PRICE_OPT, PRICE_MID, PRICE_BOX = "Розничная цена", "Оптовая цена", ("От 10шт",), "Короб"
 WHOLESALE_TAG = os.environ.get("WHOLESALE_TAG", "опт").strip().lower()
 PUBLIC_WHOLESALE = os.environ.get("PRICE_MODE", "opt") == "opt"   # opt — опт видят все; retail — всем розница, опт по тегу
 LOADER_CODE = "00308"          # «Услуга грузчика» (товар в МойСклад)
