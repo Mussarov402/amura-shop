@@ -389,6 +389,173 @@ def overview():
                    tgOk=bool(oh.BOT and oh.OWNER), sms=bool(oh.MOBIZON_KEY), wa=wa.configured())
 
 
+MS_TZ = timezone(timedelta(hours=int(os.environ.get("MS_TZ_HOURS", "3"))))   # время в МойСклад — по Москве
+
+
+def _ms_time(dt):
+    return dt.astimezone(MS_TZ).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _from_ms(s_):
+    return datetime.strptime(s_[:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=MS_TZ).astimezone(oh.ALMATY)
+
+
+def _ms_all(path, flt, limit=1000, extra=None):
+    out, off = [], 0
+    while True:
+        r = oh.ms("GET", path, params={"filter": flt, "limit": limit, "offset": off, **(extra or {})}, timeout=40)
+        out += r.get("rows", [])
+        off += limit
+        if off >= (r.get("meta") or {}).get("size", 0) or off >= 10000:
+            return out
+
+
+def _src_of(desc):
+    first = (desc or "").split("\n")[0].lower()
+    if "ии-продажник" in first:
+        return "ИИ-продажник (WhatsApp / Telegram)"
+    if "из панели" in first:
+        return "Панель (менеджер)"
+    if "с сайта" in first:
+        return "Сайт"
+    return "МойСклад (вручную)"
+
+
+def _dash_calc(d1, d2, p1=None, p2=None):
+    """Сводка за даты [d1..d2] по Алматы и такой же прошлый период: заказы покупателей + чеки кассы."""
+    import concurrent.futures as cf
+    start = datetime.strptime(d1, "%Y-%m-%d").replace(tzinfo=oh.ALMATY)
+    end = datetime.strptime(d2, "%Y-%m-%d").replace(tzinfo=oh.ALMATY) + timedelta(days=1)
+    span = end - start
+    pstart = start - span
+    pend = start
+    if p1 and p2:                                  # с чем сравнивать: та же неделя / те же числа прошлого месяца
+        pstart = datetime.strptime(p1, "%Y-%m-%d").replace(tzinfo=oh.ALMATY)
+        pend = datetime.strptime(p2, "%Y-%m-%d").replace(tzinfo=oh.ALMATY) + timedelta(days=1)
+    hourly = span <= timedelta(days=1)
+    rng = lambda a, b: f"moment>={_ms_time(a)};moment<{_ms_time(b)}"
+    with cf.ThreadPoolExecutor(5) as ex:
+        f_o = ex.submit(_ms_all, "/entity/customerorder", rng(start, end))
+        f_po = ex.submit(_ms_all, "/entity/customerorder", rng(pstart, pend))
+        f_r = ex.submit(_ms_all, "/entity/retaildemand", rng(start, end))
+        f_pr = ex.submit(_ms_all, "/entity/retaildemand", rng(pstart, pend))
+        f_t = ex.submit(lambda: oh.ms("GET", "/report/profit/byproduct", params={
+            "momentFrom": _ms_time(start), "momentTo": _ms_time(end - timedelta(seconds=1)), "limit": 1000}, timeout=40).get("rows", []))
+        orders, porders, retail, pretail = f_o.result(), f_po.result(), f_r.result(), f_pr.result()
+        try:
+            tops = f_t.result()
+        except Exception as e:
+            print("Дашборд: отчёт по товарам:", e, flush=True)
+            tops = []
+    states = {st["meta"]["href"].rsplit("/", 1)[-1]: st for st in fresh("adm_order_states", 600, _ms_states).get("states", [])}
+    sid = lambda o: ((o.get("state") or {}).get("meta") or {}).get("href", "").rsplit("/", 1)[-1]
+    cancelled = lambda o: "отмен" in (states.get(sid(o), {}).get("name", "")).lower()
+    orders = [o for o in orders if not cancelled(o)]
+    porders = [o for o in porders if not cancelled(o)]
+    n = 24 if hourly else span.days
+    bucket = (lambda t: t.hour) if hourly else (lambda t: (t.date() - start.date()).days)
+    pbucket = (lambda t: t.hour) if hourly else (lambda t: (t.date() - pstart.date()).days)
+    cur, prev, cnt = [0.0] * n, [0.0] * n, [0] * n
+    for o in orders + retail:
+        i = bucket(_from_ms(o["moment"]))
+        if 0 <= i < n:
+            cur[i] += o["sum"] / 100
+            cnt[i] += 1
+    for o in porders + pretail:
+        i = pbucket(_from_ms(o["moment"]))
+        if 0 <= i < n:
+            prev[i] += o["sum"] / 100
+    src = {}
+    for o in orders:
+        k = _src_of(o.get("description"))
+        a = src.setdefault(k, [0, 0.0])
+        a[0] += 1
+        a[1] += o["sum"] / 100
+    if retail:
+        src["Касса"] = [len(retail), sum(r["sum"] for r in retail) / 100]
+    st_cnt = {}
+    for o in orders:
+        nm = states.get(sid(o), {}).get("name", "Без статуса")
+        st_cnt[nm] = st_cnt.get(nm, 0) + 1
+    order_of = {st.get("name"): i for i, st in enumerate(states.values())}
+    agents = {}
+    for o in orders:
+        aid = ((o.get("agent") or {}).get("meta") or {}).get("href", "").rsplit("/", 1)[-1]
+        a = agents.setdefault(aid, [0, 0.0])
+        a[0] += 1
+        a[1] += o["sum"] / 100
+    top_ag = sorted(agents.items(), key=lambda x: -x[1][1])[:5]
+    names = {}
+    def agname(aid):
+        try:
+            return aid, oh.ms("GET", f"/entity/counterparty/{aid}", timeout=15).get("name", "")
+        except Exception:
+            return aid, ""
+    with cf.ThreadPoolExecutor(5) as ex:
+        names = dict(ex.map(agname, [a for a, _ in top_ag if a]))
+    imgs = {}
+    try:
+        imgs = oh.cached("imgidx", 1800, oh._img_index)
+    except Exception:
+        pass
+    def pid(r):
+        return ((r.get("assortment") or {}).get("meta") or {}).get("href", "").rsplit("/", 1)[-1].split("?")[0]
+    tops = sorted(tops, key=lambda r: -r.get("sellSum", 0))
+    total = lambda L: sum(o["sum"] for o in L) / 100
+    paid = sum(o.get("payedSum", 0) for o in orders) / 100 + total(retail)
+    rev, prev_rev = total(orders) + total(retail), total(porders) + total(pretail)
+    cnt_all, pcnt_all = len(orders) + len(retail), len(porders) + len(pretail)
+    return {
+        "from": d1, "to": d2, "hourly": hourly, "pfrom": pstart.strftime("%Y-%m-%d"), "pto": (pend - timedelta(days=1)).strftime("%Y-%m-%d"),
+        "revenue": rev, "prevRevenue": prev_rev, "count": cnt_all, "prevCount": pcnt_all,
+        "avg": rev / cnt_all if cnt_all else 0, "prevAvg": prev_rev / pcnt_all if pcnt_all else 0,
+        "paid": paid, "unpaid": max(0.0, total(orders) - sum(o.get("payedSum", 0) for o in orders) / 100),
+        "series": cur, "prevSeries": prev, "seriesCount": cnt,
+        "sources": sorted([{"name": k, "count": v[0], "sum": v[1]} for k, v in src.items()], key=lambda x: -x["sum"]),
+        "states": sorted([{"name": k, "count": v, "color": "#%06x" % states_color(states, k)} for k, v in st_cnt.items()],
+                         key=lambda x: order_of.get(x["name"], 99)),
+        "topProducts": [{"name": r.get("assortment", {}).get("name", ""), "qty": r.get("sellQuantity", 0), "sum": r.get("sellSum", 0) / 100,
+                         "profit": (r.get("sellSum", 0) - r.get("sellCostSum", 0)) / 100,
+                         "img": f"{oh.SITE_URL}/img/{pid(r)}.webp" if pid(r) in imgs else ""} for r in tops[:7]],
+        "salesTotal": sum(r.get("sellSum", 0) for r in tops) / 100, "profitTotal": sum(r.get("sellSum", 0) - r.get("sellCostSum", 0) for r in tops) / 100,
+        "topClients": [{"name": names.get(a, "") or "Клиент", "count": v[0], "sum": v[1]} for a, v in top_ag],
+    }
+
+
+def states_color(states, name):
+    for st in states.values():
+        if st.get("name") == name:
+            return st.get("color") or 0
+    return 0
+
+
+@bp.get("/admin/api/dash")
+@guard
+def dash():
+    today = datetime.now(oh.ALMATY).strftime("%Y-%m-%d")
+    d1, d2 = request.args.get("from", today), request.args.get("to", today)
+    try:
+        a, b = datetime.strptime(d1, "%Y-%m-%d"), datetime.strptime(d2, "%Y-%m-%d")
+    except ValueError:
+        return jsonify(ok=False, error="Неверные даты"), 400
+    if b < a:
+        d1, d2 = d2, d1
+    if abs((b - a).days) > 400:
+        return jsonify(ok=False, error="Период не больше 400 дней"), 400
+    p1, p2 = request.args.get("pfrom", ""), request.args.get("pto", "")
+    try:
+        datetime.strptime(p1, "%Y-%m-%d"), datetime.strptime(p2, "%Y-%m-%d")
+    except ValueError:
+        p1 = p2 = None
+    live = d2 >= today
+    try:
+        data = oh.cached(f"dash:{d1}:{d2}:{p1}:{p2}", 60 if live else 900, lambda: _dash_calc(d1, d2, p1, p2))
+    except Exception as e:
+        print("Дашборд:", e, flush=True)
+        return jsonify(ok=False, error="МойСклад долго отвечает — повторите через минуту"), 503
+    return jsonify(ok=True, today=today, **data)
+
+
 def _ms_ping():
     t0 = time.time()
     try:
