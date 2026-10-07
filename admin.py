@@ -589,8 +589,18 @@ def client_note():
 @bp.get("/admin/api/orders")
 @need("orders")
 def orders():
-    rows = fresh("adm_orders", 45, _ms_orders)
-    oh.pdf_prepare([(o["name"], o["id"], o.get("updated")) for o in rows[:30]])
+    q = request.args.get("q", "").strip()[:80]
+    if q:                                          # поиск по всем заказам МойСклад: номер, контрагент, телефон, город (описание)
+        try:
+            rows = oh.ms("GET", "/entity/customerorder", params={
+                "search": q, "order": "moment,desc", "limit": 30, "expand": "agent,state"}, timeout=20)["rows"]
+            rows.sort(key=lambda o: o.get("name", "").lstrip("0") != q.lstrip("0"))    # точный номер — первым
+        except Exception as e:
+            print("Поиск заказов:", e, flush=True)
+            return jsonify(ok=False, error="МойСклад долго отвечает — повторите через минуту"), 503
+    else:
+        rows = fresh("adm_orders", 45, _ms_orders)
+        oh.pdf_prepare([(o["name"], o["id"], o.get("updated")) for o in rows[:30]])
     out = []
     for o in rows:
         desc = (o.get("description") or "").split("\n")
