@@ -51,14 +51,18 @@ class DeliveryTest(unittest.TestCase):
         self.assertEqual(delivery.conf()["svc"]["yandex"]["token"], "y-secret-ABCD")
 
     def test_price_rules(self):
-        delivery.save({"rules": {"pvz_price": "500", "door_price": "995", "free_from": "12000"}})
-        self.assertEqual(delivery.price(4500, "pvz"), 500)
-        self.assertEqual(delivery.price(4500, "door"), 995)
-        self.assertEqual(delivery.price(12000, "door"), 0)
-        delivery.save({"rules": {"free_from": 0}})                     # 0 — бесплатной доставки нет
-        self.assertEqual(delivery.price(50000, "pvz"), 500)
-        delivery.save({"rules": {"pvz_price": "abc"}})                 # мусор не ломает настройки
-        self.assertEqual(delivery.price(100, "pvz"), 500)
+        delivery.save({"rules": {"free_from": "20000"}, "tiers": [[15000, 500], [5000, 1500], [20000, 500], ["x", 1]]})
+        self.assertEqual(delivery.conf()["tiers"], [[5000, 1500], [15000, 500], [20000, 500]])   # по возрастанию, мусор отброшен
+        self.assertEqual(delivery.price(3000), 1500)
+        self.assertEqual(delivery.price(4999, "cdek"), 1500)
+        self.assertEqual(delivery.price(5000), 500)
+        self.assertEqual(delivery.price(17000), 500)
+        self.assertEqual(delivery.price(20000), 0)
+        self.assertEqual(delivery.price(3000, "pickup"), 0)
+        delivery.save({"rules": {"free_from": 0}})                     # 0 — бесплатной нет: выше последней ступени — её цена
+        self.assertEqual(delivery.price(50000), 500)
+        delivery.save({"rules": {"free_from": "abc"}})                 # мусор не ломает настройки
+        self.assertEqual(delivery.price(100), 1500)
 
     def test_schedule_and_slots(self):
         from datetime import datetime

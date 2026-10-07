@@ -113,7 +113,7 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 .vol{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid #EEF1EE}.voi{width:52px;height:52px;flex:none;border-radius:10px;background:#F1F4F2;display:flex;align-items:center;justify-content:center;overflow:hidden;font-size:22px}.voi img{width:100%;height:100%;object-fit:contain}
 .von{flex:1;min-width:0;font-size:14px;line-height:1.3}.von .mut{font-size:12.5px;margin-top:2px}.vos{font-size:14px;white-space:nowrap}
 .vot{border-top:2px solid #0E3B2C;margin-top:6px;padding-top:8px;font-size:14px}.vot div{display:flex;justify-content:space-between;padding:2px 0}.vot .vott{font-weight:800;font-size:16px}
-.dlw{display:grid;gap:14px;max-width:720px}.dlc .row{gap:10px}.dlst{font-size:12.5px;font-weight:700;color:var(--mut,#5F6B65);white-space:nowrap}
+.dlw{display:grid;gap:14px;max-width:720px}.dlw>*{min-width:0}.dlc .row{gap:10px}.dlst{font-size:12.5px;font-weight:700;color:var(--mut,#5F6B65);white-space:nowrap}
 .dlf{display:grid;gap:12px;margin-top:12px}.dlf label,.dlz label{display:grid;gap:4px;font-size:13.5px;font-weight:600}
 .dlf input,.dlz input{font:inherit;font-size:16px;font-weight:400;padding:10px 12px;border:1px solid #D5DCD7;border-radius:10px;background:#fff;width:100%;box-sizing:border-box}
 .dlf .dlck{display:flex;gap:8px;align-items:center;font-weight:500}.dlf .dlck input{width:auto}
@@ -122,6 +122,12 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 .dlz{display:grid;gap:10px;border:1px solid #E1E6E2;border-radius:12px;padding:12px;background:#FAFBFA}.dlzt{font-weight:800;font-size:14px}
 .dln{position:relative;display:block}.dln i{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-style:normal;color:#5F6B65;font-weight:600}
 .dlx{margin-top:10px;font-size:13.5px}
+.dltr{display:grid;gap:8px;margin:12px 0 10px}.dltrr{display:grid;grid-template-columns:auto minmax(0,1fr) auto minmax(0,1fr) 38px;gap:8px;align-items:center}
+.dltrr input{font:inherit;font-size:16px;padding:9px 30px 9px 10px;border:1px solid #D5DCD7;border-radius:10px;background:#fff;width:100%;box-sizing:border-box;min-width:0}
+@media(max-width:480px){.dltrr{grid-template-columns:72px minmax(0,1fr) 38px;grid-template-areas:"a u x" "b p .";row-gap:6px;padding:8px;border:1px solid #E1E6E2;border-radius:12px;background:#FAFBFA}
+.dltrr>:nth-child(1){grid-area:a}.dltrr>:nth-child(2){grid-area:u}.dltrr>:nth-child(3){grid-area:b}.dltrr>:nth-child(4){grid-area:p}.dltrr>:nth-child(5){grid-area:x}}
+.dlt{overflow-x:auto;margin-top:6px}.dlt table{border-collapse:collapse;width:100%;min-width:420px;font-size:14px}.dlt th,.dlt td{text-align:left;padding:8px 10px;border-bottom:1px solid #EEF1EE;vertical-align:top}
+.dlt th{font-size:12px;color:#5F6B65;font-weight:700}.dlt td b{font-variant-numeric:tabular-nums}.dlrun{margin-top:8px;font-weight:700;color:#8A5A00}
 .dlf select{font:inherit;font-size:16px;font-weight:400;padding:10px 12px;border:1px solid #D5DCD7;border-radius:10px;background:#fff;width:100%}
 .acn{background:#F6EFE2;border-radius:12px;padding:12px 14px;font-size:14px;line-height:1.5}
 .acr{display:flex;gap:10px;align-items:flex-start;padding:12px 0;border-top:1px solid #EEF1EE}.acr:first-of-type{border-top:0}.acr .grow{min-width:0}
@@ -433,7 +439,7 @@ async accounts(edit){const o=await api("accounts");const n=nav;const A=o.account
  $("#acrt").onclick=async()=>{const r={};document.querySelectorAll("[data-rt]").forEach(s=>r[s.dataset.rt]=s.value);$("#acrm").textContent="Сохраняю…";
   try{await api("accounts/routes",{method:"POST",body:JSON.stringify(r)});$("#acrm").textContent="Сохранено ✅"}catch(x){$("#acrm").textContent=x.message}};
  if(edit)openForm({kind:"bank"})},
-async delivery(){const o=await api("delivery");const n=nav;const S=o.services,R=o.rules,W=o.store,G=o.schedule;
+async delivery(){const o=await api("delivery");const n=nav;const S=o.services,R=o.rules,W=o.store,G=o.schedule,T=o.tiers||[];
  const svc=(k,hint)=>{const v=S[k];return `<div class="card dlc" data-s="${k}"><div class="row"><div class="grow"><b>${esc(v.name)}</b><div class="mut">${hint}</div></div><span class="dlst" id="dst-${k}">${v.on?(v.ready?"включено":"нет ключей"):"выключено"}</span><button class="sw ${v.on?"on":""}" data-on="${k}" aria-label="${esc(v.name)}"></button></div>
   <div class="dlf">${v.fields.map(f=>`<label>${esc(f.label)}<input id="d-${k}-${f.key}" data-f="${f.key}" ${f.secret?'type="password"':""} autocomplete="off" value="${esc(f.value||"")}" placeholder="${f.secret?(f.set?"сохранён ••••"+esc(f.tail)+" — оставьте пустым":"вставьте из личного кабинета"):""}"></label>`).join("")}
   ${k==="cdek"?`<label class="dlck"><input type="checkbox" id="d-cdek-test" ${v.test?"checked":""}> Тестовый режим СДЭК (учебный сервер, без реальных отправок)</label>`:""}</div>
@@ -441,9 +447,9 @@ async delivery(){const o=await api("delivery");const n=nav;const S=o.services,R=
  const num=(id,label,val,unit)=>`<label>${label}<span class="dln"><input id="${id}" inputmode="numeric" value="${val}"><i>${unit}</i></span></label>`;
  $("#main").innerHTML=head("Доставка","Подключение служб доставки и цена доставки для клиента")+seg("delivery")+`<div class="dlw">
  ${svc("yandex","Курьер по Алматы, в тот же день")}${svc("cdek","По Казахстану: курьер или пункт выдачи")}
- <div class="card dlc"><b>Цена доставки для клиента</b><div class="mut">Как на Kaspi: одна цена по всему Казахстану, от порога — бесплатно</div>
-  <div class="dlg"><div class="dlz">${num("r-pvz_price","В пункт выдачи / постамат",R.pvz_price,"₸")}${num("r-door_price","Курьером до двери",R.door_price,"₸")}</div>
-  <div class="dlz">${num("r-free_from","Бесплатно от суммы товаров (0 — без бесплатной)",R.free_from,"₸")}</div></div>
+ <div class="card dlc"><b>Цена доставки для клиента</b><div class="mut">Одна цена для курьера по городу и СДЭК, зависит от суммы товаров. Самовывоз — бесплатно</div>
+  <div class="dltr" id="dltr"></div><button type="button" class="btn sm ghost" id="dlta">＋ Добавить ступень</button>
+  <div class="dlz" style="margin-top:10px">${num("r-free_from","Бесплатно от суммы товаров (0 — без бесплатной)",R.free_from,"₸")}</div>
   <div class="mut dlx" id="dlx"></div></div>
  <div class="card dlc"><b>График и интервалы доставки</b><div class="mut">Клиент выбирает день и удобный интервал, курьер Яндекса вызывается под него</div>
   <div class="dld">${o.days.map((d,i)=>`<button type="button" class="dlday ${G.days[i]==="1"?"on":""}" data-d="${i}" aria-pressed="${G.days[i]==="1"}">${d}</button>`).join("")}</div>
@@ -459,11 +465,17 @@ async delivery(){const o=await api("delivery");const n=nav;const S=o.services,R=
   <div class="dlg3">${num("r-box_w","Коробка: ширина",R.box_w,"см")}${num("r-box_h","высота",R.box_h,"см")}${num("r-box_d","глубина",R.box_d,"см")}</div>
   <div class="mut" style="font-size:12.5px">Для расчёта цены СДЭК и Яндекс берут вес и размеры посылки. Берём их из карточки товара в МойСклад: стандартное поле «Вес» и доп. поля «Ширина, см», «Высота, см», «Глубина, см». Если поля пустые — значения отсюда.</div></div></div>
  <div class="dlb"><button class="btn" id="dsv">Сохранить</button><span class="mut" id="dsm"></span></div>
+ <div class="card dlc" id="dle"><b>Реальная стоимость доставки</b><div class="mut">Адреса ваших прошлых заказов прогоняются через Яндекс (Алматы) и СДЭК (регионы) — только расчёт, ничего не заказывается</div><div id="dler"><div class="mut" style="margin-top:8px">Загружаю…</div></div></div>
  <div class="mut" style="font-size:13px">Ключи вставляются только здесь — в чат их не присылайте. На сервере они хранятся целиком, в панели показываются последние 4 символа.</div></div>`;
  bindSeg();
- const ex=()=>{const v=id=>+($("#"+id).value.replace(/\D/g,"")||0),pp=v("r-pvz_price"),dp=v("r-door_price"),ff=v("r-free_from"),fr=s=>ff&&s>=ff;
-  $("#dlx").innerHTML=`Пример: заказ на 4 500 ₸ — в постамат ${fr(4500)?"бесплатно":fmt(pp)+" ₸"}, до двери ${fr(4500)?"бесплатно":fmt(dp)+" ₸"}; заказ на 15 000 ₸ — ${fr(15000)?"бесплатно":"в постамат "+fmt(pp)+" ₸, до двери "+fmt(dp)+" ₸"}.`};
- ex();document.querySelectorAll("#r-pvz_price,#r-door_price,#r-free_from").forEach(i=>i.oninput=ex);
+ const tiers=()=>[...document.querySelectorAll(".dltrr")].map(r=>[+(r.querySelector(".dlu").value.replace(/\D/g,"")||0),+(r.querySelector(".dlp").value.replace(/\D/g,"")||0)]).filter(x=>x[0]>0).sort((a,b)=>a[0]-b[0]);
+ const tierRow=(u,pr)=>{const r=document.createElement("div");r.className="dltrr";r.innerHTML=`<span class="mut">до</span><span class="dln"><input class="dlu" inputmode="numeric" value="${u||""}" aria-label="До суммы"><i>₸</i></span><span class="mut">доставка</span><span class="dln"><input class="dlp" inputmode="numeric" value="${pr??""}" aria-label="Цена доставки"><i>₸</i></span><button type="button" class="dlsx" aria-label="Удалить ступень">✕</button>`;
+  r.querySelector(".dlsx").onclick=()=>{r.remove();ex()};r.querySelectorAll("input").forEach(i=>i.oninput=()=>ex());$("#dltr").appendChild(r);return r};
+ T.forEach(([u,pr])=>tierRow(u,pr));$("#dlta").onclick=()=>{tierRow("","").querySelector(".dlu").focus()};
+ const ex=()=>{const ff=+($("#r-free_from").value.replace(/\D/g,"")||0),tt=tiers(),pr=s=>ff&&s>=ff?0:((tt.find(t=>s<t[0])||tt[tt.length-1]||[0,0])[1]),show=s=>`${fmt(s)} ₸ — ${pr(s)?fmt(pr(s))+" ₸":"бесплатно"}`;
+  $("#dlx").innerHTML="Пример: "+[3000,8000,17000,25000].map(show).join("; ")+"."};
+
+ ex();$("#r-free_from").oninput=ex;
  document.querySelectorAll(".dlday").forEach(b=>b.onclick=()=>{b.classList.toggle("on");b.setAttribute("aria-pressed",b.classList.contains("on"))});
  const slotRow=x=>{const r=document.createElement("div");r.className="dlsr";
   r.innerHTML=`<input class="dlsn" placeholder="Название, напр. Вечер" value="${esc(x.name)}" aria-label="Название интервала"><div class="dlst2"><input class="dlsf" type="time" value="${esc(x.from)}" aria-label="С"><span>—</span><input class="dlsto" type="time" value="${esc(x.to)}" aria-label="До"><button type="button" class="dlsx" aria-label="Удалить интервал">✕</button></div>`;
@@ -471,13 +483,23 @@ async delivery(){const o=await api("delivery");const n=nav;const S=o.services,R=
  (G.slots.length?G.slots:[]).forEach(slotRow);
  $("#dlsa").onclick=()=>{const last=[...document.querySelectorAll(".dlsto")].pop();const r=slotRow({name:"",from:last&&last.value||"",to:""});r.querySelector(".dlsn").focus()};
  const collect=()=>{const b={rules:{},store:{}};for(const k of Object.keys(S)){b[k]={};document.querySelectorAll(`[data-s="${k}"] [data-f]`).forEach(i=>b[k][i.dataset.f]=i.value)}
-  b.cdek.test=$("#d-cdek-test").checked;["pvz_price","door_price","free_from","weight","cutoff","box_w","box_h","box_d"].forEach(k=>b.rules[k]=$("#r-"+k).value.replace(/\D/g,"")||0);
+  b.cdek.test=$("#d-cdek-test").checked;["free_from","weight","cutoff","box_w","box_h","box_d"].forEach(k=>b.rules[k]=$("#r-"+k).value.replace(/\D/g,"")||0);b.tiers=tiers();
   b.schedule={days:[...document.querySelectorAll(".dlday")].map(x=>x.classList.contains("on")?"1":"0").join(""),open:$("#g-open").value,close:$("#g-close").value,
    slots:[...document.querySelectorAll(".dlsr")].map(r=>({name:r.querySelector(".dlsn").value,from:r.querySelector(".dlsf").value,to:r.querySelector(".dlsto").value})).filter(x=>x.name.trim())};
   ["wh_addr","wh_phone","wh_hours"].forEach(k=>b.store[k]=$("#w-"+k).value);return b};
  const save=async b=>{await api("delivery",{method:"POST",body:JSON.stringify(b)})};
  $("#dsv").onclick=async()=>{$("#dsm").textContent="Сохраняю…";try{await save(collect());if(n===nav){await views.delivery();toast("Сохранено")}}catch(e){$("#dsm").textContent=e.message}};
  document.querySelectorAll("[data-on]").forEach(b=>b.onclick=async()=>{const k=b.dataset.on;b.disabled=true;try{await save({[k]:{on:!S[k].on}});if(n===nav)views.delivery()}catch(e){b.disabled=false;toast(e.message)}});
+ const est=async(start)=>{let r;try{r=await api("delivery/estimate",start?{method:"POST"}:{})}catch(e){$("#dler").innerHTML=`<div class="mut">${esc(e.message)}</div>`;return}if(n!==nav)return;
+  const x=r.result,cell=s=>s?`<b>${fmt(s.med)} ₸</b><div class="mut">ср. ${fmt(s.avg)} · дорогие ${fmt(s.p90)}</div>`:'<span class="mut">—</span>';
+  const P=["0,5 кг","1,5 кг"],row=(t,k)=>`<tr><td>${t}</td>${P.map(p=>`<td>${cell(x[k]&&x[k][p])}</td>`).join("")}</tr>`;
+  $("#dler").innerHTML=(r.running?'<div class="dlrun">⏳ Считаю… обычно 1–2 минуты</div>':"")+(x&&x.fatal?`<div class="mut">❌ ${esc(x.fatal)}</div>`:"")+(x&&!x.fatal?`<div class="mut" style="margin:8px 0">Расчёт от ${new Date(x.at*1000).toLocaleString("ru",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})} · заказов просмотрено ${x.orders||0}${x.almaty_addresses?` · адресов Алматы ${x.almaty_addresses[1]} из ${x.almaty_addresses[0]}`:""}${x.regions?` · городов ${x.regions[1]} из ${x.regions[0]}`:""}${x.from?` · откуда: ${esc(x.from)}`:""}</div>
+   <div class="dlt"><table><thead><tr><th>Медиана (половина заказов дешевле)</th>${P.map(p=>`<th>${p}</th>`).join("")}</tr></thead><tbody>${row("Яндекс, курьер по Алматы","yandex")}${row("СДЭК, до пункта выдачи","cdek_pvz")}${row("СДЭК, до двери","cdek_door")}</tbody></table></div>
+   ${x.samples&&x.samples.length?`<details style="margin-top:8px"><summary class="mut">СДЭК по городам (0,5 кг)</summary>${x.samples.map(c=>`<div class="mut" style="padding:3px 0">${esc(c.city)} (${c.orders} зак.): пункт ${c.pvz!=null?fmt(c.pvz)+" ₸":"—"}, дверь ${c.door!=null?fmt(c.door)+" ₸":"—"}</div>`).join("")}</details>`:""}
+   ${x.errors&&x.errors.length?`<details style="margin-top:6px"><summary class="mut">Не посчиталось: ${x.errors.length}</summary>${x.errors.map(e=>`<div class="mut" style="padding:3px 0">${esc(e)}</div>`).join("")}</details>`:""}`:"")+(!x&&!r.running?'<div class="mut" style="margin-top:8px">Расчёта ещё не было</div>':"")+
+   `<div class="dlb"><button class="btn sm" id="dlgo" ${r.running?"disabled":""}>${x?"Пересчитать":"Рассчитать по прошлым заказам"}</button></div>`;
+  $("#dlgo").onclick=()=>est(true);if(r.running)setTimeout(()=>{if(n===nav&&cur==="delivery")est(false)},5000)};
+ est(false);
  document.querySelectorAll("[data-t]").forEach(b=>b.onclick=async()=>{const k=b.dataset.t,m=$("#dm-"+k);b.disabled=true;m.textContent="Сохраняю и проверяю…";
   try{await save(collect());   /* введённый ключ сначала сохраняем — проверка идёт с ним */
    const r=await api("delivery/test",{method:"POST",body:JSON.stringify({svc:k})});m.textContent="✅ "+r.message;
