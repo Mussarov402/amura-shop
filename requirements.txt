@@ -6,3 +6,4 @@ psycopg2-binary>=2.9
 pypdf>=4.0
 imageio-ffmpeg>=0.5
 pywebpush>=2.0
+openpyxl>=3.1

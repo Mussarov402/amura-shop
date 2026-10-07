@@ -537,7 +537,7 @@ def client_card(cid):
             if not cancelled:
                 total += o["sum"] / 100
                 paid += o.get("payedSum", 0) / 100
-            orders.append({"number": o["name"], "date": o["moment"][:10], "sum": o["sum"] / 100, "paid": o.get("payedSum", 0) / 100,
+            orders.append({"number": o["name"], "id": o["id"], "date": o["moment"][:10], "sum": o["sum"] / 100, "paid": o.get("payedSum", 0) / 100,
                            "state": st.get("name", "Новый"), "color": "#%06x" % st["color"] if st.get("color") else "",
                            "pdf": f"{oh.PUBLIC_URL}/order/{o['name']}/pdf?t={oh.sign(o['name'])}"})
         try:                                        # баланс взаиморасчётов из МойСклад: минус — клиент должен, плюс — переплата
@@ -643,6 +643,10 @@ def order_detail(number):
     if not o:
         return jsonify(ok=False, error="Заказ не найден"), 404
     lines, loader, fee = [], 0, 0
+    try:
+        imgs = oh.cached("imgidx", 1800, oh._img_index)
+    except Exception:
+        imgs = {}
     for p in pos:
         a, price, qty = p["assortment"], p["price"] / 100, p["quantity"]
         if a.get("code") == oh.LOADER_CODE:
@@ -650,8 +654,11 @@ def order_detail(number):
         elif a["meta"]["type"] == "service" and a.get("name") == oh.FEE_NAME:
             fee += price * qty
         else:
-            lines.append({"pos": p["id"], "type": a["meta"]["type"], "id": a["id"], "name": a["name"], "qty": int(qty), "price": price})
-    return jsonify(ok=True, number=o["name"], client=o["agent"]["name"], state=(o.get("state") or {}).get("name", ""),
+            lines.append({"pos": p["id"], "type": a["meta"]["type"], "id": a["id"], "name": a["name"], "code": a.get("code", ""),
+                          "qty": int(qty), "price": price, "img": f"{oh.SITE_URL}/img/{a['id']}.webp" if a["id"] in imgs else ""})
+    sig = oh.sign(o["name"])
+    return jsonify(ok=True, number=o["name"], id=o["id"], moment=o.get("moment", "")[:16],
+                   pdf=f"{oh.PUBLIC_URL}/order/{o['name']}/pdf?t={sig}", xlsx=f"{oh.PUBLIC_URL}/order/{o['name']}/xlsx?t={sig}&id={o['id']}", client=o["agent"]["name"], state=(o.get("state") or {}).get("name", ""),
                    description=o.get("description") or "", lines=lines, loader=loader, fee=fee, total=o["sum"] / 100,
                    feeRate=oh.FEE_RATE, hasFee=any(p["assortment"].get("name") == oh.FEE_NAME for p in pos))
 

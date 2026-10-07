@@ -903,7 +903,7 @@ def order_from_ms(number, oid=None):
         elif a["meta"]["type"] == "service" and a.get("name") == FEE_NAME:
             fee += price * qty
         else:
-            lines.append({"name": a["name"], "qty": int(qty), "price": price})
+            lines.append({"name": a["name"], "code": a.get("code", ""), "qty": int(qty), "price": price})
     who = desc[1] if len(desc) > 1 else o["agent"]["name"]
     return {"number": o["name"],
             "date": datetime.strptime(o["moment"][:16], "%Y-%m-%d %H:%M").strftime("%d.%m.%Y %H:%M"),
@@ -949,12 +949,53 @@ def build_pdf(o):
 
 
 _pdfs = {}                    # номер заказа -> PDF (последние 200)
+_odata = {}                   # номер заказа -> данные, по которым собран PDF (для Excel без второго запроса в МойСклад)
 
 
-def pdf_store(number, pdf):
+def pdf_store(number, pdf, o=None):
     _pdfs[str(number)] = pdf
+    if o:
+        _odata[str(number)] = o
     while len(_pdfs) > 200:
-        _pdfs.pop(next(iter(_pdfs)))
+        k = next(iter(_pdfs))
+        _pdfs.pop(k)
+        _odata.pop(k, None)
+
+
+def build_xlsx(o):
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    wb = Workbook()
+    ws = wb.active
+    ws.title = f"Заказ {o['number']}"[:31]
+    ws.append([f"Заказ покупателя № {o['number']} от {o['date']}"])
+    ws["A1"].font = Font(bold=True, size=14)
+    ws.append([f"Покупатель: {o['name']}, {o['contact']}"])
+    ws.append([f"Город: {o['city']}    Отправка: {o['ship']}"])
+    ws.append([])
+    ws.append(["№", "Код", "Товар", "Кол-во", "Цена, ₸", "Сумма, ₸"])
+    for c in ws[5]:
+        c.font, c.fill = Font(bold=True, color="FFFFFF"), PatternFill("solid", fgColor="0E3B2C")
+    for i, l in enumerate(o["lines"], 1):
+        r = 5 + i
+        ws.append([i, l.get("code", ""), l["name"], l["qty"], l["price"], f"=D{r}*E{r}"])
+    last = 5 + len(o["lines"])
+    if o["loader"]:
+        ws.append(["", "", "Услуга грузчика", 1, o["loader"], o["loader"]])
+    ws.append(["", "", f"{FEE_NAME} 0,95%", "", "", o["fee"]])
+    ws.append(["", "", "Итого к оплате", "", "", o["total"]])
+    ws.cell(ws.max_row, 3).font = ws.cell(ws.max_row, 6).font = Font(bold=True)
+    for row in ws.iter_rows(min_row=6, max_row=ws.max_row, min_col=5, max_col=6):
+        for c in row:
+            c.number_format = "#,##0"
+    for col, w in zip("ABCDEF", (5, 14, 60, 9, 12, 14)):
+        ws.column_dimensions[col].width = w
+    for r in range(6, last + 1):
+        ws.cell(r, 3).alignment = Alignment(wrap_text=True, vertical="center")
+    ws.freeze_panes = "A6"
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
 
 
 _pdf_busy = set()
@@ -980,7 +1021,7 @@ def pdf_prepare(orders):
             try:
                 o = order_from_ms(n, i)
                 if o:
-                    pdf_store(n, build_pdf(o))
+                    pdf_store(n, build_pdf(o), o)
                     _pdf_ver[n] = upd
             except Exception as e:
                 _pdf_fail[n] = time.time()
@@ -1005,9 +1046,26 @@ def order_pdf(number):
         if not o:
             return "Заказ не найден", 404
         pdf = build_pdf(o)
-        pdf_store(number, pdf)
+        pdf_store(number, pdf, o)
     return Response(pdf, mimetype="application/pdf",
                     headers={"Content-Disposition": f'inline; filename="AMURA-{number}.pdf"'})
+
+
+@bp.route("/order/<number>/xlsx")
+def order_xlsx(number):
+    if not hmac.compare_digest(sign(number), request.args.get("t", "")):
+        return "Ссылка недействительна", 403
+    o = _odata.get(str(number)) if str(number) in _pdfs else None
+    if o is None:
+        try:
+            o = order_from_ms(number, request.args.get("id") if re.fullmatch(r"[0-9a-f-]{36}", request.args.get("id", "")) else None)
+        except Exception as e:
+            print("Excel заказа", number, "— МойСклад не ответил:", e, flush=True)
+            return Response("МойСклад отвечает медленно. Попробуйте через минуту.", 503, mimetype="text/plain; charset=utf-8")
+        if not o:
+            return "Заказ не найден", 404
+    return Response(build_xlsx(o), mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="AMURA-{number}.xlsx"'})
 
 
 # ---------- бот: /start <номер>_<подпись> ----------
