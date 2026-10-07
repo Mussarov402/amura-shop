@@ -81,7 +81,7 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 .snd svg{width:22px;height:22px;fill:none;stroke:#fff;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;margin:0}.snd .mic{width:22px;height:22px;stroke-width:1.9}
 .rec{background:#F6F7F6;padding:8px 10px max(8px,calc(env(safe-area-inset-bottom,0px) - 12px)) 14px;min-height:58px}
 @media(max-width:800px){.ic2{height:100dvh}}
-.src.wa{color:#128C4A;background:#DDF5E7}.src.wa svg{fill:#128C4A}.cmp.off{opacity:.4;pointer-events:none}
+.src.wa{color:#128C4A;background:#DDF5E7}.src.wa svg{fill:#128C4A}.src.ig{color:#C13584;background:#FBE4F1}.src.ig svg{fill:none;stroke:#C13584;stroke-width:2.2}.chips.cn button.ig.on{background:#C13584}.btn.igb{background:#C13584}.cmp.off{opacity:.4;pointer-events:none}
 .wk{display:grid;gap:10px;margin-top:10px}.wk label{font-size:13px;color:var(--mut);display:grid;gap:4px}.cp{display:flex;gap:8px}.cp input{flex:1;font-size:13px}.stepl{margin:8px 0 0 18px;padding:0;line-height:1.55;font-size:14px}
 .seg{display:flex;max-width:100%;overflow-x:auto;scrollbar-width:none}.seg::-webkit-scrollbar{display:none}.seg button{white-space:nowrap;flex:none}
 .tabbar button{min-width:0;font-size:11px;white-space:nowrap}
@@ -317,7 +317,7 @@ async notif(){const o=await api("notif");
  bindSeg();
  document.querySelectorAll("[data-nk]").forEach(b=>b.onclick=async()=>{const on=!b.classList.contains("on");b.classList.toggle("on",on);try{await api("notif",{method:"PUT",body:JSON.stringify({[b.dataset.nk]:on})})}catch(e){b.classList.toggle("on",!on);if(e.message!=="401")alert(e.message)}})},
 async clients(q="",src="ms",page=0,foc=false){const o=await api("clients?src="+src+"&q="+encodeURIComponent(q)+"&page="+page);
- const chn=c=>c==="wa"?'<span class="src wa">WhatsApp</span>':'<span class="src">Telegram</span>';
+ const chn=c=>c==="wa"?'<span class="src wa">WhatsApp</span>':c==="ig"?'<span class="src ig">Instagram</span>':'<span class="src">Telegram</span>';
  $("#main").innerHTML=head("Клиенты","Покупатели из МойСклад и все, кто писал в мессенджеры")+seg("clients")+
  `<div class="chips cn" style="margin-bottom:10px"><button class="st ${src==="ms"?"on":""}" data-src="ms">Покупатели</button><button class="st ${src==="chat"?"on":""}" data-src="chat">Писали в мессенджеры</button></div>
  <input id="clq" placeholder="Имя или телефон" value="${esc(q)}" style="width:100%;margin-bottom:12px" enterkeyhint="search">
@@ -395,13 +395,14 @@ async inbox(openId){const st=await api("inbox/status");let cur=openId||null,flt=
  const dayS=t=>{const d=new Date(t*1000),n=new Date(),y=new Date(Date.now()-864e5);return d.toDateString()===n.toDateString()?"Сегодня":d.toDateString()===y.toDateString()?"Вчера":d.toLocaleDateString("ru-RU",{day:"numeric",month:"long"})};
  const src=`<span class="src"><svg viewBox="0 0 24 24"><path d="M21 4L3 11l6 2 2 6 3-4 5 4z"/></svg>Telegram</span>`;
  const srcWa=`<span class="src wa"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 00-7.7 13.6L3 21l4.5-1.2A9 9 0 1012 3z"/></svg>WhatsApp</span>`;
- const srcOf=c=>c.channel==="wa"?srcWa:src;
+ const srcIg=`<span class="src ig"><svg viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="17" height="17" rx="5"/><circle cx="12" cy="12" r="4"/></svg>Instagram</span>`;
+ const srcOf=c=>c.channel==="wa"?srcWa:c.channel==="ig"?srcIg:src;
  const unOf=c=>c.channel==="wa"?`<span class="un">+${esc(c.phone)}</span>`:(c.username?`<span class="un">@${esc(c.username)}</span>`:"");
  const ST={ai:["ИИ","ai"],manager:["Менеджер","mg"],closed:["Закрыт","cl"]},stb=s=>`<span class="stt ${(ST[s]||ST.ai)[1]}">${(ST[s]||ST.ai)[0]}</span>`;
  const warn=st.persistent?"":'<div class="b x" style="display:block;margin-bottom:10px;border-radius:10px;padding:10px 14px;white-space:normal">База данных не подключена: диалоги пропадут при перезапуске сервера.</div>';
  $("#main").innerHTML=`<div class="ibx2" id="ibx"><section class="il2"><div class="ih"><h1>Сообщения</h1><div class="chips cn" id="fl"></div></div>${warn}<div id="lst"></div></section><section class="ic2" id="ic2"></section></div>`;
  const box=$("#ibx");
- const CH=[["all","Все чаты"],["wa","WhatsApp"],["tg","Telegram"]],inCh=c=>chan==="all"||c.channel===chan;
+ const CH=[["all","Все чаты"],["wa","WhatsApp"],["ig","Instagram"],["tg","Telegram"]],inCh=c=>chan==="all"||c.channel===chan;
  const drawList=()=>{const nc=k=>convs.filter(c=>c.status!=="closed"&&(k==="all"||c.channel===k)),n=k=>convs.filter(c=>inCh(c)&&(k==="all"?c.status!=="closed":c.status===k)).length;
   $("#fl").innerHTML=CH.map(([k,t])=>{const u=nc(k).reduce((a,c)=>a+(c.unread||0),0);return `<button class="${chan===k?"on":""} ${k}" data-c="${k}">${t}${nc(k).length?` <i>${nc(k).length}</i>`:""}${u?`<b class="ud"></b>`:""}</button>`}).join("")+'<span class="sp"></span>'+
    [["manager","Ждут менеджера"],["ai","ИИ"],["closed","Закрытые"]].map(([k,t])=>`<button class="st ${flt===k?"on":""}" data-f="${k}">${t}${k!=="closed"&&n(k)?` <i>${n(k)}</i>`:""}</button>`).join("");
@@ -467,7 +468,7 @@ async inbox(openId){const st=await api("inbox/status");let cur=openId||null,flt=
    paintMsgs(r,true)}else paintMsgs(r,false);
   $("#sbx").innerHTML=stb(c.status);
   $("#cmp").classList.toggle("off",c.open===false);
-  $("#acts").innerHTML=(c.open===false?'<span class="hint" style="color:#8A5A00">Прошло больше 24 часов с последнего сообщения клиента. WhatsApp разрешает ответить только одобренным шаблоном, поэтому писать можно после нового сообщения клиента.</span>':"")+(c.status==="ai"?'<span class="hint">Сейчас отвечает ИИ. Если вы напишете, диалог перейдёт к менеджеру.</span><button data-s="manager">Взять себе</button>':c.status==="closed"?'<span class="hint">Диалог закрыт. Новое сообщение клиента откроет его снова.</span>':'<span class="hint">Отвечает менеджер, ИИ молчит.</span><button data-s="ai">Вернуть ИИ</button>')+(c.status!=="closed"?'<button data-s="closed">Закрыть</button>':"");
+  $("#acts").innerHTML=(c.open===false?(c.channel==="ig"?'<span class="hint" style="color:#8A5A00">Прошло больше 7 дней с последнего сообщения клиента. Instagram не даёт ответить, пока клиент не напишет снова.</span>':'<span class="hint" style="color:#8A5A00">Прошло больше 24 часов с последнего сообщения клиента. WhatsApp разрешает ответить только одобренным шаблоном, поэтому писать можно после нового сообщения клиента.</span>'):c.late?'<span class="hint">Прошло больше 24 часов: Instagram примет ответ менеджера до 7 дней, ИИ уже не ответит.</span>':"")+(c.status==="ai"?'<span class="hint">Сейчас отвечает ИИ. Если вы напишете, диалог перейдёт к менеджеру.</span><button data-s="manager">Взять себе</button>':c.status==="closed"?'<span class="hint">Диалог закрыт. Новое сообщение клиента откроет его снова.</span>':'<span class="hint">Отвечает менеджер, ИИ молчит.</span><button data-s="ai">Вернуть ИИ</button>')+(c.status!=="closed"?'<button data-s="closed">Закрыть</button>':"");
   document.querySelectorAll("#acts [data-s]").forEach(b=>b.onclick=async()=>{await api(`inbox/conv/${cur}/status`,{method:"POST",body:JSON.stringify({status:b.dataset.s})});built=0;openChat(true);list()})};
  await list();await openChat(true);
  timer=setInterval(async()=>{try{await list();if(cur){const r=await api("inbox/conv/"+cur);const last=r.messages.length?r.messages[r.messages.length-1].id:0;if(last!==lastMsg)paintMsgs(r,false);$("#sbx").innerHTML=stb(r.conv.status)}}catch(e){}},6000)},
@@ -524,7 +525,7 @@ async team(){const t=await api("team");const P=t.perms;
  $("#tj").innerHTML=t.invites.map(v=>`<div class="row"><div class="grow"><b>${esc(v.name||"Без имени")}</b><div class="mut">${v.perms.map(p=>P[p]).join(", ")||"без доступа к разделам"}</div></div><button class="btn sm ghost" data-c="${v.code}" data-a="cp">Ссылка</button><button class="btn sm ghost" data-c="${v.code}" data-a="rm">Отозвать</button></div>`).join("");
  document.querySelectorAll("#tj [data-a=cp]").forEach(b=>b.onclick=()=>{navigator.clipboard?.writeText(link(b.dataset.c));b.textContent="Скопировано ✅"});
  document.querySelectorAll("#tj [data-a=rm]").forEach(b=>b.onclick=async()=>{await api("team/invite/"+b.dataset.c,{method:"DELETE"});views.team()})},
-async channels(){const c=await api("channels");const w=c.wa;
+async channels(){const c=await api("channels");const w=c.wa,g=c.ig||{};
  $("#main").innerHTML=head("Каналы","Откуда приходят сообщения клиентов")+seg("channels")+
  `<div class="card" style="margin-bottom:14px"><div class="row" style="border:0;padding-top:0"><div class="grow"><b>Telegram</b><div class="mut">Бот заказов AMURA Orders</div></div>${badge(c.tg.ok,"Подключён","Не настроен")}</div></div>
  <div class="card"><div class="row" style="border:0;padding-top:0"><div class="grow"><b>WhatsApp Business</b><div class="mut">Официальное подключение через Meta</div></div>${badge(w.ok,"Подключён","Не подключён")}</div>
@@ -547,9 +548,27 @@ async channels(){const c=await api("channels");const w=c.wa;
   <div style="margin-top:12px" class="mut">Webhook вручную (если не используете кнопку выше):</div>
   <div class="cp" style="margin-top:6px"><input readonly id="wu" value="${esc(w.url)}"><button class="btn sm ghost" data-c="wu">Копировать</button></div>
   <div class="cp" style="margin-top:6px"><input readonly id="wv" value="${esc(w.verify)}"><button class="btn sm ghost" data-c="wv">Копировать</button></div></details>
- ${c.persist?"":'<div class="b x" style="display:block;margin-top:12px;white-space:normal;border-radius:10px;padding:10px 14px">База данных не подключена: настройки пропадут при перезапуске сервера.</div>'}</div>`;
+ ${c.persist?"":'<div class="b x" style="display:block;margin-top:12px;white-space:normal;border-radius:10px;padding:10px 14px">База данных не подключена: настройки пропадут при перезапуске сервера.</div>'}</div>
+ <div class="card" style="margin-top:14px"><div class="row" style="border:0;padding-top:0"><div class="grow"><b>Instagram Direct</b><div class="mut">${g.ok&&g.username?"@"+esc(g.username)+(g.page?" · страница «"+esc(g.page)+"»":""):"Официальное подключение через Meta (страница Facebook)"}</div></div>${badge(g.ok,"Подключён","Не подключён")}</div>
+ <div class="wk"><label>Page ID (ID страницы Facebook)<input id="gp" value="${esc(g.page_id||"")}" autocomplete="off" inputmode="numeric"></label>
+  <label>Page access token<input id="gt" type="password" value="${esc(g.token||"")}" autocomplete="off"></label>
+  <label>App Secret (необязательно${g.shared_secret?" — сейчас берётся от WhatsApp":""})<input id="gs" type="password" value="${esc(g.secret||"")}" autocomplete="off"></label>
+  <div><button class="btn igb" id="gsv">Сохранить и проверить</button></div></div>
+ <div class="mut" id="gm" style="margin-top:8px;white-space:pre-wrap"></div>
+ <div style="margin-top:12px" class="mut">Адрес вебхука для кабинета Meta (Instagram → Webhooks):</div>
+ <div class="cp" style="margin-top:6px"><input readonly id="gu" value="${esc(g.url||"")}"><button class="btn sm ghost" data-c="gu">Копировать</button></div>
+ <div class="mut" style="margin-top:8px">Verify token:</div>
+ <div class="cp" style="margin-top:6px"><input readonly id="gv" value="${esc(g.verify||"")}"><button class="btn sm ghost" data-c="gv">Копировать</button></div>
+ <details ${g.ok?"":"open"} style="margin-top:14px"><summary style="cursor:pointer;font-weight:700">Как подключить (один раз)</summary>
+  <ol class="stepl"><li>В приложении Instagram: <b>Настройки → Тип аккаунта и инструменты</b> — переключитесь на <b>профессиональный аккаунт</b> (Бизнес).</li>
+  <li>Привяжите аккаунт к <b>странице Facebook</b>: Instagram → Редактировать профиль → Страница (или в Meta Business Suite → Настройки → Аккаунты Instagram).</li>
+  <li>Instagram → <b>Настройки → Сообщения и ответы на истории → Инструменты для сообщений</b>: включите <b>«Разрешить доступ к сообщениям»</b>.</li>
+  <li>developers.facebook.com → ваше приложение Meta (то же, что для WhatsApp) → <b>Добавить продукт → Instagram</b> (API со входом через Facebook). В разделе <b>Webhooks</b> вставьте адрес и verify token выше и подпишитесь на поле <b>messages</b>.</li>
+  <li>Получите <b>Page access token</b> страницы с разрешениями <b>instagram_basic, instagram_manage_messages, pages_manage_metadata, pages_show_list</b> (Graph API Explorer или системный пользователь в Business Settings — его токен не истекает). Вставьте Page ID и токен выше и нажмите «Сохранить и проверить».</li>
+  <li>Пока приложение в режиме разработки, сообщения приходят только от людей с ролью в приложении. Чтобы писали все клиенты, отправьте приложение на <b>проверку (App Review)</b> для разрешения <b>instagram_manage_messages</b> и переключите его в режим «Опубликовано».</li></ol></details></div>`;
  bindSeg();document.querySelectorAll("[data-c]").forEach(b=>b.onclick=()=>{navigator.clipboard?.writeText($("#"+b.dataset.c).value);b.textContent="Скопировано ✅"});
- const msg=t=>$("#wm").textContent=t;
+ const msg=t=>$("#wm").textContent=t,gmsg=t=>$("#gm").textContent=t;
+ $("#gsv").onclick=async()=>{gmsg("Проверяю…");try{const j=await api("channels/ig",{method:"POST",body:JSON.stringify({page_id:$("#gp").value,token:$("#gt").value,secret:$("#gs").value})});gmsg("Работает ✅ Страница «"+(j.page||"")+"»"+(j.username?" · @"+j.username:"")+"\nСтраница подписана на сообщения.");setTimeout(()=>views.channels(),2500)}catch(e){gmsg(e.message)}};
  const save=async(d,ok)=>{try{await api("channels",{method:"PUT",body:JSON.stringify(d)});msg(ok||"Сохранено ✅");setTimeout(()=>views.channels(),700)}catch(e){msg(e.message)}};
  $("#wsa").onclick=()=>save({app_id:$("#wai").value,secret:$("#wsc").value,config_id:$("#wcf").value,config_coex:$("#wcx").value});
  $("#wsv").onclick=()=>save({phone_id:$("#wp").value,token:$("#wt").value});
@@ -664,7 +683,7 @@ async function clientCard(id,back){
  const bal=s.balance==null?stat("Не оплачено",fmt(s.unpaid)+" ₸","по заказам",s.unpaid>0?"var(--danger,#A23B2A)":"")
   :s.balance<0?stat("Долг клиента",fmt(-s.balance)+" ₸","по данным МойСклад","var(--danger,#A23B2A)")
   :s.balance>0?stat("Переплата",fmt(s.balance)+" ₸","по данным МойСклад","#1F6A50"):stat("Долг","нет","по данным МойСклад");
- const chats=r.chats.map(x=>`<div class="row"><div class="grow">${x.channel==="wa"?'<span class="src wa">WhatsApp</span>':'<span class="src">Telegram</span>'} <span class="mut">${esc(x.text||"")}</span></div>${x.unread?`<span class="tbn">${x.unread}</span>`:""}<button class="btn ghost" data-chat="${x.id}">Открыть чат</button></div>`).join("");
+ const chats=r.chats.map(x=>`<div class="row"><div class="grow">${x.channel==="wa"?'<span class="src wa">WhatsApp</span>':x.channel==="ig"?'<span class="src ig">Instagram</span>':'<span class="src">Telegram</span>'} <span class="mut">${esc(x.text||"")}</span></div>${x.unread?`<span class="tbn">${x.unread}</span>`:""}<button class="btn ghost" data-chat="${x.id}">Открыть чат</button></div>`).join("");
  $("#main").innerHTML=`<button class="btn ghost" id="clb" style="margin-bottom:12px">← Клиенты</button>
  <div class="card" style="display:flex;gap:14px;align-items:center;margin-bottom:16px">${avatar(c.name,56)}<div class="grow" style="min-width:0"><h1 style="font-size:22px;margin:0">${esc(c.name)}</h1>
  <div class="mut" style="margin-top:4px">${[c.phone&&`<a href="tel:+${digits}" style="color:var(--g);font-weight:700">${esc(c.phone)}</a>`,c.email&&esc(c.email),c.city&&esc(c.city),c.username&&("@"+esc(c.username)),c.created&&("клиент с "+esc(c.created))].filter(Boolean).join(" · ")||"контактов нет"}</div>

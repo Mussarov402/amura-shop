@@ -12,6 +12,7 @@ import time
 
 import requests
 
+import ig
 import order_hook as oh
 import wa
 
@@ -288,9 +289,9 @@ def product_context(text, limit=8):
 
 
 def fetch_file(file_id, timeout=40):
-    """Файл из Telegram или WhatsApp (id вида «wa:...») -> (байты, имя файла)."""
-    if str(file_id).startswith("wa:"):
-        data, mime = wa.download(file_id)
+    """Файл из Telegram, WhatsApp (id вида «wa:...») или Instagram («ig:...») -> (байты, имя файла)."""
+    if str(file_id).startswith(("wa:", "ig:")):
+        data, mime = (ig if str(file_id).startswith("ig:") else wa).download(file_id)
         return data, "voice.ogg" if "ogg" in mime else "file." + (mime.split("/")[-1].split(";")[0] or "bin")
     info = oh.tg("getFile", file_id=file_id)["result"]
     r = requests.get(f"https://api.telegram.org/file/bot{oh.BOT}/{info['file_path']}", timeout=timeout)
@@ -298,9 +299,12 @@ def fetch_file(file_id, timeout=40):
     return r.content, info["file_path"].rsplit("/", 1)[-1]
 
 
-def send_text(chat, text):
+def send_text(chat, text, human=True):
+    """human=False — ответ ИИ: в Instagram вне 24-часового окна не отправляется."""
     if wa.is_wa(chat):
         wa.send_text(chat, text)
+    elif ig.is_ig(chat):
+        ig.send_text(chat, text, human)
     else:
         oh.tg("sendMessage", chat_id=chat, text=text)
 
@@ -308,12 +312,19 @@ def send_text(chat, text):
 def send_pdf(chat, name, pdf, caption):
     if wa.is_wa(chat):
         wa.send_media(chat, "document", pdf, name, "application/pdf", caption)
+    elif ig.is_ig(chat):
+        ig.send_media(chat, "file", pdf, name, "application/pdf", caption)
     else:
         oh.tg("sendDocument", chat_id=chat, caption=caption, _files={"document": (name, pdf, "application/pdf")})
 
 
 def channel_name(chat):
-    return "WhatsApp" if wa.is_wa(chat) else "Telegram"
+    return "WhatsApp" if wa.is_wa(chat) else "Instagram" if ig.is_ig(chat) else "Telegram"
+
+
+def channel(chat):
+    """Код канала для панели: wa | ig | tg."""
+    return "wa" if wa.is_wa(chat) else "ig" if ig.is_ig(chat) else "tg"
 
 
 def transcribe(file_id):
@@ -449,6 +460,19 @@ def staff_reply(staff_chat, msg):
                 wa.send_text(client, text)
             else:
                 raise RuntimeError("такой тип сообщения не поддерживается")
+        elif ig.is_ig(client):
+            import admin
+            if voice:
+                data, _ = fetch_file(voice["file_id"])
+                media, photo = admin._send_file_ig(client, data, "voice.ogg", voice.get("mime_type") or "audio/ogg", "voice", "", voice.get("duration", 0))
+            elif photo_tg or doc:
+                data, fname = fetch_file(photo_tg or doc["file_id"])
+                mime = "image/jpeg" if photo_tg else (doc.get("mime_type") or "application/octet-stream")
+                media, photo = admin._send_file_ig(client, data, (doc or {}).get("file_name") or fname, mime, "", text, 0)
+            elif text:
+                ig.send_text(client, text)
+            else:
+                raise RuntimeError("такой тип сообщения не поддерживается")
         else:
             if voice:
                 oh.tg("sendVoice", chat_id=client, voice=voice["file_id"])
@@ -546,7 +570,7 @@ def on_client_message(chat, user, text, photo=None, voice=None, pdf=None, media=
                 use_ai = ai_on(d) and not voice_failed
         if status == "ai" and not use_ai:                  # ИИ выключен или нет ключа: диалог — менеджеру, клиенту короткий ответ
             ack = "Спасибо за сообщение! Передал менеджеру — он ответит в ближайшее время."
-            send_text(chat, ack)
+            send_text(chat, ack, human=False)
             with _lock, db() as d:
                 save_msg(d, cid, "ai", ack)
                 d.run("UPDATE conv SET status='manager' WHERE id=%s", (cid,))
@@ -562,7 +586,7 @@ def on_client_message(chat, user, text, photo=None, voice=None, pdf=None, media=
             oh.alert("ai", f"ИИ не ответил клиенту {name}: {str(e)[:200]}. Диалог передан менеджеру.", every=600)
             reply, hand = "Спасибо за сообщение! Передал менеджеру — он ответит в ближайшее время.", True
         reply = clean_reply(reply)
-        send_text(chat, reply)
+        send_text(chat, reply, human=False)
         with _lock, db() as d:
             save_msg(d, cid, "ai", reply)
             if hand:
@@ -577,16 +601,16 @@ def on_client_message(chat, user, text, photo=None, voice=None, pdf=None, media=
             oh.notify_staff(f"inbox:{cid}", f"🙋 {name} ({channel_name(chat)}) ждёт менеджера: {(text or '[фото]')[:200]}\nОтветьте в панели → Сообщения или прямо здесь: свайп влево по сообщению → текст или голосовое")
             if pdf and oh.OWNER:
                 try:
-                    if wa.is_wa(chat):                  # из WhatsApp файл отправляем байтами
-                        oh.notify_staff(f"pdf:{cid}", f"PDF от {name} (WhatsApp, передано менеджеру)", method="sendDocument", _files={"document": (pdf["name"], fetch_file(pdf["id"])[0], "application/pdf")})
+                    if wa.is_wa(chat) or ig.is_ig(chat):        # из WhatsApp и Instagram файл отправляем байтами
+                        oh.notify_staff(f"pdf:{cid}", f"PDF от {name} ({channel_name(chat)}, передано менеджеру)", method="sendDocument", _files={"document": (pdf["name"], fetch_file(pdf["id"])[0], "application/pdf")})
                     else:
                         oh.notify_staff(f"pdf:{cid}", f"PDF от {name} (передано менеджеру)", method="sendDocument", document=pdf["id"])
                 except Exception as e:
                     print("PDF владельцу не ушёл:", e, flush=True)
             if photo and oh.OWNER:                      # чек или фото брака — сразу владельцу, без захода в панель
                 try:
-                    if wa.is_wa(chat):
-                        oh.notify_staff(f"photo:{cid}", f"Фото от {name} (WhatsApp, передано менеджеру)", method="sendPhoto", _files={"photo": ("photo.jpg", fetch_file(photo)[0], "image/jpeg")})
+                    if wa.is_wa(chat) or ig.is_ig(chat):
+                        oh.notify_staff(f"photo:{cid}", f"Фото от {name} ({channel_name(chat)}, передано менеджеру)", method="sendPhoto", _files={"photo": ("photo.jpg", fetch_file(photo)[0], "image/jpeg")})
                     else:
                         oh.notify_staff(f"photo:{cid}", f"Фото от {name} (передано менеджеру)", method="sendPhoto", photo=photo)
                 except Exception as e:
