@@ -737,6 +737,45 @@ def order_ship():
                    loader=oh.LOADER_PRICE, feeRate=oh.FEE_RATE)
 
 
+_RU, _EN = "йцукенгшщзхъфывапролджэячсмитьбюё", "qwertyuiop[]asdfghjkl;'zxcvbnm,.`"
+_RU2EN, _EN2RU = str.maketrans(_RU, _EN), str.maketrans(_EN, _RU)
+
+
+def smart_find(items, q, limit=30):
+    """Поиск товара как в кассе МойСклад: куски слов в любом порядке («dark sun», «сел санскр»), код,
+    и набор в неправильной раскладке («вфкл ыгт» = «dark sun»)."""
+    q = q.lower().replace("ё", "е").strip()
+    toks = [t for t in re.split(r"\s+", q) if t]
+    if not toks:
+        return []
+    variants = [{t, t.translate(_RU2EN), t.translate(_EN2RU).replace("ё", "е")} for t in toks]
+    res = []
+    for i in items:
+        hay = (i["name"] + " " + (i.get("brand") or "") + " " + (i.get("code") or "")).lower().replace("ё", "е")
+        flat = re.sub(r"[\s\-_.,/+()]", "", hay)               # «spf50» найдёт «SPF 50+», «watergel» — «Water-Gel»
+        score = 0
+        for vs in variants:
+            best = 0
+            for v in vs:
+                if re.search(r"(^|[\s\-_/(.,+])" + re.escape(v), hay):
+                    best = 3                                      # совпало с началом слова
+                    break
+                if v in hay or (len(v) > 2 and v in flat):
+                    best = max(best, 1)
+            if not best:
+                break
+            score += best
+        else:
+            code = (i.get("code") or "").lower()
+            if q == code or q.lstrip("0") == code.lstrip("0"):
+                score += 100
+            if q in hay:
+                score += 5
+            res.append((-score, i.get("qty", 0) <= 0, i["name"].lower(), i))
+    res.sort(key=lambda r: r[:3])
+    return [r[3] for r in res[:limit]]
+
+
 @bp.get("/admin/api/orders-search")
 @need("orders")
 def order_search():
@@ -744,7 +783,7 @@ def order_search():
     if len(q) < 2:
         return jsonify(ok=True, items=[])
     shown, _ = _all_items()
-    out = [i for i in shown if q in (i["name"] + " " + i.get("brand", "") + " " + i.get("code", "")).lower()][:20]
+    out = smart_find(shown, q, 30)
     return jsonify(ok=True, items=[{"type": "product", "id": i["id"], "name": i["name"], "qty": i["qty"], "price": oh.unit_price(i, 1, True),
                                     "img": f"{oh.SITE_URL}/{i['img']}" if i.get("img") else ""} for i in out])
 

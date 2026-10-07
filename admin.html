@@ -95,7 +95,7 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 .accmenu button{all:unset;box-sizing:border-box;width:100%;padding:11px 10px;border-radius:10px;cursor:pointer;color:#B3261E;font-weight:700;font-size:14.5px}.accmenu button:hover{background:#FBEAE8}
 .btn.wab{background:#128C4A;font-size:16px;padding:14px 22px}.btn[disabled]{opacity:.45;cursor:not-allowed}details summary{outline:0}
 </style><style id="eocss">.eo{background:#fff;width:100%;max-width:560px;max-height:92vh;overflow:auto;border-radius:18px 18px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom))}
-@media(min-width:801px){.eo{border-radius:18px;margin:auto}}
+@media(min-width:801px){.eo{border-radius:0;margin:0;width:100%;max-width:none;height:100%;max-height:none;box-sizing:border-box;padding:28px max(28px,calc((100vw - 1000px)/2)) 40px}.eo .voa{max-width:560px}}   /* компьютер: заказ на весь экран, содержимое по центру */
 .eor{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid #EEF1EE}.eor:first-child{border-top:0}.eon{flex:1;min-width:0;font-size:14px}
 .srt{width:44px;height:44px;flex:none;border-radius:8px;background:#F1F4F2;display:flex;align-items:center;justify-content:center;overflow:hidden;font-size:18px}.eor .srt{width:36px;height:36px}.srt img{width:100%;height:100%;object-fit:contain}#eor .srn{flex:1;min-width:0}#eor button>.mut{flex:none;text-align:right;max-width:38%}
 .oqw{display:flex;gap:8px;margin:0 0 12px}.oqw input{flex:1;min-width:0}.oqw .btn{flex:none;white-space:nowrap}
@@ -731,6 +731,7 @@ async function clientCard(id,back){
   const cb=document.querySelector("#main #clb");if(cb){cb.click();return true}
   const p=stack.pop();if(!p||grp(p)!==grp(cur)){stack.length=0;return false}back=true;show(p);return true};
  window.goBack=goBack;
+ addEventListener("keydown",e=>{if(e.key!=="Escape"||vis("pv")||vis("dv"))return;const ov=[...document.querySelectorAll(".ovx")].pop();if(ov){e.preventDefault();ov.remove()}});
  const layer=()=>vis("pv")||vis("dv")||[...document.querySelectorAll(".ovx")].pop()||(document.body.classList.contains("inchat")&&document.querySelector(".ibx2.chat .ic2"))||document.getElementById("main");
  /* чат: под уезжающим чатом сразу виден список диалогов с шапкой и нижней панелью (как на iPhone), без белого экрана */
  let peek=null;const peekOn=z=>{if(!z.classList.contains("ic2"))return;peek=z.closest(".ibx2");peek.classList.add("peek");document.body.classList.remove("inchat")};
