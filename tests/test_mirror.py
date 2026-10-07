@@ -174,6 +174,12 @@ class MirrorTest(unittest.TestCase):
         self.assertEqual(by["Контрагенты (не в архиве)"]["ours"], 3)
         self.assertTrue(by["Контрагенты (не в архиве)"]["ok"])
         self.assertGreater(mirror.last_recon(), 0)
+        import contextlib, io
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            mirror.log_last_recon()
+        self.assertIn("Зеркало МойСклад, сверка (последняя,", out.getvalue())
+        self.assertIn("Контрагенты (не в архиве): 3/3", out.getvalue())
 
     def test_site_room_waits_for_free_slots(self):
         import threading

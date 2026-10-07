@@ -1840,6 +1840,15 @@ def delivery_conf():
     return jsonify(ok=True, **delivery.public_conf())
 
 
+@bp.route("/admin/api/delivery/estimate", methods=["GET", "POST"])
+@guard
+def delivery_estimate_route():
+    import delivery_estimate
+    if request.method == "POST":
+        delivery_estimate.run_bg()
+    return jsonify(ok=True, **delivery_estimate.last())
+
+
 @bp.post("/admin/api/delivery/test")
 @guard
 def delivery_test():
