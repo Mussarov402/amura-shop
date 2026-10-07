@@ -427,7 +427,15 @@ const $ = s => document.querySelector(s);
 const fmt = n => new Intl.NumberFormat("ru-RU").format(Math.round(n));
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const RETAIL = !!window.AMURA_RETAIL;   // розничный сайт amura.kz/shop: только розничные цены, заказы с пометкой «розница»
-if(RETAIL){ CONFIG.catalogUrl = "/catalog.json"; CONFIG.liveUrl += "?mode=retail"; }
+if(RETAIL){
+  CONFIG.catalogUrl = "/catalog.json"; CONFIG.liveUrl += "?mode=retail";
+  CONFIG.bankFee = 0;                       // рознице комиссию банка не добавляем
+  CONFIG.shipping = [                       // без КАМАЗа, ЖД, авиа и Казпочты
+    { id: "courier", name: "Курьер по городу", loader: false },
+    { id: "cdek",    name: "СДЭК",             loader: false },
+    { id: "pickup",  name: "Самовывоз",        loader: false }
+  ];
+}
 const SK = k => RETAIL && k !== "amura-auth" ? "r:" + k : k;   // корзина и кэш розницы — отдельно от оптового сайта, вход общий
 function load(k, d){ try{ const v = localStorage.getItem(SK(k)); return v ? JSON.parse(v) : d; }catch{ return d; } }
 function save(k, v){ try{ localStorage.setItem(SK(k), JSON.stringify(v)); }catch{} }
@@ -878,6 +886,8 @@ function shipExtraHTML(f){
     return `<div class="field"><label for="fFio">ФИО получателя</label><input id="fFio" autocomplete="name" value="${esc(f.recipient||"")}"></div>
       <div class="field"><label for="fZip">Индекс</label><input id="fZip" inputmode="numeric" maxlength="6" autocomplete="postal-code" value="${esc(f.zip||"")}"></div>
       <div class="field"><label for="fAddr">Адрес</label><input id="fAddr" autocomplete="street-address" placeholder="Город, улица, дом, квартира" value="${esc(f.address||"")}"></div>`;
+  if(k === "cdek")
+    return `<div class="field"><label for="fAddr">Город и адрес пункта выдачи СДЭК</label><input id="fAddr" autocomplete="street-address" placeholder="Например: Караганда, пр. Бухар-Жырау 52" value="${esc(f.address||"")}"></div>`;
   if(k === "courier")
     return `<div class="field"><label for="fAddr">Адрес доставки по Алматы</label><input id="fAddr" autocomplete="street-address" placeholder="Улица, дом, квартира / офис" value="${esc(f.address||"")}"></div>`;
   return "";
@@ -887,7 +897,7 @@ function renderSum(){
   const t = totals(ship);
   $("#sum").innerHTML = `<div><span>Товары, ${fmt(t.count)} шт</span><b>${fmt(t.goods)} ₸</b></div>
     ${t.loader ? `<div><span>Услуга грузчика</span><b>${fmt(t.loader)} ₸</b></div>` : ""}
-    <div><span>Комиссия банка 0,95%</span><b>${fmt(t.fee)} ₸</b></div>
+    ${t.fee ? `<div><span>Комиссия банка 0,95%</span><b>${fmt(t.fee)} ₸</b></div>` : ""}
     <div class="total"><span>Итого</span><span>${fmt(t.total)} ₸</span></div>`;
 }
 function readForm(){
@@ -936,6 +946,7 @@ $("#drawerBody").addEventListener("submit", async e => {
   if(!f.ship) return fail("Выберите способ отправки");
   if(["kamaz", "rail", "avia"].includes(f.ship) && !f.logistics) return fail("Укажите, через какую логистику отправить", "#fLogi");
   if(f.ship === "courier" && !f.address) return fail("Укажите адрес доставки", "#fAddr");
+  if(f.ship === "cdek" && !f.address) return fail("Укажите город и адрес пункта СДЭК", "#fAddr");
   if(f.ship === "kazpost"){
     if(!f.recipient) return fail("Укажите ФИО получателя", "#fFio");
     if(!/^\d{6}$/.test(f.zip)) return fail("Индекс — 6 цифр", "#fZip");
@@ -980,7 +991,7 @@ $("#drawerBody").addEventListener("submit", async e => {
 function normPhone(d){ if(d.length === 11 && d[0] === "8") d = "7" + d.slice(1); if(d.length === 10) d = "7" + d; return d; }
 function showDone(res, f, t){
   $("#drawerTitle").textContent = "Заказ принят";
-  const shipName = (CONFIG.shipping.find(s => s.id === f.ship)?.name || "") + (f.logistics && f.ship !== "kazpost" && f.ship !== "courier" && f.ship !== "pickup" ? " — " + f.logistics : "") + (f.ship === "kazpost" ? ` — ${f.recipient}, ${f.zip}, ${f.address}` : "") + (f.ship === "courier" ? ` — ${f.address}` : "");
+  const shipName = (CONFIG.shipping.find(s => s.id === f.ship)?.name || "") + (f.logistics && !["kazpost", "courier", "pickup", "cdek"].includes(f.ship) ? " — " + f.logistics : "") + (f.ship === "kazpost" ? ` — ${f.recipient}, ${f.zip}, ${f.address}` : "") + (f.ship === "courier" || f.ship === "cdek" ? ` — ${f.address}` : "");
   // в WhatsApp — только данные заказа и итог; состав заказа — в PDF-накладной
   const text = `Здравствуйте! Мой заказ AMURA № ${res.number}\n${f.name}, ${f.city}, ${shipName}\n\nИтого: ${fmt(res.total || t.total)} ₸`;
   const wa = `https://wa.me/${CONFIG.managerWa}?text=${encodeURIComponent(text)}`;
