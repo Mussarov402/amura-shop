@@ -1,0 +1,32 @@
+name: Розничный сайт
+
+# shop/index.html собирается из index.html (make_shop.py): любое изменение сайта сразу попадает и в розницу
+on:
+  push:
+    branches: [main]
+    paths: ["index.html", "make_shop.py"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency: shop
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python make_shop.py
+      - name: Сохранить
+        run: |
+          git config user.name "amura-bot"
+          git config user.email "amura-bot@users.noreply.github.com"
+          git add shop
+          git diff --cached --quiet && echo "Без изменений" && exit 0
+          git commit -m "Розничный сайт: пересобран из index.html"
+          git pull --rebase
+          git push

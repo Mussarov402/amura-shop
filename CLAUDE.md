@@ -1,6 +1,6 @@
 # AMURA — правила работы
 
-- Магазин: `index.html` (GitHub Pages, amura.kz). Панель: `admin.html` + Flask (`app.py`, `admin.py`, `order_hook.py`, `inbox.py`, `wa.py`, `team.py`, `push.py`) на Render, admin.amura.kz.
+- Магазин: `index.html` (GitHub Pages, amura.kz) — оптовый. Розничный сайт amura.kz/shop — тот же `index.html` в режиме розницы: `shop/index.html` собирает `make_shop.py` (и GitHub Action), вручную не править; розничные заказы помечены «Заказ с розничного сайта». Панель: `admin.html` + Flask (`app.py`, `admin.py`, `order_hook.py`, `inbox.py`, `wa.py`, `team.py`, `push.py`) на Render, admin.amura.kz.
 - Делать сразу, не спрашивать «сделать ли»: изменение → проверка → коммит → PR → merge → деплой на Render.
 - **Любое изменение панели делать одновременно для телефона и для компьютера.** На телефоне подразделы — вкладки `.seg` вверху, на компьютере — боковое меню `aside` с блоками `.subs` (у каждой группы из `SEG` должен быть свой `<div class="subs" data-for="…">`). Окна `.eo`: на телефоне — снизу, на компьютере — на весь экран. Проверять обе ширины (390px и 1280px).
 - Интерфейс — на русском, суммы в тенге без копеек.

@@ -830,14 +830,17 @@ def client_note():
 @need("orders")
 def orders():
     q = request.args.get("q", "").strip()[:80]
+    retail = request.args.get("kind") == "retail"  # вкладка «Розница»: только заказы с розничного сайта
     try:
         offset = max(0, int(request.args.get("offset", 0)))
     except ValueError:
         offset = 0
-    if q or offset:                                # поиск по всем заказам (номер, контрагент, телефон, город) и «Показать ещё»
+    if q or offset or retail:                      # поиск по всем заказам (номер, контрагент, телефон, город) и «Показать ещё»
         params = {"order": "moment,desc", "limit": 50, "offset": offset, "expand": "agent,state"}
         if q:
             params["search"] = q
+        if retail:
+            params["filter"] = "description~" + oh.RETAIL_MARK
         try:
             r = oh.ms("GET", "/entity/customerorder", params=params, timeout=20)
         except Exception as e:
@@ -854,6 +857,7 @@ def orders():
     for o in rows:
         desc = (o.get("description") or "").split("\n")
         out.append({"id": o["id"], "number": o["name"], "moment": o["moment"][:16], "client": o["agent"]["name"],
+                    "retail": (o.get("description") or "").startswith(oh.RETAIL_MARK),
                     "ship": (desc[3][len("Отправка: "):] if len(desc) > 3 and desc[3].startswith("Отправка: ") else ""),
                     "sum": o["sum"] / 100, "state": (o.get("state") or {}).get("name", "Новый"),
                     "color": "#%06x" % ((o.get("state") or {}).get("color") or 0) if (o.get("state") or {}).get("color") else "",
