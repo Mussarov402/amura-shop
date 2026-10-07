@@ -97,6 +97,8 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 </style><style id="eocss">.eo{background:#fff;width:100%;max-width:560px;max-height:92vh;overflow:auto;border-radius:18px 18px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom))}
 @media(min-width:801px){.eo{border-radius:0;margin:0;width:100%;max-width:none;height:100%;max-height:none;box-sizing:border-box;padding:28px max(28px,calc((100vw - 1000px)/2)) 40px}.eo .voa{max-width:560px}}   /* компьютер: заказ на весь экран, содержимое по центру */
 .eor{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid #EEF1EE}.eor:first-child{border-top:0}.eon{flex:1;min-width:0;font-size:14px}
+.ostb{border:0;border-radius:8px;padding:4px 10px;font:inherit;font-size:13px;font-weight:700;background:#EEF1EE;color:#16201B;cursor:pointer}
+.osti{display:flex;align-items:center;gap:10px;width:100%;padding:12px;margin:4px 0;border:1px solid #E3E8E4;border-radius:12px;background:#fff;font:inherit;font-size:15px;cursor:pointer;text-align:left}.osti.on{background:#F1F6F3}.osti i{width:14px;height:14px;border-radius:50%;flex:none}
 .vhh{font-weight:800;font-size:16px;margin:18px 0 6px}.vhi{padding:8px 0;border-top:1px solid #EEF1EE}.vht{display:flex;align-items:center;gap:8px;font-size:13px;flex-wrap:wrap}.vht .mut{margin-left:auto}
 .vhs{font-size:11px;font-weight:700;border-radius:6px;padding:1px 6px;background:#E6F1EA;color:#1F6B4E}.vhs.ms{background:#EEF0F6;color:#4A5578}.vhx{white-space:pre-line;font-size:13.5px;margin-top:3px;line-height:1.4}
 .srt{width:44px;height:44px;flex:none;border-radius:8px;background:#F1F4F2;display:flex;align-items:center;justify-content:center;overflow:hidden;font-size:18px}.eor .srt{width:36px;height:36px}.srt img{width:100%;height:100%;object-fit:contain}#eor .srn{flex:1;min-width:0}#eor button>.mut{flex:none;text-align:right;max-width:38%}
@@ -189,13 +191,13 @@ const editOrder=async(n,oid)=>{const ov=document.createElement("div");ov.classNa
  ov.innerHTML='<div class="eo"><div class="mut">Загружаю заказ…</div></div>';ov.onclick=e=>{if(e.target===ov)ov.remove()};
  let d;try{d=await api("orders/"+encodeURIComponent(n)+(oid?"?id="+oid:""))}catch(e){ov.querySelector(".eo").innerHTML='<div class="b x" style="white-space:normal">'+esc(e.message)+'</div>';return}
  let L=d.lines.map(x=>({...x}));const calc=()=>{const g=L.reduce((s,x)=>s+x.qty*x.price,0);const fee=d.hasFee?Math.floor((g+d.loader)*d.feeRate+.5):d.fee;return{g,fee,t:g+d.loader+fee}};
- const draw=()=>{const c=calc();ov.querySelector(".eo").innerHTML=`<div style="font-weight:800;font-size:17px">Заказ №${esc(d.number)}</div><div class="mut" style="margin-bottom:10px">${esc(d.client)} · ${esc(d.state)}</div>
+ const draw=()=>{const c=calc();ov.querySelector(".eo").innerHTML=`<div style="font-weight:800;font-size:17px">Заказ №${esc(d.number)}</div><div class="mut" style="margin-bottom:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">${esc(d.client)} ${stBtn(d)}</div>
   <div class="eol">${L.map((x,i)=>`<div class="eor"><div class="eon">${esc(x.name)}</div><input type="number" inputmode="numeric" min="1" value="${x.qty}" data-i="${i}" data-f="qty" aria-label="Количество"><span class="mut">×</span><input type="number" inputmode="numeric" min="0" value="${x.price}" data-i="${i}" data-f="price" aria-label="Цена"><button class="eox" data-x="${i}" aria-label="Убрать">✕</button></div>`).join("")}</div>
   <div class="eos"><input id="eoq" placeholder="＋ Добавить товар: название или код" autocomplete="off"><div id="eor"></div></div>
   <label class="mut" style="display:block;margin:10px 0 4px">Комментарий / данные заказа</label><textarea id="eod" rows="4">${esc(d.description)}</textarea>
   <div class="eot"><span>Товары: ${fmt(c.g)} ₸</span>${d.loader?`<span>Грузчик: ${fmt(d.loader)} ₸</span>`:""}<span>Комиссия банка: ${fmt(c.fee)} ₸</span><b>Итого: ${fmt(c.t)} ₸</b></div>
   <div class="mut" id="eom"></div><div style="display:flex;gap:8px"><button class="btn" id="eos">Сохранить</button><button class="btn ghost" id="eoc">Отмена</button></div>`;
-  const keep=()=>{d.description=$("#eod").value};
+  const keep=()=>{d.description=$("#eod").value};bindStBtn(ov,d);
   ov.querySelectorAll("input[data-i]").forEach(inp=>inp.onchange=()=>{keep();const v=parseFloat(inp.value);L[inp.dataset.i][inp.dataset.f]=isFinite(v)&&v>=0?(inp.dataset.f==="qty"?Math.max(1,Math.round(v)):v):L[inp.dataset.i][inp.dataset.f];draw()});
   ov.querySelectorAll("[data-x]").forEach(b=>b.onclick=()=>{keep();if(L.length<2)return $("#eom").textContent="В заказе должен остаться хотя бы один товар";L.splice(+b.dataset.x,1);draw()});
   let tm;$("#eoq").oninput=e=>{clearTimeout(tm);const q=e.target.value.trim();tm=setTimeout(async()=>{if(q.length<2)return $("#eor").innerHTML="";try{const r=await api("orders-search?q="+encodeURIComponent(q));$("#eor").innerHTML=r.items.map((x,i)=>`<button data-a="${i}">${thumb(x.img)}<span class="srn">${esc(x.name)}</span><span class="mut">${fmt(x.price)} ₸ · ост. ${x.qty}</span></button>`).join("")||'<div class="mut">Ничего не найдено</div>';$("#eor").querySelectorAll("[data-a]").forEach(b=>b.onclick=()=>{keep();const it=r.items[+b.dataset.a],ex=L.find(z=>z.id===it.id);if(ex)ex.qty++;else L.push({pos:"",type:it.type,id:it.id,name:it.name,qty:1,price:it.price});draw()})}catch(er){}},250)};
@@ -244,6 +246,17 @@ const newOrder=async()=>{const ov=document.createElement("div");ov.className="ov
    if(r.short&&r.short.length)alert("Не хватило на складе, заказ создан на остаток:\n"+r.short.join("\n"));
    if(cur==="orders")views.orders().catch(()=>{});viewOrder(r.number)}
   catch(er){b.disabled=false;b.textContent="Создать заказ";if(er.message!=="401")m.textContent=er.message}}};
+/* Статус заказа прямо в окне заказа (просмотр и правка): кнопка-статус → список статусов МойСклад */
+const stBtn=d=>{const c=((d.states||[]).find(x=>x.name===d.state)||{}).color||"";return`<button class="ostb" style="${c?`background:${esc(c)};color:#fff`:""}">${esc(d.state||"Без статуса")} ▾</button>`};
+function bindStBtn(root,d,after){const b=root.querySelector(".ostb");if(!b)return;b.onclick=e=>{e.stopPropagation();
+ const ov=document.createElement("div");ov.className="ovx";ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:flex-end;justify-content:center";
+ ov.innerHTML=`<div class="eo dbm" style="padding-bottom:calc(16px + env(safe-area-inset-bottom))"><div style="font-weight:800;margin-bottom:10px">Заказ №${esc(d.number)}: статус</div>`+(d.states||[]).map(x=>`<button data-s="${esc(x.name)}" class="osti${x.name===d.state?" on":""}"><i style="background:${esc(x.color||"#999")}"></i>${esc(x.name)}${x.name===d.state?" ✓":""}</button>`).join("")+`<div class="mut" id="ostm" style="margin-top:6px"></div></div>`;
+ document.body.appendChild(ov);ov.onclick=ev=>{if(ev.target===ov)ov.remove()};
+ ov.querySelectorAll("[data-s]").forEach(x=>x.onclick=async()=>{const st=x.dataset.s;if(st===d.state)return ov.remove();ov.querySelector("#ostm").textContent="Меняю…";
+  try{await api("orders/state",{method:"POST",body:JSON.stringify({number:d.number,id:d.id,state:st})});ov.remove();d.state=st;
+   const nb=document.createElement("div");nb.innerHTML=stBtn(d);b.replaceWith(nb.firstChild);bindStBtn(root,d,after);toast("Статус: "+st+" ✓");
+   if(cur==="orders"&&views.orders)views.orders().catch(()=>{});if(after)after(st)}
+  catch(er){ov.querySelector("#ostm").textContent=er.message}})}}
 /* Просмотр заказа без правки: позиции с фото, PDF / Excel / поделиться */
 const fileCache={};
 const touchDev=matchMedia("(pointer:coarse)").matches;   // телефон/планшет: «Поделиться»; компьютер: просто скачать
@@ -258,18 +271,19 @@ const viewOrder=async(n,oid)=>{const ov=document.createElement("div");ov.classNa
  ov.innerHTML='<div class="eo vo"><div class="mut">Загружаю заказ №'+esc(n)+'…</div></div>';ov.onclick=e=>{if(e.target===ov)ov.remove()};
  let d;try{d=await api("orders/"+encodeURIComponent(n)+(oid?"?id="+oid:""))}catch(e){ov.querySelector(".eo").innerHTML='<div class="b x" style="white-space:normal">'+esc(e.message)+'</div>';return}
  const goods=d.lines.reduce((s,x)=>s+x.qty*x.price,0),cnt=d.lines.reduce((s,x)=>s+x.qty,0);
- ov.querySelector(".eo").innerHTML=`<div class="voh"><div style="min-width:0"><div style="font-weight:800;font-size:18px">Заказ №${esc(d.number)}</div><div class="mut">${esc((d.moment||"").replace("T"," "))} · ${esc(d.state)}</div></div><button class="vox" aria-label="Закрыть">✕</button></div>
+ ov.querySelector(".eo").innerHTML=`<div class="voh"><div style="min-width:0"><div style="font-weight:800;font-size:18px">Заказ №${esc(d.number)}</div><div class="mut" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:2px">${esc((d.moment||"").replace("T"," "))} ${stBtn(d)}</div></div><button class="vox" aria-label="Закрыть">✕</button></div>
   <div style="font-weight:700;margin:6px 0 2px">${esc(d.client)}</div>${d.description?`<div class="vod">${esc(d.description)}</div>`:""}
   <div class="voa"><button data-a="pdf"><i>📄</i>PDF</button><button data-a="xlsx"><i>📊</i>Excel</button><button data-a="share"><i>📤</i>Отправить</button><button data-a="edit"><i>✏️</i>Изменить</button></div>
   <div class="mut" style="margin:10px 0 2px">${d.lines.length} поз. · ${fmt(cnt)} шт.</div>
   <div>${d.lines.map((x,i)=>`<div class="vol">${x.img?`<a class="phl voi" href="${esc(x.img)}"><img src="${esc(x.img)}" loading="lazy" alt=""></a>`:`<span class="voi">🧴</span>`}<div class="von"><div>${esc(x.name)}</div><div class="mut">${x.code?esc(x.code)+" · ":""}${fmt(x.qty)} × ${fmt(x.price)} ₸</div></div><b class="vos">${fmt(x.qty*x.price)} ₸</b></div>`).join("")}</div>
   <div class="vot"><div><span>Товары</span><span>${fmt(goods)} ₸</span></div>${d.loader?`<div><span>Грузчик</span><span>${fmt(d.loader)} ₸</span></div>`:""}${d.fee?`<div><span>Комиссия банка</span><span>${fmt(d.fee)} ₸</span></div>`:""}<div class="vott"><span>Итого</span><span>${fmt(d.total)} ₸</span></div></div>
   <div class="vhh">История изменений</div><div class="vhl"><div class="mut">Загружаю…</div></div>`;
- api("orders/"+encodeURIComponent(d.number)+"/history?id="+encodeURIComponent(d.id||"")).then(h=>{const el=ov.querySelector(".vhl");if(!el)return;
+ const loadHist=()=>api("orders/"+encodeURIComponent(d.number)+"/history?id="+encodeURIComponent(d.id||"")).then(h=>{const el=ov.querySelector(".vhl");if(!el)return;
   const dt=t=>{const x=new Date(t*1000);return x.toLocaleDateString("ru",{day:"2-digit",month:"2-digit"})+" "+x.toLocaleTimeString("ru",{hour:"2-digit",minute:"2-digit"})};
   el.innerHTML=(h.warn?`<div class="mut" style="margin-bottom:6px">${esc(h.warn)}</div>`:"")+(h.items.length?h.items.map(i=>`<div class="vhi"><div class="vht"><b>${esc(i.who||"")}</b><span class="vhs ${i.src}">${i.src==="panel"?"панель":"МойСклад"}</span><span class="mut">${i.at?dt(i.at):""}</span></div><div class="vhx">${esc(i.text)}</div></div>`).join(""):'<div class="mut">Изменений пока нет</div>')})
-  .catch(e=>{const el=ov.querySelector(".vhl");if(el)el.innerHTML='<div class="mut">История не загрузилась: '+esc(e.message)+'</div>'});
+  .catch(e=>{const el=ov.querySelector(".vhl");if(el)el.innerHTML='<div class="mut">История не загрузилась: '+esc(e.message)+'</div>'});loadHist();
  ov.querySelector(".vox").onclick=()=>ov.remove();
+ bindStBtn(ov,d,()=>loadHist());
  if(touchDev){const nm="AMURA-"+d.number;getFile(d.pdf,nm+".pdf","application/pdf").catch(()=>{});getFile(d.xlsx,nm+".xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet").catch(()=>{})}   // заранее: «Поделиться» откроется с первого нажатия
  ov.querySelectorAll(".voa button").forEach(b=>b.onclick=()=>{const a=b.dataset.a,nm="AMURA-"+d.number;
   if(a==="edit"){ov.remove();editOrder(d.number,d.id)}

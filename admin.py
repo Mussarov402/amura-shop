@@ -933,7 +933,7 @@ def order_detail(number):
                           "qty": int(qty), "price": price, "img": f"{oh.SITE_URL}/img/{a['id']}.webp" if a["id"] in imgs else ""})
     sig = oh.sign(o["name"])
     return jsonify(ok=True, number=o["name"], id=o["id"], moment=o.get("moment", "")[:16],
-                   pdf=f"{oh.PUBLIC_URL}/order/{o['name']}/pdf?t={sig}", xlsx=f"{oh.PUBLIC_URL}/order/{o['name']}/xlsx?t={sig}&id={o['id']}", client=o["agent"]["name"], state=(o.get("state") or {}).get("name", ""),
+                   pdf=f"{oh.PUBLIC_URL}/order/{o['name']}/pdf?t={sig}", xlsx=f"{oh.PUBLIC_URL}/order/{o['name']}/xlsx?t={sig}&id={o['id']}", client=o["agent"]["name"], state=(o.get("state") or {}).get("name", ""), states=_order_states(),
                    description=o.get("description") or "", lines=lines, loader=loader, fee=fee, total=o["sum"] / 100,
                    feeRate=oh.FEE_RATE, hasFee=any(p["assortment"].get("name") == oh.FEE_NAME for p in pos))
 
