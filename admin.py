@@ -12,7 +12,7 @@ import threading
 import time
 from datetime import datetime
 
-from flask import Blueprint, jsonify, request, send_from_directory
+from flask import Blueprint, g, has_request_context, jsonify, request, send_from_directory
 
 import order_hook as oh
 import team
@@ -20,6 +20,13 @@ import wa
 
 bp = Blueprint("admin", __name__)
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+@bp.after_request
+def _stale_header(resp):
+    if g.get("stale"):
+        resp.headers["X-Stale"] = "1"
+    return resp
 ADMIN_HOURS = 24 * 14
 ATTR_HIDDEN, ATTR_PAY, ATTR_BANNERS = "Сайт: скрыт", "Сайт: реквизиты", "Сайт: баннеры"
 _logins = {}   # nonce -> {"t": время, "ok": bool}
@@ -410,6 +417,8 @@ def fresh(key, ttl, fn):
         if key not in _refreshing:
             _refreshing.add(key)
             threading.Thread(target=_refresh_bg, args=(key, fn), daemon=True).start()
+        if has_request_context():
+            g.stale = True                             # панель покажет эти данные и сама перезапросит свежие
         return v[1]
     try:
         return oh.cached(key, ttl, fn)
