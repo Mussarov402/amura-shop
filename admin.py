@@ -1784,3 +1784,41 @@ def wa_token():
     except Exception as e:
         return jsonify(ok=False, error=str(e)[:1200]), 400
     return jsonify(ok=True, name=j.get("verified_name", ""), phone=j.get("display_phone_number", ""))
+
+
+# ---------- зеркало МойСклад (этап 1 миграции, только чтение; раздел панели #mirror — только владелец) ----------
+import mirror  # noqa: E402
+
+
+@bp.get("/admin/api/mirror")
+@guard
+def mirror_status():
+    return jsonify(ok=True, **mirror.status())
+
+
+@bp.post("/admin/api/mirror/flag")
+@guard
+def mirror_flag():
+    on = bool((request.get_json(silent=True) or {}).get("on"))
+    mirror.set_enabled(on)
+    if on:
+        mirror.tick_bg()
+    return jsonify(ok=True, **mirror.status())
+
+
+@bp.post("/admin/api/mirror/sync")
+@guard
+def mirror_sync():
+    return jsonify(ok=True, started=mirror.tick_bg(), **mirror.status())
+
+
+@bp.post("/admin/api/mirror/recon")
+@guard
+def mirror_recon():
+    return jsonify(ok=True, started=mirror.recon_bg(), **mirror.status())
+
+
+@bp.get("/admin/api/mirror/stock")
+@guard
+def mirror_stock():
+    return jsonify(ok=True, items=mirror.stock_of(request.args.get("q", "")))
