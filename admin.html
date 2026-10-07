@@ -130,7 +130,8 @@ const $=s=>document.querySelector(s),T="amura_admin";let tok=localStorage.getIte
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const fmt=n=>Number(n).toLocaleString("ru-RU").replace(/ /g," ");
 let nav=0;   // номер перехода между разделами: ответ GET-запроса из прежнего раздела отбрасывается
-async function api(p,o={}){const n=nav;const r=await fetch("/admin/api/"+p,{...o,headers:{"Content-Type":"application/json",Authorization:"Bearer "+tok}});
+let gotStale=false;
+async function api(p,o={}){const n=nav;const r=await fetch("/admin/api/"+p,{...o,headers:{"Content-Type":"application/json",Authorization:"Bearer "+tok}});if(!o.method&&r.headers.get("X-Stale"))gotStale=true;
  if(r.status===401){localStorage.removeItem(T);tok="";boot();throw Error("401")}const j=await r.json();if(!o.method&&n!==nav)throw Error("stale");if(!j.ok)throw Error(j.error||"Ошибка");return j}
 const ALLOW={notif:"owner",overview:"owner",pay:"owner",banners:"owner",ai:"owner",team:"owner",channels:"owner",products:"products",orders:"orders",clients:"orders",inbox:"inbox"};
 let ME=null;const can=p=>!!ME&&(ME.role==="owner"||(ALLOW[p]!=="owner"&&ME.perms.includes(ALLOW[p])));
@@ -171,7 +172,7 @@ function drawAcc(){if(!ME)return;const role=ME.role==="owner"?"Владелец"
 const accToggle=(e,from)=>{e.stopPropagation();const m=$("#accmenu");const open=m.hidden||m.dataset.from!==from;m.hidden=!open;m.dataset.from=from;m.className="accmenu "+from};
 $("#acm").onclick=e=>accToggle(e,"top");$("#acd").onclick=e=>accToggle(e,"side");
 document.addEventListener("click",e=>{const m=$("#accmenu");if(!m.hidden&&!m.contains(e.target))m.hidden=true});
-let cur=localStorage.getItem("amura_view")||"overview",restoreY=0;try{const sp=JSON.parse(sessionStorage.getItem("amura_pos")||"null");if(sp&&sp.v===cur)restoreY=sp.y||0}catch(e){}
+let lastArg,cur=localStorage.getItem("amura_view")||"overview",restoreY=0;try{const sp=JSON.parse(sessionStorage.getItem("amura_pos")||"null");if(sp&&sp.v===cur)restoreY=sp.y||0}catch(e){}
 const savePos=()=>{try{sessionStorage.setItem("amura_pos",JSON.stringify({v:cur,y:scrollY}))}catch(e){}};addEventListener("pagehide",savePos);document.addEventListener("visibilitychange",()=>{if(document.hidden)savePos()});document.querySelectorAll(".nav,.tabbar button").forEach(b=>b.onclick=()=>{document.querySelectorAll(".nav,.tabbar button").forEach(x=>x.classList.toggle("on",x.dataset.p===b.dataset.p));scrollTo(0,0);show(b.dataset.p)});
 const SEG={orders:[["orders","Заказы"],["clients","Клиенты"]],products:[["products","Товары"],["banners","Баннеры на главной"]],overview:[["overview","Состояние"],["pay","Оплата"],["notif","Уведомления"]],ai:[["ai","Чат-проверка"],["rules","Правила"],["kb","База знаний"],["channels","Каналы"],["team","Команда"]]};
 const grp=a=>({notif:"overview",clients:"orders",banners:"products",pay:"overview",team:"ai",rules:"ai",kb:"ai",channels:"ai"}[a]||a);
@@ -225,7 +226,7 @@ const head=(t,s)=>`<h1>${t}</h1><div class="sub">${s}</div>`;
 function toast(t,ms=2600){let el=document.getElementById("tst");if(!el){el=document.createElement("div");el.id="tst";el.style.cssText="position:fixed;left:50%;top:calc(72px + env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:9999;background:#16201B;color:#fff;padding:10px 16px;border-radius:12px;font-weight:700;font-size:14px;box-shadow:0 8px 24px rgba(0,0,0,.25);max-width:90vw;text-align:center";document.body.appendChild(el)}
  clearTimeout(el._t);if(ms<0||!t){el.remove();return}el.textContent=t;if(ms>0)el._t=setTimeout(()=>el.remove(),ms)}
 let timer=null;
-async function show(p,arg){nav++;clearInterval(timer);window.onpopstate=null;try{localStorage.setItem("amura_view",p)}catch(e){}document.body.classList.remove("inchat");cur=p;renderSubs();$("#main").innerHTML='<div class="mut">Загрузка…</div>';try{await views[p](arg);if(restoreY&&p===cur){const y=restoreY;restoreY=0;setTimeout(()=>scrollTo(0,y),60)}}catch(e){if(e.message!=="401"&&e.message!=="stale"&&p===cur)$("#main").innerHTML=`<div class="b x">${esc(e.message)}</div>`}}
+async function show(p,arg){nav++;gotStale=false;lastArg=arg;clearInterval(timer);window.onpopstate=null;try{localStorage.setItem("amura_view",p)}catch(e){}document.body.classList.remove("inchat");cur=p;renderSubs();$("#main").innerHTML='<div class="mut">Загрузка…</div>';try{await views[p](arg);if(restoreY&&p===cur){const y=restoreY;restoreY=0;setTimeout(()=>scrollTo(0,y),60)}}catch(e){if(e.message!=="401"&&e.message!=="stale"&&p===cur)$("#main").innerHTML=`<div class="b x">${esc(e.message)}</div>`}}
 const badge=(ok,a="Работает",b="Сбой")=>`<span class="b ${ok?"ok":"x"}">${ok?a:b}</span>`;
 const views={
 async overview(){const o=await api("overview");$("#main").innerHTML=head("Обзор","Данные с живого сайта")+seg("overview")+`
@@ -654,6 +655,22 @@ async function clientCard(id,back){
   chip.style.opacity=0;chip.style.transform="";chip.classList.remove("go");if(ok&&navigator.vibrate)try{navigator.vibrate(8)}catch(_){}
   if(ok)goBack()};
  addEventListener("touchend",end);addEventListener("touchcancel",end);
+})();
+</script>
+<script>
+/* Свежие данные без ручного обновления: раздел показывается сразу (из кэша), а если данные были старыми —
+   через пару секунд тихо перерисовывается свежими. При возврате в приложение текущий раздел тоже обновляется. */
+(function(){const LIVE={overview:1,orders:1};let busy=false,hiddenAt=0;
+ const quiet=()=>!document.querySelector(".ovx")&&!(document.getElementById("pv")&&!document.getElementById("pv").hidden)&&
+  !(document.activeElement&&/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)&&document.getElementById("main").contains(document.activeElement));
+ async function refresh(tries){if(busy||!LIVE[cur])return;const n=nav,p=cur,a=lastArg;busy=true;
+  try{for(let i=0;i<tries;i++){await new Promise(r=>setTimeout(r,i?2500:0));if(n!==nav||p!==cur)return;
+    if(!quiet()){i--;await new Promise(r=>setTimeout(r,1500));continue}
+    gotStale=false;const y=scrollY;await views[p](a);if(n!==nav)return;scrollTo(0,y);if(!gotStale)return}}
+  catch(e){}finally{busy=false}}
+ const _show=show;show=async(p,a)=>{const r=await _show(p,a);const n=nav;if(gotStale&&LIVE[p])setTimeout(()=>{if(n===nav)refresh(4)},2500);return r};
+ document.addEventListener("visibilitychange",()=>{if(document.hidden){hiddenAt=Date.now();return}
+  if(hiddenAt&&Date.now()-hiddenAt>20000&&typeof tok!=="undefined"&&tok)refresh(4);hiddenAt=0});
 })();
 </script>
 </body></html>
