@@ -81,7 +81,7 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 .snd svg{width:22px;height:22px;fill:none;stroke:#fff;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;margin:0}.snd .mic{width:22px;height:22px;stroke-width:1.9}
 .rec{background:#F6F7F6;padding:8px 10px max(8px,calc(env(safe-area-inset-bottom,0px) - 12px)) 14px;min-height:58px}
 @media(max-width:800px){.ic2{height:100dvh}}
-.src.wa{color:#128C4A;background:#DDF5E7}.src.wa svg{fill:#128C4A}.src.ig{color:#C13584;background:#FBE4F1}.src.ig svg{fill:none;stroke:#C13584;stroke-width:2.2}.chips.cn button.ig.on{background:#C13584}.btn.igb{background:#C13584}.cmp.off{opacity:.4;pointer-events:none}
+.src.web{color:#1F4F9A;background:#E3ECFA}.src.web svg{fill:none;stroke:#1F4F9A;stroke-width:1.8}.chips.cn button.web.on{background:#1F4F9A}.src.wa{color:#128C4A;background:#DDF5E7}.src.wa svg{fill:#128C4A}.src.ig{color:#C13584;background:#FBE4F1}.src.ig svg{fill:none;stroke:#C13584;stroke-width:2.2}.chips.cn button.ig.on{background:#C13584}.btn.igb{background:#C13584}.cmp.off{opacity:.4;pointer-events:none}
 .wk{display:grid;gap:10px;margin-top:10px}.wk label{font-size:13px;color:var(--mut);display:grid;gap:4px}.cp{display:flex;gap:8px}.cp input{flex:1;font-size:13px}.stepl{margin:8px 0 0 18px;padding:0;line-height:1.55;font-size:14px}
 .seg{display:flex;max-width:100%;overflow-x:auto;scrollbar-width:none}.seg::-webkit-scrollbar{display:none}.seg button{white-space:nowrap;flex:none}
 .tabbar button{min-width:0;font-size:11px;white-space:nowrap}
@@ -366,7 +366,7 @@ ${r?r.checks.map(c=>`<div class="row" style="display:block"><div style="display:
   $("#mqr").innerHTML=j.items.length?j.items.map(i=>`<div class="row" style="display:block"><b>${esc(i.name)}</b><div class="mut">код ${esc(i.code||"—")} · ${Object.entries(i.prices).filter(([,v])=>v).map(([k,v])=>esc(k)+": "+fmt(v)+" ₸").join(" · ")||"без цен"}</div><div class="mut">${i.stores.length?i.stores.map(s=>esc(s.store)+": "+s.stock+(s.reserve?" (резерв "+s.reserve+")":"")).join(" · "):"нет на складах"}</div></div>`).join(""):'<div class="mut">Не найдено</div>'}catch(x){$("#mqr").innerHTML=`<div class="b x">${esc(x.message)}</div>`}};
  $("#mqb").onclick=find;$("#mq").onkeydown=ev=>{if(ev.key==="Enter")find()}},
 async clients(q="",src="ms",page=0,foc=false){const o=await api("clients?src="+src+"&q="+encodeURIComponent(q)+"&page="+page);
- const chn=c=>c==="wa"?'<span class="src wa">WhatsApp</span>':c==="ig"?'<span class="src ig">Instagram</span>':'<span class="src">Telegram</span>';
+ const chn=c=>c==="wa"?'<span class="src wa">WhatsApp</span>':c==="ig"?'<span class="src ig">Instagram</span>':c==="web"?'<span class="src web">Сайт</span>':'<span class="src">Telegram</span>';
  $("#main").innerHTML=head("Клиенты","Покупатели из МойСклад и все, кто писал в мессенджеры")+seg("clients")+
  `<div class="chips cn" style="margin-bottom:10px"><button class="st ${src==="ms"?"on":""}" data-src="ms">Покупатели</button><button class="st ${src==="chat"?"on":""}" data-src="chat">Писали в мессенджеры</button></div>
  <input id="clq" placeholder="Имя или телефон" value="${esc(q)}" style="width:100%;margin-bottom:12px" enterkeyhint="search">
@@ -550,13 +550,14 @@ async inbox(openId){const st=await api("inbox/status");let cur=openId||null,flt=
  const src=`<span class="src"><svg viewBox="0 0 24 24"><path d="M21 4L3 11l6 2 2 6 3-4 5 4z"/></svg>Telegram</span>`;
  const srcWa=`<span class="src wa"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 00-7.7 13.6L3 21l4.5-1.2A9 9 0 1012 3z"/></svg>WhatsApp</span>`;
  const srcIg=`<span class="src ig"><svg viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="17" height="17" rx="5"/><circle cx="12" cy="12" r="4"/></svg>Instagram</span>`;
- const srcOf=c=>c.channel==="wa"?srcWa:c.channel==="ig"?srcIg:src;
+ const srcWeb=`<span class="src web"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.5 2.6 2.5 14.4 0 17M12 3.5c-2.5 2.6-2.5 14.4 0 17"/></svg>Сайт</span>`;
+ const srcOf=c=>c.channel==="wa"?srcWa:c.channel==="ig"?srcIg:c.channel==="web"?srcWeb:src;
  const unOf=c=>c.channel==="wa"?`<span class="un">+${esc(c.phone)}</span>`:(c.username?`<span class="un">@${esc(c.username)}</span>`:"");
  const ST={ai:["ИИ","ai"],manager:["Менеджер","mg"],closed:["Закрыт","cl"]},stb=s=>`<span class="stt ${(ST[s]||ST.ai)[1]}">${(ST[s]||ST.ai)[0]}</span>`;
  const warn=st.persistent?"":'<div class="b x" style="display:block;margin-bottom:10px;border-radius:10px;padding:10px 14px;white-space:normal">База данных не подключена: диалоги пропадут при перезапуске сервера.</div>';
  $("#main").innerHTML=`<div class="ibx2" id="ibx"><section class="il2"><div class="ih"><h1>Сообщения</h1><div class="chips cn" id="fl"></div></div>${warn}<div id="lst"></div></section><section class="ic2" id="ic2"></section></div>`;
  const box=$("#ibx");
- const CH=[["all","Все чаты"],["wa","WhatsApp"],["ig","Instagram"],["tg","Telegram"]],inCh=c=>chan==="all"||c.channel===chan;
+ const CH=[["all","Все чаты"],["wa","WhatsApp"],["ig","Instagram"],["web","Сайт"],["tg","Telegram"]],inCh=c=>chan==="all"||c.channel===chan;
  const drawList=()=>{const nc=k=>convs.filter(c=>c.status!=="closed"&&(k==="all"||c.channel===k)),n=k=>convs.filter(c=>inCh(c)&&(k==="all"?c.status!=="closed":c.status===k)).length;
   $("#fl").innerHTML=CH.map(([k,t])=>{const u=nc(k).reduce((a,c)=>a+(c.unread||0),0);return `<button class="${chan===k?"on":""} ${k}" data-c="${k}">${t}${nc(k).length?` <i>${nc(k).length}</i>`:""}${u?`<b class="ud"></b>`:""}</button>`}).join("")+'<span class="sp"></span>'+
    [["manager","Ждут менеджера"],["ai","ИИ"],["closed","Закрытые"]].map(([k,t])=>`<button class="st ${flt===k?"on":""}" data-f="${k}">${t}${k!=="closed"&&n(k)?` <i>${n(k)}</i>`:""}</button>`).join("");
@@ -837,7 +838,7 @@ async function clientCard(id,back){
  const bal=s.balance==null?stat("Не оплачено",fmt(s.unpaid)+" ₸","по заказам",s.unpaid>0?"var(--danger,#A23B2A)":"")
   :s.balance<0?stat("Долг клиента",fmt(-s.balance)+" ₸","по данным МойСклад","var(--danger,#A23B2A)")
   :s.balance>0?stat("Переплата",fmt(s.balance)+" ₸","по данным МойСклад","#1F6A50"):stat("Долг","нет","по данным МойСклад");
- const chats=r.chats.map(x=>`<div class="row"><div class="grow">${x.channel==="wa"?'<span class="src wa">WhatsApp</span>':x.channel==="ig"?'<span class="src ig">Instagram</span>':'<span class="src">Telegram</span>'} <span class="mut">${esc(x.text||"")}</span></div>${x.unread?`<span class="tbn">${x.unread}</span>`:""}<button class="btn ghost" data-chat="${x.id}">Открыть чат</button></div>`).join("");
+ const chats=r.chats.map(x=>`<div class="row"><div class="grow">${x.channel==="wa"?'<span class="src wa">WhatsApp</span>':x.channel==="ig"?'<span class="src ig">Instagram</span>':x.channel==="web"?'<span class="src web">Сайт</span>':'<span class="src">Telegram</span>'} <span class="mut">${esc(x.text||"")}</span></div>${x.unread?`<span class="tbn">${x.unread}</span>`:""}<button class="btn ghost" data-chat="${x.id}">Открыть чат</button></div>`).join("");
  $("#main").innerHTML=`<button class="btn ghost" id="clb" style="margin-bottom:12px">← Клиенты</button>
  <div class="card" style="display:flex;gap:14px;align-items:center;margin-bottom:16px">${avatar(c.name,56)}<div class="grow" style="min-width:0"><h1 style="font-size:22px;margin:0">${esc(c.name)}</h1>
  <div class="mut" style="margin-top:4px">${[c.phone&&`<a href="tel:+${digits}" style="color:var(--g);font-weight:700">${esc(c.phone)}</a>`,c.email&&esc(c.email),c.city&&esc(c.city),c.username&&("@"+esc(c.username)),c.created&&("клиент с "+esc(c.created))].filter(Boolean).join(" · ")||"контактов нет"}</div>
