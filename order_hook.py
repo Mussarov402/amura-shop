@@ -570,6 +570,20 @@ def organization():
     return cached("org", 86400, lambda: ms("GET", "/entity/organization", params={"limit": 1})["rows"][0]["id"])
 
 
+STORE_ID = os.environ.get("MS_STORE_ID", "64e7ab5b-168d-11f0-0a80-0db0000b91a2")   # «Основной склад»
+
+
+def store_id():
+    """Склад для новых заказов: без него сценарий МойСклад создаёт отгрузку черновиком (провести нельзя)."""
+    if STORE_ID:
+        return STORE_ID
+    def find():
+        rows = ms("GET", "/entity/store", params={"limit": 100})["rows"]
+        live = [r for r in rows if not r.get("archived")]
+        return next((r["id"] for r in live if r.get("name") == "Основной склад"), (live or rows)[0]["id"])
+    return cached("store", 86400, find)
+
+
 LOADER_ID = os.environ.get("LOADER_ID", "5c6dc5bf-3baa-11f0-0a80-031800089db8")      # «Услуга грузчика» (код 00308)
 FEE_ID = os.environ.get("FEE_SERVICE_ID", "f5b6ae93-bd87-11f1-0a80-05d1002f5db2")   # услуга «Комиссия банка»
 
@@ -806,6 +820,7 @@ def order_core(d, key, ip, me, source="с сайта", panel=False):
         order = _post_order({
             "externalCode": "site-" + hashlib.sha1(key.encode()).hexdigest()[:24],
             "organization": meta("organization", organization()),
+            "store": meta("store", store_id()),          # склад сразу: отгрузка по сценарию проводится, а не остаётся черновиком
             "agent": meta("counterparty", agent),
             "shipmentAddress": city,
             "description": f"Заказ {source}\n{name}, {contact}\nГород: {city}\nОтправка: {ship_name}",
