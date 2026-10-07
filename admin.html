@@ -122,6 +122,13 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 .dlz{display:grid;gap:10px;border:1px solid #E1E6E2;border-radius:12px;padding:12px;background:#FAFBFA}.dlzt{font-weight:800;font-size:14px}
 .dln{position:relative;display:block}.dln i{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-style:normal;color:#5F6B65;font-weight:600}
 .dlx{margin-top:10px;font-size:13.5px}
+.dlg3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.dlg3 label{display:grid;gap:4px;font-size:13px;font-weight:600}
+.dld{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}.dlday{border:1px solid #D5DCD7;background:#fff;border-radius:10px;padding:8px 0;width:44px;font:inherit;font-weight:700;cursor:pointer;color:#5F6B65}.dlday.on{background:var(--g);border-color:var(--g);color:#fff}
+.dll{display:grid;gap:4px;font-size:13.5px;font-weight:600}.dll input{font:inherit;font-size:16px;padding:9px 12px;border:1px solid #D5DCD7;border-radius:10px;background:#fff}
+.dlsl{display:grid;gap:8px;margin:12px 0 6px}.dlsr{display:grid;grid-template-columns:minmax(0,1fr) 108px auto 108px;gap:6px;align-items:center}
+.dlsr input{font:inherit;font-size:15px;padding:9px 10px;border:1px solid #D5DCD7;border-radius:10px;background:#fff;min-width:0;width:100%;box-sizing:border-box}
+@media(max-width:480px){.dlsr{grid-template-columns:minmax(0,1fr) 92px auto 92px}.dlsr input{font-size:14px;padding:9px 6px}}
+.dlc>label{display:grid;gap:4px;font-size:13.5px;font-weight:600;margin-top:10px}.dlc>label input{font:inherit;font-size:16px;padding:10px 12px;border:1px solid #D5DCD7;border-radius:10px;width:100%;box-sizing:border-box}
 .rtb{font-size:11px;font-weight:800;border-radius:6px;padding:1px 6px;background:#FCE8EE;color:#A0254F;text-transform:uppercase;letter-spacing:.3px}
 .eor input{width:74px;padding:8px;border:1px solid #D9E0DB;border-radius:8px;font:inherit;text-align:right}.eor input:first-of-type{width:56px}.eox{border:0;background:#F4E4E4;color:#9B2C2C;border-radius:8px;width:32px;height:32px;cursor:pointer}
 .eos input,.eo textarea{width:100%;padding:10px 12px;border:1px solid #D9E0DB;border-radius:10px;font:inherit;box-sizing:border-box}#eor button{all:unset;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 6px;border-bottom:1px solid #EEF1EE;font-size:14px;width:calc(100% - 12px)}#eor button:hover{background:#F1F6F3}
@@ -378,7 +385,7 @@ async orders(q,kind){q=q==null?"":String(q);const rt=kind==="retail",vw=rt?"reta
   try{const r=await api(oq(v));if(my===sq&&n0===nav){paint(r);$("#ordl").style.opacity=""}}catch(e){if(my===sq&&e.message!=="stale"){$("#ordl").style.opacity="";$("#ordl").innerHTML=`<div class="b x" style="white-space:normal">${esc(e.message)}</div>`}}};
  inp.oninput=()=>{clearTimeout(tq);tq=setTimeout(run,450)};inp.onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();clearTimeout(tq);inp.blur();run()}};bindSeg()},
 retail(q){return views.orders(q,"retail")},
-async delivery(){const o=await api("delivery");const n=nav;const S=o.services,R=o.rules,W=o.store;
+async delivery(){const o=await api("delivery");const n=nav;const S=o.services,R=o.rules,W=o.store,G=o.schedule;
  const svc=(k,hint)=>{const v=S[k];return `<div class="card dlc" data-s="${k}"><div class="row"><div class="grow"><b>${esc(v.name)}</b><div class="mut">${hint}</div></div><span class="dlst" id="dst-${k}">${v.on?(v.ready?"включено":"нет ключей"):"выключено"}</span><button class="sw ${v.on?"on":""}" data-on="${k}" aria-label="${esc(v.name)}"></button></div>
   <div class="dlf">${v.fields.map(f=>`<label>${esc(f.label)}<input id="d-${k}-${f.key}" data-f="${f.key}" ${f.secret?'type="password"':""} autocomplete="off" value="${esc(f.value||"")}" placeholder="${f.secret?(f.set?"сохранён ••••"+esc(f.tail)+" — оставьте пустым":"вставьте из личного кабинета"):""}"></label>`).join("")}
   ${k==="cdek"?`<label class="dlck"><input type="checkbox" id="d-cdek-test" ${v.test?"checked":""}> Тестовый режим СДЭК (учебный сервер, без реальных отправок)</label>`:""}</div>
@@ -386,23 +393,34 @@ async delivery(){const o=await api("delivery");const n=nav;const S=o.services,R=
  const num=(id,label,val,unit)=>`<label>${label}<span class="dln"><input id="${id}" inputmode="numeric" value="${val}"><i>${unit}</i></span></label>`;
  $("#main").innerHTML=head("Доставка","Подключение служб доставки и цена доставки для клиента")+seg("delivery")+`<div class="dlw">
  ${svc("yandex","Курьер по Алматы, в тот же день")}${svc("cdek","По Казахстану: курьер или пункт выдачи")}
- <div class="card dlc"><b>Цена доставки для клиента</b><div class="mut">Как на Kaspi: заказ меньше порога — фиксированная цена, от порога — бесплатно</div>
-  <div class="dlg"><div class="dlz"><div class="dlzt">По Алматы</div>${num("r-city_price","Цена до порога",R.city_price,"₸")}${num("r-city_free","Бесплатно от",R.city_free,"₸")}</div>
-  <div class="dlz"><div class="dlzt">По Казахстану</div>${num("r-kz_price","Цена до порога",R.kz_price,"₸")}${num("r-kz_free","Бесплатно от",R.kz_free,"₸")}</div></div>
+ <div class="card dlc"><b>Цена доставки для клиента</b><div class="mut">Как на Kaspi: одна цена по всему Казахстану, от порога — бесплатно</div>
+  <div class="dlg"><div class="dlz">${num("r-pvz_price","В пункт выдачи / постамат",R.pvz_price,"₸")}${num("r-door_price","Курьером до двери",R.door_price,"₸")}</div>
+  <div class="dlz">${num("r-free_from","Бесплатно от суммы товаров (0 — без бесплатной)",R.free_from,"₸")}</div></div>
   <div class="mut dlx" id="dlx"></div></div>
+ <div class="card dlc"><b>График и интервалы доставки</b><div class="mut">Клиент выбирает день и удобный интервал, курьер Яндекса вызывается под него</div>
+  <div class="dld">${o.days.map((d,i)=>`<button type="button" class="dlday ${G.days[i]==="1"?"on":""}" data-d="${i}" aria-pressed="${G.days[i]==="1"}">${d}</button>`).join("")}</div>
+  <div class="dlg"><label class="dll">Начало работы<input id="g-open" type="time" value="${esc(G.open)}"></label><label class="dll">Конец работы<input id="g-close" type="time" value="${esc(G.close)}"></label></div>
+  <div class="dlsl" id="dlsl">${[0,1,2,3,4].map(i=>{const x=G.slots[i]||{name:"",from:"",to:""};return `<div class="dlsr"><input data-sn="${i}" placeholder="Название, напр. Вечер" value="${esc(x.name)}" aria-label="Название интервала"><input data-sf="${i}" type="time" value="${esc(x.from)}" aria-label="С"><span>—</span><input data-st="${i}" type="time" value="${esc(x.to)}" aria-label="До"></div>`}).join("")}</div>
+  <div class="mut" style="font-size:12.5px">Пустая строка — интервала нет. Сохраняются только интервалы с названием и временем.</div>
+  ${num("r-cutoff","Интервал можно выбрать, если до его начала больше",R.cutoff,"мин")}</div>
  <div class="card dlc"><b>Склад — откуда забирает курьер</b><div class="dlf">
   <label>Адрес<input id="w-wh_addr" autocomplete="off" value="${esc(W.wh_addr)}" placeholder="Алматы, улица, дом"></label>
   <label>Телефон на складе<input id="w-wh_phone" inputmode="tel" autocomplete="off" value="${esc(W.wh_phone)}" placeholder="+7 7__ ___ __ __"></label>
   <label>Когда можно забирать<input id="w-wh_hours" autocomplete="off" value="${esc(W.wh_hours)}" placeholder="Пн–Сб 10:00–18:00"></label>
-  ${num("r-weight","Вес посылки на 1 товар (в МойСклад у товаров вес 0)",R.weight,"г")}</div></div>
+  ${num("r-weight","Вес на 1 товар, если в карточке МойСклад «Вес» пустой",R.weight,"г")}
+  <div class="dlg3">${num("r-box_w","Коробка: ширина",R.box_w,"см")}${num("r-box_h","высота",R.box_h,"см")}${num("r-box_d","глубина",R.box_d,"см")}</div>
+  <div class="mut" style="font-size:12.5px">Для расчёта цены СДЭК и Яндекс берут вес и размеры посылки. Берём их из карточки товара в МойСклад: стандартное поле «Вес» и доп. поля «Ширина, см», «Высота, см», «Глубина, см». Если поля пустые — значения отсюда.</div></div></div>
  <div class="dlb"><button class="btn" id="dsv">Сохранить</button><span class="mut" id="dsm"></span></div>
  <div class="mut" style="font-size:13px">Ключи вставляются только здесь — в чат их не присылайте. На сервере они хранятся целиком, в панели показываются последние 4 символа.</div></div>`;
  bindSeg();
- const ex=()=>{const v=id=>+($("#"+id).value.replace(/\D/g,"")||0),cp=v("r-city_price"),cf=v("r-city_free"),kp=v("r-kz_price"),kf=v("r-kz_free");
-  $("#dlx").innerHTML=`Пример: заказ на 4 500 ₸ по Алматы — доставка ${4500>=cf?"бесплатно":fmt(cp)+" ₸"}; заказ на 12 000 ₸ в Караганду — ${12000>=kf?"бесплатно":fmt(kp)+" ₸"}.`};
- ex();document.querySelectorAll("#r-city_price,#r-city_free,#r-kz_price,#r-kz_free").forEach(i=>i.oninput=ex);
+ const ex=()=>{const v=id=>+($("#"+id).value.replace(/\D/g,"")||0),pp=v("r-pvz_price"),dp=v("r-door_price"),ff=v("r-free_from"),fr=s=>ff&&s>=ff;
+  $("#dlx").innerHTML=`Пример: заказ на 4 500 ₸ — в постамат ${fr(4500)?"бесплатно":fmt(pp)+" ₸"}, до двери ${fr(4500)?"бесплатно":fmt(dp)+" ₸"}; заказ на 15 000 ₸ — ${fr(15000)?"бесплатно":"в постамат "+fmt(pp)+" ₸, до двери "+fmt(dp)+" ₸"}.`};
+ ex();document.querySelectorAll("#r-pvz_price,#r-door_price,#r-free_from").forEach(i=>i.oninput=ex);
+ document.querySelectorAll(".dlday").forEach(b=>b.onclick=()=>{b.classList.toggle("on");b.setAttribute("aria-pressed",b.classList.contains("on"))});
  const collect=()=>{const b={rules:{},store:{}};for(const k of Object.keys(S)){b[k]={};document.querySelectorAll(`[data-s="${k}"] [data-f]`).forEach(i=>b[k][i.dataset.f]=i.value)}
-  b.cdek.test=$("#d-cdek-test").checked;["city_price","city_free","kz_price","kz_free","weight"].forEach(k=>b.rules[k]=$("#r-"+k).value.replace(/\D/g,"")||0);
+  b.cdek.test=$("#d-cdek-test").checked;["pvz_price","door_price","free_from","weight","cutoff","box_w","box_h","box_d"].forEach(k=>b.rules[k]=$("#r-"+k).value.replace(/\D/g,"")||0);
+  b.schedule={days:[...document.querySelectorAll(".dlday")].map(x=>x.classList.contains("on")?"1":"0").join(""),open:$("#g-open").value,close:$("#g-close").value,
+   slots:[0,1,2,3,4].map(i=>({name:$(`[data-sn="${i}"]`).value,from:$(`[data-sf="${i}"]`).value,to:$(`[data-st="${i}"]`).value})).filter(x=>x.name.trim())};
   ["wh_addr","wh_phone","wh_hours"].forEach(k=>b.store[k]=$("#w-"+k).value);return b};
  const save=async b=>{await api("delivery",{method:"POST",body:JSON.stringify(b)})};
  $("#dsv").onclick=async()=>{$("#dsm").textContent="Сохраняю…";try{await save(collect());if(n===nav){await views.delivery();toast("Сохранено")}}catch(e){$("#dsm").textContent=e.message}};
