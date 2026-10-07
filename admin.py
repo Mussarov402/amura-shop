@@ -690,6 +690,38 @@ def order_detail(number):
                    feeRate=oh.FEE_RATE, hasFee=any(p["assortment"].get("name") == oh.FEE_NAME for p in pos))
 
 
+@bp.post("/admin/api/orders/new")
+@need("orders")
+def order_new():
+    """Новый заказ из панели: тот же путь, что и с сайта (контрагент по телефону, резерв, комиссия, грузчик, PDF)."""
+    d = request.get_json(silent=True) or {}
+    key = "panel:" + (str(d.get("orderKey") or "")[:64] or secrets.token_hex(8))
+    hit = oh._orders.get(key)                       # двойное нажатие «Создать» не создаёт второй заказ
+    if hit:
+        return jsonify(**hit[1])
+    me = who() or {}
+    payload, status = oh.order_core(d, key, "", None, source=f"из панели ({me.get('name') or 'менеджер'})", panel=True)
+    data = payload.pop("_data", None)
+    if status != 200:
+        return jsonify(**payload), status
+    asked = {str(p.get("id")): int(p.get("qty") or 0) for p in (d.get("items") or [])}
+    got = {l["id"]: l["qty"] for l in (data or {}).get("lines", [])}
+    names = {x["id"]: x["name"] for x in _all_items()[0]}
+    short = [names.get(i, "товар") + (f" — {got[i]} из {n} шт." if i in got else " — нет в наличии")
+             for i, n in asked.items() if got.get(i, 0) < n]
+    out = dict(ok=True, number=payload["number"], total=payload["total"], short=short)
+    oh._orders[key] = (time.time(), out)
+    oh._cache.pop("adm_orders", None)
+    return jsonify(**out)
+
+
+@bp.get("/admin/api/orders/ship")
+@need("orders")
+def order_ship():
+    return jsonify(ok=True, ship=[{"key": k, "name": v[0], "loader": v[1]} for k, v in oh.SHIPPING.items()],
+                   loader=oh.LOADER_PRICE, feeRate=oh.FEE_RATE)
+
+
 @bp.get("/admin/api/orders-search")
 @need("orders")
 def order_search():
