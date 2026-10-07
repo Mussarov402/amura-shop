@@ -389,7 +389,7 @@ async delivery(){const o=await api("delivery");const n=nav;const S=o.services,R=
  const svc=(k,hint)=>{const v=S[k];return `<div class="card dlc" data-s="${k}"><div class="row"><div class="grow"><b>${esc(v.name)}</b><div class="mut">${hint}</div></div><span class="dlst" id="dst-${k}">${v.on?(v.ready?"включено":"нет ключей"):"выключено"}</span><button class="sw ${v.on?"on":""}" data-on="${k}" aria-label="${esc(v.name)}"></button></div>
   <div class="dlf">${v.fields.map(f=>`<label>${esc(f.label)}<input id="d-${k}-${f.key}" data-f="${f.key}" ${f.secret?'type="password"':""} autocomplete="off" value="${esc(f.value||"")}" placeholder="${f.secret?(f.set?"сохранён ••••"+esc(f.tail)+" — оставьте пустым":"вставьте из личного кабинета"):""}"></label>`).join("")}
   ${k==="cdek"?`<label class="dlck"><input type="checkbox" id="d-cdek-test" ${v.test?"checked":""}> Тестовый режим СДЭК (учебный сервер, без реальных отправок)</label>`:""}</div>
-  <div class="dlb"><button class="btn sm ghost" data-t="${k}" ${v.ready?"":"disabled"}>Проверить подключение</button><span class="mut" id="dm-${k}"></span></div></div>`};
+  <div class="dlb"><button class="btn sm ghost" data-t="${k}">Проверить подключение</button><span class="mut" id="dm-${k}"></span></div></div>`};
  const num=(id,label,val,unit)=>`<label>${label}<span class="dln"><input id="${id}" inputmode="numeric" value="${val}"><i>${unit}</i></span></label>`;
  $("#main").innerHTML=head("Доставка","Подключение служб доставки и цена доставки для клиента")+seg("delivery")+`<div class="dlw">
  ${svc("yandex","Курьер по Алматы, в тот же день")}${svc("cdek","По Казахстану: курьер или пункт выдачи")}
@@ -425,8 +425,11 @@ async delivery(){const o=await api("delivery");const n=nav;const S=o.services,R=
  const save=async b=>{await api("delivery",{method:"POST",body:JSON.stringify(b)})};
  $("#dsv").onclick=async()=>{$("#dsm").textContent="Сохраняю…";try{await save(collect());if(n===nav){await views.delivery();toast("Сохранено")}}catch(e){$("#dsm").textContent=e.message}};
  document.querySelectorAll("[data-on]").forEach(b=>b.onclick=async()=>{const k=b.dataset.on;b.disabled=true;try{await save({[k]:{on:!S[k].on}});if(n===nav)views.delivery()}catch(e){b.disabled=false;toast(e.message)}});
- document.querySelectorAll("[data-t]").forEach(b=>b.onclick=async()=>{const k=b.dataset.t,m=$("#dm-"+k);b.disabled=true;m.textContent="Проверяю…";
-  try{const r=await api("delivery/test",{method:"POST",body:JSON.stringify({svc:k})});m.textContent="✅ "+r.message}catch(e){m.textContent="❌ "+e.message}finally{b.disabled=false}})},
+ document.querySelectorAll("[data-t]").forEach(b=>b.onclick=async()=>{const k=b.dataset.t,m=$("#dm-"+k);b.disabled=true;m.textContent="Сохраняю и проверяю…";
+  try{await save(collect());   /* введённый ключ сначала сохраняем — проверка идёт с ним */
+   const r=await api("delivery/test",{method:"POST",body:JSON.stringify({svc:k})});m.textContent="✅ "+r.message;
+   document.querySelectorAll(`[data-s="${k}"] input[type=password]`).forEach(i=>{if(i.value){i.value="";i.placeholder="сохранён — оставьте пустым"}})}
+  catch(e){m.textContent="❌ "+e.message}finally{b.disabled=false}})},
 async products(q="",brand="",page=0){const size=+(localStorage.getItem("amura_psize")||100);const [o,bs]=await Promise.all([api("products?q="+encodeURIComponent(q)+"&brand="+encodeURIComponent(brand)+"&size="+size+"&offset="+page*size),api("brands")]);const pages=Math.max(1,Math.ceil(o.total/size));
  const cb=brand?bs.brands.find(b=>b.brand===brand):null;
  $("#main").innerHTML=head("Товары на сайте","Цены и остатки идут из МойСклад. Здесь только видимость.")+seg("products")+`<div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap"><select id="br" style="padding:12px;border:1px solid #CBD4CE;border-radius:10px;font:15px inherit;background:#fff"><option value="">Все бренды (${bs.brands.length})</option>${bs.brands.map(b=>`<option value="${esc(b.brand)}" ${b.brand===brand?"selected":""}>${esc(b.brand)} — ${b.total}${b.hidden?`, скрыто ${b.hidden}`:""}</option>`).join("")}</select><input id="q" placeholder="Поиск по названию, бренду, коду" value="${esc(q)}" style="flex:1;min-width:200px"></div>
