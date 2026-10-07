@@ -410,6 +410,27 @@ def _ms_all(path, flt, limit=1000, extra=None):
             return out
 
 
+def _profit_rows(a, b):
+    """Отчёт «Прибыльность по товарам» за [a, b) целиком (по 1000 строк)."""
+    out, off = [], 0
+    while True:
+        r = oh.ms("GET", "/report/profit/byproduct", params={"momentFrom": _ms_time(a), "momentTo": _ms_time(b - timedelta(seconds=1)),
+                                                              "limit": 1000, "offset": off}, timeout=40)
+        out += r.get("rows", [])
+        off += 1000
+        if off >= (r.get("meta") or {}).get("size", 0) or off >= 20000:
+            return out
+
+
+def _gross(rows):
+    """Валовая прибыль = (продажи − себестоимость) − (возвраты − их себестоимость); всё в тенге."""
+    sell = sum(r.get("sellSum", 0) for r in rows) / 100
+    ret = sum(r.get("returnSum", 0) for r in rows) / 100
+    cost = (sum(r.get("sellCostSum", 0) for r in rows) - sum(r.get("returnCostSum", 0) for r in rows)) / 100
+    net = sell - ret
+    return {"sales": net, "profit": net - cost, "margin": (net - cost) / net * 100 if net else 0}
+
+
 def _src_of(desc):
     first = (desc or "").split("\n")[0].lower()
     if "ии-продажник" in first:
@@ -439,14 +460,22 @@ def _dash_calc(d1, d2, p1=None, p2=None):
         f_po = ex.submit(_ms_all, "/entity/customerorder", rng(pstart, pend))
         f_r = ex.submit(_ms_all, "/entity/retaildemand", rng(start, end))
         f_pr = ex.submit(_ms_all, "/entity/retaildemand", rng(pstart, pend))
-        f_t = ex.submit(lambda: oh.ms("GET", "/report/profit/byproduct", params={
-            "momentFrom": _ms_time(start), "momentTo": _ms_time(end - timedelta(seconds=1)), "limit": 1000}, timeout=40).get("rows", []))
+        f_t = ex.submit(_profit_rows, start, end)
+        f_pt = ex.submit(_profit_rows, pstart, pend)
         orders, porders, retail, pretail = f_o.result(), f_po.result(), f_r.result(), f_pr.result()
         try:
             tops = f_t.result()
         except Exception as e:
             print("Дашборд: отчёт по товарам:", e, flush=True)
-            tops = []
+            tops = None
+        try:
+            ptops = f_pt.result()
+        except Exception as e:
+            print("Дашборд: отчёт по товарам (прошлый период):", e, flush=True)
+            ptops = None
+    gross = _gross(tops) if tops is not None else None
+    pgross = _gross(ptops) if ptops is not None else None
+    tops = tops or []
     states = {st["meta"]["href"].rsplit("/", 1)[-1]: st for st in fresh("adm_order_states", 600, _ms_states).get("states", [])}
     sid = lambda o: ((o.get("state") or {}).get("meta") or {}).get("href", "").rsplit("/", 1)[-1]
     cancelled = lambda o: "отмен" in (states.get(sid(o), {}).get("name", "")).lower()
@@ -517,7 +546,8 @@ def _dash_calc(d1, d2, p1=None, p2=None):
         "topProducts": [{"name": r.get("assortment", {}).get("name", ""), "qty": r.get("sellQuantity", 0), "sum": r.get("sellSum", 0) / 100,
                          "profit": (r.get("sellSum", 0) - r.get("sellCostSum", 0)) / 100,
                          "img": f"{oh.SITE_URL}/img/{pid(r)}.webp" if pid(r) in imgs else ""} for r in tops[:7]],
-        "salesTotal": sum(r.get("sellSum", 0) for r in tops) / 100, "profitTotal": sum(r.get("sellSum", 0) - r.get("sellCostSum", 0) for r in tops) / 100,
+        "salesTotal": gross["sales"] if gross else 0, "profitTotal": gross["profit"] if gross else 0,
+        "gross": gross, "prevGross": pgross,
         "topClients": [{"name": names.get(a, "") or "Клиент", "count": v[0], "sum": v[1]} for a, v in top_ag],
     }
 
