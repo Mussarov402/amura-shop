@@ -124,7 +124,12 @@ class MirrorTest(unittest.TestCase):
         self.ms.variants = [{**prod(20, "2026-10-01 12:00:00.000"), "product": {"meta": {"href": "https://x/entity/product/p1"}}}]
         self.ms.stock = {("p0", STORE_A): 5, ("p0", STORE_B): 2, ("p1", STORE_A): 7.5}
         self.ms.reserve = {("p0", STORE_A): 1}
-        self.assertTrue(mirror.tick())
+        import contextlib, io
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertTrue(mirror.tick())
+        self.assertIn("Зеркало МойСклад, проход: store 2; product +5", out.getvalue())
+        self.assertIn("догнали: да", out.getvalue())
         self.assertEqual(self.count("SELECT COUNT(*) FROM ms_store"), 2)
         self.assertEqual(self.count("SELECT reserve FROM ms_stock WHERE product_id='p0' AND store_id=%s", (STORE_A,)), 1)
         self.assertEqual(self.count("SELECT parent_id FROM ms_product WHERE id='p20'"), "p1")
