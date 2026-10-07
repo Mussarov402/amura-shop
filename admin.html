@@ -680,19 +680,23 @@ async function clientCard(id,back){
   const cb=document.querySelector("#main #clb");if(cb){cb.click();return true}
   const p=stack.pop();if(!p||grp(p)!==grp(cur)){stack.length=0;return false}back=true;show(p);return true};
  window.goBack=goBack;
- const layer=()=>vis("pv")||vis("dv")||[...document.querySelectorAll(".ovx")].pop()||document.getElementById("main");
+ const layer=()=>vis("pv")||vis("dv")||[...document.querySelectorAll(".ovx")].pop()||(document.body.classList.contains("inchat")&&document.querySelector(".ibx2.chat .ic2"))||document.getElementById("main");
+ /* чат: под уезжающим чатом сразу виден список диалогов с шапкой и нижней панелью (как на iPhone), без белого экрана */
+ let peek=null;const peekOn=z=>{if(!z.classList.contains("ic2"))return;peek=z.closest(".ibx2");peek.classList.add("peek");document.body.classList.remove("inchat")};
+ const peekOff=keep=>{if(!peek)return;if(keep)document.body.classList.add("inchat");peek.classList.remove("peek");peek=null};
+ const pst=document.createElement("style");pst.textContent=".ibx2.chat.peek .il2{display:block}";document.head.appendChild(pst);
  let sx=null,sy=0,st=0,dx=0,lock=0,el=null;const EDGE=24;
  const reset=z=>{z.style.transition="";z.style.transform="";z.style.boxShadow="";z.style.willChange=""};
  addEventListener("touchstart",e=>{sx=null;if(e.touches.length!==1)return;const t=e.touches[0];if(t.clientX>EDGE||!canBack())return;
   sx=t.clientX;sy=t.clientY;st=Date.now();dx=0;lock=0;el=layer()},{passive:true});
  addEventListener("touchmove",e=>{if(sx===null)return;const t=e.touches[0],x=t.clientX-sx,y=t.clientY-sy;
-  if(!lock){if(Math.abs(y)>10&&Math.abs(y)>Math.abs(x)){sx=null;return}if(x>8)lock=1;else return}
+  if(!lock){if(Math.abs(y)>10&&Math.abs(y)>Math.abs(x)){sx=null;return}if(x>8){lock=1;if(el)peekOn(el)}else return}
   if(e.cancelable)e.preventDefault();dx=Math.max(0,x);
   if(el){el.style.transition="none";el.style.willChange="transform";el.style.transform=`translateX(${dx}px)`;el.style.boxShadow="-10px 0 28px rgba(0,0,0,.18)"}},{passive:false});
  const end=()=>{if(sx===null)return;sx=null;const z=el;el=null;if(!z||!lock)return;
   const W=innerWidth,v=dx/Math.max(1,Date.now()-st),ok=dx>W*.33||(v>.5&&dx>40);
   z.style.transition="transform .2s ease-out";z.style.transform=ok?`translateX(${W}px)`:"translateX(0)";
-  setTimeout(()=>{if(!ok)return reset(z);goBack();          // новый экран успевает отрисоваться, пока старый за краем
+  setTimeout(()=>{if(!ok){peekOff(true);return reset(z)}if(peek){z.style.visibility="hidden";history.back();setTimeout(()=>{peekOff(false);reset(z);z.style.visibility=""},350);return}goBack();          // новый экран успевает отрисоваться, пока старый за краем
    setTimeout(()=>{if(z.id==="main"){z.style.transition="none";z.style.transform="translateX(0)";requestAnimationFrame(()=>reset(z))}else reset(z)},z.id==="main"?150:350)},ok?190:210)};
  addEventListener("touchend",end);addEventListener("touchcancel",end);
 })();
