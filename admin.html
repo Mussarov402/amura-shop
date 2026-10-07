@@ -814,11 +814,12 @@ async function clientCard(id,back){
    <div class="card k hero"><div class="l">Выручка</div><div class="v">${fmt(d.revenue)} ₸</div>${delta(d.revenue,d.prevRevenue)}<span class="p">${pw} ${fmt(d.prevRevenue)} ₸</span></div>
    <div class="card k"><div class="l">Заказы и чеки</div><div class="v">${fmt(d.count)}</div>${delta(d.count,d.prevCount)}<span class="p">${pw} ${fmt(d.prevCount)}</span></div>
    <div class="card k"><div class="l">Средний чек</div><div class="v">${fmt(d.avg)} ₸</div>${delta(d.avg,d.prevAvg)}<span class="p">${pw} ${fmt(d.prevAvg)} ₸</span></div>
-   <div class="card k wide"><div class="l">Оплачено</div><div class="v">${fmt(d.paid)} ₸</div><span class="p" style="margin:0">ждём оплату: ${fmt(d.unpaid)} ₸</span></div></div>
+   <div class="card k"><div class="l">Валовая прибыль</div>${d.gross?`<div class="v">${fmt(d.gross.profit)} ₸</div>${d.prevGross?delta(d.gross.profit,d.prevGross.profit):""}<span class="p">маржа ${Math.round(d.gross.margin)}%</span><div class="p" style="margin:3px 0 0">${pw} ${d.prevGross?fmt(d.prevGross.profit)+" ₸":"—"}</div>`:'<div class="v">—</div><span class="p" style="margin:0">МойСклад не ответил</span>'}</div>
+   <div class="card k"><div class="l">Оплачено</div><div class="v">${fmt(d.paid)} ₸</div><span class="p" style="margin:0">ждём оплату: ${fmt(d.unpaid)} ₸</span></div></div>
    <div class="card dbc"><h3>${d.hourly?"Выручка по часам":"Выручка по дням"}</h3><div class="leg"><span><i style="background:#1F6B4E"></i>${mode==="day"&&r.live?"Сегодня":"Период"}</span><span><i class="ln"></i>${mode==="day"?(r.live?"Вчера":"День до"):"Прошлый период"}</span></div>
     <div style="position:relative"><svg id="dbch" width="100%" height="200" style="display:block;touch-action:pan-y"></svg><div class="tip" id="dbtip" hidden></div></div></div>
    <div class="dbg"><div class="card dbc"><h3>Топ товаров <small>по отгрузкам</small></h3>${d.topProducts.length?d.topProducts.map((x,i)=>`<div class="row">${thumb(x.img)}<div class="n">${esc(x.name)}<div class="mut" style="font-size:12px">${fmt(x.qty)} шт.</div><div class="bar"><i style="width:${Math.max(3,x.sum/d.topProducts[0].sum*100)}%"></i></div></div><span class="s">${fmt(x.sum)} ₸</span></div>`).join(""):'<div class="mut">Отгрузок за период нет</div>'}
-     ${d.salesTotal?`<div class="mut" style="margin-top:8px;font-size:12.5px">Всего отгружено на ${fmt(d.salesTotal)} ₸ · прибыль ${fmt(d.profitTotal)} ₸</div>`:""}</div>
+     ${d.salesTotal?`<div class="mut" style="margin-top:8px;font-size:12.5px">Всего отгружено на ${fmt(d.salesTotal)} ₸ · валовая прибыль ${fmt(d.profitTotal)} ₸</div>`:""}</div>
     <div><div class="card dbc dbsrc"><h3>Откуда заказы</h3>${d.sources.length?d.sources.map(x=>`<div class="row"><div><span>${esc(x.name)}</span><b>${fmt(x.count)} · ${fmt(x.sum)} ₸</b></div><div class="bar"><i style="width:${Math.max(3,x.sum/d.sources[0].sum*100)}%"></i></div></div>`).join(""):'<div class="mut">Заказов нет</div>'}</div>
      <div class="card dbc"><h3>Статусы заказов за период</h3>${d.states.length?`<div class="st">${d.states.map(x=>`<div><b>${fmt(x.count)}</b><span><i style="background:${esc(x.color)}"></i>${esc(x.name)}</span></div>`).join("")}</div>`:'<div class="mut">Заказов нет</div>'}</div></div></div>
    <div class="card dbc"><h3>Топ клиентов <small>за период</small></h3>${d.topClients.length?d.topClients.map(x=>`<div class="row"><div class="n">${esc(x.name)}</div><span class="s">${x.count} ${x.count%10===1&&x.count%100!==11?"заказ":x.count%10>=2&&x.count%10<=4&&(x.count%100<10||x.count%100>=20)?"заказа":"заказов"} · ${fmt(x.sum)} ₸</span></div>`).join(""):'<div class="mut">Заказов нет</div>'}</div>`;
@@ -860,7 +861,7 @@ async function clientCard(id,back){
 .dbq{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}.dbq button{border:1px solid var(--line);background:#F1F6F3;border-radius:20px;padding:8px 12px;font:inherit;font-size:13px;font-weight:600;color:var(--g);cursor:pointer}
 .dbm label{font-size:13px;color:var(--mut)}.dbm input[type=date]{margin-top:4px}
 @media(min-width:801px){.eo.dbm{width:auto;height:auto;max-width:460px;border-radius:18px;margin:auto;padding:20px}}
-@media(min-width:900px){.dbk{grid-template-columns:repeat(4,1fr)}.dbk .hero,.dbk .wide{grid-column:auto}.dbk .hero .v{font-size:22px}.dbg{grid-template-columns:1fr 1fr}}`;document.head.appendChild(st);
+@media(min-width:900px){.dbk{grid-template-columns:repeat(5,1fr)}.dbk .hero,.dbk .wide{grid-column:auto}.dbk .hero .v{font-size:22px}.dbg{grid-template-columns:1fr 1fr}}`;document.head.appendChild(st);
 })();
 </script>
 <script>
