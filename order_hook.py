@@ -72,7 +72,9 @@ FEE_NAME = "Комиссия банка"
 SHIPPING = {
     "kamaz": ("КАМАЗ", True), "rail": ("ЖД", True), "avia": ("Авиа", True),
     "kazpost": ("Казпочта", False), "courier": ("Курьер по городу", False), "pickup": ("Самовывоз", False),
+    "cdek": ("СДЭК", False),
 }
+RETAIL_SHIPPING = ("courier", "cdek", "pickup")   # розничный сайт: без КАМАЗа, ЖД, авиа и Казпочты
 ALMATY = timezone(timedelta(hours=5))
 
 bp = Blueprint("orders", __name__)
@@ -757,6 +759,9 @@ def order_core(d, key, ip, me, source="с сайта", panel=False):
         phone = "7" + phone
     telegram = re.sub(r"[^A-Za-z0-9_]", "", str(d.get("telegram", "")))[:32]
     ship = d.get("shipping")
+    retail_req = not panel and str(d.get("mode", "")) == "retail"
+    if retail_req and ship not in RETAIL_SHIPPING:
+        ship = None
     if not name or not city or ship not in SHIPPING or not (len(phone) >= 10 or len(telegram) >= 4):
         return dict(ok=False, error="Заполните имя, контакт, город и способ отправки"), 400
 
@@ -769,7 +774,7 @@ def order_core(d, key, ip, me, source="с сайта", panel=False):
         if not v:
             return dict(ok=False, error="Склад сейчас не отвечает, попробуйте через минуту"), 503
         cat = {i["id"]: i for i in v[1]["items"]}
-    retail = not panel and str(d.get("mode", "")) == "retail"      # заказ с розничного сайта (amura.kz/shop)
+    retail = retail_req                                             # заказ с розничного сайта (amura.kz/shop)
     if retail:
         source = RETAIL_SOURCE
     ws = True if panel else (False if retail else is_wholesale(me))
@@ -803,7 +808,9 @@ def order_core(d, key, ip, me, source="с сайта", panel=False):
         return dict(ok=False, error="Для Казпочты укажите ФИО, индекс и адрес"), 400
     if ship == "courier" and not address:
         return dict(ok=False, error="Укажите адрес доставки по Алматы"), 400
-    if ship == "courier":
+    if ship == "cdek" and not address:
+        return dict(ok=False, error="Укажите город и адрес пункта СДЭК"), 400
+    if ship in ("courier", "cdek"):
         ship_name += f" — {address}"
     if need_loader:
         ship_name += f" — {logistics}"
@@ -811,7 +818,7 @@ def order_core(d, key, ip, me, source="с сайта", panel=False):
         ship_name += f" — {recipient}, {zipcode}, {address}"
     goods = sum(l["qty"] * l["price"] for l in lines)
     loader = LOADER_PRICE if need_loader else 0
-    fee = int((goods + loader) * FEE_RATE + 0.5)  # как Math.round на сайте
+    fee = 0 if retail else int((goods + loader) * FEE_RATE + 0.5)  # как Math.round на сайте; рознице комиссию не берём
     total = goods + loader + fee
 
     try:
@@ -820,7 +827,8 @@ def order_core(d, key, ip, me, source="с сайта", panel=False):
                       "assortment": meta("product", l["id"])} for l in lines]
         if loader:
             positions.append({"quantity": 1, "price": loader * 100, "assortment": meta("product", loader_id())})
-        positions.append({"quantity": 1, "price": fee * 100, "assortment": meta("service", fee_service_id())})
+        if fee:
+            positions.append({"quantity": 1, "price": fee * 100, "assortment": meta("service", fee_service_id())})
         contact = f"WhatsApp +{phone}" if phone else f"Telegram @{telegram}"
         order = _post_order({
             "externalCode": "site-" + hashlib.sha1(key.encode()).hexdigest()[:24],
@@ -956,7 +964,8 @@ def build_pdf(o):
     k = len(rows)
     if o["loader"]:
         rows.append(["", "Услуга грузчика", "1", fmt(o["loader"]), fmt(o["loader"])])
-    rows.append(["", f"{FEE_NAME} 0,95%", "", "", fmt(o["fee"])])
+    if o.get("fee"):
+        rows.append(["", f"{FEE_NAME} 0,95%", "", "", fmt(o["fee"])])
     rows.append(["", "Итого к оплате", "", "", fmt(o["total"])])
     t = Table(rows, colWidths=[9 * mm, 95 * mm, 18 * mm, 28 * mm, 30 * mm], repeatRows=1)
     t.setStyle(TableStyle([
@@ -1052,7 +1061,8 @@ def build_xlsx(o):
     last = 5 + len(o["lines"])
     if o["loader"]:
         ws.append(["", "", "", "Услуга грузчика", 1, o["loader"], o["loader"]])
-    ws.append(["", "", "", f"{FEE_NAME} 0,95%", "", "", o["fee"]])
+    if o.get("fee"):
+        ws.append(["", "", "", f"{FEE_NAME} 0,95%", "", "", o["fee"]])
     ws.append(["", "", "", "Итого к оплате", "", "", o["total"]])
     ws.cell(ws.max_row, 4).font = ws.cell(ws.max_row, 7).font = Font(bold=True)
     for row in ws.iter_rows(min_row=6, max_row=ws.max_row, min_col=6, max_col=7):
