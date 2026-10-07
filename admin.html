@@ -198,7 +198,8 @@ const editOrder=async(n,oid)=>{const ov=document.createElement("div");ov.classNa
   $("#eos").onclick=async()=>{keep();const body=JSON.stringify({lines:L,description:d.description}),num=d.number;ov.remove();toast("Сохраняю заказ № "+num+"… можно продолжать работу",0);   // МойСклад пишет большой заказ долго — не держим экран
    try{await api("orders/"+encodeURIComponent(num)+(oid?"?id="+oid:""),{method:"PUT",body});toast("Заказ № "+num+" сохранён ✓");if(cur==="orders")views.orders().catch(()=>{})}catch(e){toast("",-1);if(e.message!=="401")alert("Заказ № "+num+" не сохранён: "+e.message+"\nОткройте заказ и попробуйте ещё раз.")}}};
  draw()};
-document.addEventListener("click",e=>{const a=e.target.closest&&e.target.closest("a.fcard[data-fn]");if(!a)return;e.preventDefault();fileAct(a,a.getAttribute("href"),a.dataset.fn,"",true)});
+document.addEventListener("click",e=>{const a=e.target.closest&&e.target.closest("a.fcard[data-fn]");if(!a)return;e.preventDefault();
+ if(/\.pdf$/i.test(a.dataset.fn)||a.dataset.pdf)openDoc(a.getAttribute("href"),a.dataset.fn);else fileAct(a,a.getAttribute("href"),a.dataset.fn,"",true)});
 /* Просмотр заказа без правки: позиции с фото, PDF / Excel / поделиться */
 const fileCache={};
 async function getFile(url,name,type){let f=fileCache[url];if(!f){const r=await fetch(url);if(!r.ok)throw new Error(r.status===503?"МойСклад отвечает медленно — попробуйте через минуту":"Файл не получен");const bl=await r.blob();f=fileCache[url]=new File([bl],name,{type:type||bl.type})}return f}
@@ -221,7 +222,7 @@ const viewOrder=async(n,oid)=>{const ov=document.createElement("div");ov.classNa
  ov.querySelectorAll(".voa button").forEach(b=>b.onclick=()=>{const a=b.dataset.a,nm="AMURA-"+d.number;
   if(a==="edit"){ov.remove();editOrder(d.number,d.id)}
   else if(a==="xlsx")fileAct(b,d.xlsx,nm+".xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",true);
-  else fileAct(b,d.pdf,nm+".pdf","application/pdf",a==="share")})};
+  else if(a==="pdf")openDoc(d.pdf,nm+".pdf");else fileAct(b,d.pdf,nm+".pdf","application/pdf",true)})};
 const head=(t,s)=>`<h1>${t}</h1><div class="sub">${s}</div>`;
 function toast(t,ms=2600){let el=document.getElementById("tst");if(!el){el=document.createElement("div");el.id="tst";el.style.cssText="position:fixed;left:50%;top:calc(72px + env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:9999;background:#16201B;color:#fff;padding:10px 16px;border-radius:12px;font-weight:700;font-size:14px;box-shadow:0 8px 24px rgba(0,0,0,.25);max-width:90vw;text-align:center";document.body.appendChild(el)}
  clearTimeout(el._t);if(ms<0||!t){el.remove();return}el.textContent=t;if(ms>0)el._t=setTimeout(()=>el.remove(),ms)}
@@ -267,7 +268,7 @@ async orders(){const o=await api("orders");const st=s=>/оплач/i.test(s)&&!/
  document.querySelectorAll(".ed").forEach(l=>l.onclick=e=>{e.preventDefault();e.stopPropagation();editOrder(l.dataset.n,l.dataset.id)});
  document.querySelectorAll(".ord").forEach(r=>r.onclick=e=>{if(e.target.closest("a,.os,button"))return;e.preventDefault();viewOrder(r.dataset.n,r.dataset.id)});
  document.querySelectorAll(".vw").forEach(l=>l.onclick=e=>{e.preventDefault();e.stopPropagation();viewOrder(l.dataset.n,l.dataset.id)});
- document.querySelectorAll("a[data-pdf]").forEach(l=>l.onclick=e=>{e.preventDefault();sharePdf(l.dataset.pdf,l.dataset.n,l)});bindSeg()},
+ document.querySelectorAll("a[data-pdf]").forEach(l=>l.onclick=e=>{e.preventDefault();e.stopPropagation();openDoc(l.dataset.pdf,"AMURA-"+l.dataset.n+".pdf")});bindSeg()},
 async products(q="",brand="",page=0){const size=+(localStorage.getItem("amura_psize")||100);const [o,bs]=await Promise.all([api("products?q="+encodeURIComponent(q)+"&brand="+encodeURIComponent(brand)+"&size="+size+"&offset="+page*size),api("brands")]);const pages=Math.max(1,Math.ceil(o.total/size));
  const cb=brand?bs.brands.find(b=>b.brand===brand):null;
  $("#main").innerHTML=head("Товары на сайте","Цены и остатки идут из МойСклад. Здесь только видимость.")+seg("products")+`<div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap"><select id="br" style="padding:12px;border:1px solid #CBD4CE;border-radius:10px;font:15px inherit;background:#fff"><option value="">Все бренды (${bs.brands.length})</option>${bs.brands.map(b=>`<option value="${esc(b.brand)}" ${b.brand===brand?"selected":""}>${esc(b.brand)} — ${b.total}${b.hidden?`, скрыто ${b.hidden}`:""}</option>`).join("")}</select><input id="q" placeholder="Поиск по названию, бренду, коду" value="${esc(q)}" style="flex:1;min-width:200px"></div>
@@ -333,7 +334,7 @@ async inbox(openId){const st=await api("inbox/status");let cur=openId||null,flt=
  const mediaHtml=m=>{const x=m.media;let o=m.photo?`<a href="${esc(m.photo)}" class="phl"><img src="${esc(m.photo)}" class="mph"></a>`:"";
   if(x){if(x.t==="voice"||x.t==="audio")o+=`<audio controls preload="none" src="${esc(x.url)}${canOgg?"":"&fmt=mp3"}"></audio>`;
    else if(x.t==="video")o+=`<video controls preload="metadata" playsinline class="mph" src="${esc(x.url)}"></video>`;
-   else o+=`<a class="fcard" href="${esc(x.url)}&dl=1&name=${encodeURIComponent(x.name||"file")}" data-fn="${esc(x.name||"file")}"><span class="fi">📎</span><span><b>${esc(x.name||"Файл")}</b><br><small>${fsz(x.size||0)}</small></span></a>`}
+   else o+=`<a class="fcard" href="${esc(x.url)}&dl=1&name=${encodeURIComponent(x.name||"file")}" data-fn="${esc(x.name||"file")}"${/pdf/i.test(x.mime||"")?' data-pdf="1"':""}><span class="fi">📎</span><span><b>${esc(x.name||"Файл")}</b><br><small>${fsz(x.size||0)}</small></span></a>`}
   return o};
  const bodyText=m=>{const t=m.media&&(m.media.t==="doc"||m.media.t==="video")?(m.text||"").replace(/^(📎 Файл «[^»]*»|🎥 Видео)\n?/,""):(m.text||"");return esc(t)};
  const paintMsgs=(r,stick)=>{const ms=$("#msgs");if(!ms)return;const near=ms.scrollHeight-ms.scrollTop-ms.clientHeight<90;let prev="",o="";
@@ -630,30 +631,69 @@ async function clientCard(id,back){
 })();
 </script>
 <script>
-/* Свайп назад от левого края, как на iPhone: закрывает фото → окно → чат → возвращает в предыдущий раздел. */
+/* Просмотр PDF внутри панели: ✕ сверху, «Поделиться», свайп от края / «Назад». Страницы рисует pdf.js (на iPhone
+   встроенный просмотр в окне показывает только первую страницу). */
+(function(){let box,pages,ttl,cur=null,hist=false,lib=null,seq=0;
+ const PJ="/admin/vendor/";
+ const loadLib=()=>lib||(lib=new Promise((ok,no)=>{const sc=document.createElement("script");sc.src=PJ+"pdf.min.js";
+  sc.onload=()=>{try{pdfjsLib.GlobalWorkerOptions.workerSrc=PJ+"pdf.worker.min.js";ok(pdfjsLib)}catch(e){no(e)}};sc.onerror=()=>{lib=null;no(Error("pdf.js"))};document.head.appendChild(sc)}));
+ const close=fromPop=>{if(!box||box.hidden)return;box.hidden=true;seq++;pages.innerHTML="";cur=null;document.documentElement.style.overflow="";
+  if(hist&&!fromPop){hist=false;history.back()}hist=false};
+ const build=()=>{box=document.createElement("div");box.id="dv";
+  box.innerHTML='<div class="dvb"><button class="dvx" aria-label="Закрыть">✕</button><div class="dvt"></div><button class="dvs">Поделиться</button></div><div class="dvp"></div>';
+  document.body.appendChild(box);pages=box.querySelector(".dvp");ttl=box.querySelector(".dvt");
+  box.querySelector(".dvx").onclick=()=>close();
+  box.querySelector(".dvs").onclick=e=>{if(cur)fileAct(e.currentTarget,cur.url,cur.name,"application/pdf",true)};
+  const st=document.createElement("style");st.textContent=`#dv{position:fixed;inset:0;z-index:10000;background:#2B302D;display:flex;flex-direction:column}#dv[hidden]{display:none}
+#dv .dvb{display:flex;align-items:center;gap:10px;padding:calc(8px + env(safe-area-inset-top,0px)) 12px 8px;background:#0E3B2C;color:#fff;flex:none}
+#dv .dvx{width:40px;height:40px;border-radius:50%;border:0;background:rgba(255,255,255,.16);color:#fff;font-size:20px;flex:none;cursor:pointer}
+#dv .dvt{flex:1;min-width:0;font-weight:700;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#dv .dvs{border:0;border-radius:20px;background:#C9A24A;color:#fff;font:inherit;font-weight:700;font-size:13px;padding:9px 14px;flex:none;cursor:pointer}
+#dv .dvp{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;padding:10px 8px calc(16px + env(safe-area-inset-bottom,0px));touch-action:pan-x pan-y pinch-zoom}
+#dv canvas{display:block;width:100%;max-width:900px;margin:0 auto 10px;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.35)}
+#dv iframe{width:100%;height:100%;border:0;background:#fff}#dv .dvm{color:#fff;text-align:center;padding:30px 10px;opacity:.85}`;document.head.appendChild(st)};
+ window.openDoc=async(url,name)=>{if(!box)build();const my=++seq;cur={url,name};ttl.textContent=name||"Документ";
+  pages.innerHTML='<div class="dvm">Открываю документ…</div>';box.hidden=false;document.documentElement.style.overflow="hidden";
+  try{history.pushState({dv:1},"",location.href);hist=true}catch(_){}
+  let f;try{f=await getFile(url,name||"doc.pdf","application/pdf")}catch(e){if(my===seq)pages.innerHTML='<div class="dvm">'+esc(e.message||"Не удалось открыть")+'</div>';return}
+  try{const L=await loadLib();const doc=await L.getDocument({data:new Uint8Array(await f.arrayBuffer())}).promise;if(my!==seq)return;pages.innerHTML="";
+   const w=Math.min(pages.clientWidth-16,900),dpr=Math.min(window.devicePixelRatio||1,3);
+   for(let i=1;i<=doc.numPages;i++){const pg=await doc.getPage(i);if(my!==seq)return;const v0=pg.getViewport({scale:1}),v=pg.getViewport({scale:w/v0.width*dpr});
+    const c=document.createElement("canvas");c.width=v.width;c.height=v.height;pages.appendChild(c);await pg.render({canvasContext:c.getContext("2d"),viewport:v}).promise}}
+  catch(e){if(my!==seq)return;const fr=document.createElement("iframe");fr.src=URL.createObjectURL(f);pages.innerHTML="";pages.style.padding="0";pages.appendChild(fr)}};
+ window.docOpen=()=>!!(box&&!box.hidden);
+ addEventListener("popstate",()=>{if(box&&!box.hidden){hist=false;close(true)}});
+ addEventListener("keydown",e=>{if(e.key==="Escape")close()});
+})();
+</script>
+<script>
+/* Свайп назад от левого края, как на iPhone: экран уезжает за пальцем. Работает только внутри раздела:
+   фото / PDF → окно → чат → карточка клиента → подвкладка того же раздела. В другой раздел свайп не уводит. */
 (function(){const stack=[];let back=false;
- const _show=show;show=async(p,a)=>{if(!back&&cur&&cur!==p){stack.push(cur);if(stack.length>20)stack.shift()}back=false;return _show(p,a)};
- const goBack=()=>{const pv=document.getElementById("pv");if(pv&&!pv.hidden){history.back();return true}
+ const _show=show;show=async(p,a)=>{if(!back&&cur&&cur!==p){if(grp(cur)===grp(p)){stack.push(cur);if(stack.length>20)stack.shift()}else stack.length=0}
+  else if(!back&&cur!==p)stack.length=0;back=false;return _show(p,a)};
+ const vis=id=>{const e=document.getElementById(id);return e&&!e.hidden?e:null};
+ const canBack=()=>!!(vis("pv")||vis("dv")||document.querySelector(".ovx")||document.body.classList.contains("inchat")||document.querySelector("#main #clb")||(stack.length&&grp(stack[stack.length-1])===grp(cur)));
+ const goBack=()=>{if(vis("pv")||vis("dv")){history.back();return true}
   const ov=[...document.querySelectorAll(".ovx")].pop();if(ov){ov.remove();return true}
   if(document.body.classList.contains("inchat")){history.back();return true}
-  const p=stack.pop();if(!p)return false;back=true;
-  document.querySelectorAll(".nav,.tabbar button").forEach(x=>x.classList.toggle("on",x.dataset.p===grp(p)));show(p);return true};
+  const cb=document.querySelector("#main #clb");if(cb){cb.click();return true}
+  const p=stack.pop();if(!p||grp(p)!==grp(cur)){stack.length=0;return false}back=true;show(p);return true};
  window.goBack=goBack;
- const chip=document.createElement("div");chip.id="swb";chip.textContent="‹";document.body.appendChild(chip);
- const st=document.createElement("style");st.textContent=`#swb{position:fixed;left:0;top:50%;z-index:10001;width:40px;height:40px;margin:-20px 0 0 -44px;border-radius:50%;background:#1F6B4E;color:#fff;font:700 30px/36px system-ui;text-align:center;box-shadow:0 6px 18px rgba(0,0,0,.25);pointer-events:none;opacity:0;transition:opacity .15s}#swb.go{background:#C9A24A}`;document.head.appendChild(st);
- let sx=null,sy=0,dx=0,lock=0;const W=26,GO=80;
- const layer=()=>{const pv=document.getElementById("pv");if(pv&&!pv.hidden)return pv;return [...document.querySelectorAll(".ovx")].pop()||document.getElementById("main")};
- let el=null;
- addEventListener("touchstart",e=>{if(e.touches.length!==1){sx=null;return}const t=e.touches[0];if(t.clientX>W){sx=null;return}sx=t.clientX;sy=t.clientY;dx=0;lock=0;el=layer()},{passive:true});
+ const layer=()=>vis("pv")||vis("dv")||[...document.querySelectorAll(".ovx")].pop()||document.getElementById("main");
+ let sx=null,sy=0,st=0,dx=0,lock=0,el=null;const EDGE=24;
+ const reset=z=>{z.style.transition="";z.style.transform="";z.style.boxShadow="";z.style.willChange=""};
+ addEventListener("touchstart",e=>{sx=null;if(e.touches.length!==1)return;const t=e.touches[0];if(t.clientX>EDGE||!canBack())return;
+  sx=t.clientX;sy=t.clientY;st=Date.now();dx=0;lock=0;el=layer()},{passive:true});
  addEventListener("touchmove",e=>{if(sx===null)return;const t=e.touches[0],x=t.clientX-sx,y=t.clientY-sy;
-  if(!lock){if(Math.abs(y)>10&&Math.abs(y)>Math.abs(x)){sx=null;return}if(x>10)lock=1;else return}
+  if(!lock){if(Math.abs(y)>10&&Math.abs(y)>Math.abs(x)){sx=null;return}if(x>8)lock=1;else return}
   if(e.cancelable)e.preventDefault();dx=Math.max(0,x);
-  if(el){el.style.transition="none";el.style.transform=`translateX(${dx*.5}px)`}
-  chip.style.top=t.clientY+"px";chip.style.opacity=Math.min(1,dx/GO);chip.style.transform=`translateX(${Math.min(dx,GO+10)*.8}px)`;chip.classList.toggle("go",dx>GO)},{passive:false});
- const end=()=>{if(sx===null)return;sx=null;const ok=lock&&dx>GO;
-  if(el){el.style.transition="transform .2s";el.style.transform="";const z=el;setTimeout(()=>{z.style.transition=""},220)}
-  chip.style.opacity=0;chip.style.transform="";chip.classList.remove("go");if(ok&&navigator.vibrate)try{navigator.vibrate(8)}catch(_){}
-  if(ok)goBack()};
+  if(el){el.style.transition="none";el.style.willChange="transform";el.style.transform=`translateX(${dx}px)`;el.style.boxShadow="-10px 0 28px rgba(0,0,0,.18)"}},{passive:false});
+ const end=()=>{if(sx===null)return;sx=null;const z=el;el=null;if(!z||!lock)return;
+  const W=innerWidth,v=dx/Math.max(1,Date.now()-st),ok=dx>W*.33||(v>.5&&dx>40);
+  z.style.transition="transform .2s ease-out";z.style.transform=ok?`translateX(${W}px)`:"translateX(0)";
+  setTimeout(()=>{if(!ok)return reset(z);goBack();          // новый экран успевает отрисоваться, пока старый за краем
+   setTimeout(()=>{if(z.id==="main"){z.style.transition="none";z.style.transform="translateX(0)";requestAnimationFrame(()=>reset(z))}else reset(z)},z.id==="main"?150:350)},ok?190:210)};
  addEventListener("touchend",end);addEventListener("touchcancel",end);
 })();
 </script>
@@ -661,7 +701,7 @@ async function clientCard(id,back){
 /* Свежие данные без ручного обновления: раздел показывается сразу (из кэша), а если данные были старыми —
    через пару секунд тихо перерисовывается свежими. При возврате в приложение текущий раздел тоже обновляется. */
 (function(){const LIVE={overview:1,orders:1};let busy=false,hiddenAt=0;
- const quiet=()=>!document.querySelector(".ovx")&&!(document.getElementById("pv")&&!document.getElementById("pv").hidden)&&
+ const quiet=()=>!document.querySelector(".ovx")&&!(window.docOpen&&docOpen())&&!(document.getElementById("pv")&&!document.getElementById("pv").hidden)&&
   !(document.activeElement&&/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)&&document.getElementById("main").contains(document.activeElement));
  async function refresh(tries){if(busy||!LIVE[cur])return;const n=nav,p=cur,a=lastArg;busy=true;
   try{for(let i=0;i<tries;i++){await new Promise(r=>setTimeout(r,i?2500:0));if(n!==nav||p!==cur)return;
