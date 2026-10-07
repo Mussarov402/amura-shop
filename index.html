@@ -973,9 +973,8 @@ function normPhone(d){ if(d.length === 11 && d[0] === "8") d = "7" + d.slice(1);
 function showDone(res, f, t){
   $("#drawerTitle").textContent = "Заказ принят";
   const shipName = (CONFIG.shipping.find(s => s.id === f.ship)?.name || "") + (f.logistics && f.ship !== "kazpost" && f.ship !== "courier" && f.ship !== "pickup" ? " — " + f.logistics : "") + (f.ship === "kazpost" ? ` — ${f.recipient}, ${f.zip}, ${f.address}` : "") + (f.ship === "courier" ? ` — ${f.address}` : "");
-  const text = `Здравствуйте! Мой заказ AMURA № ${res.number}\n${f.name}, ${f.city}, ${shipName}\n\n` +
-    t.ls.map(l => `${l.it.name} — ${l.q} шт × ${fmt(l.price)} ₸`).join("\n") +
-    (t.loader ? `\nУслуга грузчика — ${fmt(t.loader)} ₸` : "") + `\nКомиссия банка 0,95% — ${fmt(t.fee)} ₸\nИтого: ${fmt(res.total || t.total)} ₸`;
+  // в WhatsApp — только данные заказа и итог; состав заказа — в PDF-накладной
+  const text = `Здравствуйте! Мой заказ AMURA № ${res.number}\n${f.name}, ${f.city}, ${shipName}\n\nИтого: ${fmt(res.total || t.total)} ₸`;
   const wa = `https://wa.me/${CONFIG.managerWa}?text=${encodeURIComponent(text)}`;
   const tg = `https://t.me/${CONFIG.botUsername}?start=${encodeURIComponent(res.startToken || res.number)}`;
   $("#drawerBody").innerHTML = `<div class="done">
