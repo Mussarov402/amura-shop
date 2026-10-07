@@ -1826,3 +1826,26 @@ def mirror_recon():
 @guard
 def mirror_stock():
     return jsonify(ok=True, items=mirror.stock_of(request.args.get("q", "")))
+
+
+# ---------- модуль «Доставка»: подключение Яндекс / СДЭК, склад, цена для клиента (только владелец) ----------
+import delivery  # noqa: E402
+
+
+@bp.route("/admin/api/delivery", methods=["GET", "POST"])
+@guard
+def delivery_conf():
+    if request.method == "POST":
+        delivery.save(request.get_json(silent=True) or {})
+    return jsonify(ok=True, **delivery.public_conf())
+
+
+@bp.post("/admin/api/delivery/test")
+@guard
+def delivery_test():
+    svc = str((request.get_json(silent=True) or {}).get("svc", ""))
+    try:
+        msg = delivery.test(svc)
+    except Exception as e:
+        return jsonify(ok=False, error=str(e)[:300]), 400
+    return jsonify(ok=True, message=msg)
