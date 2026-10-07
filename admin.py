@@ -10,7 +10,7 @@ import re
 import secrets
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, g, has_request_context, jsonify, request, send_from_directory
 
@@ -479,6 +479,24 @@ def _notes_db():
     return d
 
 
+_olog_ready = [False]
+
+
+def _olog(number, text, who_name=None):
+    """Журнал панели: кто и что сделал с заказом (в МойСклад все правки панели идут от одного API-пользователя)."""
+    try:
+        d = inbox.db()
+        with d:
+            if not _olog_ready[0]:
+                d.run("CREATE TABLE IF NOT EXISTS order_log (number TEXT, at DOUBLE PRECISION, who TEXT, text TEXT)")
+                d.run("CREATE INDEX IF NOT EXISTS order_log_n ON order_log (number)")
+                _olog_ready[0] = True
+            d.run("INSERT INTO order_log (number, at, who, text) VALUES (%s,%s,%s,%s)",
+                  (str(number), time.time(), who_name or (who() or {}).get("name", "") or "Панель", text[:3000]))
+    except Exception as e:
+        print("Журнал заказа не записан:", e, flush=True)
+
+
 def _cp_row(c):
     tgid = next((str(a.get("value") or "") for a in c.get("attributes") or [] if a.get("name") == oh.ATTR_TGID), "")
     return {"id": c["id"], "name": c.get("name", ""), "phone": c.get("phone", ""), "email": c.get("email", ""),
@@ -652,6 +670,7 @@ def order_state():
                 return jsonify(ok=False, error="Заказ не найден в МойСклад"), 404
             oid = rows[0]["id"]
         oh.ms("PUT", f"/entity/customerorder/{oid}", json={"state": {"meta": st["meta"]}}, timeout=30)
+        _olog(num, f"Статус → «{name}»")
     except Busy:
         return jsonify(ok=False, error="МойСклад долго отвечает — повторите через минуту"), 503
     except Exception as e:
@@ -725,6 +744,7 @@ def order_new():
     short = [names.get(i, "товар") + (f" — {got[i]} из {n} шт." if i in got else " — нет в наличии")
              for i, n in asked.items() if got.get(i, 0) < n]
     out = dict(ok=True, number=payload["number"], total=payload["total"], short=short)
+    _olog(payload["number"], f"Создан в панели: {len(got)} поз. на {payload['total']:,.0f} ₸".replace(",", " "), me.get("name"))
     oh._orders[key] = (time.time(), out)
     oh._cache.pop("adm_orders", None)
     return jsonify(**out)
@@ -774,6 +794,96 @@ def smart_find(items, q, limit=30):
             res.append((-score, i.get("qty", 0) <= 0, i["name"].lower(), i))
     res.sort(key=lambda r: r[:3])
     return [r[3] for r in res[:limit]]
+
+
+_api_uid = [None]
+_DIFF_NAMES = {"description": "комментарий", "agent": "контрагент", "moment": "дата", "applicable": "проведение", "deliveryPlannedMoment": "план. дата отгрузки",
+               "store": "склад", "organization": "организация", "project": "проект", "salesChannel": "канал продаж", "attributes": "доп. поля",
+               "rate": "валюта", "contract": "договор", "vatEnabled": "НДС", "name": "номер", "owner": "владелец", "group": "отдел"}
+
+
+def _nm(v):
+    return (v or {}).get("name", "") if isinstance(v, dict) else str(v or "")
+
+
+def _audit_text(ev):
+    t = ev.get("eventType")
+    if t == "create":
+        return "Заказ создан"
+    if t == "delete":
+        return "Заказ удалён"
+    if t == "print":
+        return "Печать / выгрузка документа"
+    if t != "update":
+        return t or ""
+    out = []
+    for k, v in (ev.get("diff") or {}).items():
+        if k == "state":
+            out.append(f"Статус: «{_nm(v.get('oldValue'))}» → «{_nm(v.get('newValue'))}»")
+        elif k == "sum":
+            out.append(f"Сумма: {v.get('oldValue', 0):,.0f} → {v.get('newValue', 0):,.0f} ₸".replace(",", " "))
+        elif k == "positions":
+            for pv in v if isinstance(v, list) else []:
+                a, b_ = pv.get("oldValue"), pv.get("newValue")
+                nm = _nm((b_ or a or {}).get("assortment")) or "товар"
+                if b_ and not a:
+                    out.append(f"＋ {nm} — {b_.get('quantity', 0):g} шт. × {b_.get('price', 0):,.0f} ₸".replace(",", " "))
+                elif a and not b_:
+                    out.append(f"− {nm} ({a.get('quantity', 0):g} шт.)")
+                elif a and b_:
+                    if a.get("quantity") != b_.get("quantity"):
+                        out.append(f"{nm}: {a.get('quantity', 0):g} → {b_.get('quantity', 0):g} шт.")
+                    if a.get("price") != b_.get("price"):
+                        out.append(f"{nm}: цена {a.get('price', 0):,.0f} → {b_.get('price', 0):,.0f} ₸".replace(",", " "))
+        elif k in ("shipmentAddress", "shipmentAddressFull", "updated", "payedSum", "shippedSum", "invoicedSum", "reservedSum"):
+            continue
+        else:
+            out.append("Изменено: " + _DIFF_NAMES.get(k, k))
+    return "\n".join(out)
+
+
+@bp.get("/admin/api/orders/<number>/history")
+@need("orders")
+def order_history(number):
+    """История заказа: правки из панели (кто из команды) + журнал МойСклад (правки прямо в МойСклад и сценарии)."""
+    items, warn = [], ""
+    try:
+        with inbox.db() as d:
+            rows = d.run("SELECT at, who, text FROM order_log WHERE number=%s ORDER BY at DESC LIMIT 200", (str(number),), many=True)
+        items += [{"at": r[0], "who": r[1], "text": r[2], "src": "panel"} for r in rows]
+    except Exception:
+        pass                                           # таблицы ещё нет — правок из панели не было
+    panel_at = [i["at"] for i in items]
+    oid = request.args.get("id", "")
+    try:
+        if not oh.re.fullmatch(r"[0-9a-f-]{36}", oid):
+            rr = oh.ms("GET", "/entity/customerorder", params={"filter": f"name={number}", "limit": 1}, timeout=15)["rows"]
+            oid = rr[0]["id"] if rr else ""
+        if oid:
+            if _api_uid[0] is None:
+                try:
+                    _api_uid[0] = oh.ms("GET", "/context/employee", timeout=10).get("uid", "")
+                except Exception:
+                    _api_uid[0] = ""
+            evs = oh.ms("GET", f"/entity/customerorder/{oid}/audit", params={"limit": 100}, timeout=20).get("rows", [])
+            for ev in evs:
+                txt = _audit_text(ev)
+                if not txt:
+                    continue
+                try:
+                    at = datetime.strptime(ev["moment"][:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone(timedelta(hours=3))).timestamp()  # время МойСклад — Москва
+                except Exception:
+                    at = 0
+                uid = ev.get("uid", "")
+                if uid and uid == _api_uid[0] and ev.get("eventType") == "update" and any(abs(at - p) < 120 for p in panel_at):
+                    continue                           # та же правка, что уже записана панелью с именем сотрудника
+                who_ = "Сценарий МойСклад" if uid.startswith("system@") else ("Сайт / панель" if uid and uid == _api_uid[0] else uid.split("@")[0])
+                items.append({"at": at, "who": who_, "text": txt, "src": "ms"})
+    except Exception as e:
+        print("История заказа из МойСклад:", e, flush=True)
+        warn = "Журнал МойСклад сейчас не ответил — показаны только правки из панели"
+    items.sort(key=lambda i: -i["at"])
+    return jsonify(ok=True, items=items[:200], warn=warn)
 
 
 @bp.get("/admin/api/orders-search")
@@ -832,6 +942,27 @@ def order_edit(number):
         oh.ms("PUT", f"/entity/customerorder/{o['id']}", json=body, timeout=55)
     except Exception as e:
         return jsonify(ok=False, error="Не удалось сохранить: " + str(e)[:200]), 502
+    try:                                               # что поменялось — в журнал
+        old = {p["assortment"]["id"]: (p["assortment"].get("name", ""), int(p["quantity"]), p["price"] / 100) for p in pos
+               if p["assortment"].get("code") != oh.LOADER_CODE and p["assortment"].get("name") != oh.FEE_NAME}
+        new = {str(l["id"]): (str(l.get("name") or ""), int(float(l["qty"])), float(l["price"])) for l in lines}
+        ch = []
+        for i, (n, q, pr) in new.items():
+            if i not in old:
+                ch.append(f"＋ {n or 'товар'} — {q} шт. × {pr:,.0f} ₸".replace(",", " "))
+            else:
+                n0, q0, p0 = old[i]
+                if q != q0:
+                    ch.append(f"{n or n0}: {q0} → {q} шт.")
+                if abs(pr - p0) > 0.009:
+                    ch.append(f"{n or n0}: цена {p0:,.0f} → {pr:,.0f} ₸".replace(",", " "))
+        ch += [f"− {n} ({q} шт.)" for i, (n, q, _) in old.items() if i not in new]
+        if "description" in b and str(b.get("description") or "")[:2000] != (o.get("description") or ""):
+            ch.append("Изменён комментарий")
+        if ch:
+            _olog(number, "\n".join(ch))
+    except Exception as e:
+        print("Журнал правки заказа:", e, flush=True)
     oh._cache.pop("adm_orders", None)
     oh._pdfs.pop(str(number), None)                 # старый PDF больше не верен — собираем новый в фоне
     oh.pdf_prepare([(number, o["id"])])
