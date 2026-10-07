@@ -1,25 +1,24 @@
-"""Модуль «Финансы», раздел «Счета»: куда поступают деньги.
+"""Модуль «Финансы», раздел «Счета»: куда поступают деньги розничного сайта.
 
-Счета компании (расчётный счёт, Kaspi, касса) и какой способ оплаты на какой счёт приходит.
+Счета компании (расчётный счёт, Kaspi, касса) и какой способ оплаты розницы на какой счёт приходит.
+Оптовики платят как раньше — переводом по реквизитам из «Оплата и реквизиты»; этот раздел их не касается.
 Сам банк перечисляет деньги по договору (эквайринг — на счёт из договора с банком): здесь — учёт и реквизиты,
 по которым система записывает оплаты на нужный счёт и показывает реквизиты клиентам.
 Защита от подмены: менять может только владелец, каждое изменение — в журнал и уведомление владельцу в Telegram.
-Банковские счета копируются в карточку организации МойСклад (поле «Счета»), чтобы входящие платежи привязывались к ним.
+Хранится только в нашей базе (в МойСклад не копируется).
 """
 import json
 import re
-import threading
 import time
 
 import inbox
 import order_hook as oh
 
 KINDS = {"bank": "Расчётный счёт", "kaspi": "Kaspi", "cash": "Касса (наличные)"}
-METHODS = {   # способ оплаты → на какой счёт поступает
+METHODS = {   # способ оплаты на розничном сайте → на какой счёт поступает
     "card": "Оплата картой на сайте (эквайринг)",
-    "kaspi": "Перевод Kaspi",
-    "transfer": "Перевод по реквизитам (оптовики)",
-    "cash": "Наличные",
+    "kaspi": "Kaspi при самовывозе",
+    "cash": "Наличные при самовывозе",
 }
 _ready = [False]
 
@@ -76,9 +75,8 @@ def routes():
 def state():
     with db() as d:
         log = d.run("SELECT at, who, text FROM fin_log ORDER BY id DESC LIMIT 20", many=True) or []
-        sync = inbox.get_setting(d, "fin_ms_sync", "")
     return {"accounts": accounts(), "routes": routes(), "methods": METHODS, "kinds": KINDS,
-            "log": [{"at": a, "who": w, "text": t} for a, w, t in log], "sync": sync}
+            "log": [{"at": a, "who": w, "text": t} for a, w, t in log]}
 
 
 def _clean(a):
@@ -137,7 +135,6 @@ def save_account(a, who):
         _log(d, who, text)
     if changed:
         _alert(f"{text} (кто: {who}). Если это не вы — срочно проверьте раздел «Счета».")
-    sync_bg()
     return aid
 
 
@@ -149,7 +146,6 @@ def delete_account(aid, who):
         d.run("UPDATE fin_account SET archived=1, is_default=0, updated=%s WHERE id=%s", (time.time(), aid))
         _log(d, who, f"удалён счёт «{r[0]}» {mask(r[1]) or r[2] or ''}".rstrip())
     _alert(f"удалён счёт «{r[0]}» (кто: {who})")
-    sync_bg()
 
 
 def save_routes(r, who):
@@ -159,33 +155,3 @@ def save_routes(r, who):
         inbox.set_setting(d, "fin_routes", json.dumps(clean))
         _log(d, who, "куда поступают деньги: " + "; ".join(f"{METHODS[m]} → {ids.get(v, 'не выбран')}" for m, v in clean.items()))
     return clean
-
-
-# ---------- копия банковских счетов в карточке организации МойСклад ----------
-_sync_lock = threading.Lock()
-
-
-def sync_ms():
-    banks = [a for a in accounts() if a["kind"] == "bank"]
-    body = {"accounts": [{"accountNumber": a["iban"], "bankName": a["bank"] or a["name"], "bic": a["bic"],
-                          "isDefault": a["isDefault"] or (i == 0 and not any(x["isDefault"] for x in banks))}
-                         for i, a in enumerate(banks)]}
-    oh.ms("PUT", f"/entity/organization/{oh.organization()}", json=body, timeout=30)
-    return len(banks)
-
-
-def sync_bg():
-    def run():
-        if not _sync_lock.acquire(blocking=False):
-            return
-        try:
-            n = sync_ms()
-            msg = f"ok:{int(time.time())}:{n}"
-        except Exception as e:
-            msg = f"err:{int(time.time())}:{str(e)[:200]}"
-            print("Счета → МойСклад:", e, flush=True)
-        finally:
-            _sync_lock.release()
-        with db() as d:
-            inbox.set_setting(d, "fin_ms_sync", msg)
-    threading.Thread(target=run, daemon=True).start()
