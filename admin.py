@@ -404,8 +404,13 @@ def _ms_today():
     return oh.ms("GET", "/entity/customerorder", params={"filter": f"moment>={day} 00:00:00", "limit": 100}, timeout=12)["rows"]
 
 
+_ord_total = [0]
+
+
 def _ms_orders():
-    return oh.ms("GET", "/entity/customerorder", params={"order": "moment,desc", "limit": 30, "expand": "agent,state"}, timeout=12)["rows"]
+    r = oh.ms("GET", "/entity/customerorder", params={"order": "moment,desc", "limit": 30, "expand": "agent,state"}, timeout=12)
+    _ord_total[0] = (r.get("meta") or {}).get("size", 0)
+    return r["rows"]
 
 
 def _ms_states():
@@ -590,16 +595,25 @@ def client_note():
 @need("orders")
 def orders():
     q = request.args.get("q", "").strip()[:80]
-    if q:                                          # поиск по всем заказам МойСклад: номер, контрагент, телефон, город (описание)
+    try:
+        offset = max(0, int(request.args.get("offset", 0)))
+    except ValueError:
+        offset = 0
+    if q or offset:                                # поиск по всем заказам (номер, контрагент, телефон, город) и «Показать ещё»
+        params = {"order": "moment,desc", "limit": 50, "offset": offset, "expand": "agent,state"}
+        if q:
+            params["search"] = q
         try:
-            rows = oh.ms("GET", "/entity/customerorder", params={
-                "search": q, "order": "moment,desc", "limit": 30, "expand": "agent,state"}, timeout=20)["rows"]
-            rows.sort(key=lambda o: o.get("name", "").lstrip("0") != q.lstrip("0"))    # точный номер — первым
+            r = oh.ms("GET", "/entity/customerorder", params=params, timeout=20)
         except Exception as e:
-            print("Поиск заказов:", e, flush=True)
+            print("Заказы (поиск / ещё):", e, flush=True)
             return jsonify(ok=False, error="МойСклад долго отвечает — повторите через минуту"), 503
+        rows, total = r["rows"], (r.get("meta") or {}).get("size", 0)
+        if q and not offset:
+            rows.sort(key=lambda o: o.get("name", "").lstrip("0") != q.lstrip("0"))    # точный номер — первым
     else:
         rows = fresh("adm_orders", 45, _ms_orders)
+        total = _ord_total[0] or len(rows)
         oh.pdf_prepare([(o["name"], o["id"], o.get("updated")) for o in rows[:30]])
     out = []
     for o in rows:
@@ -609,7 +623,8 @@ def orders():
                     "sum": o["sum"] / 100, "state": (o.get("state") or {}).get("name", "Новый"),
                     "color": "#%06x" % ((o.get("state") or {}).get("color") or 0) if (o.get("state") or {}).get("color") else "",
                     "pdf": f"{oh.PUBLIC_URL}/order/{o['name']}/pdf?t={oh.sign(o['name'])}"})
-    return jsonify(ok=True, orders=out, states=_order_states(), can_edit=True)
+    nxt = offset + len(rows)
+    return jsonify(ok=True, orders=out, states=_order_states(), can_edit=True, total=total, next=nxt, more=nxt < total)
 
 
 def _order_states():
