@@ -455,14 +455,20 @@ def _dash_calc(d1, d2, p1=None, p2=None):
         pend = datetime.strptime(p2, "%Y-%m-%d").replace(tzinfo=oh.ALMATY) + timedelta(days=1)
     hourly = span <= timedelta(days=1)
     rng = lambda a, b: f"moment>={_ms_time(a)};moment<{_ms_time(b)}"
-    with cf.ThreadPoolExecutor(5) as ex:
+    done = lambda a, b: rng(a, b) + ";applicable=true"              # только проведённые — как в МойСклад «Продажи»
+    with cf.ThreadPoolExecutor(8) as ex:
         f_o = ex.submit(_ms_all, "/entity/customerorder", rng(start, end))
         f_po = ex.submit(_ms_all, "/entity/customerorder", rng(pstart, pend))
-        f_r = ex.submit(_ms_all, "/entity/retaildemand", rng(start, end))
-        f_pr = ex.submit(_ms_all, "/entity/retaildemand", rng(pstart, pend))
+        f_r = ex.submit(_ms_all, "/entity/retaildemand", done(start, end))
+        f_pr = ex.submit(_ms_all, "/entity/retaildemand", done(pstart, pend))
+        f_d = ex.submit(_ms_all, "/entity/demand", done(start, end))
+        f_pd = ex.submit(_ms_all, "/entity/demand", done(pstart, pend))
+        f_rt = ex.submit(lambda: _ms_all("/entity/salesreturn", done(start, end)) + _ms_all("/entity/retailsalesreturn", done(start, end)))
+        f_prt = ex.submit(lambda: _ms_all("/entity/salesreturn", done(pstart, pend)) + _ms_all("/entity/retailsalesreturn", done(pstart, pend)))
         f_t = ex.submit(_profit_rows, start, end)
         f_pt = ex.submit(_profit_rows, pstart, pend)
         orders, porders, retail, pretail = f_o.result(), f_po.result(), f_r.result(), f_pr.result()
+        demands, pdemands, rets, prets = f_d.result(), f_pd.result(), f_rt.result(), f_prt.result()
         try:
             tops = f_t.result()
         except Exception as e:
@@ -485,15 +491,24 @@ def _dash_calc(d1, d2, p1=None, p2=None):
     bucket = (lambda t: t.hour) if hourly else (lambda t: (t.date() - start.date()).days)
     pbucket = (lambda t: t.hour) if hourly else (lambda t: (t.date() - pstart.date()).days)
     cur, prev, cnt = [0.0] * n, [0.0] * n, [0] * n
-    for o in orders + retail:
+    # Выручка = продажи как в МойСклад: проведённые отгрузки + чеки кассы − возвраты
+    for o in demands + retail:
         i = bucket(_from_ms(o["moment"]))
         if 0 <= i < n:
             cur[i] += o["sum"] / 100
             cnt[i] += 1
-    for o in porders + pretail:
+    for o in rets:
+        i = bucket(_from_ms(o["moment"]))
+        if 0 <= i < n:
+            cur[i] -= o["sum"] / 100
+    for o in pdemands + pretail:
         i = pbucket(_from_ms(o["moment"]))
         if 0 <= i < n:
             prev[i] += o["sum"] / 100
+    for o in prets:
+        i = pbucket(_from_ms(o["moment"]))
+        if 0 <= i < n:
+            prev[i] -= o["sum"] / 100
     src = {}
     for o in orders:
         k = _src_of(o.get("description"))
@@ -531,14 +546,16 @@ def _dash_calc(d1, d2, p1=None, p2=None):
         return ((r.get("assortment") or {}).get("meta") or {}).get("href", "").rsplit("/", 1)[-1].split("?")[0]
     tops = sorted(tops, key=lambda r: -r.get("sellSum", 0))
     total = lambda L: sum(o["sum"] for o in L) / 100
-    paid = sum(o.get("payedSum", 0) for o in orders) / 100 + total(retail)
-    rev, prev_rev = total(orders) + total(retail), total(porders) + total(pretail)
-    cnt_all, pcnt_all = len(orders) + len(retail), len(porders) + len(pretail)
+    rev, prev_rev = total(demands) + total(retail) - total(rets), total(pdemands) + total(pretail) - total(prets)
+    cnt_all, pcnt_all = len(demands) + len(retail), len(pdemands) + len(pretail)
     return {
         "from": d1, "to": d2, "hourly": hourly, "pfrom": pstart.strftime("%Y-%m-%d"), "pto": (pend - timedelta(days=1)).strftime("%Y-%m-%d"),
         "revenue": rev, "prevRevenue": prev_rev, "count": cnt_all, "prevCount": pcnt_all,
         "avg": rev / cnt_all if cnt_all else 0, "prevAvg": prev_rev / pcnt_all if pcnt_all else 0,
-        "paid": paid, "unpaid": max(0.0, total(orders) - sum(o.get("payedSum", 0) for o in orders) / 100),
+        "returns": total(rets), "shipped": total(demands), "retail": total(retail), "retailCount": len(retail), "shipCount": len(demands),
+        "orders": {"count": len(orders), "sum": total(orders), "prevCount": len(porders), "prevSum": total(porders),
+                   "paid": sum(o.get("payedSum", 0) for o in orders) / 100,
+                   "unpaid": max(0.0, total(orders) - sum(o.get("payedSum", 0) for o in orders) / 100)},
         "series": cur, "prevSeries": prev, "seriesCount": cnt,
         "sources": sorted([{"name": k, "count": v[0], "sum": v[1]} for k, v in src.items()], key=lambda x: -x["sum"]),
         "states": sorted([{"name": k, "count": v, "color": "#%06x" % states_color(states, k)} for k, v in st_cnt.items()],

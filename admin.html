@@ -809,13 +809,15 @@ async function clientCard(id,back){
   const go=(f,t)=>{if(t<f)[f,t]=[t,f];if((t-f)/864e5>400)return ov.querySelector("#dbmm").textContent="Не больше 400 дней";mode="custom";cf=f;ct=t;ov.remove();dashDraw()};
   ov.querySelectorAll("[data-a]").forEach(b=>b.onclick=()=>{const a=b.dataset.a;go(a==="y"?new Date(T.getFullYear(),0,1):add(T,+a),add(T,+b.dataset.b))});
   ov.querySelector("#dbgo").onclick=()=>{const a=ov.querySelector("#dbf1").value,b=ov.querySelector("#dbf2").value;if(!a||!b)return ov.querySelector("#dbmm").textContent="Выберите обе даты";go(parse(a),parse(b))}}
- function paint(d,r){const el=$("#dbb"),pw=prevWord();
+ const fr=n=>fmt(Math.round(n||0));   // без копеек
+ function paint(d,r){const el=$("#dbb"),pw=prevWord(),fmt=fr,O=d.orders||{};
   el.innerHTML=`<div class="dbk">
-   <div class="card k hero"><div class="l">Выручка</div><div class="v">${fmt(d.revenue)} ₸</div>${delta(d.revenue,d.prevRevenue)}<span class="p">${pw} ${fmt(d.prevRevenue)} ₸</span></div>
-   <div class="card k"><div class="l">Заказы и чеки</div><div class="v">${fmt(d.count)}</div>${delta(d.count,d.prevCount)}<span class="p">${pw} ${fmt(d.prevCount)}</span></div>
+   <div class="card k hero"><div class="l">Выручка (продажи)</div><div class="v">${fmt(d.revenue)} ₸</div>${delta(d.revenue,d.prevRevenue)}<span class="p">${pw} ${fmt(d.prevRevenue)} ₸</span>
+    <div class="p" style="margin:4px 0 0">отгрузки ${fmt(d.shipped)} ₸ · касса ${fmt(d.retail)} ₸${d.returns?` · возвраты −${fmt(d.returns)} ₸`:""}</div></div>
+   <div class="card k"><div class="l">Продажи</div><div class="v">${fmt(d.count)}</div>${delta(d.count,d.prevCount)}<span class="p">${pw} ${fmt(d.prevCount)}</span><div class="p" style="margin:3px 0 0">отгрузок ${d.shipCount} · чеков ${d.retailCount}</div></div>
    <div class="card k"><div class="l">Средний чек</div><div class="v">${fmt(d.avg)} ₸</div>${delta(d.avg,d.prevAvg)}<span class="p">${pw} ${fmt(d.prevAvg)} ₸</span></div>
    <div class="card k"><div class="l">Валовая прибыль</div>${d.gross?`<div class="v">${fmt(d.gross.profit)} ₸</div>${d.prevGross?delta(d.gross.profit,d.prevGross.profit):""}<span class="p">маржа ${Math.round(d.gross.margin)}%</span><div class="p" style="margin:3px 0 0">${pw} ${d.prevGross?fmt(d.prevGross.profit)+" ₸":"—"}</div>`:'<div class="v">—</div><span class="p" style="margin:0">МойСклад не ответил</span>'}</div>
-   <div class="card k"><div class="l">Оплачено</div><div class="v">${fmt(d.paid)} ₸</div><span class="p" style="margin:0">ждём оплату: ${fmt(d.unpaid)} ₸</span></div></div>
+   <div class="card k"><div class="l">Новые заказы</div><div class="v">${fmt(O.count)}</div><div class="p" style="margin:-2px 0 4px;font-size:13px;color:inherit">на ${fmt(O.sum)} ₸</div>${delta(O.sum,O.prevSum)}<span class="p">${pw} ${fmt(O.prevCount)} на ${fmt(O.prevSum)} ₸</span><div class="p" style="margin:3px 0 0">ждём оплату: ${fmt(O.unpaid)} ₸</div></div></div>
    <div class="card dbc"><h3>${d.hourly?"Выручка по часам":"Выручка по дням"}</h3><div class="leg"><span><i style="background:#1F6B4E"></i>${mode==="day"&&r.live?"Сегодня":"Период"}</span><span><i class="ln"></i>${mode==="day"?(r.live?"Вчера":"День до"):"Прошлый период"}</span></div>
     <div style="position:relative"><svg id="dbch" width="100%" height="200" style="display:block;touch-action:pan-y"></svg><div class="tip" id="dbtip" hidden></div></div></div>
    <div class="dbg"><div class="card dbc"><h3>Топ товаров <small>по отгрузкам</small></h3>${d.topProducts.length?d.topProducts.map((x,i)=>`<div class="row">${thumb(x.img)}<div class="n">${esc(x.name)}<div class="mut" style="font-size:12px">${fmt(x.qty)} шт.</div><div class="bar"><i style="width:${Math.max(3,x.sum/d.topProducts[0].sum*100)}%"></i></div></div><span class="s">${fmt(x.sum)} ₸</span></div>`).join(""):'<div class="mut">Отгрузок за период нет</div>'}
@@ -837,7 +839,7 @@ async function clientCard(id,back){
   const hl=sv.querySelector("#dbhl");
   const at=e=>{const b=sv.getBoundingClientRect(),px=(e.touches?e.touches[0].clientX:e.clientX)-b.left,i=Math.floor((px*W/b.width-L)/cw);if(i<0||i>=n){tip.hidden=true;hl.setAttribute("opacity",0);return}
    hl.setAttribute("x",L+i*cw);hl.setAttribute("opacity",.06);const c=d.seriesCount[i];
-   tip.innerHTML=`<b>${lbl(i)}</b> — ${fmt(d.series[i])} ₸${c?` · ${c} ${c%10===1&&c%100!==11?"заказ":c%10>=2&&c%10<=4&&(c%100<10||c%100>=20)?"заказа":"заказов"}`:""}<br><span style="opacity:.7">прошлый: ${fmt(d.prevSeries[i]||0)} ₸</span>`;tip.hidden=false;
+   tip.innerHTML=`<b>${lbl(i)}</b> — ${fr(d.series[i])} ₸${c?` · ${c} ${c%10===1&&c%100!==11?"продажа":c%10>=2&&c%10<=4&&(c%100<10||c%100>=20)?"продажи":"продаж"}`:""}<br><span style="opacity:.7">прошлый: ${fr(d.prevSeries[i]||0)} ₸</span>`;tip.hidden=false;
    const tw=tip.offsetWidth,lx=Math.min(Math.max(0,(x(i)*b.width/W)-tw/2),b.width-tw);tip.style.left=lx+"px";tip.style.top="0px"};
   sv.onmousemove=at;sv.ontouchstart=at;sv.ontouchmove=at;sv.onmouseleave=()=>{tip.hidden=true;hl.setAttribute("opacity",0)}}
  const st=document.createElement("style");st.textContent=`#dash{margin-bottom:8px}.dbh{font-weight:800;font-size:17px;margin:22px 0 10px}
