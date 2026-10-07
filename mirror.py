@@ -361,6 +361,8 @@ def reconcile():
     ok = all(c["ok"] for c in checks)
     with db() as d:
         d.run("INSERT INTO ms_recon (at, ok, body) VALUES (%s, %s, %s)", (time.time(), 1 if ok else 0, json.dumps(res, ensure_ascii=False)))
+    print("Зеркало МойСклад, сверка:", "OK" if ok else "РАСХОЖДЕНИЯ",   # итог в логи Render — база снаружи закрыта
+          "; ".join(f"{c['name']}: {c['ours']}/{c['theirs']}" for c in checks), flush=True)
     return {"ok": ok, **res}
 
 
