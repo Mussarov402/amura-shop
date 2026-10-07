@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, g, has_request_context, jsonify, request, send_from_directory
 
+import ig
 import order_hook as oh
 import team
 import wa
@@ -729,7 +730,7 @@ def _chats_for(phone, tgid):
         return []
     with inbox.db() as d:
         rows = d.run("SELECT id, chat_id, last_at, last_text, unread FROM conv WHERE chat_id IN (" + ",".join(["%s"] * len(keys)) + ")", tuple(keys), many=True)
-    return [{"id": r[0], "channel": "wa" if wa.is_wa(r[1]) else "tg", "at": r[2], "text": r[3], "unread": r[4]} for r in rows]
+    return [{"id": r[0], "channel": inbox.channel(r[1]), "at": r[2], "text": r[3], "unread": r[4]} for r in rows]
 
 
 @bp.get("/admin/api/clients")
@@ -741,7 +742,7 @@ def clients():
     if request.args.get("src") == "chat":
         with inbox.db() as d:
             rows = d.run("SELECT id, name, username, chat_id, last_at, last_text, unread FROM conv ORDER BY last_at DESC LIMIT 300", many=True)
-        out = [{"conv": r[0], "name": r[1], "username": r[2], "channel": "wa" if wa.is_wa(r[3]) else "tg",
+        out = [{"conv": r[0], "name": r[1], "username": r[2], "channel": inbox.channel(r[3]),
                 "phone": wa.number(r[3]) if wa.is_wa(r[3]) else "", "at": r[4], "text": r[5], "unread": r[6]} for r in rows]
         if q:
             ql = q.lower()
@@ -768,6 +769,8 @@ def client_card(cid):
         try:                                        # ищем такого же покупателя в МойСклад
             if wa.is_wa(conv[3]):
                 found = oh.ms("GET", "/entity/counterparty", params={"search": wa.number(conv[3])[-10:], "limit": 1}, timeout=10)["rows"]
+            elif ig.is_ig(conv[3]):                 # у Instagram нет ни номера, ни Telegram ID — искать в МойСклад не по чему
+                found = []
             else:
                 found = oh.ms("GET", "/entity/counterparty", params={"filter": f"{oh.tg_attr()['meta']['href']}={conv[3]}", "limit": 1}, timeout=10)["rows"]
             cp = found[0] if found else None
@@ -778,7 +781,7 @@ def client_card(cid):
             return jsonify(ok=False, error="Клиент не найден"), 404
         cp = oh.ms("GET", f"/entity/counterparty/{cid}", timeout=12)
     info = _cp_row(cp) if cp else {"id": "", "name": conv[1], "phone": wa.number(conv[3]) if wa.is_wa(conv[3]) else "",
-                                   "email": "", "tags": [], "tg": "" if wa.is_wa(conv[3]) else conv[3], "city": "", "created": ""}
+                                   "email": "", "tags": [], "tg": conv[3] if inbox.channel(conv[3]) == "tg" else "", "city": "", "created": ""}
     if conv and not cp:
         info["username"] = conv[2]
     orders, total, paid, balance = [], 0.0, 0.0, None
@@ -800,7 +803,7 @@ def client_card(cid):
             print("Клиент: баланс не получен:", e, flush=True)
     chats = _chats_for(info["phone"], info["tg"])
     if conv and not any(c["id"] == conv[0] for c in chats):
-        chats.append({"id": conv[0], "channel": "wa" if wa.is_wa(conv[3]) else "tg", "at": 0, "text": "", "unread": 0})
+        chats.append({"id": conv[0], "channel": inbox.channel(conv[3]), "at": 0, "text": "", "unread": 0})
     keys = [k for k in (("ms:" + cp["id"]) if cp else "", ("conv:" + str(conv[0])) if conv else "") if k]
     with _notes_db() as d:
         note = next((r for r in (d.run("SELECT text, author, at FROM client_note WHERE key=%s", (k,), one=True) for k in keys) if r), None)
@@ -1355,7 +1358,7 @@ def inbox_convs():
     with inbox.db() as d:
         rows = d.run("SELECT id, name, username, status, unread, last_at, last_text, chat_id FROM conv ORDER BY last_at DESC LIMIT 100", many=True)
     return jsonify(ok=True, convs=[{"id": r[0], "name": r[1], "username": r[2], "status": r[3], "unread": r[4], "at": r[5], "text": r[6],
-                                    "channel": "wa" if wa.is_wa(r[7]) else "tg", "phone": wa.number(r[7]) if wa.is_wa(r[7]) else ""} for r in rows])
+                                    "channel": inbox.channel(r[7]), "phone": wa.number(r[7]) if wa.is_wa(r[7]) else ""} for r in rows])
 
 
 def _msg_json(m):
@@ -1380,9 +1383,11 @@ def inbox_conv(cid):
         d.run("UPDATE conv SET unread=0 WHERE id=%s", (cid,))
         ms_ = d.run("SELECT id, role, text, photo, at, media FROM msg WHERE conv_id=%s ORDER BY id DESC LIMIT 100", (cid,), many=True)[::-1]
     lastc = max([m[4] for m in ms_ if m[1] == "client"] or [0])
-    isw = wa.is_wa(c[4])
-    return jsonify(ok=True, conv={"id": c[0], "name": c[1], "username": c[2], "status": c[3], "channel": "wa" if isw else "tg",
-                                  "phone": wa.number(c[4]) if isw else "", "open": (not isw) or (time.time() - lastc < 86400 - 60)},
+    isw, ch = wa.is_wa(c[4]), inbox.channel(c[4])
+    age = time.time() - lastc
+    opn = age < 86400 - 60 if isw else age < 7 * 86400 - 60 if ch == "ig" else True      # WhatsApp — 24 ч, Instagram — 7 дней (после 24 ч с меткой «ответ менеджера»)
+    return jsonify(ok=True, conv={"id": c[0], "name": c[1], "username": c[2], "status": c[3], "channel": ch,
+                                  "phone": wa.number(c[4]) if isw else "", "open": opn, "late": ch == "ig" and age >= 86400 - 60},
                    messages=[_msg_json(m) for m in ms_])
 
 
@@ -1458,6 +1463,25 @@ def _send_file_wa(chat, data, name, mime, kind, caption, dur):
     return {"t": "doc", "id": "wa:" + wa.send_media(chat, "document", data, name, mime, caption), "name": name, "size": len(data), "mime": mime}, None
 
 
+def _send_file_ig(chat, data, name, mime, kind, caption, dur):
+    """Файл менеджера -> Instagram (голосовое — аудиовложением m4a). Возвращает (media, photo) для записи в диалог."""
+    if kind == "voice":
+        m4a = _convert(data, ["-vn", "-ac", "1", "-c:a", "aac", "-b:a", "64k", ".m4a"],
+                       ".m4a" if ("mp4" in mime or "m4a" in mime) else ".ogg" if "ogg" in mime else ".webm")
+        if not m4a and ("mp4" in mime or "m4a" in mime or "aac" in mime):
+            m4a = data
+        if not m4a:
+            raise RuntimeError("Не удалось подготовить голосовое для Instagram")
+        return {"t": "voice", "id": ig.send_media(chat, "audio", m4a, "voice.m4a", "audio/mp4"), "dur": int(float(dur or 0))}, None
+    if mime in ("image/jpeg", "image/png", "image/gif") and len(data) <= 8 * 1024 * 1024:
+        return None, ig.send_media(chat, "image", data, name, mime, caption)
+    if mime.startswith("video/") and len(data) <= 25 * 1024 * 1024:
+        return {"t": "video", "id": ig.send_media(chat, "video", data, name, mime, caption), "dur": 0}, None
+    if mime.startswith("audio/"):
+        return {"t": "voice", "id": ig.send_media(chat, "audio", data, name, mime, caption), "dur": 0}, None
+    return {"t": "doc", "id": ig.send_media(chat, "file", data, name, mime, caption), "name": name, "size": len(data), "mime": mime}, None
+
+
 @bp.post("/admin/api/inbox/conv/<int:cid>/send-file")
 @need("inbox")
 def inbox_send_file(cid):
@@ -1476,9 +1500,9 @@ def inbox_send_file(cid):
         if not c:
             return jsonify(ok=False, error="Диалог не найден"), 404
         chat, media, photo = c[0], None, None
-        if wa.is_wa(chat):
+        if wa.is_wa(chat) or ig.is_ig(chat):
             try:
-                media, photo = _send_file_wa(chat, data, name, mime, kind, caption, request.form.get("dur", 0))
+                media, photo = (_send_file_wa if wa.is_wa(chat) else _send_file_ig)(chat, data, name, mime, kind, caption, request.form.get("dur", 0))
             except Exception as e:
                 return jsonify(ok=False, error=str(e)[:300]), 502
             inbox.save_msg(d, cid, "manager", caption if kind != "voice" else "", photo, media=media)
@@ -1517,9 +1541,9 @@ def inbox_file(file_id):
     """Файл из Telegram для показа в панели (голосовые, видео, документы). ?fmt=mp3 — перекодировать для браузеров без Opus (iPhone)."""
     if not oh.ORDER_SECRET or not oh.hmac.compare_digest(request.args.get("t", ""), _sig("fl" + file_id)):
         return "", 403
-    if file_id.startswith("wa:"):
+    if file_id.startswith(("wa:", "ig:")):
         try:
-            data, mime = wa.download(file_id)
+            data, mime = (ig if file_id.startswith("ig:") else wa).download(file_id)
         except Exception as e:
             return str(e), 502
         fname = "file" + (mimetypes.guess_extension(mime.split(";")[0]) or "")
@@ -1545,9 +1569,9 @@ def inbox_photo(file_id):
     t = request.args.get("t", "")
     if not oh.ORDER_SECRET or not oh.hmac.compare_digest(t, _sig("ph" + file_id)):
         return "", 403
-    if file_id.startswith("wa:"):
+    if file_id.startswith(("wa:", "ig:")):
         try:
-            data, mime = wa.download(file_id)
+            data, mime = (ig if file_id.startswith("ig:") else wa).download(file_id)
         except Exception as e:
             return str(e), 502
         return oh.Response(data, mimetype=mime if mime.startswith("image/") else "image/jpeg", headers={"Cache-Control": "private, max-age=86400"})
@@ -1682,7 +1706,31 @@ def channels():
                    wa={"ok": wa.configured(), "phone_id": c["phone_id"], "token": _mask(c["token"]), "secret": _mask(c["secret"]),
                        "app_id": c["app_id"], "config_id": c["config_id"], "config_coex": c["config_coex"],
                        "ready": bool(c["app_id"] and c["config_id"] and c["secret"]), "readyCoex": bool(c["app_id"] and (c["config_coex"] or c["config_id"]) and c["secret"]),
-                       "url": f"{base}/wa/{oh.HOOK_SECRET}", "verify": oh.HOOK_SECRET})
+                       "url": f"{base}/wa/{oh.HOOK_SECRET}", "verify": oh.HOOK_SECRET},
+                   ig=_ig_info(base))
+
+
+def _ig_info(base):
+    c = ig.cfg()
+    own = bool(c["secret"]) and c["secret"] != wa.cfg().get("secret")          # пусто — используется App Secret от WhatsApp
+    return {"ok": ig.configured(), "page_id": c["page_id"], "token": _mask(c["token"]), "secret": _mask(c["secret"]) if own else "",
+            "shared_secret": bool(c["secret"]) and not own, "page": c.get("page_name", ""), "username": c.get("username", ""),
+            "url": f"{base}/ig/{oh.HOOK_SECRET}", "verify": oh.HOOK_SECRET}
+
+
+@bp.post("/admin/api/channels/ig")
+@guard
+def ig_connect():
+    """Instagram: «Сохранить и проверить» — проверка токена страницы, подписка на сообщения, сохранение настроек."""
+    b = request.get_json(silent=True) or {}
+    base = (oh.PUBLIC_URL or request.url_root).rstrip("/")
+    try:
+        j = ig.connect(str(b.get("page_id", "")), str(b.get("token", "")), str(b.get("secret", "")), f"{base}/ig/{oh.HOOK_SECRET}", oh.HOOK_SECRET, base)
+    except oh.requests.exceptions.RequestException:
+        return jsonify(ok=False, error="Не удалось связаться с Meta. Повторите через минуту."), 502
+    except Exception as e:
+        return jsonify(ok=False, error=str(e)[:800]), 400
+    return jsonify(ok=True, **j)
 
 
 @bp.post("/admin/api/channels/wa-test")

@@ -14,6 +14,8 @@ app.register_blueprint(bp)
 app.register_blueprint(admin_bp)
 from wa import bp as wa_bp  # noqa: E402
 app.register_blueprint(wa_bp)
+from ig import bp as ig_bp  # noqa: E402
+app.register_blueprint(ig_bp)
 
 
 @app.get("/")
