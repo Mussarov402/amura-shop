@@ -122,6 +122,13 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 .dlz{display:grid;gap:10px;border:1px solid #E1E6E2;border-radius:12px;padding:12px;background:#FAFBFA}.dlzt{font-weight:800;font-size:14px}
 .dln{position:relative;display:block}.dln i{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-style:normal;color:#5F6B65;font-weight:600}
 .dlx{margin-top:10px;font-size:13.5px}
+.dlf select{font:inherit;font-size:16px;font-weight:400;padding:10px 12px;border:1px solid #D5DCD7;border-radius:10px;background:#fff;width:100%}
+.acn{background:#F6EFE2;border-radius:12px;padding:12px 14px;font-size:14px;line-height:1.5}
+.acr{display:flex;gap:10px;align-items:flex-start;padding:12px 0;border-top:1px solid #EEF1EE}.acr:first-of-type{border-top:0}.acr .grow{min-width:0}
+.acnum{font-variant-numeric:tabular-nums;font-size:14px;margin-top:2px;overflow-wrap:anywhere}.acd{font-size:11.5px;font-weight:800;background:#DDF1E6;color:#0E5A3A;border-radius:6px;padding:1px 7px;margin-left:4px}
+.acbt{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}.acdel{color:#8A1C1C}
+.acl{padding:7px 0;border-top:1px solid #EEF1EE;font-size:14px}.acl:first-of-type{border-top:0}
+@media(max-width:560px){.acr{flex-direction:column}.acbt{justify-content:flex-start}}
 .dlg3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.dlg3 label{display:grid;gap:4px;font-size:13px;font-weight:600}
 .dld{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}.dlday{border:1px solid #D5DCD7;background:#fff;border-radius:10px;padding:8px 0;width:44px;font:inherit;font-weight:700;cursor:pointer;color:#5F6B65}.dlday.on{background:var(--g);border-color:var(--g);color:#fff}
 .dll{display:grid;gap:4px;font-size:13.5px;font-weight:600}.dll input{font:inherit;font-size:16px;padding:9px 12px;border:1px solid #D5DCD7;border-radius:10px;background:#fff}
@@ -163,7 +170,7 @@ let nav=0;   // номер перехода между разделами: от�
 let gotStale=false;
 async function api(p,o={}){const n=nav;const r=await fetch("/admin/api/"+p,{...o,headers:{"Content-Type":"application/json",Authorization:"Bearer "+tok}});if(!o.method&&r.headers.get("X-Stale"))gotStale=true;
  if(r.status===401){localStorage.removeItem(T);tok="";boot();throw Error("401")}const j=await r.json();if(!o.method&&n!==nav)throw Error("stale");if(!j.ok)throw Error(j.error||"Ошибка");return j}
-const ALLOW={mirror:"owner",notif:"owner",overview:"owner",pay:"owner",delivery:"owner",banners:"owner",ai:"owner",team:"owner",channels:"owner",products:"products",orders:"orders",retail:"orders",clients:"orders",inbox:"inbox"};
+const ALLOW={mirror:"owner",notif:"owner",overview:"owner",pay:"owner",delivery:"owner",accounts:"owner",banners:"owner",ai:"owner",team:"owner",channels:"owner",products:"products",orders:"orders",retail:"orders",clients:"orders",inbox:"inbox"};
 let ME=null;const can=p=>!!ME&&(ME.role==="owner"||(ALLOW[p]!=="owner"&&ME.perms.includes(ALLOW[p])));
 async function boot(){const a=!!tok;$("#login").hidden=a;$("#app").hidden=!a;if(!a){ME=null;return}
  try{ME=await api("me")}catch(e){return}
@@ -198,15 +205,15 @@ const avatar=(n,s)=>`<span class="av" style="width:${s}px;height:${s}px;font-siz
 const logout=()=>{localStorage.removeItem(T);tok="";boot()};
 function drawAcc(){if(!ME)return;const role=ME.role==="owner"?"Владелец":"Сотрудник";
  $("#acm").innerHTML=avatar(ME.name,36);$("#acd").innerHTML=`${avatar(ME.name,38)}<span class="ai1"><b>${esc(ME.name)}</b><small>${role}</small></span><span class="dots">⋮</span>`;
- $("#accmenu").innerHTML=`<div class="amh">${avatar(ME.name,44)}<div><b>${esc(ME.name)}</b><small>${role}</small></div></div>${typeof notifyState==="function"?(notifyState()==="granted"?`<button id="ntb" disabled>🔔 Уведомления включены</button>`:`<button id="ntb">🔔 Включить уведомления</button>`):""}${can("notif")?`<button id="amn">⚙️ Уведомления в Telegram</button>`:""}${can("pay")?`<button id="amp">💳 Оплата и реквизиты</button>`:""}${can("delivery")?`<button id="amd">🚚 Доставка</button>`:""}<button id="outb">Выйти из панели</button>`;$("#outb").onclick=logout;
- [["#amn","notif"],["#amp","pay"],["#amd","delivery"]].forEach(([id,p])=>{const b=$(id);if(b)b.onclick=()=>{$("#accmenu").hidden=true;scrollTo(0,0);document.querySelectorAll(".nav,.tabbar button").forEach(x=>x.classList.toggle("on",x.dataset.p===grp(p)));show(p)}});   /* настройки — в меню значка (на телефоне вместо вкладок «Обзора») */const nb=$("#ntb");if(nb&&!nb.disabled)nb.onclick=()=>enableNotify()}
+ $("#accmenu").innerHTML=`<div class="amh">${avatar(ME.name,44)}<div><b>${esc(ME.name)}</b><small>${role}</small></div></div>${typeof notifyState==="function"?(notifyState()==="granted"?`<button id="ntb" disabled>🔔 Уведомления включены</button>`:`<button id="ntb">🔔 Включить уведомления</button>`):""}${can("notif")?`<button id="amn">⚙️ Уведомления в Telegram</button>`:""}${can("pay")?`<button id="amp">💳 Оплата и реквизиты</button>`:""}${can("accounts")?`<button id="ama">🏦 Счета</button>`:""}${can("delivery")?`<button id="amd">🚚 Доставка</button>`:""}<button id="outb">Выйти из панели</button>`;$("#outb").onclick=logout;
+ [["#amn","notif"],["#amp","pay"],["#ama","accounts"],["#amd","delivery"]].forEach(([id,p])=>{const b=$(id);if(b)b.onclick=()=>{$("#accmenu").hidden=true;scrollTo(0,0);document.querySelectorAll(".nav,.tabbar button").forEach(x=>x.classList.toggle("on",x.dataset.p===grp(p)));show(p)}});   /* настройки — в меню значка (на телефоне вместо вкладок «Обзора») */const nb=$("#ntb");if(nb&&!nb.disabled)nb.onclick=()=>enableNotify()}
 const accToggle=(e,from)=>{e.stopPropagation();const m=$("#accmenu");const open=m.hidden||m.dataset.from!==from;m.hidden=!open;m.dataset.from=from;m.className="accmenu "+from};
 $("#acm").onclick=e=>accToggle(e,"top");$("#acd").onclick=e=>accToggle(e,"side");
 document.addEventListener("click",e=>{const m=$("#accmenu");if(!m.hidden&&!m.contains(e.target))m.hidden=true});
 let lastArg,cur=localStorage.getItem("amura_view")||"overview",restoreY=0;try{const sp=JSON.parse(sessionStorage.getItem("amura_pos")||"null");if(sp&&sp.v===cur)restoreY=sp.y||0}catch(e){}
 const savePos=()=>{try{sessionStorage.setItem("amura_pos",JSON.stringify({v:cur,y:scrollY}))}catch(e){}};addEventListener("pagehide",savePos);document.addEventListener("visibilitychange",()=>{if(document.hidden)savePos()});document.querySelectorAll(".nav,.tabbar button").forEach(b=>b.onclick=()=>{document.querySelectorAll(".nav,.tabbar button").forEach(x=>x.classList.toggle("on",x.dataset.p===b.dataset.p));scrollTo(0,0);show(b.dataset.p)});
-const SEG={orders:[["orders","Заказы"],["retail","Розница"],["clients","Клиенты"]],products:[["products","Товары"],["banners","Баннеры на главной"]],overview:[["overview","Состояние"],["pay","Оплата"],["delivery","Доставка"],["notif","Уведомления"]],ai:[["ai","Чат-проверка"],["rules","Правила"],["kb","База знаний"],["channels","Каналы"],["team","Команда"]]};
-const grp=a=>({notif:"overview",delivery:"overview",clients:"orders",retail:"orders",banners:"products",pay:"overview",team:"ai",rules:"ai",kb:"ai",channels:"ai"}[a]||a);
+const SEG={orders:[["orders","Заказы"],["retail","Розница"],["clients","Клиенты"]],products:[["products","Товары"],["banners","Баннеры на главной"]],overview:[["overview","Состояние"],["pay","Оплата"],["accounts","Счета"],["delivery","Доставка"],["notif","Уведомления"]],ai:[["ai","Чат-проверка"],["rules","Правила"],["kb","База знаний"],["channels","Каналы"],["team","Команда"]]};
+const grp=a=>({notif:"overview",delivery:"overview",accounts:"overview",clients:"orders",retail:"orders",banners:"products",pay:"overview",team:"ai",rules:"ai",kb:"ai",channels:"ai"}[a]||a);
 const seg=a=>{const g=SEG[grp(a)].filter(([k])=>can(k));if(g.length<2)return "";return `<div class="seg" data-g="${grp(a)}">${g.map(([k,t])=>`<button class="${k===a?"on":""}" data-go="${k}">${t}</button>`).join("")}</div>`};
 const bindSeg=()=>document.querySelectorAll("[data-go]").forEach(b=>b.onclick=()=>show(b.dataset.go));
 const renderSubs=()=>{const g=grp(cur);document.querySelectorAll(".subs").forEach(d=>{const k=d.dataset.for,l=(SEG[k]||[]).filter(([x])=>can(x));d.classList.toggle("open",k===g&&l.length>1);d.innerHTML=l.map(([x,t])=>`<button data-k="${x}" class="${x===cur?"on":""}">${t}</button>`).join("");d.querySelectorAll("button").forEach(b=>b.onclick=()=>{scrollTo(0,0);show(b.dataset.k)})});document.querySelectorAll(".nav").forEach(x=>x.classList.toggle("on",x.dataset.p===g))};
@@ -388,6 +395,46 @@ async orders(q,kind){q=q==null?"":String(q);const rt=kind==="retail",vw=rt?"reta
   try{const r=await api(oq(v));if(my===sq&&n0===nav){paint(r);$("#ordl").style.opacity=""}}catch(e){if(my===sq&&e.message!=="stale"){$("#ordl").style.opacity="";$("#ordl").innerHTML=`<div class="b x" style="white-space:normal">${esc(e.message)}</div>`}}};
  inp.oninput=()=>{clearTimeout(tq);tq=setTimeout(run,450)};inp.onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();clearTimeout(tq);inp.blur();run()}};bindSeg()},
 retail(q){return views.orders(q,"retail")},
+async accounts(edit){const o=await api("accounts");const n=nav;const A=o.accounts,R=o.routes;
+ const when=t=>{const x=new Date(t*1000);return x.toLocaleDateString("ru",{day:"2-digit",month:"2-digit"})+" "+x.toLocaleTimeString("ru",{hour:"2-digit",minute:"2-digit"})};
+ const sp=s=>s.replace(/(.{4})/g,"$1 ").trim();
+ const sync=o.sync?o.sync.split(":"):null;
+ const form=a=>`<div class="card acf" id="acf"><b>${a.id?"Изменить счёт":"Новый счёт"}</b><div class="dlf">
+  <label>Тип<select id="af-kind">${Object.entries(o.kinds).map(([k,v])=>`<option value="${k}" ${a.kind===k?"selected":""}>${esc(v)}</option>`).join("")}</select></label>
+  <label>Название<input id="af-name" autocomplete="off" value="${esc(a.name||"")}" placeholder="Например: Halyk — расчётный счёт ИП"></label>
+  <div class="acb"><label>Банк<input id="af-bank" autocomplete="off" value="${esc(a.bank||"")}" placeholder="АО «Halyk Bank»"></label>
+  <label>IBAN<input id="af-iban" autocomplete="off" autocapitalize="characters" value="${esc(sp(a.iban||""))}" placeholder="KZ00 0000 0000 0000 0000"></label>
+  <div class="dlg"><label>БИК<input id="af-bic" autocomplete="off" autocapitalize="characters" value="${esc(a.bic||"")}" placeholder="HSBKKZKX"></label><label>КБе<input id="af-kbe" inputmode="numeric" autocomplete="off" value="${esc(a.kbe||"")}" placeholder="19"></label></div></div>
+  <div class="ack"><label>Номер Kaspi<input id="af-phone" inputmode="tel" autocomplete="off" value="${esc(a.phone||"")}" placeholder="+7 7__ ___ __ __"></label></div>
+  <label class="dlck"><input type="checkbox" id="af-def" ${a.isDefault?"checked":""}> Основной счёт этого типа</label></div>
+  <div class="dlb"><button class="btn" id="af-save">Сохранить</button><button class="btn ghost" id="af-cancel">Отмена</button><span class="mut" id="af-m"></span></div></div>`;
+ $("#main").innerHTML=head("Счета","Куда поступают деньги: расчётный счёт, Kaspi, касса")+seg("accounts")+`<div class="dlw">
+ <div class="note acn">Деньги за оплату картой банк перечисляет на счёт из <b>договора эквайринга</b> — здесь укажите тот же счёт. Изменение реквизитов здесь не меняет, куда платит банк: по этим данным система записывает оплаты на нужный счёт и показывает реквизиты клиентам.</div>
+ <div class="card"><div class="row"><div class="grow"><b>Счета</b></div><button class="btn sm" id="acadd">＋ Добавить счёт</button></div>
+  ${A.length?A.map(a=>`<div class="acr"><div class="grow"><div><b>${esc(a.name)}</b> ${a.isDefault?'<span class="acd">основной</span>':""}</div>
+   <div class="mut">${esc(a.kindName)}${a.bank?" · "+esc(a.bank):""}</div><div class="acnum">${a.kind==="bank"?esc(sp(a.iban))+"<br>БИК "+esc(a.bic)+(a.kbe?" · КБе "+esc(a.kbe):""):a.kind==="kaspi"?esc(a.phone||"номер не указан"):"наличные"}</div></div>
+   <div class="acbt"><button class="btn sm ghost" data-ed="${a.id}">Изменить</button><button class="btn sm ghost acdel" data-del="${a.id}">Удалить</button></div></div>`).join(""):'<div class="mut" style="padding:8px 0">Счетов пока нет. Добавьте расчётный счёт ИП — на него будут поступать оплаты с сайта.</div>'}</div>
+ <div id="acfw"></div>
+ <div class="card"><b>Куда поступают деньги</b><div class="mut">Для каждого способа оплаты — счёт, на который он приходит</div><div class="dlf">
+  ${Object.entries(o.methods).map(([m,t])=>`<label>${esc(t)}<select data-rt="${m}"><option value="">— не выбран —</option>${A.map(a=>`<option value="${a.id}" ${R[m]===a.id?"selected":""}>${esc(a.name)}</option>`).join("")}</select></label>`).join("")}</div>
+  <div class="dlb"><button class="btn sm" id="acrt">Сохранить</button><span class="mut" id="acrm"></span></div></div>
+ <div class="card"><b>МойСклад</b><div class="mut">${!sync?"Расчётные счета копируются в карточку организации МойСклад после сохранения":sync[0]==="ok"?`✅ ${when(+sync[1])}: в карточке организации ${sync[2]} расч. счёт(а)`:`❌ ${when(+sync[1])}: ${esc(sync.slice(2).join(":"))}`}</div></div>
+ <div class="card"><b>Журнал изменений</b>${o.log.length?o.log.map(l=>`<div class="acl"><span class="mut">${when(l.at)} · ${esc(l.who)}</span><div>${esc(l.text)}</div></div>`).join(""):'<div class="mut" style="padding:6px 0">Изменений пока нет</div>'}
+  <div class="mut" style="font-size:12.5px;margin-top:6px">О каждом изменении реквизитов приходит уведомление владельцу в Telegram.</div></div></div>`;
+ bindSeg();
+ const openForm=a=>{$("#acfw").innerHTML=form(a);const kind=()=>$("#af-kind").value;const vis=()=>{document.querySelector("#acf .acb").hidden=kind()!=="bank";document.querySelector("#acf .ack").hidden=kind()!=="kaspi"};vis();$("#af-kind").onchange=vis;
+  $("#acf").scrollIntoView({behavior:"smooth",block:"center"});$("#af-name").focus();
+  $("#af-cancel").onclick=()=>{$("#acfw").innerHTML=""};
+  $("#af-save").onclick=async e=>{const b=e.currentTarget;b.disabled=true;$("#af-m").textContent="Сохраняю…";
+   try{await api("accounts/save",{method:"POST",body:JSON.stringify({id:a.id||null,kind:kind(),name:$("#af-name").value,bank:$("#af-bank").value,iban:$("#af-iban").value,bic:$("#af-bic").value,kbe:$("#af-kbe").value,phone:$("#af-phone").value,isDefault:$("#af-def").checked})});
+    if(n===nav){await views.accounts();toast("Счёт сохранён")}}catch(x){$("#af-m").textContent=x.message;b.disabled=false}}};
+ $("#acadd").onclick=()=>openForm({kind:"bank"});
+ document.querySelectorAll("[data-ed]").forEach(b=>b.onclick=()=>openForm(A.find(a=>a.id===+b.dataset.ed)));
+ document.querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{const a=A.find(x=>x.id===+b.dataset.del);if(!confirm(`Удалить счёт «${a.name}»?`))return;b.disabled=true;
+  try{await api(`accounts/${a.id}/delete`,{method:"POST"});if(n===nav){await views.accounts();toast("Счёт удалён")}}catch(x){b.disabled=false;toast(x.message)}});
+ $("#acrt").onclick=async()=>{const r={};document.querySelectorAll("[data-rt]").forEach(s=>r[s.dataset.rt]=s.value);$("#acrm").textContent="Сохраняю…";
+  try{await api("accounts/routes",{method:"POST",body:JSON.stringify(r)});$("#acrm").textContent="Сохранено ✅"}catch(x){$("#acrm").textContent=x.message}};
+ if(edit)openForm({kind:"bank"})},
 async delivery(){const o=await api("delivery");const n=nav;const S=o.services,R=o.rules,W=o.store,G=o.schedule;
  const svc=(k,hint)=>{const v=S[k];return `<div class="card dlc" data-s="${k}"><div class="row"><div class="grow"><b>${esc(v.name)}</b><div class="mut">${hint}</div></div><span class="dlst" id="dst-${k}">${v.on?(v.ready?"включено":"нет ключей"):"выключено"}</span><button class="sw ${v.on?"on":""}" data-on="${k}" aria-label="${esc(v.name)}"></button></div>
   <div class="dlf">${v.fields.map(f=>`<label>${esc(f.label)}<input id="d-${k}-${f.key}" data-f="${f.key}" ${f.secret?'type="password"':""} autocomplete="off" value="${esc(f.value||"")}" placeholder="${f.secret?(f.set?"сохранён ••••"+esc(f.tail)+" — оставьте пустым":"вставьте из личного кабинета"):""}"></label>`).join("")}
