@@ -239,15 +239,22 @@ def tick():
     if not _run_lock.acquire(blocking=False):
         return False
     try:
-        caught_all = True
+        caught_all, parts, t0 = True, [], time.time()
         for name, fn in (("store", sync_stores), *((e, (lambda e=e: sync_entity(e))) for e in ENTITIES), ("stock", sync_stock)):
             try:
                 r = fn()
-                if isinstance(r, tuple) and not r[1]:
-                    caught_all = False
+                if isinstance(r, tuple):
+                    parts.append(f"{name} +{r[0]}" + ("" if r[1] else " (загрузка)"))
+                    if not r[1]:
+                        caught_all = False
+                else:
+                    parts.append(f"{name} {r}")
             except Exception as e:
                 caught_all = False
+                parts.append(f"{name} ОШИБКА")
                 _fail(name, e)
+        # итог прохода — в логи Render (база снаружи закрыта): видно, что зеркало живо и догнало ли МойСклад
+        print(f"Зеркало МойСклад, проход: {'; '.join(parts)}; {time.time() - t0:.0f} с; догнали: {'да' if caught_all else 'нет'}", flush=True)
         return caught_all
     finally:
         _run_lock.release()
@@ -278,6 +285,7 @@ def _autostart():
 def _loop():
     time.sleep(90)
     _autostart()
+    print("Зеркало МойСклад: цикл запущен, загрузка", "включена" if enabled() else "выключена", flush=True)
     nxt = 0.0
     while True:
         try:
