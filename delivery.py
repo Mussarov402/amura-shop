@@ -71,9 +71,7 @@ SECRET = {"token", "secret"}
 
 # правила цены для клиента и склад: ключ настройки → (подпись, значение по умолчанию)
 RULES = {
-    "pvz_price": 500,            # в пункт выдачи / постамат — по всему Казахстану одна цена (как на Kaspi)
-    "door_price": 995,           # курьером до двери — одна цена
-    "free_from": 12000,          # от этой суммы товаров доставка бесплатная; 0 — бесплатной нет
+    "free_from": 20000,          # от этой суммы товаров доставка бесплатная; 0 — бесплатной нет
     "weight": 300,               # вес на 1 товар, г — если в карточке МойСклад поле «Вес» пустое
     "box_w": 20, "box_h": 15, "box_d": 10,   # коробка по умолчанию, см — если у товаров не заполнены ШВГ
     "cutoff": 90,                # интервал можно выбрать, если до его начала больше N минут
@@ -84,6 +82,9 @@ SCHEDULE_DEFAULT = {"days": "0111111", "open": "08:00", "close": "18:00",
                               {"name": "Обед", "from": "11:00", "to": "14:00"},
                               {"name": "После обеда", "from": "14:00", "to": "18:00"}]}
 DAYS = ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
+# цена доставки по сумме товаров — одна для всех способов (курьер, СДЭК), самовывоз бесплатно:
+# [[до суммы, цена], …] — первая строка, где сумма меньше «до суммы»
+TIERS_DEFAULT = [[5000, 1500], [15000, 500], [20000, 500]]
 STORE = ("wh_addr", "wh_phone", "wh_hours")
 
 
@@ -102,7 +103,11 @@ def conf():
             sched = {**SCHEDULE_DEFAULT, **json.loads(g("dlv_schedule") or "{}")}
         except ValueError:
             sched = dict(SCHEDULE_DEFAULT)
-    return {"svc": svcs, "rules": rules, "store": store, "schedule": sched}
+        try:
+            tiers = json.loads(g("dlv_tiers") or "null") or TIERS_DEFAULT
+        except ValueError:
+            tiers = TIERS_DEFAULT
+    return {"svc": svcs, "rules": rules, "store": store, "schedule": sched, "tiers": tiers}
 
 
 def public_conf():
@@ -118,7 +123,7 @@ def public_conf():
                            "value": "" if secret else val, "tail": val[-4:] if secret and val else ""})
         out[s] = {"name": P.name, "on": v["on"], "test": v["test"] == "1", "fields": fields,
                   "ready": all(v.get(f) for f, _, _ in P.fields)}
-    return {"services": out, "rules": c["rules"], "store": c["store"], "schedule": c["schedule"], "days": DAYS}
+    return {"services": out, "rules": c["rules"], "store": c["store"], "schedule": c["schedule"], "tiers": c["tiers"], "days": DAYS}
 
 
 def save(b):
@@ -143,6 +148,8 @@ def save(b):
         for k in STORE:
             if k in (b.get("store") or {}):
                 inbox.set_setting(d, "dlv_" + k, str(b["store"][k] or "").strip()[:300])
+        if isinstance(b.get("tiers"), list):
+            inbox.set_setting(d, "dlv_tiers", json.dumps(_clean_tiers(b["tiers"])))
         if isinstance(b.get("schedule"), dict):
             inbox.set_setting(d, "dlv_schedule", json.dumps(_clean_schedule(b["schedule"]), ensure_ascii=False))
     oh._cache.pop("dlv_conf", None)
@@ -176,11 +183,32 @@ def _clean_schedule(sc):
     return {"days": days, "open": _hm(sc.get("open"), "08:00"), "close": _hm(sc.get("close"), "18:00"), "slots": slots}
 
 
-def price(goods_sum, kind):
-    """Цена доставки для клиента, как на Kaspi: kind = "pvz" (пункт выдачи / постамат) или "door" (курьер до двери).
-    От порога free_from — бесплатно (0 — бесплатной нет)."""
-    r = conf()["rules"]
-    return 0 if r["free_from"] and goods_sum >= r["free_from"] else r[kind + "_price"]
+def _clean_tiers(rows):
+    out = {}
+    for x in rows[:10]:
+        try:
+            upto, pr = int(round(float(x[0]))), int(round(float(x[1])))
+        except (TypeError, ValueError, IndexError):
+            continue
+        if upto > 0 and pr >= 0:
+            out[upto] = pr
+    return [[k, out[k]] for k in sorted(out)]
+
+
+def price(goods_sum, kind="courier"):
+    """Цена доставки для клиента по сумме товаров — одна для курьера и СДЭК; самовывоз — 0.
+    От порога free_from — бесплатно (0 — бесплатной нет); иначе первая ступень, где сумма меньше «до суммы»."""
+    if kind == "pickup":
+        return 0
+    c = conf()
+    ff = c["rules"]["free_from"]
+    if ff and goods_sum >= ff:
+        return 0
+    tiers = c["tiers"]
+    for upto, pr in tiers:
+        if goods_sum < upto:
+            return pr
+    return tiers[-1][1] if tiers else 0
 
 
 def slots_ahead(now=None, days=7):
@@ -223,6 +251,8 @@ def _boot():
         print("Доставка: поля ШВГ в карточке товара МойСклад на месте", flush=True)
     except Exception as e:
         print("Доставка: поля ШВГ не созданы:", str(e)[:200], flush=True)
+    import delivery_estimate
+    delivery_estimate.boot()
 
 
 if __import__("os").environ.get("PORT"):
