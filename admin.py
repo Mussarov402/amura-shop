@@ -1849,3 +1849,44 @@ def delivery_test():
     except Exception as e:
         return jsonify(ok=False, error=str(e)[:300]), 400
     return jsonify(ok=True, message=msg)
+
+
+# ---------- модуль «Финансы» → «Счета»: куда поступают деньги (только владелец) ----------
+import finance  # noqa: E402
+
+
+def _fin_who():
+    return (who() or {}).get("name", "") or "Владелец"
+
+
+@bp.get("/admin/api/accounts")
+@guard
+def fin_state():
+    return jsonify(ok=True, **finance.state())
+
+
+@bp.post("/admin/api/accounts/save")
+@guard
+def fin_save():
+    try:
+        finance.save_account(request.get_json(silent=True) or {}, _fin_who())
+    except ValueError as e:
+        return jsonify(ok=False, error=str(e)), 400
+    return jsonify(ok=True, **finance.state())
+
+
+@bp.post("/admin/api/accounts/<int:aid>/delete")
+@guard
+def fin_delete(aid):
+    try:
+        finance.delete_account(aid, _fin_who())
+    except ValueError as e:
+        return jsonify(ok=False, error=str(e)), 400
+    return jsonify(ok=True, **finance.state())
+
+
+@bp.post("/admin/api/accounts/routes")
+@guard
+def fin_routes():
+    finance.save_routes(request.get_json(silent=True) or {}, _fin_who())
+    return jsonify(ok=True, **finance.state())
