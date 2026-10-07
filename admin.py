@@ -291,6 +291,14 @@ def panel_manifest():
                               {"src": "/admin/icon/512", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}]}), 200, {"Content-Type": "application/manifest+json"}
 
 
+@bp.get("/admin/vendor/<name>")
+def panel_vendor(name):
+    """pdf.js для просмотра PDF внутри панели (своя копия: не зависим от внешних CDN)."""
+    if name not in ("pdf.min.js", "pdf.worker.min.js"):
+        return "", 404
+    return send_from_directory(os.path.join(HERE, "vendor"), name, max_age=30 * 86400, mimetype="application/javascript")
+
+
 @bp.get("/admin/sw.js")
 def panel_sw():
     """Service worker панели: push-уведомления со звуком и счётчик на иконке."""
