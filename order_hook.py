@@ -924,7 +924,7 @@ def order_from_ms(number, oid=None):
         elif a["meta"]["type"] == "service" and a.get("name") == FEE_NAME:
             fee += price * qty
         else:
-            lines.append({"name": a["name"], "code": a.get("code", ""), "qty": int(qty), "price": price})
+            lines.append({"id": a.get("id", ""), "name": a["name"], "code": a.get("code", ""), "qty": int(qty), "price": price})
     who = desc[1] if len(desc) > 1 else o["agent"]["name"]
     return {"number": o["name"],
             "date": datetime.strptime(o["moment"][:16], "%Y-%m-%d %H:%M").strftime("%d.%m.%Y %H:%M"),
@@ -983,8 +983,43 @@ def pdf_store(number, pdf, o=None):
         _odata.pop(k, None)
 
 
+_thumbs = {}                   # id товара -> PNG-миниатюра для Excel (или b"" — фото нет)
+
+
+def _thumb_png(pid):
+    """Фото товара для Excel: webp с сайта → PNG 96×96 на белом фоне (Excel не показывает webp)."""
+    if pid in _thumbs:
+        return _thumbs[pid]
+    data = b""
+    try:
+        path = os.path.join(_here, "img", f"{pid}.webp")
+        if os.path.exists(path):
+            with open(path, "rb") as f:
+                raw = f.read()
+        else:
+            r = requests.get(f"{SITE_URL}/img/{pid}.webp", timeout=6)
+            raw = r.content if r.ok else b""
+        if raw:
+            from PIL import Image
+            im = Image.open(io.BytesIO(raw)).convert("RGBA")
+            im.thumbnail((96, 96))
+            bg = Image.new("RGB", (96, 96), "white")
+            bg.paste(im, ((96 - im.width) // 2, (96 - im.height) // 2), im)
+            out = io.BytesIO()
+            bg.save(out, "PNG", optimize=True)
+            data = out.getvalue()
+    except Exception as e:
+        print("Фото для Excel:", pid, e, flush=True)
+    if len(_thumbs) > 2000:
+        _thumbs.clear()
+    _thumbs[pid] = data
+    return data
+
+
 def build_xlsx(o):
+    from concurrent.futures import ThreadPoolExecutor
     from openpyxl import Workbook
+    from openpyxl.drawing.image import Image as XImage
     from openpyxl.styles import Alignment, Font, PatternFill
     wb = Workbook()
     ws = wb.active
@@ -994,25 +1029,35 @@ def build_xlsx(o):
     ws.append([f"Покупатель: {o['name']}, {o['contact']}"])
     ws.append([f"Город: {o['city']}    Отправка: {o['ship']}"])
     ws.append([])
-    ws.append(["№", "Код", "Товар", "Кол-во", "Цена, ₸", "Сумма, ₸"])
+    ws.append(["№", "Фото", "Код", "Товар", "Кол-во", "Цена, ₸", "Сумма, ₸"])
     for c in ws[5]:
         c.font, c.fill = Font(bold=True, color="FFFFFF"), PatternFill("solid", fgColor="0E3B2C")
+    ids = list({l.get("id") for l in o["lines"] if l.get("id")})
+    with ThreadPoolExecutor(8) as ex:                    # фото подтягиваются параллельно
+        pics = dict(zip(ids, ex.map(_thumb_png, ids)))
     for i, l in enumerate(o["lines"], 1):
         r = 5 + i
-        ws.append([i, l.get("code", ""), l["name"], l["qty"], l["price"], f"=D{r}*E{r}"])
+        ws.append([i, "", l.get("code", ""), l["name"], l["qty"], l["price"], f"=E{r}*F{r}"])
+        png = pics.get(l.get("id"))
+        if png:
+            img = XImage(io.BytesIO(png))
+            img.width = img.height = 60
+            ws.add_image(img, f"B{r}")
+        ws.row_dimensions[r].height = 48
     last = 5 + len(o["lines"])
     if o["loader"]:
-        ws.append(["", "", "Услуга грузчика", 1, o["loader"], o["loader"]])
-    ws.append(["", "", f"{FEE_NAME} 0,95%", "", "", o["fee"]])
-    ws.append(["", "", "Итого к оплате", "", "", o["total"]])
-    ws.cell(ws.max_row, 3).font = ws.cell(ws.max_row, 6).font = Font(bold=True)
-    for row in ws.iter_rows(min_row=6, max_row=ws.max_row, min_col=5, max_col=6):
+        ws.append(["", "", "", "Услуга грузчика", 1, o["loader"], o["loader"]])
+    ws.append(["", "", "", f"{FEE_NAME} 0,95%", "", "", o["fee"]])
+    ws.append(["", "", "", "Итого к оплате", "", "", o["total"]])
+    ws.cell(ws.max_row, 4).font = ws.cell(ws.max_row, 7).font = Font(bold=True)
+    for row in ws.iter_rows(min_row=6, max_row=ws.max_row, min_col=6, max_col=7):
         for c in row:
             c.number_format = "#,##0"
-    for col, w in zip("ABCDEF", (5, 14, 60, 9, 12, 14)):
+    for col, w in zip("ABCDEFG", (5, 10, 9, 56, 8, 11, 13)):
         ws.column_dimensions[col].width = w
     for r in range(6, last + 1):
-        ws.cell(r, 3).alignment = Alignment(wrap_text=True, vertical="center")
+        for c in range(1, 8):
+            ws.cell(r, c).alignment = Alignment(wrap_text=(c == 4), vertical="center")
     ws.freeze_panes = "A6"
     buf = io.BytesIO()
     wb.save(buf)
