@@ -31,9 +31,7 @@ class FinanceTest(unittest.TestCase):
         self.alerts, self.ms = [], []
         oh.OWNER = "1"
         oh.tg = lambda method, **k: self.alerts.append(k.get("text"))
-        oh.organization = lambda: "org-1"
         oh.ms = lambda m, path, **k: self.ms.append((m, path, k.get("json"))) or {}
-        finance.sync_bg = lambda: finance.sync_ms()          # синхронно, без потока
 
     def test_iban(self):
         self.assertTrue(finance.iban_ok(GOOD))
@@ -50,15 +48,15 @@ class FinanceTest(unittest.TestCase):
         acc = finance.accounts()
         self.assertEqual(acc[0]["bic"], "HSBKKZKX")
         self.assertIn("добавлен счёт", self.alerts[-1])
-        self.assertEqual(self.ms[-1][2]["accounts"][0]["accountNumber"], GOOD)   # копия в карточке организации МойСклад
+        self.assertEqual(self.ms, [])                        # в МойСклад ничего не пишется
         n = len(self.alerts)
         finance.save_account({"id": aid, "kind": "bank", "name": "Halyk ИП (основной)", "iban": GOOD, "bic": "HSBKKZKX"}, "Владелец")
         self.assertEqual(len(self.alerts), n)               # реквизиты не менялись — без тревоги
         finance.save_account({"id": aid, "kind": "bank", "name": "Halyk ИП", "iban": "KZ86 125K ZT50 0410 0100", "bic": "HSBKKZKX"}, "Менеджер")
         kid = finance.save_account({"kind": "kaspi", "name": "Kaspi Gold", "phone": "+7 701 234 56 78"}, "Владелец")
         self.assertEqual(finance.accounts()[-1]["phone"], "+77012345678")
-        r = finance.save_routes({"card": str(aid), "kaspi": kid, "transfer": "999", "cash": ""}, "Владелец")
-        self.assertEqual(r, {"card": aid, "kaspi": kid, "transfer": None, "cash": None})   # чужой id отброшен
+        r = finance.save_routes({"card": str(aid), "kaspi": kid, "cash": "999", "transfer": str(aid)}, "Владелец")
+        self.assertEqual(r, {"card": aid, "kaspi": kid, "cash": None})   # чужой id отброшен, опта здесь нет
         finance.delete_account(kid, "Владелец")
         self.assertIsNone(finance.routes()["kaspi"])        # маршрут на удалённый счёт сброшен
         self.assertIn("удалён", self.alerts[-1])

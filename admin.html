@@ -398,7 +398,6 @@ retail(q){return views.orders(q,"retail")},
 async accounts(edit){const o=await api("accounts");const n=nav;const A=o.accounts,R=o.routes;
  const when=t=>{const x=new Date(t*1000);return x.toLocaleDateString("ru",{day:"2-digit",month:"2-digit"})+" "+x.toLocaleTimeString("ru",{hour:"2-digit",minute:"2-digit"})};
  const sp=s=>s.replace(/(.{4})/g,"$1 ").trim();
- const sync=o.sync?o.sync.split(":"):null;
  const form=a=>`<div class="card acf" id="acf"><b>${a.id?"Изменить счёт":"Новый счёт"}</b><div class="dlf">
   <label>Тип<select id="af-kind">${Object.entries(o.kinds).map(([k,v])=>`<option value="${k}" ${a.kind===k?"selected":""}>${esc(v)}</option>`).join("")}</select></label>
   <label>Название<input id="af-name" autocomplete="off" value="${esc(a.name||"")}" placeholder="Например: Halyk — расчётный счёт ИП"></label>
@@ -408,17 +407,16 @@ async accounts(edit){const o=await api("accounts");const n=nav;const A=o.account
   <div class="ack"><label>Номер Kaspi<input id="af-phone" inputmode="tel" autocomplete="off" value="${esc(a.phone||"")}" placeholder="+7 7__ ___ __ __"></label></div>
   <label class="dlck"><input type="checkbox" id="af-def" ${a.isDefault?"checked":""}> Основной счёт этого типа</label></div>
   <div class="dlb"><button class="btn" id="af-save">Сохранить</button><button class="btn ghost" id="af-cancel">Отмена</button><span class="mut" id="af-m"></span></div></div>`;
- $("#main").innerHTML=head("Счета","Куда поступают деньги: расчётный счёт, Kaspi, касса")+seg("accounts")+`<div class="dlw">
+ $("#main").innerHTML=head("Счета","Куда поступают деньги розничного сайта. Оптовики платят как раньше — по реквизитам из «Оплата и реквизиты»")+seg("accounts")+`<div class="dlw">
  <div class="note acn">Деньги за оплату картой банк перечисляет на счёт из <b>договора эквайринга</b> — здесь укажите тот же счёт. Изменение реквизитов здесь не меняет, куда платит банк: по этим данным система записывает оплаты на нужный счёт и показывает реквизиты клиентам.</div>
  <div class="card"><div class="row"><div class="grow"><b>Счета</b></div><button class="btn sm" id="acadd">＋ Добавить счёт</button></div>
   ${A.length?A.map(a=>`<div class="acr"><div class="grow"><div><b>${esc(a.name)}</b> ${a.isDefault?'<span class="acd">основной</span>':""}</div>
    <div class="mut">${esc(a.kindName)}${a.bank?" · "+esc(a.bank):""}</div><div class="acnum">${a.kind==="bank"?esc(sp(a.iban))+"<br>БИК "+esc(a.bic)+(a.kbe?" · КБе "+esc(a.kbe):""):a.kind==="kaspi"?esc(a.phone||"номер не указан"):"наличные"}</div></div>
    <div class="acbt"><button class="btn sm ghost" data-ed="${a.id}">Изменить</button><button class="btn sm ghost acdel" data-del="${a.id}">Удалить</button></div></div>`).join(""):'<div class="mut" style="padding:8px 0">Счетов пока нет. Добавьте расчётный счёт ИП — на него будут поступать оплаты с сайта.</div>'}</div>
  <div id="acfw"></div>
- <div class="card"><b>Куда поступают деньги</b><div class="mut">Для каждого способа оплаты — счёт, на который он приходит</div><div class="dlf">
+ <div class="card"><b>Куда поступают деньги розницы</b><div class="mut">Для каждого способа оплаты на розничном сайте — счёт, на который он приходит</div><div class="dlf">
   ${Object.entries(o.methods).map(([m,t])=>`<label>${esc(t)}<select data-rt="${m}"><option value="">— не выбран —</option>${A.map(a=>`<option value="${a.id}" ${R[m]===a.id?"selected":""}>${esc(a.name)}</option>`).join("")}</select></label>`).join("")}</div>
   <div class="dlb"><button class="btn sm" id="acrt">Сохранить</button><span class="mut" id="acrm"></span></div></div>
- <div class="card"><b>МойСклад</b><div class="mut">${!sync?"Расчётные счета копируются в карточку организации МойСклад после сохранения":sync[0]==="ok"?`✅ ${when(+sync[1])}: в карточке организации ${sync[2]} расч. счёт(а)`:`❌ ${when(+sync[1])}: ${esc(sync.slice(2).join(":"))}`}</div></div>
  <div class="card"><b>Журнал изменений</b>${o.log.length?o.log.map(l=>`<div class="acl"><span class="mut">${when(l.at)} · ${esc(l.who)}</span><div>${esc(l.text)}</div></div>`).join(""):'<div class="mut" style="padding:6px 0">Изменений пока нет</div>'}
   <div class="mut" style="font-size:12.5px;margin-top:6px">О каждом изменении реквизитов приходит уведомление владельцу в Telegram.</div></div></div>`;
  bindSeg();
