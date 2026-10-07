@@ -18,7 +18,8 @@ PAUSE = 1.0                # сек между страницами
 EVERY = 600                # сек между проходами, когда всё загружено
 EVERY_LOADING = 120        # сек между проходами во время первичной загрузки
 FULL_EVERY = 86400         # раз в сутки — полный проход: находим удалённые в МойСклад товары
-ENTITIES = ("product", "variant")
+ENTITIES = ("product", "variant", "counterparty")
+RECON_EVERY = 86400        # автосверка раз в сутки, когда загрузка догнала МойСклад
 
 _ready = [False]
 _run_lock = threading.Lock()
@@ -33,6 +34,9 @@ def _schema(d):
         "CREATE TABLE IF NOT EXISTS ms_product (id TEXT PRIMARY KEY, kind TEXT, parent_id TEXT, code TEXT, article TEXT, name TEXT,"
         " folder TEXT, archived INTEGER DEFAULT 0, prices TEXT, buy_price DOUBLE PRECISION, barcodes TEXT, updated TEXT,"
         " deleted INTEGER DEFAULT 0, seen DOUBLE PRECISION)",
+        # контрагенты: tags — JSON-список тегов МойСклад; company_type — legal / entrepreneur / individual
+        "CREATE TABLE IF NOT EXISTS ms_agent (id TEXT PRIMARY KEY, name TEXT, phone TEXT, email TEXT, inn TEXT, company_type TEXT,"
+        " tags TEXT, archived INTEGER DEFAULT 0, updated TEXT, deleted INTEGER DEFAULT 0, seen DOUBLE PRECISION)",
         "CREATE TABLE IF NOT EXISTS ms_store (id TEXT PRIMARY KEY, name TEXT, archived INTEGER DEFAULT 0, updated TEXT, seen DOUBLE PRECISION)",
         "CREATE TABLE IF NOT EXISTS ms_stock (product_id TEXT, store_id TEXT, stock DOUBLE PRECISION, reserve DOUBLE PRECISION,"
         " synced DOUBLE PRECISION, PRIMARY KEY (product_id, store_id))",
@@ -98,6 +102,21 @@ def _parse(kind, row, now):
 
 
 _COLS = "id, kind, parent_id, code, article, name, folder, archived, prices, buy_price, barcodes, updated, deleted, seen"
+_ACOLS = "id, name, phone, email, inn, company_type, tags, archived, updated, deleted, seen"
+
+
+def _parse_agent(row, now):
+    return (_id(row), row.get("name") or "", row.get("phone") or "", row.get("email") or "", row.get("inn") or "",
+            row.get("companyType") or "", json.dumps(row.get("tags") or [], ensure_ascii=False),
+            1 if row.get("archived") else 0, (row.get("updated") or "")[:23], 0, now)
+
+
+# сущность МойСклад -> (таблица, колонки, разбор строки, условие «строки этой сущности» в таблице)
+_TABLES = {
+    "product": ("ms_product", _COLS, lambda r, t: _parse("product", r, t), "kind='product'"),
+    "variant": ("ms_product", _COLS, lambda r, t: _parse("variant", r, t), "kind='variant'"),
+    "counterparty": ("ms_agent", _ACOLS, _parse_agent, "1=1"),
+}
 
 
 def _upsert(d, table, cols, key, rows):
@@ -128,6 +147,7 @@ def sync_entity(entity, max_pages=MAX_PAGES, pause=PAUSE):
     """Догрузка изменённых строк сущности по возрастанию updated. Возвращает (загружено строк, догнали ли МойСклад).
     Пагинация «по ключу»: filter updated>=cursor и offset=skip — число уже загруженных строк ровно с этим updated,
     поэтому новые изменения в МойСклад во время загрузки не сдвигают страницы и строки не теряются."""
+    table, cols, parse, mine = _TABLES[entity]
     now = time.time()
     with db() as d:
         st = _state(d, entity)
@@ -139,10 +159,11 @@ def sync_entity(entity, max_pages=MAX_PAGES, pause=PAUSE):
         params = {"limit": PAGE, "offset": st["skip"], "order": "updated,asc"}
         if st["cursor"]:
             params["filter"] = f"updated>={st['cursor']}"
+        _site_room()
         rows = oh.ms("GET", f"/entity/{entity}", params=params, timeout=60).get("rows", [])
         t = time.time()
         with db() as d:
-            _upsert(d, "ms_product", _COLS, "id", [_parse(entity, r, t) for r in rows])
+            _upsert(d, table, cols, "id", [parse(r, t) for r in rows])
             for r in rows:
                 u = (r.get("updated") or "")[:19]
                 if u > st["cursor"]:
@@ -153,14 +174,22 @@ def sync_entity(entity, max_pages=MAX_PAGES, pause=PAUSE):
             if len(rows) < PAGE:
                 caught = True
                 if st["full_from"]:                                   # полный проход закончен: чего не видели — удалено в МойСклад
-                    d.run("UPDATE ms_product SET deleted=1 WHERE kind=%s AND (seen IS NULL OR seen<%s)", (entity, st["full_from"]))
+                    d.run(f"UPDATE {table} SET deleted=1 WHERE {mine} AND (seen IS NULL OR seen<%s)", (st["full_from"],))
                     st.update(full_from=0.0, full_done=t)
             _save_state(d, entity, st, last_run=t, last_ok=t, error="")
-            d.run("UPDATE ms_sync SET rows=(SELECT COUNT(*) FROM ms_product WHERE kind=%s AND deleted=0) WHERE entity=%s", (entity, entity))
+            d.run(f"UPDATE ms_sync SET rows=(SELECT COUNT(*) FROM {table} WHERE {mine} AND deleted=0) WHERE entity=%s", (entity,))
         if caught:
             break
         time.sleep(pause)
     return total, caught
+
+
+def _site_room(wait=30):
+    """Сайт и заказы важнее зеркала: перед запросом ждём (до wait с), пока в ограничителе oh.ms свободно
+    хотя бы 2 места — одно наше, одно останется сайту."""
+    end = time.time() + wait
+    while getattr(oh.MS_PARALLEL, "_value", 2) < 2 and time.time() < end:
+        time.sleep(0.5)
 
 
 def sync_stores():
@@ -253,7 +282,10 @@ def _loop():
     while True:
         try:
             if enabled() and time.time() >= nxt:
-                nxt = time.time() + (EVERY if tick() else EVERY_LOADING)
+                done = tick()
+                nxt = time.time() + (EVERY if done else EVERY_LOADING)
+                if done and time.time() - last_recon() > RECON_EVERY:
+                    reconcile()
         except Exception as e:
             print("Зеркало МойСклад (цикл):", e, flush=True)
         time.sleep(30)
@@ -264,6 +296,12 @@ if os.environ.get("PORT"):          # только на сервере; сам �
 
 
 # ---------- просмотр и сверка ----------
+def last_recon():
+    with db() as d:
+        r = d.run("SELECT MAX(at) FROM ms_recon", one=True)
+    return (r and r[0]) or 0
+
+
 def status():
     with db() as d:
         rows = d.run("SELECT entity, cursor, full_from, full_done, last_run, last_ok, rows, error FROM ms_sync", many=True) or []
@@ -290,8 +328,10 @@ def reconcile():
     Пишет результат в ms_recon и возвращает его."""
     checks = []
     with db() as d:
-        for entity, title in (("product", "Товары (не в архиве)"), ("variant", "Модификации (не в архиве)")):
-            ours = d.run("SELECT COUNT(*) FROM ms_product WHERE kind=%s AND deleted=0 AND archived=0", (entity,), one=True)[0]
+        for entity, title in (("product", "Товары (не в архиве)"), ("variant", "Модификации (не в архиве)"),
+                              ("counterparty", "Контрагенты (не в архиве)")):
+            table, _, _, mine = _TABLES[entity]
+            ours = d.run(f"SELECT COUNT(*) FROM {table} WHERE {mine} AND deleted=0 AND archived=0", one=True)[0]
             checks.append(_check(title, ours, _ms_count(entity), "шт"))
         ours_stock = {}
         for pid, q in d.run("SELECT product_id, SUM(stock) FROM ms_stock GROUP BY product_id", many=True) or []:

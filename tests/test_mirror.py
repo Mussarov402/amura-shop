@@ -33,6 +33,7 @@ class FakeMS:
     def __init__(self):
         self.products = []
         self.variants = []
+        self.agents = []
         self.calls = []
         self.stock = {}       # (pid, store) -> qty
         self.reserve = {}
@@ -41,8 +42,8 @@ class FakeMS:
         assert method == "GET", "зеркало не должно писать в МойСклад"
         params = params or {}
         self.calls.append((path, dict(params)))
-        if path in ("/entity/product", "/entity/variant"):
-            rows = self.products if path.endswith("product") else self.variants
+        if path in ("/entity/product", "/entity/variant", "/entity/counterparty"):
+            rows = {"/entity/product": self.products, "/entity/variant": self.variants, "/entity/counterparty": self.agents}[path]
             flt = params.get("filter", "")
             if flt.startswith("updated>="):
                 rows = [r for r in rows if r["updated"][:19] >= flt[9:]]
@@ -67,7 +68,7 @@ class FakeMS:
 class MirrorTest(unittest.TestCase):
     def setUp(self):
         with mirror.db() as d:
-            for t in ("ms_product", "ms_store", "ms_stock", "ms_sync", "ms_recon"):
+            for t in ("ms_product", "ms_agent", "ms_store", "ms_stock", "ms_sync", "ms_recon"):
                 d.run(f"DELETE FROM {t}")
             inbox.set_setting(d, mirror.FLAG, "0")
         self.ms = FakeMS()
@@ -147,6 +148,44 @@ class MirrorTest(unittest.TestCase):
         self.assertEqual(mirror.stock_of("Крем 0")[0]["id"], "p0")
         items = mirror.stock_of("00000")
         self.assertEqual(len(items[0]["stores"]), 2)
+
+    def test_counterparties(self):
+        self.ms.agents = [{"id": f"a{i}", "name": f"ИП Клиент {i}", "phone": f"+7700000000{i}", "companyType": "entrepreneur",
+                           "tags": ["опт"] if i % 2 else [], "updated": f"2026-10-01 10:00:0{i}.000", "archived": i == 4} for i in range(5)]
+        n, caught = mirror.sync_entity("counterparty", pause=0)
+        self.assertEqual((n, caught), (5, True))
+        with mirror.db() as d:
+            r = d.run("SELECT name, phone, company_type, tags FROM ms_agent WHERE id='a1'", one=True)
+        self.assertEqual(r[:3], ("ИП Клиент 1", "+77000000001", "entrepreneur"))
+        self.assertIn("опт", r[3])
+        self.assertEqual(self.count("SELECT COUNT(*) FROM ms_product"), 0)   # товары не задеты
+        del self.ms.agents[0]
+        with mirror.db() as d:
+            d.run("UPDATE ms_sync SET full_done=1 WHERE entity='counterparty'")
+        mirror.sync_entity("counterparty", pause=0)
+        self.assertEqual(self.count("SELECT deleted FROM ms_agent WHERE id='a0'"), 1)
+        self.assertEqual(mirror.status()["entities"]["counterparty"]["rows"], 4)
+        by = {c["name"]: c for c in mirror.reconcile()["checks"]}
+        self.assertEqual(by["Контрагенты (не в архиве)"]["ours"], 3)
+        self.assertTrue(by["Контрагенты (не в архиве)"]["ok"])
+        self.assertGreater(mirror.last_recon(), 0)
+
+    def test_site_room_waits_for_free_slots(self):
+        import threading
+        sem = threading.BoundedSemaphore(4)
+        old, oh.MS_PARALLEL = oh.MS_PARALLEL, sem
+        try:
+            for _ in range(3):
+                sem.acquire()
+            t0 = mirror.time.time()
+            mirror._site_room(wait=1)                # сайту осталось одно место — зеркало ждёт
+            self.assertGreaterEqual(mirror.time.time() - t0, 0.9)
+            sem.release()
+            t0 = mirror.time.time()
+            mirror._site_room(wait=1)
+            self.assertLess(mirror.time.time() - t0, 0.2)
+        finally:
+            oh.MS_PARALLEL = old
 
     def test_error_recorded_not_raised(self):
         def boom(*a, **k):
