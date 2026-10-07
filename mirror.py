@@ -235,8 +235,20 @@ def tick_bg():
     return True
 
 
+def _autostart():
+    """Решение владельца (07.10.2026): зеркало включается само один раз. Если ключ уже есть (в т.ч. выключено вручную) — не трогаем."""
+    try:
+        with inbox.db() as d:
+            if inbox.get_setting(d, FLAG, "") == "":
+                inbox.set_setting(d, FLAG, "1")
+                print("Зеркало МойСклад: включено автоматически (первый запуск)", flush=True)
+    except Exception as e:
+        print("Зеркало МойСклад: автозапуск не удался:", e, flush=True)
+
+
 def _loop():
     time.sleep(90)
+    _autostart()
     nxt = 0.0
     while True:
         try:
