@@ -16,6 +16,8 @@ from wa import bp as wa_bp  # noqa: E402
 app.register_blueprint(wa_bp)
 from ig import bp as ig_bp  # noqa: E402
 app.register_blueprint(ig_bp)
+from webchat import bp as webchat_bp  # noqa: E402
+app.register_blueprint(webchat_bp)
 
 
 @app.get("/")

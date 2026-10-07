@@ -1504,6 +1504,16 @@ def inbox_send_file(cid):
         if not c:
             return jsonify(ok=False, error="Диалог не найден"), 404
         chat, media, photo = c[0], None, None
+        if str(chat).startswith("web:"):                # чат сайта: файл храним у себя, сайт заберёт опросом
+            import webchat
+            fid = webchat.store(chat, data, mime, name)
+            if mime.startswith("image/") and kind != "voice":
+                photo = fid
+            else:
+                media = {"t": "voice" if kind == "voice" else "doc", "id": fid, "name": name, "size": len(data), "mime": mime}
+            inbox.save_msg(d, cid, "manager", caption if kind != "voice" else "", photo, media=media)
+            d.run("UPDATE conv SET status='manager' WHERE id=%s", (cid,))
+            return jsonify(ok=True)
         if wa.is_wa(chat) or ig.is_ig(chat):
             try:
                 media, photo = (_send_file_wa if wa.is_wa(chat) else _send_file_ig)(chat, data, name, mime, kind, caption, request.form.get("dur", 0))
@@ -1545,9 +1555,9 @@ def inbox_file(file_id):
     """Файл из Telegram для показа в панели (голосовые, видео, документы). ?fmt=mp3 — перекодировать для браузеров без Opus (iPhone)."""
     if not oh.ORDER_SECRET or not oh.hmac.compare_digest(request.args.get("t", ""), _sig("fl" + file_id)):
         return "", 403
-    if file_id.startswith(("wa:", "ig:")):
+    if file_id.startswith(("wa:", "ig:", "web:")):
         try:
-            data, mime = (ig if file_id.startswith("ig:") else wa).download(file_id)
+            data, mime = _media_mod(file_id).download(file_id)
         except Exception as e:
             return str(e), 502
         fname = "file" + (mimetypes.guess_extension(mime.split(";")[0]) or "")
@@ -1568,14 +1578,21 @@ def inbox_file(file_id):
                      as_attachment=bool(request.args.get("dl")), download_name=request.args.get("name") or fname)
 
 
+def _media_mod(file_id):
+    if file_id.startswith("web:"):
+        import webchat
+        return webchat
+    return ig if file_id.startswith("ig:") else wa
+
+
 @bp.get("/admin/api/inbox/photo/<path:file_id>")
 def inbox_photo(file_id):
     t = request.args.get("t", "")
     if not oh.ORDER_SECRET or not oh.hmac.compare_digest(t, _sig("ph" + file_id)):
         return "", 403
-    if file_id.startswith(("wa:", "ig:")):
+    if file_id.startswith(("wa:", "ig:", "web:")):
         try:
-            data, mime = (ig if file_id.startswith("ig:") else wa).download(file_id)
+            data, mime = _media_mod(file_id).download(file_id)
         except Exception as e:
             return str(e), 502
         return oh.Response(data, mimetype=mime if mime.startswith("image/") else "image/jpeg", headers={"Cache-Control": "private, max-age=86400"})

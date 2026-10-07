@@ -289,7 +289,11 @@ def product_context(text, limit=8):
 
 
 def fetch_file(file_id, timeout=40):
-    """Файл из Telegram, WhatsApp (id вида «wa:...») или Instagram («ig:...») -> (байты, имя файла)."""
+    """Файл из Telegram, WhatsApp (id вида «wa:...»), Instagram («ig:...») или чата сайта («web:...») -> (байты, имя файла)."""
+    if str(file_id).startswith("web:"):
+        import webchat
+        data, mime = webchat.download(file_id)
+        return data, "file" + ({"image/jpeg": ".jpg", "image/png": ".png", "application/pdf": ".pdf"}.get(mime, ""))
     if str(file_id).startswith(("wa:", "ig:")):
         data, mime = (ig if str(file_id).startswith("ig:") else wa).download(file_id)
         return data, "voice.ogg" if "ogg" in mime else "file." + (mime.split("/")[-1].split(";")[0] or "bin")
@@ -300,7 +304,10 @@ def fetch_file(file_id, timeout=40):
 
 
 def send_text(chat, text, human=True):
-    """human=False — ответ ИИ: в Instagram вне 24-часового окна не отправляется."""
+    """human=False — ответ ИИ: в Instagram вне 24-часового окна не отправляется.
+    Чат сайта: ничего не отправляем — сообщение уже сохранено, сайт забирает его опросом."""
+    if str(chat).startswith("web:"):
+        return
     if wa.is_wa(chat):
         wa.send_text(chat, text)
     elif ig.is_ig(chat):
@@ -310,6 +317,10 @@ def send_text(chat, text, human=True):
 
 
 def send_pdf(chat, name, pdf, caption):
+    if str(chat).startswith("web:"):
+        import webchat
+        webchat.save_pdf(chat, name, pdf, caption)
+        return
     if wa.is_wa(chat):
         wa.send_media(chat, "document", pdf, name, "application/pdf", caption)
     elif ig.is_ig(chat):
@@ -319,12 +330,17 @@ def send_pdf(chat, name, pdf, caption):
 
 
 def channel_name(chat):
-    return "WhatsApp" if wa.is_wa(chat) else "Instagram" if ig.is_ig(chat) else "Telegram"
+    return "WhatsApp" if wa.is_wa(chat) else "Instagram" if ig.is_ig(chat) else "Сайт" if str(chat).startswith("web:") else "Telegram"
 
 
 def channel(chat):
-    """Код канала для панели: wa | ig | tg."""
-    return "wa" if wa.is_wa(chat) else "ig" if ig.is_ig(chat) else "tg"
+    """Код канала для панели: wa | ig | web | tg."""
+    return "wa" if wa.is_wa(chat) else "ig" if ig.is_ig(chat) else "web" if str(chat).startswith("web:") else "tg"
+
+
+def bytes_channel(chat):
+    """Файлы клиента из этих каналов пересылаем сотрудникам байтами (не id Telegram)."""
+    return wa.is_wa(chat) or ig.is_ig(chat) or str(chat).startswith("web:")
 
 
 def transcribe(file_id):
@@ -473,6 +489,18 @@ def staff_reply(staff_chat, msg):
                 ig.send_text(client, text)
             else:
                 raise RuntimeError("такой тип сообщения не поддерживается")
+        elif str(client).startswith("web:"):               # чат сайта: файл храним у себя, текст сохраняется ниже
+            import webchat
+            if voice or photo_tg or doc:
+                data, fname = fetch_file((voice or doc or {}).get("file_id") or photo_tg)
+                mime = "image/jpeg" if photo_tg else ((voice or doc).get("mime_type") or "application/octet-stream")
+                fid = webchat.store(client, data, mime, (doc or {}).get("file_name") or fname)
+                if photo_tg:
+                    photo = fid
+                else:
+                    media = {"t": "voice" if voice else "doc", "id": fid, "name": (doc or {}).get("file_name") or fname, "size": len(data), "mime": mime}
+            elif not text:
+                raise RuntimeError("такой тип сообщения не поддерживается")
         else:
             if voice:
                 oh.tg("sendVoice", chat_id=client, voice=voice["file_id"])
@@ -601,7 +629,7 @@ def on_client_message(chat, user, text, photo=None, voice=None, pdf=None, media=
             oh.notify_staff(f"inbox:{cid}", f"🙋 {name} ({channel_name(chat)}) ждёт менеджера: {(text or '[фото]')[:200]}\nОтветьте в панели → Сообщения или прямо здесь: свайп влево по сообщению → текст или голосовое")
             if pdf and oh.OWNER:
                 try:
-                    if wa.is_wa(chat) or ig.is_ig(chat):        # из WhatsApp и Instagram файл отправляем байтами
+                    if bytes_channel(chat):                      # из WhatsApp, Instagram и с сайта файл отправляем байтами
                         oh.notify_staff(f"pdf:{cid}", f"PDF от {name} ({channel_name(chat)}, передано менеджеру)", method="sendDocument", _files={"document": (pdf["name"], fetch_file(pdf["id"])[0], "application/pdf")})
                     else:
                         oh.notify_staff(f"pdf:{cid}", f"PDF от {name} (передано менеджеру)", method="sendDocument", document=pdf["id"])
@@ -609,7 +637,7 @@ def on_client_message(chat, user, text, photo=None, voice=None, pdf=None, media=
                     print("PDF владельцу не ушёл:", e, flush=True)
             if photo and oh.OWNER:                      # чек или фото брака — сразу владельцу, без захода в панель
                 try:
-                    if wa.is_wa(chat) or ig.is_ig(chat):
+                    if bytes_channel(chat):
                         oh.notify_staff(f"photo:{cid}", f"Фото от {name} ({channel_name(chat)}, передано менеджеру)", method="sendPhoto", _files={"photo": ("photo.jpg", fetch_file(photo)[0], "image/jpeg")})
                     else:
                         oh.notify_staff(f"photo:{cid}", f"Фото от {name} (передано менеджеру)", method="sendPhoto", photo=photo)
