@@ -450,7 +450,7 @@ async delivery(){const o=await api("delivery");const n=nav;const S=o.services,R=
  ${svc("yandex","Курьер по Алматы, в тот же день")}${svc("cdek","По Казахстану: курьер или пункт выдачи")}
  <div class="card dlc"><b>Цена доставки для клиента</b><div class="mut">Одна цена для курьера по городу и СДЭК, зависит от суммы товаров. Самовывоз — бесплатно</div>
   <div class="dltr" id="dltr"></div><button type="button" class="btn sm ghost" id="dlta">＋ Добавить ступень</button>
-  <div class="dlz" style="margin-top:10px">${num("r-free_from","Бесплатно от суммы товаров (0 — без бесплатной)",R.free_from,"₸")}</div>
+  <div class="dlz" style="margin-top:10px">${num("r-free_from","Бесплатно от суммы товаров (0 — без бесплатной)",R.free_from,"₸")}${num("r-door_extra","СДЭК до двери — доплата (всегда, даже при бесплатной)",R.door_extra??1000,"₸")}</div>
   <div class="mut dlx" id="dlx"></div></div>
  <div class="card dlc"><b>График и интервалы доставки</b><div class="mut">Клиент выбирает день и удобный интервал, курьер Яндекса вызывается под него</div>
   <div class="dld">${o.days.map((d,i)=>`<button type="button" class="dlday ${G.days[i]==="1"?"on":""}" data-d="${i}" aria-pressed="${G.days[i]==="1"}">${d}</button>`).join("")}</div>
@@ -484,7 +484,7 @@ async delivery(){const o=await api("delivery");const n=nav;const S=o.services,R=
  (G.slots.length?G.slots:[]).forEach(slotRow);
  $("#dlsa").onclick=()=>{const last=[...document.querySelectorAll(".dlsto")].pop();const r=slotRow({name:"",from:last&&last.value||"",to:""});r.querySelector(".dlsn").focus()};
  const collect=()=>{const b={rules:{},store:{}};for(const k of Object.keys(S)){b[k]={};document.querySelectorAll(`[data-s="${k}"] [data-f]`).forEach(i=>b[k][i.dataset.f]=i.value)}
-  b.cdek.test=$("#d-cdek-test").checked;["free_from","weight","cutoff","box_w","box_h","box_d"].forEach(k=>b.rules[k]=$("#r-"+k).value.replace(/\D/g,"")||0);b.tiers=tiers();
+  b.cdek.test=$("#d-cdek-test").checked;["free_from","door_extra","weight","cutoff","box_w","box_h","box_d"].forEach(k=>b.rules[k]=$("#r-"+k).value.replace(/\D/g,"")||0);b.tiers=tiers();
   b.schedule={days:[...document.querySelectorAll(".dlday")].map(x=>x.classList.contains("on")?"1":"0").join(""),open:$("#g-open").value,close:$("#g-close").value,
    slots:[...document.querySelectorAll(".dlsr")].map(r=>({name:r.querySelector(".dlsn").value,from:r.querySelector(".dlsf").value,to:r.querySelector(".dlsto").value})).filter(x=>x.name.trim())};
   ["wh_addr","wh_phone","wh_hours"].forEach(k=>b.store[k]=$("#w-"+k).value);return b};
