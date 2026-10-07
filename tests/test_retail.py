@@ -46,11 +46,26 @@ class RetailOrder(unittest.TestCase):
         self.assertEqual(body["positions"][0]["price"], 669000)             # розничная цена, без ступени «от 10 шт»
         self.assertTrue(body["description"].startswith(oh.RETAIL_MARK))
 
+    def test_retail_no_fee_and_shipping(self):
+        res, st = self.order("retail")
+        names = [p["assortment"]["meta"]["href"] for p in self.posted[-1]["positions"]]
+        self.assertEqual(len(names), 1)                                     # только товар — без «Комиссии банка»
+        self.assertEqual(res["total"], 6690 * 12)
+        d = {"name": "Т", "phone": "+77012345678", "city": "Аулиеколь", "shipping": "kamaz", "logistics": "Лена", "items": [{"id": "p1", "qty": 1}], "mode": "retail"}
+        self.assertEqual(oh.order_core(d, "kk", "1.1.1.1", None)[1], 400)   # КАМАЗ на рознице нельзя
+        d.update(shipping="cdek", logistics="")
+        self.assertEqual(oh.order_core(d, "kc", "1.1.1.1", None)[1], 400)   # СДЭК без адреса пункта
+        d["address"] = "Караганда, Бухар-Жырау 52"
+        res, st = oh.order_core(d, "kc2", "1.1.1.1", None)
+        self.assertEqual(st, 200)
+        self.assertIn("СДЭК — Караганда, Бухар-Жырау 52", self.posted[-1]["description"])
+
     def test_wholesale_unchanged(self):
         res, st = self.order()
         self.assertEqual(st, 200)
         body = self.posted[-1]
         self.assertEqual(body["positions"][0]["price"], 490000)             # опт: 12 шт → цена «от 10 шт»
+        self.assertEqual(len(body["positions"]), 2)                         # опт — с комиссией банка, как раньше
         self.assertTrue(body["description"].startswith("Заказ с сайта"))
 
     def test_panel_order_ignores_mode(self):
