@@ -727,9 +727,10 @@ def _create_order_impl(key):
     return jsonify(**payload) if status == 200 else (jsonify(**payload), status)
 
 
-def order_core(d, key, ip, me, source="с сайта"):
-    """Создание заказа в МойСклад (общее для сайта и ИИ-продажника). Возвращает (словарь, http-статус)."""
-    if too_many(ip):
+def order_core(d, key, ip, me, source="с сайта", panel=False):
+    """Создание заказа в МойСклад (общее для сайта, ИИ-продажника и панели). Возвращает (словарь, http-статус).
+    panel=True: заказ создаёт менеджер — без лимита частоты, оптовые цены, менеджер может задать свою цену."""
+    if not panel and too_many(ip):
         return dict(ok=False, error="Слишком много заказов подряд, подождите 10 минут"), 429
     name = str(d.get("name", "")).strip()[:80]
     city = str(d.get("city", "")).strip()[:80]
@@ -752,16 +753,21 @@ def order_core(d, key, ip, me, source="с сайта"):
         if not v:
             return dict(ok=False, error="Склад сейчас не отвечает, попробуйте через минуту"), 503
         cat = {i["id"]: i for i in v[1]["items"]}
-    ws = is_wholesale(me)
+    ws = True if panel else is_wholesale(me)
     lines = []
-    for p in (d.get("items") or [])[:200]:
+    for p in (d.get("items") or [])[:1000 if panel else 200]:
         item = cat.get(str(p.get("id")))
         qty = int(p.get("qty") or 0)
         if not item or qty <= 0:
             continue
         qty = min(qty, int(item["qty"]))
         price = unit_price(item, qty, ws)
-        if price <= 0:
+        if panel and p.get("price") not in (None, ""):
+            try:
+                price = max(0, round(float(p["price"])))
+            except (TypeError, ValueError):
+                pass
+        if qty <= 0 or price <= 0:
             continue
         lines.append({"id": item["id"], "name": item["name"], "qty": qty, "price": price})
     if not lines:

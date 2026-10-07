@@ -97,6 +97,8 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 </style><style id="eocss">.eo{background:#fff;width:100%;max-width:560px;max-height:92vh;overflow:auto;border-radius:18px 18px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom))}
 @media(min-width:801px){.eo{border-radius:18px;margin:auto}}
 .eor{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid #EEF1EE}.eor:first-child{border-top:0}.eon{flex:1;min-width:0;font-size:14px}
+.oqw{display:flex;gap:8px;margin:0 0 12px}.oqw input{flex:1;min-width:0}.oqw .btn{flex:none;white-space:nowrap}
+.nog{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}.nog input,.nog select{width:100%;padding:10px 12px;border:1px solid #D9E0DB;border-radius:10px;font:inherit;font-size:16px;box-sizing:border-box;background:#fff}.nog:empty{display:none}
 .ord{cursor:pointer}.vo .voh{display:flex;align-items:flex-start;gap:10px;justify-content:space-between}.vox{border:0;background:#EEF1EE;border-radius:50%;width:36px;height:36px;font-size:16px;flex:none;cursor:pointer}
 .vod{white-space:pre-wrap;font-size:13px;color:#4A5751;background:#F5F8F6;border-radius:10px;padding:8px 10px;margin:6px 0}
 .voa{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:10px 0 4px}.voa button{border:1px solid #DCE5DF;background:#F1F6F3;color:#0E3B2C;border-radius:12px;padding:8px 2px;font:inherit;font-size:12.5px;font-weight:700;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;min-height:58px;justify-content:center}.voa i{font-style:normal;font-size:19px;line-height:1}.voa button:disabled{opacity:.6}
@@ -200,6 +202,44 @@ const editOrder=async(n,oid)=>{const ov=document.createElement("div");ov.classNa
  draw()};
 document.addEventListener("click",e=>{const a=e.target.closest&&e.target.closest("a.fcard[data-fn]");if(!a)return;e.preventDefault();
  if(/\.pdf$/i.test(a.dataset.fn)||a.dataset.pdf)openDoc(a.getAttribute("href"),a.dataset.fn);else fileAct(a,a.getAttribute("href"),a.dataset.fn,"",true)});
+/* Новый заказ из панели: клиент, доставка, товары из МойСклад → заказ в МойСклад (как с сайта: резерв, комиссия, PDF) */
+let shipOpts=null;
+const newOrder=async()=>{const ov=document.createElement("div");ov.className="ovx";ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:flex-end;justify-content:center";document.body.appendChild(ov);
+ const L=[],key=Date.now().toString(36)+Math.random().toString(36).slice(2,8);const confirmClose=()=>!L.length||confirm("Закрыть без сохранения? Товары в заказе пропадут.");
+ ov.innerHTML='<div class="eo vo"><div class="mut">Загружаю…</div></div>';ov.onclick=e=>{if(e.target===ov&&confirmClose())ov.remove()};
+ try{shipOpts=shipOpts||await api("orders/ship")}catch(e){ov.querySelector(".eo").innerHTML='<div class="b x">'+esc(e.message)+'</div>';return}
+ const F=k=>(ov.querySelector("#no_"+k)||{}).value||"";
+ ov.querySelector(".eo").innerHTML=`<div class="voh"><div style="font-weight:800;font-size:18px">Новый заказ</div><button class="vox" aria-label="Закрыть">✕</button></div>
+  <div class="nog"><input id="no_name" placeholder="Имя клиента" autocomplete="off"><input id="no_phone" type="tel" inputmode="tel" placeholder="Телефон (WhatsApp)" autocomplete="off"><input id="no_city" placeholder="Город" autocomplete="off">
+  <select id="no_ship">${shipOpts.ship.map(x=>`<option value="${esc(x.key)}">${esc(x.name)}</option>`).join("")}</select></div>
+  <div class="nog" id="no_x"></div>
+  <div class="mut" style="margin:12px 0 2px">Товары</div><div class="eos"><input id="eoq" placeholder="＋ Добавить товар: название или код" autocomplete="off"><div id="eor"></div></div>
+  <div id="nol" class="eol"></div><div class="eot" id="not"></div>
+  <div class="mut" id="nom" style="white-space:pre-line"></div><div style="display:flex;gap:8px;margin-top:6px"><button class="btn" id="nos">Создать заказ</button><button class="btn ghost" id="noc">Отмена</button></div>`;
+ const sel=ov.querySelector("#no_ship");sel.value="pickup";
+ const extra=()=>{const k=sel.value,o=shipOpts.ship.find(x=>x.key===k)||{};const x=ov.querySelector("#no_x");
+  x.innerHTML=o.loader?'<input id="no_logistics" placeholder="Логистика (через кого отправить)">':k==="courier"?'<input id="no_address" placeholder="Адрес доставки по Алматы">':k==="kazpost"?'<input id="no_recipient" placeholder="ФИО получателя"><input id="no_zip" inputmode="numeric" placeholder="Индекс"><input id="no_address" placeholder="Адрес">':"";totals()};
+ const totals=()=>{const g=L.reduce((s,x)=>s+x.qty*x.price,0),o=shipOpts.ship.find(x=>x.key===sel.value)||{},ld=o.loader&&L.length?shipOpts.loader:0,fee=L.length?Math.floor((g+ld)*shipOpts.feeRate+.5):0;
+  ov.querySelector("#not").innerHTML=L.length?`<span>Товары: ${fmt(g)} ₸</span>${ld?`<span>Грузчик: ${fmt(ld)} ₸</span>`:""}<span>Комиссия банка: ${fmt(fee)} ₸</span><b>Итого: ${fmt(g+ld+fee)} ₸</b>`:'<span class="mut">Добавьте товары через поиск</span>'};
+ const draw=()=>{ov.querySelector("#nol").innerHTML=L.map((x,i)=>`<div class="eor"><div class="eon">${esc(x.name)}<div class="mut" style="font-size:12px">ост. ${x.stock}</div></div><input type="number" inputmode="numeric" min="1" value="${x.qty}" data-i="${i}" data-f="qty" aria-label="Количество"><span class="mut">×</span><input type="number" inputmode="numeric" min="0" value="${x.price}" data-i="${i}" data-f="price" aria-label="Цена"><button class="eox" data-x="${i}" aria-label="Убрать">✕</button></div>`).join("");
+  ov.querySelectorAll("#nol input[data-i]").forEach(inp=>inp.onchange=()=>{const l=L[inp.dataset.i],f=inp.dataset.f,v=parseFloat(inp.value);   // без перерисовки: поле может терять фокус прямо сейчас
+   if(isFinite(v)&&v>=0){if(f==="qty")l.qty=Math.max(1,Math.round(v));else{l.price=Math.round(v);l.custom=true}}inp.value=l[f];totals()});
+  ov.querySelectorAll("#nol [data-x]").forEach(b=>b.onclick=()=>{L.splice(+b.dataset.x,1);draw()});totals()};
+ sel.onchange=extra;extra();draw();
+ let tm;ov.querySelector("#eoq").oninput=e=>{clearTimeout(tm);const q=e.target.value.trim();tm=setTimeout(async()=>{if(q.length<2)return ov.querySelector("#eor").innerHTML="";try{const r=await api("orders-search?q="+encodeURIComponent(q));
+  ov.querySelector("#eor").innerHTML=r.items.map((x,i)=>`<button data-a="${i}"${x.qty>0?"":' style="opacity:.45"'}><span>${esc(x.name)}</span><span class="mut">${fmt(x.price)} ₸ · ост. ${x.qty}</span></button>`).join("")||'<div class="mut">Ничего не найдено</div>';
+  ov.querySelectorAll("#eor [data-a]").forEach(b=>b.onclick=()=>{const it=r.items[+b.dataset.a];if(it.qty<=0)return toast("Нет в наличии: "+it.name);const ex=L.find(z=>z.id===it.id);if(ex)ex.qty++;else L.push({id:it.id,name:it.name,qty:1,price:it.price,stock:it.qty});const sq=ov.querySelector("#eoq");sq.value="";ov.querySelector("#eor").innerHTML="";draw();toast("Добавлено: "+it.name,1400)})}catch(er){}},250)};
+ ov.querySelector(".vox").onclick=ov.querySelector("#noc").onclick=()=>{if(confirmClose())ov.remove()};
+ ov.querySelector("#nos").onclick=async e=>{const b=e.currentTarget,m=ov.querySelector("#nom");m.textContent="";
+  if(!F("name")||!F("city")||F("phone").replace(/\D/g,"").length<10)return m.textContent="Укажите имя, телефон и город клиента";if(!L.length)return m.textContent="Добавьте хотя бы один товар";
+  const over=L.filter(x=>x.qty>x.stock);if(over.length&&!confirm("На складе меньше, чем в заказе:\n"+over.map(x=>`${x.name} — ост. ${x.stock}`).join("\n")+"\nЗаказ создастся на остаток. Продолжить?"))return;
+  const body={orderKey:key,name:F("name"),phone:F("phone"),city:F("city"),shipping:sel.value,logistics:F("logistics"),address:F("address"),recipient:F("recipient"),zip:F("zip"),
+   items:L.map(x=>({id:x.id,qty:x.qty,...(x.custom?{price:x.price}:{})}))};
+  b.disabled=true;b.textContent="Создаю…";
+  try{const r=await api("orders/new",{method:"POST",body:JSON.stringify(body)});ov.remove();toast("Заказ № "+r.number+" создан ✓");
+   if(r.short&&r.short.length)alert("Не хватило на складе, заказ создан на остаток:\n"+r.short.join("\n"));
+   if(cur==="orders")views.orders().catch(()=>{});viewOrder(r.number)}
+  catch(er){b.disabled=false;b.textContent="Создать заказ";if(er.message!=="401")m.textContent=er.message}}};
 /* Просмотр заказа без правки: позиции с фото, PDF / Excel / поделиться */
 const fileCache={};
 async function getFile(url,name,type){let f=fileCache[url];if(!f){const r=await fetch(url);if(!r.ok)throw new Error(r.status===503?"МойСклад отвечает медленно — попробуйте через минуту":"Файл не получен");const bl=await r.blob();f=fileCache[url]=new File([bl],name,{type:type||bl.type})}return f}
@@ -260,7 +300,7 @@ async clients(q="",src="ms",page=0,foc=false){const o=await api("clients?src="+s
  if($("#clp"))$("#clp").onclick=()=>{views.clients(q,src,page-1);scrollTo(0,0)};if($("#cln"))$("#cln").onclick=()=>{views.clients(q,src,page+1);scrollTo(0,0)};
  document.querySelectorAll(".clk").forEach(r=>r.onclick=()=>clientCard(r.dataset.c,()=>views.clients(q,src,page)))},
 async orders(q){q=q==null?"":String(q);const oq=v=>"orders"+(v?"?q="+encodeURIComponent(v):"");const o=await api(oq(q));const st=s=>/оплач/i.test(s)&&!/ждё|не /i.test(s)?"ok":/нов|ждё/i.test(s)?"w":"n";
- $("#main").innerHTML=head("Заказы с сайта","Заказы создаются в МойСклад; последние 30")+seg("orders")+`<input id="oq" type="search" enterkeyhint="search" autocomplete="off" placeholder="🔍 Номер заказа, имя, телефон, город" value="${esc(q)}" style="width:100%;margin:0 0 12px"><div id="ordl"></div>`;
+ $("#main").innerHTML=head("Заказы с сайта","Заказы создаются в МойСклад; последние 30")+seg("orders")+`<div class="oqw"><input id="oq" type="search" enterkeyhint="search" autocomplete="off" placeholder="🔍 Номер заказа, имя, телефон, город" value="${esc(q)}"><button class="btn" id="onew">＋ Заказ</button></div><div id="ordl"></div>`;$("#onew").onclick=()=>newOrder();
  const paint=o=>{$("#ordl").innerHTML=`<div class="card">`+(o.orders.length?"":`<div class="mut" style="padding:6px 0">${q?"Ничего не найдено":"Заказов пока нет"}</div>`)+o.orders.map(x=>`<div class="ord" data-n="${esc(x.number)}" data-id="${esc(x.id||"")}"><div class="o1"><b>№${esc(x.number)}</b><span class="mut">${esc(x.moment.replace("T"," ").slice(5))}</span><span class="b os ${x.color?"":st(x.state)}" data-n="${esc(x.number)}" data-id="${esc(x.id||"")}" style="margin-left:auto;cursor:pointer${x.color?`;background:${esc(x.color)};color:#fff`:""}">${esc(x.state)} ▾</span></div><div class="o2"><span class="cl">${esc(x.client)}</span><b>${fmt(x.sum)} ₸</b></div><div class="o3"><span class="mut">${esc(x.ship)||"&nbsp;"}</span><span><a href="#" class="vw" data-n="${esc(x.number)}" data-id="${esc(x.id||"")}">Открыть</a> &nbsp;·&nbsp; <a href="#" class="ed" data-n="${esc(x.number)}" data-id="${esc(x.id||"")}">Изменить</a> &nbsp;·&nbsp; <a href="${esc(x.pdf)}" target="_blank" data-pdf="${esc(x.pdf)}" data-n="${esc(x.number)}">PDF</a></span></div></div>`).join("")+`</div>`+(q&&o.orders.length>=30?'<div class="mut" style="margin-top:8px">Показаны первые 30 — уточните запрос</div>':"");
  document.querySelectorAll(".os").forEach(el=>el.onclick=()=>{const n=el.dataset.n,oid=el.dataset.id,cs=el.textContent.replace(" ▾","");const ov=document.createElement("div");ov.className="ovx";ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:flex-end;justify-content:center";
   ov.innerHTML=`<div style="background:#fff;width:100%;max-width:480px;border-radius:18px 18px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom))"><div style="font-weight:800;margin-bottom:10px">Заказ №${esc(n)}: статус</div>`+(o.states||[]).map(s=>`<button data-s="${esc(s.name)}" style="display:flex;align-items:center;gap:10px;width:100%;padding:12px;margin:4px 0;border:1px solid #E3E8E4;border-radius:12px;background:${s.name===cs?"#F1F6F3":"#fff"};font:inherit;font-size:15px"><i style="width:14px;height:14px;border-radius:50%;background:${esc(s.color||"#999")}"></i>${esc(s.name)}${s.name===cs?" ✓":""}</button>`).join("")+`<div class="mut" id="osm" style="margin-top:6px"></div></div>`;
