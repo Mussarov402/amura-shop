@@ -865,6 +865,20 @@ async function clientCard(id,back){
 })();
 </script>
 <script>
+/* iPhone: после закрытия клавиатуры (поиск, новый заказ, даты) экран иногда остаётся сдвинутым — нижняя панель
+   повисает посередине. Пока клавиатура открыта — панель прячем; после закрытия — возвращаем экран на место. */
+(function(){const vv=window.visualViewport,typing=()=>{const a=document.activeElement;return!!a&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)&&!/^(checkbox|radio|button|submit|file|range|color)$/.test(a.type||"")};
+ const kbd=()=>document.body.classList.toggle("kbd",typing()&&!!vv&&vv.height<innerHeight*.85);
+ const settle=()=>{if(typing())return;document.body.classList.remove("kbd");
+  requestAnimationFrame(()=>{window.scrollTo(window.scrollX,window.scrollY);const h=document.documentElement;h.style.minHeight="calc(100% + 1px)";
+   requestAnimationFrame(()=>{h.style.minHeight="";window.scrollTo(window.scrollX,window.scrollY)})})};
+ document.addEventListener("focusin",()=>setTimeout(kbd,300));
+ document.addEventListener("focusout",()=>setTimeout(settle,120));
+ if(vv){vv.addEventListener("resize",()=>{kbd();if(!typing()&&vv.height>innerHeight*.85)settle()});vv.addEventListener("scroll",()=>{if(!typing()&&vv.offsetTop>0)settle()})}
+ const st=document.createElement("style");st.textContent="body.kbd .tabbar{display:none}";document.head.appendChild(st);
+})();
+</script>
+<script>
 /* Свежие данные без ручного обновления: раздел показывается сразу (из кэша), а если данные были старыми —
    через пару секунд тихо перерисовывается свежими. При возврате в приложение текущий раздел тоже обновляется. */
 (function(){const LIVE={overview:1,orders:1};let busy=false,hiddenAt=0;
