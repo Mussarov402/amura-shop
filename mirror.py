@@ -7,6 +7,7 @@ import json
 import os
 import threading
 import time
+from datetime import datetime
 
 import inbox
 import order_hook as oh
@@ -286,6 +287,10 @@ def _loop():
     time.sleep(90)
     _autostart()
     print("Зеркало МойСклад: цикл запущен, загрузка", "включена" if enabled() else "выключена", flush=True)
+    try:
+        log_last_recon()
+    except Exception as e:
+        print("Зеркало МойСклад: итог сверки не прочитан:", e, flush=True)
     nxt = 0.0
     while True:
         try:
@@ -369,9 +374,28 @@ def reconcile():
     ok = all(c["ok"] for c in checks)
     with db() as d:
         d.run("INSERT INTO ms_recon (at, ok, body) VALUES (%s, %s, %s)", (time.time(), 1 if ok else 0, json.dumps(res, ensure_ascii=False)))
-    print("Зеркало МойСклад, сверка:", "OK" if ok else "РАСХОЖДЕНИЯ",   # итог в логи Render — база снаружи закрыта
-          "; ".join(f"{c['name']}: {c['ours']}/{c['theirs']}" for c in checks), flush=True)
+    _log_recon(ok, checks)
     return {"ok": ok, **res}
+
+
+def _log_recon(ok, checks, when=""):
+    """Итог сверки в логи Render (база снаружи закрыта): у нас/МойСклад по каждой проверке и примеры расхождений."""
+    print(f"Зеркало МойСклад, сверка{when}:", "OK" if ok else "РАСХОЖДЕНИЯ",
+          "; ".join(f"{c['name']}: {c['ours']}/{c['theirs']}" for c in checks), flush=True)
+    for c in checks:
+        if not c["ok"] and c.get("detail"):
+            print(f"Зеркало МойСклад, сверка{when} — {c['name']}:", " | ".join(c["detail"][:5]), flush=True)
+
+
+def log_last_recon():
+    """При запуске цикла — итог последней сохранённой сверки (новая будет не раньше чем через RECON_EVERY)."""
+    with db() as d:
+        r = d.run("SELECT at, ok, body FROM ms_recon ORDER BY id DESC LIMIT 1", one=True)
+    if not r:
+        print("Зеркало МойСклад, сверка: ещё не было", flush=True)
+        return
+    when = datetime.fromtimestamp(r[0], oh.ALMATY).strftime("%d.%m %H:%M")
+    _log_recon(bool(r[1]), json.loads(r[2] or "{}").get("checks", []), f" (последняя, {when} Алматы)")
 
 
 _recon_lock = threading.Lock()
