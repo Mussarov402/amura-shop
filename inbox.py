@@ -104,8 +104,18 @@ def set_setting(d, key, value):
         d.run("INSERT INTO setting (key, value) VALUES (%s, %s)", (key, value))
 
 
-def ai_on(d):
-    return bool(OPENAI_KEY) and get_setting(d, "ai_enabled", "1") == "1"
+AI_CHANNELS = {"wa": "WhatsApp", "ig": "Instagram", "tg": "Telegram", "web": "Чат на сайте"}
+
+
+def ai_on(d, chat=None):
+    """ИИ включён в целом и (если указан диалог) для его канала; канал выключен — диалог сразу получает менеджер."""
+    if not (bool(OPENAI_KEY) and get_setting(d, "ai_enabled", "1") == "1"):
+        return False
+    return chat is None or get_setting(d, "ai_ch_" + channel(chat), "1") == "1"
+
+
+def ai_channels(d):
+    return [{"key": k, "name": v, "on": get_setting(d, "ai_ch_" + k, "1") == "1"} for k, v in AI_CHANNELS.items()]
 
 
 # ---------- оформление заказа ИИ ----------
@@ -591,11 +601,11 @@ def on_client_message(chat, user, text, photo=None, voice=None, pdf=None, media=
             print("Push о сообщении:", e, flush=True)
         with _lock, db() as d:
             hist = [(r, t) for r, t in d.run("SELECT role, text FROM msg WHERE conv_id=%s ORDER BY id DESC LIMIT 14", (cid,), many=True)][::-1][:-1]
-            use_ai = status == "ai" and ai_on(d) and not voice_failed
+            use_ai = status == "ai" and ai_on(d, chat) and not voice_failed
             if status == "closed":
                 d.run("UPDATE conv SET status=%s WHERE id=%s", ("ai", cid))
                 status = "ai"
-                use_ai = ai_on(d) and not voice_failed
+                use_ai = ai_on(d, chat) and not voice_failed
         if status == "ai" and not use_ai:                  # ИИ выключен или нет ключа: диалог — менеджеру, клиенту короткий ответ
             ack = "Спасибо за сообщение! Передал менеджеру — он ответит в ближайшее время."
             send_text(chat, ack, human=False)

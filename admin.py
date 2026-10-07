@@ -1609,11 +1609,15 @@ def ai_settings():
             j = request.get_json(silent=True) or {}
             if "enabled" in j:
                 inbox.set_setting(d, "ai_enabled", "1" if j["enabled"] else "0")
+            for k, on in (j.get("channels") or {}).items():          # ИИ по каналам: wa / ig / tg / web
+                if k in inbox.AI_CHANNELS:
+                    inbox.set_setting(d, "ai_ch_" + k, "1" if on else "0")
             if "rules" in j:
                 inbox.set_setting(d, "rules", str(j["rules"]).strip()[:6000] or inbox.DEFAULT_RULES)
             return jsonify(ok=True)
         kb = d.run("SELECT id, title, body FROM kb ORDER BY id", many=True)
         return jsonify(ok=True, enabled=inbox.get_setting(d, "ai_enabled", "1") == "1", key=bool(inbox.OPENAI_KEY), model=inbox.OPENAI_MODEL,
+                       channels=inbox.ai_channels(d),
                        persistent=inbox.PG, rules=inbox.get_setting(d, "rules", inbox.DEFAULT_RULES),
                        kb=[{"id": r[0], "title": r[1], "body": r[2]} for r in kb])
 
