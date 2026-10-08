@@ -34,6 +34,7 @@ class FakeMS:
         self.products = []
         self.variants = []
         self.agents = []
+        self.docs = {t: [] for t in mirror.DOC_TYPES}
         self.calls = []
         self.stock = {}       # (pid, store) -> qty
         self.reserve = {}
@@ -42,13 +43,22 @@ class FakeMS:
         assert method == "GET", "зеркало не должно писать в МойСклад"
         params = params or {}
         self.calls.append((path, dict(params)))
-        if path in ("/entity/product", "/entity/variant", "/entity/counterparty"):
-            rows = {"/entity/product": self.products, "/entity/variant": self.variants, "/entity/counterparty": self.agents}[path]
-            flt = params.get("filter", "")
-            if flt.startswith("updated>="):
-                rows = [r for r in rows if r["updated"][:19] >= flt[9:]]
-            elif flt == "archived=false":
-                rows = [r for r in rows if not r["archived"]]
+        ent = path.rsplit("/", 1)[-1]
+        if path.startswith("/entity/") and (ent in ("product", "variant", "counterparty") or ent in self.docs):
+            rows = {"product": self.products, "variant": self.variants, "counterparty": self.agents, **self.docs}[ent]
+            for f in filter(None, params.get("filter", "").split(";")):
+                if f.startswith("updated>="):
+                    rows = [r for r in rows if r["updated"][:19] >= f[9:]]
+                elif f == "archived=false":
+                    rows = [r for r in rows if not r.get("archived")]
+                elif f == "applicable=true":
+                    rows = [r for r in rows if r.get("applicable")]
+                elif f.startswith("moment>="):
+                    rows = [r for r in rows if r["moment"][:19] >= f[8:]]
+                elif f.startswith("moment<"):
+                    rows = [r for r in rows if r["moment"][:19] < f[7:]]
+                else:
+                    raise AssertionError(f)
             rows = sorted(rows, key=lambda r: r["updated"])
             off, lim = params.get("offset", 0), params.get("limit", 1000)
             return {"meta": {"size": len(rows)}, "rows": rows[off:off + lim]}
@@ -68,7 +78,7 @@ class FakeMS:
 class MirrorTest(unittest.TestCase):
     def setUp(self):
         with mirror.db() as d:
-            for t in ("ms_product", "ms_agent", "ms_store", "ms_stock", "ms_sync", "ms_recon"):
+            for t in ("ms_product", "ms_agent", "ms_doc", "ms_store", "ms_stock", "ms_sync", "ms_recon"):
                 d.run(f"DELETE FROM {t}")
             inbox.set_setting(d, mirror.FLAG, "0")
         self.ms = FakeMS()
@@ -180,6 +190,45 @@ class MirrorTest(unittest.TestCase):
             mirror.log_last_recon()
         self.assertIn("Зеркало МойСклад, сверка (последняя,", out.getvalue())
         self.assertIn("Контрагенты (не в архиве): 3/3", out.getvalue())
+
+    def test_sales_documents_and_day_check(self):
+        from datetime import datetime, timedelta
+        now_ms = datetime.now(mirror.MS_TZ)
+        ms = lambda dt: dt.strftime("%Y-%m-%d %H:%M:%S.000")
+        today_a, _ = mirror._day_bounds(str(datetime.now(oh.ALMATY).date()))
+        t0 = datetime.strptime(today_a, "%Y-%m-%d %H:%M:%S").replace(tzinfo=mirror.MS_TZ)
+        doc = lambda i, kind, m, s, appl=True, upd=None: {
+            "id": f"{kind}{i}", "name": f"{i:05d}", "moment": ms(m), "sum": s * 100, "applicable": appl,
+            "updated": upd or ms(now_ms), "agent": {"meta": {"href": "https://x/entity/counterparty/a1"}},
+            "description": "Заказ с сайта\nтел. 123"}
+        self.ms.docs["demand"] = [doc(1, "d", t0 + timedelta(hours=1), 10000), doc(2, "d", t0 + timedelta(hours=2), 5000, appl=False),
+                                  doc(3, "d", t0 - timedelta(hours=3), 7000)]           # вчера
+        self.ms.docs["retaildemand"] = [doc(1, "r", t0 + timedelta(hours=3), 2500)]
+        self.ms.docs["salesreturn"] = [doc(1, "s", t0 + timedelta(hours=4), 1000)]
+        self.ms.docs["customerorder"] = [doc(i, "o", t0 + timedelta(minutes=i), 100, appl=False) for i in range(3)]
+        old = ms(now_ms - timedelta(days=mirror.DOC_DAYS + 5))
+        self.ms.docs["retailsalesreturn"] = [doc(1, "x", now_ms - timedelta(days=100), 50, upd=old)]   # старше окна — не грузим
+        for t in mirror.DOC_TYPES:
+            n, caught = mirror.sync_entity(t, pause=0)
+            self.assertTrue(caught, t)
+        self.assertEqual(self.count("SELECT COUNT(*) FROM ms_doc WHERE type='retailsalesreturn'"), 0)
+        with mirror.db() as d:
+            r = d.run("SELECT number, sum, applicable, agent_id, descr FROM ms_doc WHERE id='d1'", one=True)
+        self.assertEqual(r, ("00001", 10000, 1, "a1", "Заказ с сайта"))
+        by = {c["name"]: c for c in mirror._sales_checks()}
+        day = datetime.now(oh.ALMATY).strftime("%d.%m")
+        sale = by[f"Продажи {day}: отгрузки + чеки − возвраты"]
+        self.assertEqual((sale["ours"], sale["theirs"], sale["ok"]), (11500, 11500, True))
+        self.assertTrue(by[f"Заказы покупателей {day}"]["ok"])
+        self.assertEqual(by[f"Заказы покупателей {day}"]["ours"], 3)
+        # отгрузку удалили в МойСклад — полный проход помечает её, сверка снова сходится
+        del self.ms.docs["demand"][0]
+        with mirror.db() as d:
+            d.run("UPDATE ms_sync SET full_done=1 WHERE entity='demand'")
+        mirror.sync_entity("demand", pause=0)
+        self.assertEqual(self.count("SELECT deleted FROM ms_doc WHERE id='d1'"), 1)
+        sale = {c["name"]: c for c in mirror._sales_checks()}[f"Продажи {day}: отгрузки + чеки − возвраты"]
+        self.assertEqual((sale["ours"], sale["ok"]), (1500, True))
 
     def test_site_room_waits_for_free_slots(self):
         import threading
