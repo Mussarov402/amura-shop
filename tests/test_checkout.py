@@ -1,4 +1,4 @@
-"""Корзина розницы как на WB: цена доставки по ступеням, СДЭК до двери +1000 всегда, пункты выдачи, интервалы Яндекс."""
+"""Корзина розницы как на WB: Алматы — Яндекс «в течение дня» / срочно / самовывоз, другие города — пункт выдачи СДЭК; своя цена и порог у каждого."""
 import json
 import os
 import sys
@@ -23,16 +23,18 @@ ITEM = {"id": "p1", "name": "Крем", "qty": 50, "opt": 5000, "mid": 4900, "bo
 
 
 class Prices(unittest.TestCase):
-    def test_tiers_and_door(self):
+    def test_rates(self):
         cp = checkout.client_price
-        self.assertEqual(cp(3000, "courier", "Алматы"), 1500)
-        self.assertEqual(cp(10000, "courier", "Алматы"), 500)
-        self.assertEqual(cp(17000, "cdek", "Караганда"), 500)
-        self.assertEqual(cp(25000, "courier", "Алматы"), 0)
-        self.assertEqual(cp(3000, "courier", "Караганда"), 2500)      # до двери +1000
-        self.assertEqual(cp(25000, "courier", "Астана"), 1000)        # до двери платная и при бесплатной
-        self.assertEqual(cp(25000, "cdek", "Астана"), 0)
-        self.assertEqual(cp(3000, "pickup", "Астана"), 0)
+        self.assertEqual(cp(3000, "courier", "Алматы"), 1000)          # в течение дня
+        self.assertEqual(cp(15000, "courier", "Алматы"), 0)            # бесплатно от 15 000
+        self.assertEqual(cp(30000, "express", "Алматы"), 2500)         # срочно — всегда платно
+        self.assertEqual(cp(17000, "cdek", "Караганда"), 1500)
+        self.assertEqual(cp(20000, "cdek", "Астана"), 0)               # СДЭК бесплатно от 20 000
+        self.assertEqual(cp(3000, "pickup", "Алматы"), 0)
+
+    def test_allowed(self):
+        self.assertEqual(checkout.allowed("Алматы"), ("courier", "pickup", "express"))
+        self.assertEqual(checkout.allowed("Караганда"), ("cdek",))
 
 
 class Options(unittest.TestCase):
@@ -47,16 +49,16 @@ class Options(unittest.TestCase):
     def test_almaty(self):
         r = json.loads(self.c.get("/delivery/options?city=Алматы&sum=3000").data)
         self.assertTrue(r["almaty"])
-        self.assertEqual([m["price"] for m in r["methods"]], [1500, 1500, 0])
+        self.assertEqual([(m["id"], m["price"]) for m in r["methods"]], [("courier", 1000), ("pickup", 0), ("express", 2500)])
+        self.assertEqual(r["rates"]["courier"], {"price": 1000, "free": 15000})
         self.assertIsInstance(r["slots"], list)
 
     def test_region(self):
         r = json.loads(self.c.get("/delivery/options?city=Караганда&sum=3000").data)
         self.assertFalse(r["almaty"])
         self.assertEqual(r["slots"], [])
-        self.assertEqual(r["methods"][0]["price"], 2500)
-        self.assertIn("3–5 дн.", r["methods"][0]["note"])
-        self.assertIn("2–4 дн.", r["methods"][1]["note"])
+        self.assertEqual([(m["id"], m["price"]) for m in r["methods"]], [("cdek", 1500)])   # в другие города — только пункт выдачи
+        self.assertIn("2–4 дн.", r["methods"][0]["note"])
         p = json.loads(self.c.get("/delivery/pvz?city=Караганда").data)
         self.assertEqual(p["points"][0]["code"], "KRG1")
 
@@ -108,20 +110,30 @@ class Orders(unittest.TestCase):
         self.assertTrue(s, "по графику должны быть интервалы")
         res, st = self.order(address="Абая 10, кв 5", slot=s[0])
         self.assertEqual(st, 200)
-        self.assertEqual(res["total"], 3000 + 1500)
+        self.assertEqual(res["total"], 3000 + 1000)
         body = self.posted[-1]
         self.assertIn("Курьер по Алматы (Яндекс) — Абая 10, кв 5", body["description"])
-        self.assertEqual(body["positions"][-1]["price"], 150000)
+        self.assertEqual(body["positions"][-1]["price"], 100000)
 
     def test_bad_slot_and_no_address(self):
         self.assertEqual(self.order(address="Абая 10", slot={"date": "2000-01-01", "from": "08:00"})[1], 400)
         self.assertEqual(self.order()[1], 400)
 
-    def test_region_door(self):
-        res, st = self.order(city="Караганда", address="Ерубаева 1")
+    def test_methods_by_city(self):
+        res, st = self.order(city="Караганда", address="Ерубаева 1")            # курьера в другие города нет
+        self.assertEqual(st, 400)
+        self.assertIn("пункт выдачи СДЭК", res["error"])
+        res, st = self.order(shipping="cdek", pvz={"code": "ALM1", "address": "Абая 1"})   # в Алматы СДЭК не предлагаем
+        self.assertEqual(st, 400)
+
+    def test_express(self):
+        res, st = self.order(shipping="express", address="Абая 10, кв 5")
         self.assertEqual(st, 200)
         self.assertEqual(res["total"], 3000 + 2500)
-        self.assertIn("Курьер СДЭК до двери — Ерубаева 1", self.posted[-1]["description"])
+        self.assertIn("Срочный курьер по Алматы (Яндекс Экспресс) — Абая 10, кв 5", self.posted[-1]["description"])
+        self.assertEqual(self.order(shipping="express")[1], 400)                    # без адреса нельзя
+        res, st = self.order(shipping="express", address="Абая 10", items=[{"id": "p1", "qty": 6}])
+        self.assertEqual(res["total"], 18000 + 2500)                                 # срочно платно и от 15 000
 
     def test_pvz_and_pickup(self):
         res, st = self.order(city="Астана", shipping="cdek", pvz={"code": "AST7", "address": "Кенесары 40"})
@@ -133,7 +145,7 @@ class Orders(unittest.TestCase):
 
     def test_browser_price_ignored(self):
         res, st = self.order(address="Абая 10", slot=delivery.slots_ahead(days=7)[0], delivery=0, total=1)
-        self.assertEqual(res["total"], 4500)
+        self.assertEqual(res["total"], 4000)
 
 
 if __name__ == "__main__":

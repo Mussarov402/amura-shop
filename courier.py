@@ -142,7 +142,8 @@ def day_orders(day):
     b = (d0 + timedelta(days=2) - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S")
     r = oh.ms("GET", "/entity/customerorder", params={"filter": f"description~{SHIP_MARK};moment>={a};moment<{b}",
                                                       "order": "moment,asc", "limit": 100, "expand": "agent,state"}, timeout=20)
-    return [parse_order(o) for o in r.get("rows", []) if (o.get("description") or "").startswith(oh.RETAIL_MARK)]
+    return [parse_order(o) for o in r.get("rows", []) if (o.get("description") or "").startswith(oh.RETAIL_MARK)
+            and "Яндекс Экспресс" not in (o.get("description") or "")]      # срочные — отдельно, не «в течение дня»
 
 
 def _row(d, num):

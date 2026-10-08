@@ -25,14 +25,26 @@ def door_extra():
     return int(delivery.conf()["rules"].get("door_extra", 1000) or 0)
 
 
+def allowed(city):
+    """Способы получения на рознице: Алматы — Яндекс «в течение дня», самовывоз, срочный курьер; другие города — пункт выдачи СДЭК."""
+    return ("courier", "pickup", "express") if is_almaty(city) else ("cdek",)
+
+
 def client_price(goods_sum, method, city):
-    """Цена доставки для клиента. method: courier | cdek | pickup."""
+    """Цена доставки для клиента: у каждого способа своя цена и свой порог бесплатной доставки (Обзор → Доставка)."""
+    r = delivery.conf()["rules"]
     if method == "pickup":
         return 0
-    base = delivery.price(goods_sum, method)
-    if method == "courier" and not is_almaty(city):          # СДЭК до двери — всегда платная
-        return base + door_extra()
-    return base
+    if method == "express":
+        return int(r["express_price"])
+    price, free = (r["sdd_price"], r["sdd_free"]) if method == "courier" else (r["cdek_price"], r["cdek_free"])
+    return 0 if free and goods_sum >= free else int(price)
+
+
+def rates():
+    r = delivery.conf()["rules"]
+    return {"courier": {"price": r["sdd_price"], "free": r["sdd_free"]}, "express": {"price": r["express_price"], "free": 0},
+            "cdek": {"price": r["cdek_price"], "free": r["cdek_free"]}}
 
 
 # ---------- СДЭК: город, сроки, пункты выдачи (с кэшем — СДЭК отвечает не мгновенно) ----------
@@ -126,15 +138,17 @@ def options(city, goods_sum):
     slots = delivery.slots_ahead(days=4) if alm else []
     ff = c["rules"]["free_from"]
     rng = lambda p: [p[0], p[1] or p[0]] if p and p[0] is not None else None  # noqa: E731
-    methods = [
-        {"id": "courier", "name": "Курьер", "price": client_price(goods_sum, "courier", city),
-         "note": ("Яндекс, в выбранный интервал" if alm else f"СДЭК до двери{', ' + _days(eta.get('door')) if eta.get('door') else ''}"),
-         "days": None if alm else rng(eta.get("door"))},
-        {"id": "cdek", "name": "Пункт выдачи СДЭК", "price": client_price(goods_sum, "cdek", city),
-         "note": "Пункты и постаматы СДЭК" + (f", {_days(eta.get('pvz'))}" if eta.get("pvz") else ""), "days": rng(eta.get("pvz"))},
-        {"id": "pickup", "name": "Самовывоз", "price": 0, "note": c["store"].get("wh_addr") or "Со склада в Алматы", "days": None},
-    ]
-    return {"almaty": alm, "methods": methods, "slots": slots, "freeFrom": ff, "doorExtra": door_extra(),
+    all_methods = {
+        "courier": {"id": "courier", "name": "В течение дня", "price": client_price(goods_sum, "courier", city),
+                    "note": "Яндекс, привезём за 4 часа в выбранное окно", "days": None},
+        "pickup": {"id": "pickup", "name": "Самовывоз", "price": 0, "note": c["store"].get("wh_addr") or "Со склада в Алматы", "days": None},
+        "express": {"id": "express", "name": "Срочно", "price": client_price(goods_sum, "express", city),
+                    "note": "Яндекс Экспресс, за 1–2 часа, всегда платно", "days": None},
+        "cdek": {"id": "cdek", "name": "Пункт выдачи СДЭК", "price": client_price(goods_sum, "cdek", city),
+                 "note": "Пункты и постаматы СДЭК" + (f", {_days(eta.get('pvz'))}" if eta.get("pvz") else ""), "days": rng(eta.get("pvz"))},
+    }
+    methods = [all_methods[m] for m in allowed(city)]
+    return {"almaty": alm, "methods": methods, "rates": rates(), "slots": slots, "freeFrom": ff, "doorExtra": door_extra(),
             "tiers": c["tiers"], "hours": c["store"].get("wh_hours") or "", "warn": err}
 
 
@@ -178,6 +192,9 @@ def me_retail():
 def order_delivery(d, ship, city, goods_sum):
     """(цена, текст для описания, ошибка) для розничного заказа; цена считается здесь, не в браузере."""
     address = str(d.get("address", "")).strip()[:200]
+    if ship not in allowed(city):
+        return 0, "", ("По Алматы — доставка в течение дня, срочный курьер или самовывоз" if is_almaty(city)
+                       else "В ваш город доставляем в пункт выдачи СДЭК")
     if ship == "pickup":
         return 0, "Самовывоз", None
     if ship == "cdek":
@@ -189,6 +206,8 @@ def order_delivery(d, ship, city, goods_sum):
         return client_price(goods_sum, "cdek", city), f"Пункт выдачи СДЭК — {where}" + (f" (код {code})" if code else ""), None
     if not address:
         return 0, "", "Укажите адрес доставки"
+    if ship == "express":
+        return client_price(goods_sum, "express", city), f"Срочный курьер по Алматы (Яндекс Экспресс) — {address}", None
     if is_almaty(city):
         slot = d.get("slot") or {}
         when = ""

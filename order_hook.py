@@ -72,9 +72,9 @@ FEE_NAME = "Комиссия банка"
 SHIPPING = {
     "kamaz": ("КАМАЗ", True), "rail": ("ЖД", True), "avia": ("Авиа", True),
     "kazpost": ("Казпочта", False), "courier": ("Курьер по городу", False), "pickup": ("Самовывоз", False),
-    "cdek": ("СДЭК", False),
+    "cdek": ("СДЭК", False), "express": ("Срочный курьер", False),
 }
-RETAIL_SHIPPING = ("courier", "cdek", "pickup")   # розничный сайт: без КАМАЗа, ЖД, авиа и Казпочты
+RETAIL_SHIPPING = ("courier", "cdek", "pickup", "express")   # что из этого доступно — по городу (checkout.allowed)   # розничный сайт: без КАМАЗа, ЖД, авиа и Казпочты
 RETAIL_TAG = "розница"   # метка покупателя в МойСклад: заходил или заказывал на розничном сайте (панель → Клиенты → «Розница»)
 ALMATY = timezone(timedelta(hours=5))
 
