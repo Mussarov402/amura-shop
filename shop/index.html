@@ -473,6 +473,21 @@ body.rsheet-open{overflow:hidden}
 .rv-f{display:grid;gap:8px}
 .rv-pick{display:flex;gap:4px}.rv-pick button{border:0;background:none;font-size:32px;line-height:1;color:var(--line);cursor:pointer;padding:2px}.rv-pick button.on{color:#E8A317}
 .rv-f textarea{width:100%;border:1px solid var(--line);background:var(--bg);border-radius:12px;padding:10px 12px;font:inherit;font-size:15px;color:var(--ink);resize:vertical}
+/* розница: одна высота у всей карусели (выбирается в панели) — картинки не обрезаются соседним текстовым баннером.
+   Компьютер: s 4:1 (1600×400), m 3:1 (1500×500), l 5:2 (1500×600). Телефон: всегда 16:9 (1280×720). */
+.banners[data-size] .bSlide{min-height:0}
+.banners[data-size="s"] .bSlide{aspect-ratio:4/1}
+.banners[data-size="m"] .bSlide{aspect-ratio:3/1}
+.banners[data-size="l"] .bSlide{aspect-ratio:5/2}
+.bSlide.pic picture{display:block;width:100%;height:100%}
+@media(max-width:640px){
+  .banners[data-size] .bSlide{aspect-ratio:16/9}
+  .banners[data-size] .bSlide:not(.pic){padding:16px 18px 26px}
+  .banners[data-size] .bSlide h1{font-size:20px;margin-bottom:6px;max-width:none}
+  .banners[data-size] .bSlide p{font-size:13px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .banners[data-size] .tiers-legend{margin-top:8px}
+  .banners[data-size] .bBtn{margin-top:8px;padding:7px 12px;font-size:13px}
+}
 </style>
 </head>
 <body>
@@ -864,8 +879,7 @@ function renderBanners(cfg){
   const sec = Number(cfg.autoplaySec) || 6;
   if(slides.length > 1) renderBanners.t = setInterval(() => { if(!paused && VIEW === "home" && document.visibilityState === "visible"){ fix(); show(idx() + 1); } }, sec * 1000);
 }
-renderBanners(BANNERS_DEFAULT);
-getJSON(CONFIG.apiUrl + "/banners", 8000).catch(() => getJSON("banners.json", 8000)).then(renderBanners).catch(() => {});   // из панели управления, запасной — banners.json
+/* баннеры розницы — retail/banners.js */   // из панели управления, запасной — banners.json
 
 /* ряд брендов на компьютере: стрелки, колесо мыши, перетаскивание */
 (() => {
@@ -2199,6 +2213,32 @@ $("#sheet").addEventListener("click", async e => {
   }
 });
 loadSummary();
+})();
+/* ===== Розница: свои баннеры (панель → Товары → Баннеры → «Розничный сайт») ===== */
+// Высота карусели (size: s/m/l) и отдельная картинка для телефона (imgM) — только здесь, оптовый сайт их не знает.
+const RBANNERS_DEFAULT = { autoplaySec: 6, size: "m", slides: [
+  { title: "Корейская косметика с доставкой", text: "Оригинальный уход со склада в Алматы. Доставка по городу и по всему Казахстану.", tags: ["Оригинал", "Доставка по Казахстану"], bg: "#14503C" },
+  { title: "Новинки недели", text: "Свежие поступления — смотрите первыми.", button: "Смотреть новинки", link: { sort: "new" }, bg: "#1E3A5F" }
+] };
+(function(){
+  const base = renderBanners;
+  renderBanners = function(cfg){
+    base(cfg);
+    const box = $("#banners");
+    box.dataset.size = ["s", "m", "l"].includes(cfg.size) ? cfg.size : "m";
+    const mob = {};
+    (cfg.slides || []).forEach(b => { if(b.img && b.imgM) mob[b.img] = b.imgM; });
+    box.querySelectorAll(".bSlide.pic img").forEach(img => {
+      const m = mob[img.getAttribute("src")];
+      if(!m) return;
+      const pic = document.createElement("picture"), src = document.createElement("source");
+      src.media = "(max-width:640px)"; src.srcset = m;
+      img.replaceWith(pic); pic.append(src, img);
+      img.closest(".bSlide").classList.add("hasM");
+    });
+  };
+  renderBanners(RBANNERS_DEFAULT);
+  getJSON(CONFIG.apiUrl + "/banners?site=retail", 8000).then(c => renderBanners(c)).catch(() => {});
 })();
 </script>
 </body>

@@ -1338,6 +1338,28 @@ def pay():
 
 
 # ---------- баннеры главной ----------
+# Оптовый сайт — баннеры в доп. поле организации МойСклад (как раньше); розничный — в нашей базе (setting banners_retail).
+# Высота карусели (size) и отдельная картинка для телефона (imgM) — только у розницы; картинки можно загрузить из панели.
+BANNER_SIZES = ("s", "m", "l")
+BANNER_IMG_MAX = 3 * 1024 * 1024
+BANNER_IMG_TYPES = ("image/jpeg", "image/png", "image/webp")
+_bimg_ready = [False]
+
+
+def _bimg_db():
+    d = inbox.db()
+    if not _bimg_ready[0]:
+        blob = "BYTEA" if inbox.PG else "BLOB"
+        d.run(f"CREATE TABLE IF NOT EXISTS banner_img (id TEXT PRIMARY KEY, mime TEXT, data {blob}, at DOUBLE PRECISION)")
+        d.c.commit()
+        _bimg_ready[0] = True
+    return d
+
+
+def _site():
+    return "retail" if request.args.get("site") == "retail" else "opt"
+
+
 def _clean_banners(d):
     slides = []
     for s in (d.get("slides") or [])[:8]:
@@ -1350,6 +1372,9 @@ def _clean_banners(d):
                "bg": bg if oh.re.fullmatch(r"#[0-9a-fA-F]{6}", bg) else "#14503C"}
         if oh.re.match(r"https?://", img):
             out["img"] = img
+            img_m = str(s.get("imgM", "")).strip()[:300]
+            if oh.re.match(r"https?://", img_m):
+                out["imgM"] = img_m
         tags = [str(t).strip()[:24] for t in (s.get("tags") or []) if str(t).strip()][:4]
         if tags:
             out["tags"] = tags
@@ -1364,7 +1389,8 @@ def _clean_banners(d):
         if s.get("off"):
             out["off"] = True
         slides.append(out)
-    return {"autoplaySec": min(max(int(d.get("autoplaySec") or 6), 3), 20), "slides": slides}
+    size = d.get("size") if d.get("size") in BANNER_SIZES else "m"
+    return {"autoplaySec": min(max(int(d.get("autoplaySec") or 6), 3), 20), "size": size, "slides": slides}
 
 
 def banners_saved():
@@ -1378,31 +1404,86 @@ def banners_saved():
     return None
 
 
+def banners_retail():
+    with inbox.db() as d:
+        raw = inbox.get_setting(d, "banners_retail", "")
+    try:
+        return json.loads(raw) if raw else None
+    except Exception:
+        return None
+
+
 @bp.get("/banners")
 def banners_public():
-    """Баннеры для сайта; пусто — сайт берёт запасной banners.json."""
+    """Баннеры для сайта (?site=retail — розничного); пусто — сайт показывает свои баннеры по умолчанию."""
+    retail = _site() == "retail"
     try:
-        d = oh.cached("banners", 60, banners_saved)
+        d = oh.cached("banners_retail" if retail else "banners", 60, banners_retail if retail else banners_saved)
     except Exception:
         d = None
     if not d:
         return jsonify(error="none"), 404
-    resp = jsonify(autoplaySec=d.get("autoplaySec", 6), slides=[s for s in d["slides"] if not s.get("off")])
+    body = {"autoplaySec": d.get("autoplaySec", 6), "slides": [s for s in d["slides"] if not s.get("off")]}
+    if retail:
+        body["size"] = d.get("size", "m")
+    resp = jsonify(**body)
     resp.headers["Cache-Control"] = "public, max-age=60"
     return oh.cors(resp)
+
+
+@bp.get("/banners/img/<bid>")
+def banner_img(bid):
+    if not re.fullmatch(r"[a-f0-9]{24}", bid):
+        return jsonify(error="none"), 404
+    with _bimg_db() as d:
+        r = d.run("SELECT data, mime FROM banner_img WHERE id=%s", (bid,), one=True)
+    if not r:
+        return jsonify(error="none"), 404
+    resp = oh.cors(oh.Response(bytes(r[0]), mimetype=r[1]))
+    resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return resp
+
+
+@bp.post("/admin/api/banners/upload")
+@guard
+def banner_upload():
+    """Картинка баннера из панели: храним у себя, отдаём по постоянной ссылке /banners/img/<id>."""
+    f = request.files.get("file")
+    if not f:
+        return jsonify(ok=False, error="Файл не выбран"), 400
+    mime = (f.mimetype or "").lower()
+    if mime not in BANNER_IMG_TYPES:
+        return jsonify(ok=False, error="Нужна картинка JPG, PNG или WEBP"), 400
+    data = f.read()
+    if len(data) > BANNER_IMG_MAX:
+        return jsonify(ok=False, error="Картинка больше 3 МБ — уменьшите её"), 413
+    bid = secrets.token_hex(12)
+    with _bimg_db() as d:
+        d.run("INSERT INTO banner_img (id, mime, data, at) VALUES (%s,%s,%s,%s)", (bid, mime, data, time.time()))
+    root = request.url_root.replace("http://", "https://", 1).rstrip("/")
+    return jsonify(ok=True, url=f"{root}/banners/img/{bid}")
 
 
 @bp.route("/admin/api/banners", methods=["GET", "PUT"])
 @guard
 def banners_admin():
+    retail = _site() == "retail"
     if request.method == "PUT":
         d = _clean_banners(request.get_json(silent=True) or {})
         raw = json.dumps(d, ensure_ascii=False, separators=(",", ":"))
+        if retail:
+            with inbox.db() as db_:
+                inbox.set_setting(db_, "banners_retail", raw)
+            oh._cache.pop("banners_retail", None)
+            return jsonify(ok=True, **d)
         if len(raw) > 4000:
             return jsonify(ok=False, error="Слишком много текста — сократите баннеры"), 400
         oh.ms("PUT", f"/entity/organization/{oh.organization()}", json={"attributes": [{"meta": _attr("organization", ATTR_BANNERS, "text")["meta"], "value": raw}]})
         oh._cache.pop("banners", None)
         return jsonify(ok=True, **d)
+    if retail:
+        d = banners_retail()
+        return jsonify(ok=True, saved=bool(d), **_clean_banners(d or {"slides": RETAIL_BANNERS_DEFAULT}))
     d = banners_saved()
     if not d:                                  # ещё не сохраняли — берём баннеры, которые сейчас на сайте
         try:
@@ -1410,6 +1491,15 @@ def banners_admin():
         except Exception:
             d = {"autoplaySec": 6, "slides": []}
     return jsonify(ok=True, saved=bool(banners_saved is not None and d), **_clean_banners(d))
+
+
+# такие же баннеры по умолчанию у розничного сайта (retail/banners.js) — показываются, пока в панели ничего не сохранено
+RETAIL_BANNERS_DEFAULT = [
+    {"title": "Корейская косметика с доставкой", "text": "Оригинальный уход со склада в Алматы. Доставка по городу и по всему Казахстану.",
+     "tags": ["Оригинал", "Доставка по Казахстану"], "bg": "#14503C"},
+    {"title": "Новинки недели", "text": "Свежие поступления — смотрите первыми.", "button": "Смотреть новинки",
+     "link": {"sort": "new"}, "bg": "#1E3A5F"},
+]
 
 
 # ---------- инбокс и ИИ ----------
