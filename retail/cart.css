@@ -57,3 +57,33 @@ body.rsheet-open{overflow:hidden}
   .rsheet{align-items:center}
   .rsbox{border-radius:22px;max-height:80vh}
 }
+/* шаг 1 «Корзина» как на WB */
+#drawerTitle .rback{display:block;border:0;background:transparent;padding:0 0 6px;font:inherit;font-size:14px;font-weight:700;color:var(--green-3);cursor:pointer}
+.rtopaddr{padding:4px 16px}.rtopaddr .raddr{margin-top:0}
+.rbar{display:flex;justify-content:space-between;align-items:center;padding:10px 16px}
+.rchk{display:flex;align-items:center;gap:10px;font-size:16px;font-weight:600;cursor:pointer}
+.rchk input,.rpic input{width:22px;height:22px;accent-color:var(--green-3);margin:0}
+.rico{border:0;background:transparent;width:38px;height:38px;border-radius:50%;display:grid;place-items:center;cursor:pointer;color:var(--muted)}
+.rico svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.rico:disabled{opacity:.35;cursor:default}
+.ritem{position:relative;display:grid;grid-template-columns:104px minmax(0,1fr);gap:14px;padding:14px}
+.ritem.roff .rpic img,.ritem.roff .rinfo{opacity:.55}
+.rpic{position:relative;width:104px;height:132px;border-radius:14px;overflow:hidden;background:var(--bg);display:grid;place-items:center;cursor:pointer}
+.rpic img{width:100%;height:100%;object-fit:cover}.rpic i{font-style:normal;font-weight:800;font-size:28px;color:var(--muted)}
+.rpic input{position:absolute;top:8px;left:8px;background:#fff;border-radius:6px}
+.rinfo{display:grid;gap:4px;align-content:start;min-width:0}.rprice,.rname{padding-right:30px}
+.rprice{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}.rprice b{font-size:20px;font-weight:800}.rprice small{font-size:12.5px;color:var(--muted)}
+.rname{font-size:14.5px;line-height:1.3;overflow-wrap:anywhere}
+.rwhen{font-size:14px;font-weight:700;margin-top:2px}
+.ract{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap}
+.ract .line.rstep{display:block;padding:0;border:0}.ract .stepper{width:124px}
+.rbuy{border:0;background:var(--mint);color:var(--green-3);font:inherit;font-weight:800;font-size:14px;border-radius:12px;padding:10px 14px;cursor:pointer}
+@media(max-width:420px){.ract .stepper{width:104px}.ract{gap:6px}}
+#viewCart .rstep2>.back{display:none}
+.rdel{position:absolute;top:8px;right:6px;width:34px;height:34px}
+.rfix{position:fixed;left:12px;right:12px;bottom:16px;z-index:25}
+.rfixb{width:100%;border:0;border-radius:16px;background:var(--green);color:#fff;font:inherit;font-weight:800;font-size:16px;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;box-shadow:0 8px 24px rgba(8,25,18,.28);cursor:pointer}
+.rfixb:disabled{opacity:.5}
+.rco{padding-bottom:84px}
+@media(max-width:899px){.rside .rgo,.rcart .rside{display:none}}
+@media(min-width:900px){.rfix{display:none}.rco{padding-bottom:0}}
