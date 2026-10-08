@@ -16,7 +16,7 @@ def build(src):
             raise SystemExit(f"make_shop: в index.html не найдено: {old}")
         return s.replace(old, new, 1)
     s = rep(src, "<head>\n", "<head>\n<!-- Собрано из index.html скриптом make_shop.py — не редактировать вручную -->\n"
-            "<script>window.AMURA_RETAIL = true;</script>\n")
+            "<script>window.AMURA_RETAIL = true; document.documentElement.dataset.theme = 'light';</script>\n")   # розница всегда светлая, как WB
     s = rep(s, "<title>AMURA — оптовый каталог</title>", "<title>AMURA — корейская косметика</title>")
     s = rep(s, '<meta name="description" content="Оригинальная корейская косметика оптом. Цены поштучно, от 10 штук и от короба.">',
             '<meta name="description" content="Оригинальная корейская косметика с доставкой по Алматы и Казахстану.">')
