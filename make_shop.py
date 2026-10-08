@@ -30,8 +30,8 @@ def build(src):
     s = rep(s, "renderBanners(BANNERS_DEFAULT);\n", "")
     s = rep(s, 'getJSON(CONFIG.apiUrl + "/banners", 8000).catch(() => getJSON("banners.json", 8000)).then(renderBanners).catch(() => {});',
             "/* баннеры розницы — retail/banners.js */")
-    css = read("cards.css") + read("cart.css") + read("reviews.css") + read("banners.css")    # карточки, корзина как на WB, отзывы, баннеры
-    js = read("cards.js") + read("cart.js") + read("reviews.js") + read("banners.js")
+    css = read("cards.css") + read("cart.css") + read("reviews.css") + read("banners.css") + read("product.css")    # карточки, корзина как на WB, отзывы, баннеры, страница товара
+    js = read("cards.js") + read("cart.js") + read("reviews.js") + read("banners.js") + read("product.js")
     s = rep(s, "</head>", "<style>\n" + css + "</style>\n</head>")
     s = rep(s, "</body>", "<script>\n" + js + "</script>\n</body>")
     return s
