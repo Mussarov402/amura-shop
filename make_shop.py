@@ -23,10 +23,11 @@ def build(src):
     s = rep(s, '<link rel="manifest" href="manifest.webmanifest">', '<link rel="manifest" href="/shop/manifest.webmanifest">')
     s = rep(s, '<link rel="apple-touch-icon" href="icon-180.png">', '<link rel="apple-touch-icon" href="/icon-180.png">')
     # оформление заказа как на WB — только для розницы, оптовый index.html не меняется
-    with open(os.path.join(ROOT, "retail", "cart.css"), encoding="utf-8") as f:
-        css = f.read()
-    with open(os.path.join(ROOT, "retail", "cart.js"), encoding="utf-8") as f:
-        js = f.read()
+    def read(name):
+        with open(os.path.join(ROOT, "retail", name), encoding="utf-8") as f:
+            return f.read()
+    css = read("cards.css") + read("cart.css")       # карточки товаров и корзина как на WB
+    js = read("cards.js") + read("cart.js")
     s = rep(s, "</head>", "<style>\n" + css + "</style>\n</head>")
     s = rep(s, "</body>", "<script>\n" + js + "</script>\n</body>")
     return s
