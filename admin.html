@@ -184,7 +184,7 @@ let nav=0;   // номер перехода между разделами: от�
 let gotStale=false;
 async function api(p,o={}){const n=nav;const r=await fetch("/admin/api/"+p,{...o,headers:{"Content-Type":"application/json",Authorization:"Bearer "+tok}});if(!o.method&&r.headers.get("X-Stale"))gotStale=true;
  if(r.status===401){localStorage.removeItem(T);tok="";boot();throw Error("401")}const j=await r.json();if(!o.method&&n!==nav)throw Error("stale");if(!j.ok)throw Error(j.error||"Ошибка");return j}
-const ALLOW={mirror:"owner",notif:"owner",overview:"owner",pay:"owner",delivery:"owner",accounts:"owner",banners:"owner",reviews:"products",ai:"owner",team:"owner",channels:"owner",products:"products",orders:"orders",retail:"orders",clients:"orders",inbox:"inbox"};
+const ALLOW={mirror:"owner",notif:"owner",overview:"owner",pay:"owner",delivery:"owner",accounts:"owner",banners:"owner",reviews:"products",ai:"owner",team:"owner",channels:"owner",products:"products",orders:"orders",retail:"orders",courier:"orders",clients:"orders",inbox:"inbox"};
 let ME=null;const can=p=>!!ME&&(ME.role==="owner"||(ALLOW[p]!=="owner"&&ME.perms.includes(ALLOW[p])));
 async function boot(){const a=!!tok;$("#login").hidden=a;$("#app").hidden=!a;if(!a){ME=null;return}
  try{ME=await api("me")}catch(e){return}
@@ -226,8 +226,8 @@ $("#acm").onclick=e=>accToggle(e,"top");$("#acd").onclick=e=>accToggle(e,"side")
 document.addEventListener("click",e=>{const m=$("#accmenu");if(!m.hidden&&!m.contains(e.target))m.hidden=true});
 let lastArg,cur=localStorage.getItem("amura_view")||"overview",restoreY=0;try{const sp=JSON.parse(sessionStorage.getItem("amura_pos")||"null");if(sp&&sp.v===cur)restoreY=sp.y||0}catch(e){}
 const savePos=()=>{try{sessionStorage.setItem("amura_pos",JSON.stringify({v:cur,y:scrollY}))}catch(e){}};addEventListener("pagehide",savePos);document.addEventListener("visibilitychange",()=>{if(document.hidden)savePos()});document.querySelectorAll(".nav,.tabbar button").forEach(b=>b.onclick=()=>{document.querySelectorAll(".nav,.tabbar button").forEach(x=>x.classList.toggle("on",x.dataset.p===b.dataset.p));scrollTo(0,0);show(b.dataset.p)});
-const SEG={orders:[["orders","Заказы"],["retail","Розница"],["clients","Клиенты"]],products:[["products","Товары"],["reviews","Отзывы"],["banners","Баннеры на главной"]],overview:[["overview","Состояние"],["pay","Оплата"],["accounts","Счета"],["delivery","Доставка"],["notif","Уведомления"]],ai:[["ai","Чат-проверка"],["rules","Правила"],["kb","База знаний"],["channels","Каналы"],["team","Команда"]]};
-const grp=a=>({notif:"overview",delivery:"overview",accounts:"overview",clients:"orders",retail:"orders",banners:"products",reviews:"products",pay:"overview",team:"ai",rules:"ai",kb:"ai",channels:"ai"}[a]||a);
+const SEG={orders:[["orders","Заказы"],["retail","Розница"],["courier","Курьер"],["clients","Клиенты"]],products:[["products","Товары"],["reviews","Отзывы"],["banners","Баннеры на главной"]],overview:[["overview","Состояние"],["pay","Оплата"],["accounts","Счета"],["delivery","Доставка"],["notif","Уведомления"]],ai:[["ai","Чат-проверка"],["rules","Правила"],["kb","База знаний"],["channels","Каналы"],["team","Команда"]]};
+const grp=a=>({courier:"orders",notif:"overview",delivery:"overview",accounts:"overview",clients:"orders",retail:"orders",banners:"products",reviews:"products",pay:"overview",team:"ai",rules:"ai",kb:"ai",channels:"ai"}[a]||a);
 const seg=a=>{const g=SEG[grp(a)].filter(([k])=>can(k));if(g.length<2)return "";return `<div class="seg" data-g="${grp(a)}">${g.map(([k,t])=>`<button class="${k===a?"on":""}" data-go="${k}">${t}</button>`).join("")}</div>`};
 const bindSeg=()=>document.querySelectorAll("[data-go]").forEach(b=>b.onclick=()=>show(b.dataset.go));
 const renderSubs=()=>{const g=grp(cur);document.querySelectorAll(".subs").forEach(d=>{const k=d.dataset.for,l=(SEG[k]||[]).filter(([x])=>can(x));d.classList.toggle("open",k===g&&l.length>1);d.innerHTML=l.map(([x,t])=>`<button data-k="${x}" class="${x===cur?"on":""}">${t}</button>`).join("");d.querySelectorAll("button").forEach(b=>b.onclick=()=>{scrollTo(0,0);show(b.dataset.k)})});document.querySelectorAll(".nav").forEach(x=>x.classList.toggle("on",x.dataset.p===g))};
@@ -442,6 +442,41 @@ async orders(q,kind){q=q==null?"":String(q);const rt=kind==="retail",vw=rt?"reta
   try{const r=await api(oq(v));if(my===sq&&n0===nav){paint(r);$("#ordl").style.opacity=""}}catch(e){if(my===sq&&e.message!=="stale"){$("#ordl").style.opacity="";$("#ordl").innerHTML=`<div class="b x" style="white-space:normal">${esc(e.message)}</div>`}}};
  inp.oninput=()=>{clearTimeout(tq);tq=setTimeout(run,450)};inp.onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();clearTimeout(tq);inp.blur();run()}};bindSeg()},
 retail(q){return views.orders(q,"retail")},
+async courier(day){day=day||views.courier.day||new Date(Date.now()+5*3600e3).toISOString().slice(0,10);views.courier.day=day;const o=await api("courier?date="+day);const n=nav;
+ const tm=s=>new Date(s).toLocaleString("ru-RU",{timeZone:"Asia/Almaty",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
+ const tt=s=>new Date(s).toLocaleTimeString("ru-RU",{timeZone:"Asia/Almaty",hour:"2-digit",minute:"2-digit"});
+ const IV=o.intervals||[];let iv=0,sel=new Set(o.orders.filter(x=>!(x.ya&&x.ya.claim&&!/^(cancel|fail|estimating_failed|returned)/.test(x.ya.status))&&x.ya&&x.ya.pt).map(x=>x.num));
+ const ready=x=>x.ya&&x.ya.status==="ready_for_approval",live=x=>x.ya&&x.ya.claim&&!/^(cancel|fail|estimating_failed|returned|delivered)/.test(x.ya.status);
+ const draw=()=>{const R=o.orders.filter(ready),sumR=R.reduce((s,x)=>s+(x.ya.price||0),0);
+ $("#main").innerHTML=head("Курьер Яндекс","Доставка «В течение дня» по Алматы: курьер забирает все заказы со склада за один заезд и развозит за ~4 часа. Рассчитать — бесплатно, платно только после «Подтвердить».")+seg("courier")+
+ `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px"><input type="date" id="cday" value="${esc(day)}" style="width:auto"><button class="btn ghost" id="cref">Обновить статусы</button><span class="mut" id="cm"></span></div>`+
+ (!o.ready?`<div class="card" style="margin-bottom:12px">Ключ Яндекс Доставки не введён. Обзор → Доставка → Яндекс.</div>`:"")+
+ (o.error?`<div class="card" style="margin-bottom:12px;color:var(--bad)">${esc(o.error)}</div>`:"")+
+ (o.ready&&IV.length?`<div class="card" style="margin-bottom:12px"><b>Интервал забора со склада</b><div class="chips cn" style="margin-top:8px;flex-wrap:wrap">${IV.map((v,i)=>`<button class="st ${i===iv?"on":""}" data-iv="${i}">${tm(v.from)}–${tt(v.to)}</button>`).join("")}</div></div>`:(o.ready&&!o.error?`<div class="card mut" style="margin-bottom:12px">Яндекс сейчас не дал интервалов на этот день.</div>`:""))+
+ `<div class="card">${o.orders.length?o.orders.map(x=>{const y=x.ya||{},can=!live(x)&&y.pt;return `<div class="ord cyo" data-num="${esc(x.num)}"><div class="o1">${can?`<input type="checkbox" data-sel="${esc(x.num)}" ${sel.has(x.num)?"checked":""} style="width:20px;height:20px">`:""}<b>№${esc(x.num)}</b><span class="mut">${esc(x.slot||x.moment.slice(5))}</span><span style="flex:1"></span><b>${fmt(x.sum)} ₸</b></div>
+  <div class="o2"><span class="cl">${esc(x.name)} · ${esc(x.addr||"адрес не указан")}</span></div>
+  <div class="o3" style="flex-wrap:wrap"><span class="b ${y.status==="ready_for_approval"?"w":/deliver/.test(y.status||"")?"ok":/cancel|fail/.test(y.status||"")?"x":"n"}">${esc(x.statusText)}${y.price?" · "+fmt(Math.round(y.price))+" ₸":""}</span>
+  ${y.pt?`<a class="mut" target="_blank" rel="noopener" href="https://2gis.kz/almaty/geo/${y.pt[0]},${y.pt[1]}">на карте</a>`:`<span class="b x">адрес не найден на карте</span>`}
+  ${live(x)?"":`<button class="btn ghost" data-co="${esc(x.num)}" style="padding:6px 10px">${y.pt?"Поправить точку":"Указать точку"}</button>`}
+  ${live(x)&&y.status!=="ready_for_approval"?"":""}${y.claim&&live(x)?`<button class="btn ghost" data-cx="${esc(x.num)}" style="padding:6px 10px">Отменить</button>`:""}</div>
+  ${y.err?`<div class="mut" style="color:var(--bad);margin-top:4px">${esc(y.err)}</div>`:""}</div>`}).join(""):`<div class="mut">На ${esc(day)} заказов «Курьер по Алматы» с розничного сайта нет.</div>`}</div>`+
+ `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px"><button class="btn" id="cest" ${o.ready&&IV.length&&sel.size?"":"disabled"}>Рассчитать выбранные (${sel.size})</button>`+
+ `<button class="btn" id="cacc" ${R.length?"":"disabled"} style="background:#B8860B">Подтвердить ${R.length?R.length+" · "+fmt(Math.round(sumR))+" ₸":""}</button></div>`;
+ bindSeg();
+ $("#cday").onchange=e=>views.courier(e.target.value);
+ document.querySelectorAll("[data-iv]").forEach(b=>b.onclick=()=>{iv=+b.dataset.iv;draw()});
+ document.querySelectorAll("[data-sel]").forEach(b=>b.onchange=()=>{b.checked?sel.add(b.dataset.sel):sel.delete(b.dataset.sel);draw()});
+ const msg=t=>$("#cm").textContent=t,res=r=>Object.entries(r.result||{}).filter(([,v])=>v!=="ok").map(([k,v])=>"№"+k+": "+v).join("; ");
+ $("#cref").onclick=async()=>{msg("Обновляю…");try{await api("courier/refresh",{method:"POST",body:"{}"});if(n===nav)views.courier(day)}catch(e){msg(e.message)}};
+ $("#cest").onclick=async()=>{msg("Рассчитываю в Яндексе…");try{const r=await api("courier/estimate",{method:"POST",body:JSON.stringify({date:day,nums:[...sel],interval:IV[iv]})});
+   const bad=res(r);setTimeout(async()=>{try{await api("courier/refresh",{method:"POST",body:"{}"})}catch(e){}if(n===nav){await views.courier(day);if(bad)$("#cm").textContent=bad}},4000);msg("Яндекс считает цену…"+(bad?" "+bad:""))}catch(e){msg(e.message)}};
+ $("#cacc").onclick=async()=>{const R=o.orders.filter(ready);if(!confirm(`Подтвердить ${R.length} заявок на ${fmt(Math.round(R.reduce((s,x)=>s+(x.ya.price||0),0)))} ₸? Яндекс начнёт искать курьера — это платно.`))return;
+   msg("Подтверждаю…");try{const r=await api("courier/accept",{method:"POST",body:JSON.stringify({nums:R.map(x=>x.num)})});const bad=res(r);if(n===nav){await views.courier(day);if(bad)$("#cm").textContent=bad}}catch(e){msg(e.message)}};
+ document.querySelectorAll("[data-co]").forEach(b=>b.onclick=async()=>{const v=prompt("Точка клиента: «43.2389, 76.8897» или ссылка из 2ГИС / Яндекс Карт");if(!v)return;
+   try{await api("courier/coords",{method:"POST",body:JSON.stringify({num:b.dataset.co,coords:v})});views.courier(day)}catch(e){msg(e.message)}});
+ document.querySelectorAll("[data-cx]").forEach(b=>b.onclick=async()=>{if(!confirm("Отменить заявку в Яндексе? Если курьер уже назначен, отмена может быть платной."))return;
+   try{const r=await api("courier/cancel",{method:"POST",body:JSON.stringify({num:b.dataset.cx})});toast(r.paid?"Отменено (платная отмена)":"Отменено");views.courier(day)}catch(e){msg(e.message)}});
+ };draw()},
 async accounts(edit){const o=await api("accounts");const n=nav;const A=o.accounts,R=o.routes;
  const when=t=>{const x=new Date(t*1000);return x.toLocaleDateString("ru",{day:"2-digit",month:"2-digit"})+" "+x.toLocaleTimeString("ru",{hour:"2-digit",minute:"2-digit"})};
  const sp=s=>s.replace(/(.{4})/g,"$1 ").trim();
@@ -502,6 +537,7 @@ async delivery(){const o=await api("delivery");const n=nav;const S=o.services,R=
   <label>Адрес<input id="w-wh_addr" autocomplete="off" value="${esc(W.wh_addr)}" placeholder="Алматы, улица, дом"></label>
   <label>Телефон на складе<input id="w-wh_phone" inputmode="tel" autocomplete="off" value="${esc(W.wh_phone)}" placeholder="+7 7__ ___ __ __"></label>
   <label>Когда можно забирать<input id="w-wh_hours" autocomplete="off" value="${esc(W.wh_hours)}" placeholder="Пн–Сб 10:00–18:00"></label>
+  <label>Координаты склада (для Яндекса)<input id="w-wh_coords" autocomplete="off" value="${esc(W.wh_coords||"")}" placeholder="43.2389, 76.8897 или ссылка из 2ГИС / Яндекс Карт"></label>
   ${num("r-weight","Вес на 1 товар, если в карточке МойСклад «Вес» пустой",R.weight,"г")}
   <div class="dlg3">${num("r-box_w","Коробка: ширина",R.box_w,"см")}${num("r-box_h","высота",R.box_h,"см")}${num("r-box_d","глубина",R.box_d,"см")}</div>
   <div class="mut" style="font-size:12.5px">Для расчёта цены СДЭК и Яндекс берут вес и размеры посылки. Берём их из карточки товара в МойСклад: стандартное поле «Вес» и доп. поля «Ширина, см», «Высота, см», «Глубина, см». Если поля пустые — значения отсюда.</div></div></div>
@@ -527,7 +563,7 @@ async delivery(){const o=await api("delivery");const n=nav;const S=o.services,R=
   b.cdek.test=$("#d-cdek-test").checked;["free_from","door_extra","weight","cutoff","box_w","box_h","box_d"].forEach(k=>b.rules[k]=$("#r-"+k).value.replace(/\D/g,"")||0);b.tiers=tiers();
   b.schedule={days:[...document.querySelectorAll(".dlday")].map(x=>x.classList.contains("on")?"1":"0").join(""),open:$("#g-open").value,close:$("#g-close").value,
    slots:[...document.querySelectorAll(".dlsr")].map(r=>({name:r.querySelector(".dlsn").value,from:r.querySelector(".dlsf").value,to:r.querySelector(".dlsto").value})).filter(x=>x.name.trim())};
-  ["wh_addr","wh_phone","wh_hours"].forEach(k=>b.store[k]=$("#w-"+k).value);return b};
+  ["wh_addr","wh_phone","wh_hours","wh_coords"].forEach(k=>b.store[k]=$("#w-"+k).value);return b};
  const save=async b=>{await api("delivery",{method:"POST",body:JSON.stringify(b)})};
  $("#dsv").onclick=async()=>{$("#dsm").textContent="Сохраняю…";try{await save(collect());if(n===nav){await views.delivery();toast("Сохранено")}}catch(e){$("#dsm").textContent=e.message}};
  document.querySelectorAll("[data-on]").forEach(b=>b.onclick=async()=>{const k=b.dataset.on;b.disabled=true;try{await save({[k]:{on:!S[k].on}});if(n===nav)views.delivery()}catch(e){b.disabled=false;toast(e.message)}});
