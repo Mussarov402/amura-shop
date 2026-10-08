@@ -75,6 +75,7 @@ SHIPPING = {
     "cdek": ("СДЭК", False),
 }
 RETAIL_SHIPPING = ("courier", "cdek", "pickup")   # розничный сайт: без КАМАЗа, ЖД, авиа и Казпочты
+RETAIL_TAG = "розница"   # метка покупателя в МойСклад: заходил или заказывал на розничном сайте (панель → Клиенты → «Розница»)
 ALMATY = timezone(timedelta(hours=5))
 
 bp = Blueprint("orders", __name__)
@@ -636,6 +637,19 @@ def unit_price(item, qty, wholesale=True):
 _agents = {}
 
 
+_retail_marked = set()
+
+
+def mark_retail(cid):
+    """Пометить покупателя меткой «розница» (один раз; повторно МойСклад не дёргаем)."""
+    if not cid or cid in _retail_marked:
+        return
+    tags = ms("GET", f"/entity/counterparty/{cid}").get("tags") or []
+    if RETAIL_TAG not in tags:
+        ms("PUT", f"/entity/counterparty/{cid}", json={"tags": sorted(set(tags + [RETAIL_TAG]))})
+    _retail_marked.add(cid)
+
+
 def find_or_create_agent(name, phone, telegram, city):
     ck = phone[-10:] if phone else "@" + telegram.lower()
     hit = _agents.get(ck)
@@ -775,6 +789,8 @@ def order_core(d, key, ip, me, source="с сайта", panel=False):
     retail_req = not panel and str(d.get("mode", "")) == "retail"
     if retail_req and ship not in RETAIL_SHIPPING:
         ship = None
+    if retail_req and not me:                       # розница: заказ только после входа / регистрации
+        return dict(ok=False, error="Войдите или зарегистрируйтесь, чтобы оформить заказ", login=True), 401
     if not name or not city or ship not in SHIPPING or not (len(phone) >= 10 or len(telegram) >= 4):
         return dict(ok=False, error="Заполните имя, контакт, город и способ отправки"), 400
 
@@ -867,6 +883,13 @@ def order_core(d, key, ip, me, source="с сайта", panel=False):
         return dict(ok=False, error="Не удалось сохранить заказ, менеджер уже получил его и свяжется с вами"), 502
 
     number = order["name"]
+    if retail:
+        def _mark():
+            try:
+                mark_retail(agent)
+            except Exception as e:
+                print("Розница: метка покупателя не поставлена:", str(e)[:200], flush=True)
+        notify_bg(_mark)
     tok = sign(number)
     data = {"number": number, "date": datetime.now(ALMATY).strftime("%d.%m.%Y %H:%M"), "name": name,
             "contact": contact, "city": city, "ship": ship_name, "lines": lines,

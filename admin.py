@@ -737,6 +737,7 @@ def _chats_for(phone, tgid):
 @need("orders")
 def clients():
     """Список: src=ms — покупатели из МойСклад (последние изменённые сверху, поиск по имени/телефону);
+    src=retail — только покупатели розничного сайта;
     src=chat — все, кто писал в Telegram/WhatsApp."""
     q, page = str(request.args.get("q", "")).strip()[:60], max(0, int(request.args.get("page", 0) or 0))
     if request.args.get("src") == "chat":
@@ -751,7 +752,10 @@ def clients():
     params = {"limit": 50, "offset": page * 50, "order": "updated,desc"}
     if q:
         params["search"] = q
-    rows = fresh(f"adm_cl:{q}:{page}", 60, lambda: oh.ms("GET", "/entity/counterparty", params=params, timeout=12)["rows"])
+    retail = request.args.get("src") == "retail"           # покупатели розничного сайта (метка «розница»)
+    if retail:
+        params["filter"] = f"tags={oh.RETAIL_TAG}"
+    rows = fresh(f"adm_cl:{'r' if retail else ''}:{q}:{page}", 60, lambda: oh.ms("GET", "/entity/counterparty", params=params, timeout=12)["rows"])
     return jsonify(ok=True, clients=[_cp_row(c) for c in rows], more=len(rows) == 50)
 
 

@@ -4,7 +4,7 @@ name: Розничный сайт
 on:
   push:
     branches: [main]
-    paths: ["index.html", "make_shop.py"]
+    paths: ["index.html", "make_shop.py", "retail/**"]
   workflow_dispatch: {}
 
 permissions:
