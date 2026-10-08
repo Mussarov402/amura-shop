@@ -9,7 +9,18 @@
 if(!window.AMURA_RETAIL) return;
 const MON = ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"];
 const WANT = "amura-r-checkout";                 // «после входа вернуться к оформлению»
-const TABS = [["cdek", "Пункт выдачи"], ["courier", "Курьер"], ["pickup", "Самовывоз"]];
+/* способы получения: Алматы — Яндекс «в течение дня», самовывоз, срочный курьер (всегда платно); другие города — только пункт выдачи СДЭК */
+const isAlm = f => DLV.opts && DLV.city === ((f && f.city) || "") ? DLV.opts.almaty : /алмат/i.test((f && f.city) || "");
+const tabsFor = f => isAlm(f) ? [["courier", "В течение дня"], ["pickup", "Самовывоз"], ["express", "Срочно"]] : [["cdek", "Пункт выдачи СДЭК"]];
+const isCour = s => s === "courier" || s === "express";
+const _dlvPrice = dlvPrice;
+dlvPrice = function(ship, goods){          // цена по способу: своя цена и свой порог бесплатной доставки (rates с сервера)
+  if(!ship || ship === "pickup") return 0;
+  const o = DLV.opts; if(!o) return null;
+  const r = (o.rates || {})[ship]; if(!r) return _dlvPrice(ship, goods);
+  return r.free && goods >= r.free ? 0 : r.price;
+};
+const freeFrom = ship => { const r = DLV.opts && (DLV.opts.rates || {})[ship]; return r && r.free || 0; };
 const plural = (n, a, b, c) => { const m = n % 10, h = n % 100; return m === 1 && h !== 11 ? a : m >= 2 && m <= 4 && (h < 10 || h >= 20) ? b : c; };
 const PIN = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6.5-6.2-6.5-11.2a6.5 6.5 0 0 1 13 0C18.5 14.8 12 21 12 21Z"/><circle cx="12" cy="9.8" r="2.3"/></svg>';
 const CHEV = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 6 6 6-6 6"/></svg>';
@@ -28,8 +39,8 @@ function tot(ship){
 let STEP = "cart", NEXT = "";          // cart | checkout
 function form(){
   const f = load("amura-form", {}), pr = AUTH.profile || {};
-  if(!["cdek", "courier", "pickup"].includes(f.ship)) f.ship = "cdek";
   f.name = f.name || pr.name || ""; f.city = f.city || pr.city || "";
+  const ids = tabsFor(f).map(t => t[0]); if(!ids.includes(f.ship)) f.ship = ids[0];
   f.phone = f.phone || (pr.phone ? "+" + pr.phone : "");
   return f;
 }
@@ -51,7 +62,8 @@ function eta(f){
   const o = DLV.opts;
   if(f.ship === "pickup") return "Самовывоз";
   if(!o) return "";
-  if(f.ship === "courier" && o.almaty){ const s = DLV.slotSel || (o.slots || [])[0]; return s ? `${slotDay(s)}, ${s.from}–${s.to}` : "Курьер"; }
+  if(f.ship === "express") return "Сегодня, за 1–2 часа";
+  if(f.ship === "courier" && o.almaty){ const s = DLV.slotSel || (o.slots || [])[0]; return s ? `${slotDay(s)}, ${s.from}–${s.to}` : "В течение дня"; }
   const m = method(f.ship); if(!m || !m.days) return f.ship === "cdek" ? "Пункт выдачи" : "Курьер";
   return rangeLabel(m.days[0] + 1, m.days[1] + 1);
 }
@@ -72,7 +84,7 @@ function addrRow(f){
   let title, sub;
   if(!city){ title = "Укажите город"; sub = "Посчитаем цену и срок доставки"; }
   else if(f.ship === "cdek"){ const p = DLV.pvzSel; title = p ? p.address : (f.address || "Выберите пункт выдачи"); sub = city + (p ? " · " + p.type : " · пункты и постаматы СДЭК"); }
-  else { title = f.address || "Укажите адрес доставки"; sub = city + (DLV.opts && !DLV.opts.almaty ? " · СДЭК до двери" : ""); }
+  else { title = f.address || "Укажите адрес доставки"; sub = city; }
   return `<button type="button" class="raddr" data-raddr>${PIN}<span><b class="${/^(Укажите|Выберите)/.test(title) ? "ph" : ""}">${esc(title)}</b><small>${esc(sub)}</small></span>${CHEV}</button>`;
 }
 function slotsHTML(f){
@@ -85,31 +97,32 @@ function slotsHTML(f){
 /* какая служба везёт: курьер по Алматы — Яндекс Доставка, в другие города и пункты — СДЭК */
 function provHTML(f){
   const o = DLV.opts, alm = o ? o.almaty : /алмат/i.test(f.city || "");
-  const [name, note] = f.ship === "pickup" ? ["AMURA", "заберёте сами со склада в Алматы"]
-    : f.ship === "courier" ? (alm ? ["Яндекс Доставка", "курьер привезёт в выбранный интервал"] : ["СДЭК", "курьер до двери"])
-    : ["СДЭК", "пункт выдачи или постамат"];
+  const [name, note] = f.ship === "pickup" ? ["AMURA", "заберёте сами со склада, бесплатно"]
+    : f.ship === "express" ? ["Яндекс Экспресс", "курьер едет сразу после сборки · всегда платно"]
+    : f.ship === "courier" ? ["Яндекс Доставка", "привезём за 4 часа в выбранное окно"]
+    : ["СДЭК", alm ? "пункт выдачи или постамат" : "пункт выдачи или постамат · в другие города только так"];
   return `<div class="rprov"><b class="${name === "Яндекс Доставка" ? "ya" : name === "СДЭК" ? "cd" : ""}">${name}</b><span>${note}</span></div>`;
 }
 function dlvCard(f, t){
-  const tabs = TABS.map(([id, name]) => {
+  const TB = tabsFor(f);
+  const tabs = TB.map(([id, name]) => {
     const p = id === "pickup" ? 0 : dlvPrice(id, t.goods);
     return `<button type="button" role="tab" aria-selected="${f.ship === id}" data-rm="${id}">${name}${p === null ? "" : `<small>${priceTxt(p)}</small>`}</button>`; }).join("");
   const e = eta(f), w = t.dlv === null ? (f.city ? "считаем…" : "") : priceTxt(t.dlv);
-  return `<div class="rtabs" role="tablist">${tabs}</div>${provHTML(f)}${addrRow(f)}
+  return `<div class="rtabs n${TB.length}" role="tablist">${tabs}</div>${provHTML(f)}${addrRow(f)}
     <div class="reta"><b>${esc(e)}${w ? `, <span class="${t.dlv === 0 ? "free" : ""}">${w}</span>` : ""}</b><span>${fmt(t.count)} шт</span></div>
     ${DLV.opts && DLV.opts.warn ? `<div class="kv">${esc(DLV.opts.warn)}</div>` : ""}
     <div class="rthumbs">${t.ls.slice(0, 8).map(l => `<span>${l.it.img ? `<img src="${esc(l.it.img)}" alt="" loading="lazy">` : `<i>${esc((l.it.brand || l.it.name || "A").charAt(0))}</i>`}${l.q > 1 ? `<em>${l.q}</em>` : ""}</span>`).join("")}${t.ls.length > 8 ? `<span><i>+${t.ls.length - 8}</i></span>` : ""}</div>
     ${slotsHTML(f)}`;
 }
 function totalsHTML(f, t){
-  const o = DLV.opts, rest = o && o.freeFrom && t.goods < o.freeFrom && f.ship === "cdek" ? o.freeFrom - t.goods : 0;
-  const restC = o && o.freeFrom && t.goods < o.freeFrom && f.ship === "courier" && o.almaty ? o.freeFrom - t.goods : 0;
+  const o = DLV.opts, ff = freeFrom(f.ship), rest = ff && t.goods < ff ? ff - t.goods : 0, restC = 0;
   const login = !AUTH.token;
   return `<div class="rtot"><span>Итого</span><b>${fmt(t.total)} ₸</b></div>
     <div class="rrow"><span>${fmt(t.count)} ${plural(t.count, "товар", "товара", "товаров")} на сумму</span><span>${fmt(t.goods)} ₸</span></div>
     <div class="rrow"><span>Доставка</span><span class="${t.dlv === 0 ? "free" : ""}">${t.dlv === null ? (f.city ? "считаем…" : "укажите город") : priceTxt(t.dlv)}</span></div>
-    ${rest || restC ? `<div class="rhint">До бесплатной доставки — ещё ${fmt(rest || restC)} ₸</div>` : ""}
-    ${f.ship === "courier" && o && !o.almaty ? `<div class="rhint mut">Доставка до двери СДЭК всегда платная</div>` : ""}
+    ${rest ? `<div class="rfree">До бесплатной доставки ещё <b>${fmt(rest)} ₸</b><i><b style="width:${Math.round(100 * t.goods / ff)}%"></b></i></div>` : ""}
+    ${f.ship === "express" ? `<div class="rhint mut">Срочная доставка всегда платная</div>` : ""}
     <div class="err" id="rErr"></div>
     <button type="button" class="btn rgo" id="rGo">${login ? "Войти и заказать" : "Заказать"}</button>
     ${login ? `<div class="rhint mut">Чтобы оформить заказ, войдите или зарегистрируйтесь — по номеру телефона или через Telegram, без пароля</div>` : ""}`;
@@ -235,6 +248,8 @@ function openSheet(){
 }
 function sheetBody(){
   const f = form(), b = $("#rSheetBody"); if(!b) return;
+  const hd = $("#rSheet .rsh b"), ok = $("#rsOk");
+  if(hd) hd.textContent = f.ship === "cdek" ? "Пункт выдачи СДЭК" : "Адрес доставки"; if(ok) ok.textContent = f.ship === "cdek" ? "Выбрать" : "Готово";
   if(f.ship === "cdek"){
     b.innerHTML = f.city ? `<input id="pvzQ" placeholder="Поиск по адресу" autocomplete="off"><div class="pvzl" id="pvzList"><div class="kv">Загружаем пункты…</div></div>` : `<div class="kv">Укажите город — покажем пункты и постаматы СДЭК</div>`;
     if(f.city) loadPvz(f.city);
@@ -246,14 +261,14 @@ function sheetBody(){
 }
 function courierNote(){
   const f = form(), o = DLV.opts;
-  return f.city && o ? `${o.almaty ? "Доставит курьер Яндекс в выбранный интервал" : "Доставит курьер СДЭК до двери"} · ${priceTxt(dlvPrice("courier", tot("courier").goods))}` : "";
+  return f.city && o ? `${f.ship === "express" ? "Срочный курьер Яндекс, за 1–2 часа" : "Курьер Яндекс привезёт в выбранное окно"} · ${priceTxt(dlvPrice(f.ship, tot(f.ship).goods))}` : "";
 }
 function closeSheet(){ const el = $("#rSheet"); if(el) el.hidden = true; document.body.classList.remove("rsheet-open"); paint(); }
 let cityT = 0;
 function sheetInput(e){
   if(e.target.id === "rCity"){ clearTimeout(cityT); cityT = setTimeout(() => {
     const city = e.target.value.trim(); if(city === form().city) return;
-    DLV.pvzSel = null; DLV.pvz = []; DLV.pvzFor = ""; saveForm({ city, address: "" }); loadDlv(city); sheetBody(); }, 600); }
+    DLV.pvzSel = null; DLV.pvz = []; DLV.pvzFor = ""; saveForm({ city, address: "" }); Promise.resolve(loadDlv(city)).then(() => { saveForm({}); sheetBody(); }); sheetBody(); }, 600); }
   if(e.target.id === "pvzQ") drawPvz(e.target.value);
 }
 function sheetChange(e){
@@ -298,7 +313,7 @@ $("#drawerBody").addEventListener("click", e => {
     sel.forEach(l => delete cart[l.it.id]); save("amura-cart2", cart); renderCartCount(); render(); renderRetailCart(); return;
   }
   const tab = e.target.closest("[data-rm]");
-  if(tab){ saveForm({ ship: tab.dataset.rm }); paint(); const f = form(); if(f.ship !== "pickup" && (!f.city || (f.ship === "cdek" && !DLV.pvzSel && !f.address) || (f.ship === "courier" && !f.address))) openSheet(); return; }
+  if(tab){ saveForm({ ship: tab.dataset.rm }); paint(); const f = form(); if(f.ship !== "pickup" && (!f.city || (f.ship === "cdek" && !DLV.pvzSel && !f.address) || (isCour(f.ship) && !f.address))) openSheet(); return; }
   if(e.target.closest("[data-raddr]")) return openSheet();
   const sl = e.target.closest("[data-rslot]");
   if(sl && DLV.opts){ const [date, from] = sl.dataset.rslot.split("|"); DLV.slotSel = DLV.opts.slots.find(s => s.date === date && s.from === from) || null; saveForm({}); paint(); return; }
@@ -324,7 +339,7 @@ async function submit(){
   if(!/^7\d{10}$/.test(digits)) return fail("Укажите телефон получателя", "#rPhone");
   if(f.ship !== "pickup" && !f.city) return openSheet();
   if(f.ship === "cdek" && !DLV.pvzSel && !f.address){ fail("Выберите пункт выдачи"); return openSheet(); }
-  if(f.ship === "courier" && !f.address){ fail("Укажите адрес доставки"); return openSheet(); }
+  if(isCour(f.ship) && !f.address){ fail("Укажите адрес доставки"); return openSheet(); }
   if(f.ship === "courier" && DLV.opts && DLV.opts.almaty && (DLV.opts.slots || []).length && !DLV.slotSel) return fail("Выберите, когда доставить", "[data-rslot]");
   if(t.dlv === null && f.ship !== "pickup") return fail("Считаем доставку — секунду…");
   err.textContent = "";
@@ -373,13 +388,31 @@ paintMe = function(p, orders){
 };
 
 renderCart = renderRetailCart;
+const _shipName = dlvShipName;
+dlvShipName = function(f){ return f.ship === "express" ? "Срочный курьер по Алматы (Яндекс Экспресс) — " + (f.address || "") : _shipName(f); };
 /* розница: вход и регистрация только по номеру телефона (код по SMS), без Telegram */
 prepareTg = function(){};
 const _renderAuth = renderAuth;
 renderAuth = function(){
   _renderAuth();
   ["#tgLogin", "#tgHint", "#meBody .or"].forEach(sel => { const el = $(sel); if(el) el.remove(); });
+  const send = $("#aSend");
+  if(send && !$("#aRemember")){
+    send.insertAdjacentHTML("beforebegin", `<label class="rremember"><input type="checkbox" id="aRemember" ${remember() ? "checked" : ""}><span>Запомнить меня<small>Снимите на чужом телефоне — вход сбросится, когда закроете браузер</small></span></label>`);
+    $("#aRemember").onchange = e => { try{ localStorage.setItem(REM, e.target.checked ? "1" : "0"); }catch{} };
+  }
 };
+/* «Запомнить меня»: по умолчанию вход хранится на устройстве (180 дней); без галочки — только до закрытия браузера */
+const REM = "amura-r-remember";
+function remember(){ try{ return localStorage.getItem(REM) !== "0"; }catch{ return true; } }
+const _save = save;
+save = function(k, v){
+  if(k !== "amura-auth" || remember()) return _save(k, v);
+  try{ sessionStorage.setItem(k, JSON.stringify(v)); localStorage.removeItem(k); }catch{}
+};
+if(!AUTH.token && !remember()){
+  try{ const v = JSON.parse(sessionStorage.getItem("amura-auth") || "null"); if(v && v.token){ AUTH = v; if(VIEW === "me") renderMe(); } }catch{}
+}
 const _api = api;
 api = async function(path, opts){
   try{ return await _api(path, opts); }

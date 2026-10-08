@@ -60,8 +60,8 @@ class RetailOrder(unittest.TestCase):
         res, st = oh.order_core(d, "kc2", "1.1.1.1", "cid-1")
         self.assertEqual(st, 200)
         self.assertIn("Пункт выдачи СДЭК — Караганда, Бухар-Жырау 52", self.posted[-1]["description"])
-        self.assertEqual(res["total"], 6690 + 500)                          # доставка по ступени 5–15 тыс.
-        self.assertEqual(self.posted[-1]["positions"][-1]["price"], 50000)  # позиция «Доставка»
+        self.assertEqual(res["total"], 6690 + 1500)                         # пункт выдачи СДЭК: 1 500 ₸ до 20 000
+        self.assertEqual(self.posted[-1]["positions"][-1]["price"], 150000) # позиция «Доставка»
 
     def test_retail_needs_login(self):
         d = {"name": "Т", "phone": "+77012345678", "city": "Алматы", "shipping": "pickup", "items": [{"id": "p1", "qty": 1}], "mode": "retail"}

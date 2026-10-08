@@ -64,6 +64,13 @@ class DeliveryTest(unittest.TestCase):
         delivery.save({"rules": {"free_from": "abc"}})                 # мусор не ломает настройки
         self.assertEqual(delivery.price(100), 1500)
 
+    def test_retail_rates_saved(self):
+        delivery.save({"rules": {"sdd_price": "900", "sdd_free": "12000", "express_price": "3000", "cdek_free": "x"}})
+        r = delivery.conf()["rules"]
+        self.assertEqual((r["sdd_price"], r["sdd_free"], r["express_price"]), (900, 12000, 3000))
+        self.assertEqual(r["cdek_free"], 20000)                         # мусор не сохраняем — остаётся по умолчанию
+        delivery.save({"rules": {"sdd_price": 1000, "sdd_free": 15000, "express_price": 2500}})
+
     def test_schedule_and_slots(self):
         from datetime import datetime
         delivery.save({"rules": {"cutoff": 90}, "schedule": {"days": "0111111", "open": "08:00", "close": "18:00", "slots": [
