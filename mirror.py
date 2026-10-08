@@ -22,7 +22,9 @@ PAUSE = 1.0                # сек между страницами
 EVERY = 600                # сек между проходами, когда всё загружено
 EVERY_LOADING = 120        # сек между проходами во время первичной загрузки
 FULL_EVERY = 86400         # раз в сутки — полный проход: находим удалённые в МойСклад товары
-DOC_TYPES = ("customerorder", "demand", "retaildemand", "salesreturn", "retailsalesreturn")   # документы продаж
+SALES_DOCS = ("customerorder", "demand", "retaildemand", "salesreturn", "retailsalesreturn")   # документы продаж
+STOCK_DOCS = ("supply", "loss", "enter", "move", "inventory")   # складские: приёмки, списания, оприходования, перемещения, инвентаризации
+DOC_TYPES = SALES_DOCS + STOCK_DOCS
 DOC_DAYS = 90              # документы берём за последние 90 дней по updated (вся история не нужна для сверки и тяжела)
 ENTITIES = ("product", "variant", "counterparty") + DOC_TYPES
 MS_TZ = timezone(timedelta(hours=3))   # время в МойСклад — Москва
@@ -62,6 +64,13 @@ def _schema(d):
     ):
         d.run(s)
     d.c.commit()
+    # добавочные колонки (миграции только добавляющие): store2_id — склад-получатель у перемещения
+    for col in ("ALTER TABLE ms_doc ADD COLUMN store2_id TEXT",):
+        try:
+            d.run(col)
+            d.c.commit()
+        except Exception:
+            d.c.rollback()
     _ready[0] = True
 
 
@@ -125,13 +134,14 @@ def _parse_agent(row, now):
             1 if row.get("archived") else 0, (row.get("updated") or "")[:23], 0, now)
 
 
-_DCOLS = "id, type, number, moment, agent_id, store_id, state_id, sum, applicable, descr, updated, deleted, seen"
+_DCOLS = "id, type, number, moment, agent_id, store_id, store2_id, state_id, sum, applicable, descr, updated, deleted, seen"
 
 
 def _doc_parser(kind):
     def parse(row, now):
         return (_id(row), kind, row.get("name") or "", (row.get("moment") or "")[:23], _href_id(row.get("agent")),
-                _href_id(row.get("store")), _href_id(row.get("state")), (row.get("sum") or 0) / 100,
+                _href_id(row.get("store") or row.get("sourceStore")), _href_id(row.get("targetStore")),
+                _href_id(row.get("state")), (row.get("sum") or 0) / 100,
                 1 if row.get("applicable") else 0, (row.get("description") or "").split("\n")[0][:200],
                 (row.get("updated") or "")[:23], 0, now)
     return parse
@@ -462,6 +472,20 @@ def _lines_check():
     return _check("Документы, где сумма позиций ≠ сумме документа", len(bad), 0, "", bad[:10], count=True)
 
 
+STOCK_DOC_NAMES = {"supply": "Приёмки", "loss": "Списания", "enter": "Оприходования", "move": "Перемещения", "inventory": "Инвентаризации"}
+
+
+def _stock_doc_checks(days=7):
+    """Складские документы за последние 7 дней (по дате документа): сколько у нас и в МойСклад."""
+    a = (datetime.now(MS_TZ) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    out = []
+    for t in STOCK_DOCS:
+        with db() as d:
+            ours = d.run("SELECT COUNT(*) FROM ms_doc WHERE type=%s AND deleted=0 AND moment>=%s", (t, a), one=True)[0]
+        out.append(_check(f"{STOCK_DOC_NAMES[t]} за {days} дней", ours, _ms_count(t, f"moment>={a}"), "шт"))
+    return out
+
+
 def _sales_checks():
     """Продажи за вчера и сегодня (Алматы), как на «Обзоре»: проведённые отгрузки + чеки − возвраты; и число заказов."""
     out = []
@@ -522,6 +546,7 @@ def reconcile():
         checks.append(_check("Цены товаров сайта", len(diff), 0, "", diff[:10], count=True))
     checks += _sales_checks()
     checks.append(_lines_check())
+    checks += _stock_doc_checks()
     res = {"checks": checks}
     ok = all(c["ok"] for c in checks)
     with db() as d:
