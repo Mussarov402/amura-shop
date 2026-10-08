@@ -1,0 +1,18 @@
+/* Розничный сайт: карточки товаров как на WB (только amura.kz/shop) */
+.card.rpc{background:transparent;border:0;padding:0;gap:3px;border-radius:0;box-shadow:none}
+.rpc-img{position:relative}
+.rpc .thumb{width:100%;border-radius:16px;background:#fff}
+.rpc .fav{top:8px;right:8px}
+.rpc-add{position:absolute;right:8px;bottom:8px;width:46px;height:46px;border-radius:15px;border:0;background:var(--green);color:#fff;display:grid;place-items:center;cursor:pointer;box-shadow:0 6px 16px rgba(8,25,18,.28);-webkit-tap-highlight-color:transparent;transition:transform .12s}
+.rpc-add:active{transform:scale(.92)}
+.rpc-add svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.rpc-add.in{background:var(--mint);color:var(--green-3)}
+.rpc-add em{position:absolute;top:-6px;right:-6px;min-width:20px;height:20px;padding:0 5px;border-radius:10px;background:var(--brass);color:#fff;font-style:normal;font-size:11.5px;font-weight:800;line-height:20px;text-align:center;box-shadow:0 0 0 2px var(--bg)}
+.rpc-price{font-size:19px;font-weight:800;margin-top:6px;letter-spacing:-.01em}
+.rpc-name{border:0;background:none;padding:0;text-align:left;font:inherit;font-size:13.5px;line-height:1.3;color:var(--ink);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;cursor:pointer}
+.rpc-name b{font-weight:700}
+.rpc-low{font-size:12px;font-weight:700;color:#B5661B}
+.rfly{position:fixed;z-index:9999;pointer-events:none}
+.rfly-i{width:100%;height:100%;object-fit:contain;background:#fff;border-radius:14px;box-shadow:0 10px 28px rgba(8,25,18,.3);display:grid;place-items:center}
+/* рознице ступени цен не нужны — в окне товара тоже */
+#sheet .tiers{display:none}
