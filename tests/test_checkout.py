@@ -61,6 +61,30 @@ class Options(unittest.TestCase):
         self.assertEqual(p["points"][0]["code"], "KRG1")
 
 
+class MarkRetail(unittest.TestCase):
+    def test_tag_once(self):
+        calls = []
+        def ms(method, path, **kw):
+            calls.append((method, path, kw.get("json")))
+            return {"tags": ["сайт"]}
+        old = oh.ms
+        oh.ms = ms
+        oh._retail_marked.clear()
+        try:
+            oh.mark_retail("c1")
+            oh.mark_retail("c1")
+        finally:
+            oh.ms = old
+        self.assertEqual([c[0] for c in calls], ["GET", "PUT"])
+        self.assertEqual(calls[1][2], {"tags": ["розница", "сайт"]})
+
+    def test_endpoint_needs_login(self):
+        from flask import Flask
+        app = Flask(__name__)
+        app.register_blueprint(checkout.bp)
+        self.assertEqual(app.test_client().post("/me/retail").status_code, 401)
+
+
 class Orders(unittest.TestCase):
     def setUp(self):
         self.posted = []
@@ -77,7 +101,7 @@ class Orders(unittest.TestCase):
     def order(self, **kw):
         d = {"name": "Аружан", "phone": "+77012345678", "city": "Алматы", "shipping": "courier", "mode": "retail",
              "items": [{"id": "p1", "qty": 1}], **kw}
-        return oh.order_core(d, "o" + str(len(self.posted)) + json.dumps(kw, ensure_ascii=False), "1.1.1.1", None)
+        return oh.order_core(d, "o" + str(len(self.posted)) + json.dumps(kw, ensure_ascii=False), "1.1.1.1", "cid-1")
 
     def test_almaty_courier_slot(self):
         s = delivery.slots_ahead(days=7)

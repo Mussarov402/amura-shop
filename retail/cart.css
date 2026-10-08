@@ -1,0 +1,59 @@
+/* Розничный сайт: оформление заказа как на WB (только amura.kz/shop, вставляет make_shop.py) */
+#viewCart .narrow.rwide{max-width:1080px}
+#drawerTitle .rsub{display:block;font-family:inherit;font-size:13.5px;font-weight:600;color:var(--muted);margin-top:2px}
+.rco{display:grid;gap:12px;align-items:start;margin-top:6px}
+.rmain{display:grid;gap:12px;min-width:0}
+.rcard{background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:16px;min-width:0}
+.rcard h3{font-size:18px;margin:0 0 6px}
+.rtabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;background:var(--bg);border-radius:14px;padding:4px}
+.rtabs button{border:0;background:transparent;border-radius:11px;padding:9px 2px;font:inherit;font-size:14px;white-space:nowrap;font-weight:700;color:var(--ink);cursor:pointer;display:grid;gap:1px;justify-items:center;min-width:0;line-height:1.2}
+.rtabs button small{font-size:11.5px;font-weight:600;color:var(--muted);white-space:nowrap}
+.rtabs button[aria-selected=true]{background:var(--surface);box-shadow:0 1px 6px rgba(8,25,18,.12)}
+.raddr{display:grid;grid-template-columns:24px minmax(0,1fr) 20px;align-items:center;gap:10px;width:100%;margin-top:12px;padding:10px 2px;border:0;background:transparent;text-align:left;font:inherit;color:var(--ink);cursor:pointer}
+.raddr.static{grid-template-columns:24px minmax(0,1fr);cursor:default}
+.raddr svg{width:22px;height:22px;fill:none;stroke:var(--muted);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.raddr span{display:grid;gap:2px;min-width:0}
+.raddr b{font-size:16px;font-weight:700;overflow-wrap:anywhere}.raddr b.ph{color:var(--green-3)}
+.raddr small{font-size:12.5px;color:var(--muted)}
+.reta{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-top:6px}
+.reta b{font-size:18px;font-weight:800}.reta>span{color:var(--muted);font-size:14px;white-space:nowrap}
+.free{color:#1E9E5A!important}
+.rthumbs{display:flex;gap:8px;overflow-x:auto;margin-top:10px;padding-bottom:2px;scrollbar-width:none}
+.rthumbs::-webkit-scrollbar{display:none}
+.rthumbs span{position:relative;flex:0 0 72px;height:90px;border-radius:12px;overflow:hidden;background:var(--bg);display:grid;place-items:center}
+.rthumbs img{width:100%;height:100%;object-fit:cover}
+.rthumbs i{font-style:normal;font-weight:800;color:var(--muted);font-size:20px}
+.rthumbs em{position:absolute;right:4px;bottom:4px;background:rgba(14,59,44,.88);color:#fff;font-style:normal;font-size:11px;font-weight:800;border-radius:8px;padding:1px 6px}
+.rslots-h{font-size:13px;font-weight:700;margin:14px 0 6px}
+.rslots{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.rslots button{border:1.5px solid var(--line);background:var(--surface);border-radius:12px;padding:8px 4px;font:inherit;color:var(--ink);cursor:pointer;display:grid;gap:1px;justify-items:center;min-width:0}
+.rslots button b{font-size:13px}.rslots button small{font-size:12px;color:var(--muted)}
+.rslots button.on{border-color:var(--green-3);background:var(--mint)}
+.rcard .line:last-of-type{border-bottom:0}
+.rlink{border:0;background:transparent;color:var(--muted);font:inherit;font-size:13.5px;font-weight:600;padding:8px 0 0;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.rrcp{display:grid;gap:10px}
+.rlogin p{margin:0 0 10px;font-size:14px;color:var(--muted)}
+.rpay{display:grid;grid-template-columns:28px minmax(0,1fr);gap:10px;align-items:start;background:var(--bg);border-radius:14px;padding:12px}
+.rpay svg{width:26px;height:26px;fill:none;stroke:var(--green-3);stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.rpay span{display:grid;gap:3px}.rpay small{font-size:12.5px;color:var(--muted)}
+.rtot{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px}
+.rtot span{font-size:20px;font-weight:800}.rtot b{font-size:22px;font-weight:800}
+.rrow{display:flex;justify-content:space-between;gap:10px;color:var(--muted);font-size:15px;padding:3px 0}
+.rrow span:last-child{color:var(--ink);font-weight:600;white-space:nowrap}
+.rhint{font-size:12.5px;font-weight:700;color:var(--green-3);margin-top:6px}.rhint.mut{color:var(--muted);font-weight:500}
+.rgo{margin-top:12px;font-size:16px;padding:15px 20px;border-radius:14px}
+.rsheet{position:fixed;inset:0;z-index:60;background:rgba(8,20,15,.45);display:flex;align-items:flex-end;justify-content:center}
+.rsheet[hidden]{display:none!important}
+.rsbox{background:var(--surface);width:100%;max-width:560px;max-height:88vh;overflow-y:auto;border-radius:22px 22px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px));display:grid;gap:10px;align-content:start}
+.rsh{display:flex;justify-content:space-between;align-items:center}.rsh b{font-size:18px}
+.rx{border:0;background:var(--bg);width:34px;height:34px;border-radius:50%;font-size:22px;line-height:1;color:var(--ink);cursor:pointer}
+.rsbox #pvzQ{width:100%;border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:11px 12px;margin:0}
+.rsbox .pvzl{max-height:46vh}
+body.rsheet-open{overflow:hidden}
+@media(max-width:400px){.rtabs button{font-size:13px}}
+@media(min-width:900px){
+  .rco{grid-template-columns:minmax(0,1fr) 340px}
+  .rside{position:sticky;top:96px}
+  .rsheet{align-items:center}
+  .rsbox{border-radius:22px;max-height:80vh}
+}

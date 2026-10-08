@@ -38,7 +38,7 @@ class RetailOrder(unittest.TestCase):
         d = {"name": "Тамирис", "phone": "+77012345678", "city": "Алматы", "shipping": "pickup", "items": [{"id": "p1", "qty": qty}]}
         if mode:
             d["mode"] = mode
-        return oh.order_core(d, "k" + str(len(self.posted)), "1.1.1.1", None)
+        return oh.order_core(d, "k" + str(len(self.posted)), "1.1.1.1", "cid-1" if mode else None)
 
     def test_retail_prices_and_mark(self):
         res, st = self.order("retail")
@@ -53,15 +53,35 @@ class RetailOrder(unittest.TestCase):
         self.assertEqual(len(names), 1)                                     # только товар — без «Комиссии банка»
         self.assertEqual(res["total"], 6690 * 12)
         d = {"name": "Т", "phone": "+77012345678", "city": "Аулиеколь", "shipping": "kamaz", "logistics": "Лена", "items": [{"id": "p1", "qty": 1}], "mode": "retail"}
-        self.assertEqual(oh.order_core(d, "kk", "1.1.1.1", None)[1], 400)   # КАМАЗ на рознице нельзя
+        self.assertEqual(oh.order_core(d, "kk", "1.1.1.1", "cid-1")[1], 400)   # КАМАЗ на рознице нельзя
         d.update(shipping="cdek", logistics="")
-        self.assertEqual(oh.order_core(d, "kc", "1.1.1.1", None)[1], 400)   # СДЭК без адреса пункта
+        self.assertEqual(oh.order_core(d, "kc", "1.1.1.1", "cid-1")[1], 400)   # СДЭК без адреса пункта
         d["address"] = "Караганда, Бухар-Жырау 52"
-        res, st = oh.order_core(d, "kc2", "1.1.1.1", None)
+        res, st = oh.order_core(d, "kc2", "1.1.1.1", "cid-1")
         self.assertEqual(st, 200)
         self.assertIn("Пункт выдачи СДЭК — Караганда, Бухар-Жырау 52", self.posted[-1]["description"])
         self.assertEqual(res["total"], 6690 + 500)                          # доставка по ступени 5–15 тыс.
         self.assertEqual(self.posted[-1]["positions"][-1]["price"], 50000)  # позиция «Доставка»
+
+    def test_retail_needs_login(self):
+        d = {"name": "Т", "phone": "+77012345678", "city": "Алматы", "shipping": "pickup", "items": [{"id": "p1", "qty": 1}], "mode": "retail"}
+        res, st = oh.order_core(d, "kl", "1.1.1.1", None)
+        self.assertEqual(st, 401)
+        self.assertTrue(res.get("login"))
+        self.assertEqual(self.posted, [])
+
+    def test_retail_marks_client(self):
+        marked = []
+        old_mark, old_tg = oh.mark_retail, oh.tg
+        self.addCleanup(lambda: setattr(oh, "mark_retail", old_mark))
+        self.addCleanup(lambda: setattr(oh, "tg", old_tg))
+        oh.tg = lambda *a, **k: {}
+        oh.notify_bg = lambda fn: fn()
+        oh.mark_retail = lambda cid: marked.append(cid)
+        self.order("retail")
+        self.assertEqual(marked, ["cid-1"])
+        self.order()                                                         # опт — без метки
+        self.assertEqual(marked, ["cid-1"])
 
     def test_wholesale_unchanged(self):
         res, st = self.order()

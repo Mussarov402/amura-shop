@@ -117,7 +117,7 @@ def options(city, goods_sum):
     c = delivery.conf()
     alm = is_almaty(city)
     eta, err = {}, ""
-    if city and not alm:
+    if city:
         try:
             eta = cdek_eta(city)
         except Exception as e:
@@ -125,12 +125,14 @@ def options(city, goods_sum):
             print("Корзина: сроки СДЭК:", str(e)[:200], flush=True)
     slots = delivery.slots_ahead(days=4) if alm else []
     ff = c["rules"]["free_from"]
+    rng = lambda p: [p[0], p[1] or p[0]] if p and p[0] is not None else None  # noqa: E731
     methods = [
         {"id": "courier", "name": "Курьер", "price": client_price(goods_sum, "courier", city),
-         "note": ("Яндекс, в выбранный интервал" if alm else f"СДЭК до двери{', ' + _days(eta.get('door')) if eta.get('door') else ''}")},
+         "note": ("Яндекс, в выбранный интервал" if alm else f"СДЭК до двери{', ' + _days(eta.get('door')) if eta.get('door') else ''}"),
+         "days": None if alm else rng(eta.get("door"))},
         {"id": "cdek", "name": "Пункт выдачи СДЭК", "price": client_price(goods_sum, "cdek", city),
-         "note": "Пункты и постаматы СДЭК" + (f", {_days(eta.get('pvz'))}" if eta.get("pvz") else "")},
-        {"id": "pickup", "name": "Самовывоз", "price": 0, "note": c["store"].get("wh_addr") or "Со склада в Алматы"},
+         "note": "Пункты и постаматы СДЭК" + (f", {_days(eta.get('pvz'))}" if eta.get("pvz") else ""), "days": rng(eta.get("pvz"))},
+        {"id": "pickup", "name": "Самовывоз", "price": 0, "note": c["store"].get("wh_addr") or "Со склада в Алматы", "days": None},
     ]
     return {"almaty": alm, "methods": methods, "slots": slots, "freeFrom": ff, "doorExtra": door_extra(),
             "tiers": c["tiers"], "hours": c["store"].get("wh_hours") or "", "warn": err}
@@ -154,6 +156,22 @@ def pvz_route():
         print("Корзина: пункты СДЭК:", str(e)[:200], flush=True)
         return jsonify(ok=False, error="Список пунктов сейчас недоступен — впишите адрес пункта вручную", points=[])
     return jsonify(ok=True, points=pts)
+
+
+@bp.route("/me/retail", methods=["POST", "OPTIONS"])
+def me_retail():
+    """Клиент вошёл на розничном сайте — метка «розница» в МойСклад (видна в панели → Клиенты)."""
+    if request.method == "OPTIONS":
+        return "", 204
+    cid = oh.session_cid()
+    if not cid:
+        return jsonify(ok=False, error="Войдите заново"), 401
+    try:
+        oh.mark_retail(cid)
+    except Exception as e:
+        print("Розница: метка покупателя не поставлена:", str(e)[:200], flush=True)
+        return jsonify(ok=False, error="Не получилось, попробуем позже"), 502
+    return jsonify(ok=True)
 
 
 # ---------- для order_core: розничный заказ ----------

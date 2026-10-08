@@ -1,7 +1,7 @@
 """Розничный сайт amura.kz/shop — тот же index.html в режиме розницы (window.AMURA_RETAIL).
 
 Запуск: python make_shop.py  → пересобирает shop/index.html и shop/manifest.webmanifest.
-Отдельно shop/index.html не редактировать: правки — в index.html, потом этот скрипт
+Отдельно shop/index.html не редактировать: правки — в index.html (общее) или retail/ (только розница), потом этот скрипт
 (GitHub Action «Розничный сайт» делает это сам при каждом изменении index.html в main).
 """
 import json
@@ -22,6 +22,13 @@ def build(src):
             '<meta name="description" content="Оригинальная корейская косметика с доставкой по Алматы и Казахстану.">')
     s = rep(s, '<link rel="manifest" href="manifest.webmanifest">', '<link rel="manifest" href="/shop/manifest.webmanifest">')
     s = rep(s, '<link rel="apple-touch-icon" href="icon-180.png">', '<link rel="apple-touch-icon" href="/icon-180.png">')
+    # оформление заказа как на WB — только для розницы, оптовый index.html не меняется
+    with open(os.path.join(ROOT, "retail", "cart.css"), encoding="utf-8") as f:
+        css = f.read()
+    with open(os.path.join(ROOT, "retail", "cart.js"), encoding="utf-8") as f:
+        js = f.read()
+    s = rep(s, "</head>", "<style>\n" + css + "</style>\n</head>")
+    s = rep(s, "</body>", "<script>\n" + js + "</script>\n</body>")
     return s
 
 
