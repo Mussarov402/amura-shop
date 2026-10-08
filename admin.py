@@ -1924,3 +1924,45 @@ def fin_delete(aid):
 def fin_routes():
     finance.save_routes(request.get_json(silent=True) or {}, _fin_who())
     return jsonify(ok=True, **finance.state())
+
+
+# ---------- отзывы о товарах (Товары → Отзывы) ----------
+@bp.get("/admin/api/reviews")
+@need("products")
+def reviews_list():
+    import reviews
+    st = request.args.get("status", "new")
+    st = st if st in ("new", "ok", "hidden") else "new"
+    with reviews.db() as d:
+        rows = d.run(f"SELECT {reviews.COLS} FROM review WHERE status=%s ORDER BY at DESC LIMIT 200", (st,), many=True)
+        cnt = dict(d.run("SELECT status, COUNT(*) FROM review GROUP BY status", many=True))
+    return jsonify(ok=True, items=[reviews._row(r, admin=True) for r in rows], counts={k: int(cnt.get(k, 0)) for k in ("new", "ok", "hidden")},
+                   **reviews.conf())
+
+
+@bp.post("/admin/api/reviews/settings")
+@need("products")
+def reviews_settings():
+    import reviews
+    j = request.get_json(silent=True) or {}
+    with reviews.db() as d:
+        for k in ("on", "premod"):
+            if k in j:
+                inbox.set_setting(d, "reviews_" + k, "1" if j[k] else "0")
+    return jsonify(ok=True, **reviews.conf())
+
+
+@bp.post("/admin/api/reviews/<int:rid>")
+@need("products")
+def reviews_update(rid):
+    import reviews
+    j = request.get_json(silent=True) or {}
+    with reviews.db() as d:
+        if j.get("status") in ("ok", "hidden", "new"):
+            d.run("UPDATE review SET status=%s WHERE id=%s", (j["status"], rid))
+        if "answer" in j:
+            d.run("UPDATE review SET answer=%s WHERE id=%s", (str(j["answer"]).strip()[:1500], rid))
+        if j.get("delete"):
+            d.run("DELETE FROM review WHERE id=%s", (rid,))
+    oh._cache.pop("rv_sum", None)
+    return jsonify(ok=True)

@@ -82,6 +82,10 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 .rec{background:#F6F7F6;padding:8px 10px max(8px,calc(env(safe-area-inset-bottom,0px) - 12px)) 14px;min-height:58px}
 @media(max-width:800px){.ic2{height:100dvh}}
 .src.web{color:#1F4F9A;background:#E3ECFA}
+.rvi{padding:12px 0;border-bottom:1px solid #EEF1EE;display:grid;gap:4px}.rvi:last-child{border-bottom:0}.rvh{display:flex;justify-content:space-between;align-items:center}
+.rvst{color:#E8A317;letter-spacing:1px;font-size:16px}.rvst i{font-style:normal;color:#D9DED9}.rvp{font-size:14.5px}.rvv{color:#128C4A;font-weight:700}
+.rvt{white-space:pre-wrap;font-size:14.5px;overflow-wrap:anywhere}.rva{background:#F3F6F4;border-radius:10px;padding:8px 10px;font-size:13.5px}
+.rvb{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}.rvb .btn{width:auto;padding:8px 12px;font-size:13.5px}
 .src.rtl{color:#8A4B08;background:#FBEBD6;padding:2px 9px;margin-right:6px}.src.web svg{fill:none;stroke:#1F4F9A;stroke-width:1.8}.chips.cn button.web.on{background:#1F4F9A}.src.wa{color:#128C4A;background:#DDF5E7}.src.wa svg{fill:#128C4A}.src.ig{color:#C13584;background:#FBE4F1}.src.ig svg{fill:none;stroke:#C13584;stroke-width:2.2}.chips.cn button.ig.on{background:#C13584}.btn.igb{background:#C13584}.cmp.off{opacity:.4;pointer-events:none}
 .wk{display:grid;gap:10px;margin-top:10px}.wk label{font-size:13px;color:var(--mut);display:grid;gap:4px}.cp{display:flex;gap:8px}.cp input{flex:1;font-size:13px}.stepl{margin:8px 0 0 18px;padding:0;line-height:1.55;font-size:14px}
 .seg{display:flex;max-width:100%;overflow-x:auto;scrollbar-width:none}.seg::-webkit-scrollbar{display:none}.seg button{white-space:nowrap;flex:none}
@@ -178,7 +182,7 @@ let nav=0;   // номер перехода между разделами: от�
 let gotStale=false;
 async function api(p,o={}){const n=nav;const r=await fetch("/admin/api/"+p,{...o,headers:{"Content-Type":"application/json",Authorization:"Bearer "+tok}});if(!o.method&&r.headers.get("X-Stale"))gotStale=true;
  if(r.status===401){localStorage.removeItem(T);tok="";boot();throw Error("401")}const j=await r.json();if(!o.method&&n!==nav)throw Error("stale");if(!j.ok)throw Error(j.error||"Ошибка");return j}
-const ALLOW={mirror:"owner",notif:"owner",overview:"owner",pay:"owner",delivery:"owner",accounts:"owner",banners:"owner",ai:"owner",team:"owner",channels:"owner",products:"products",orders:"orders",retail:"orders",clients:"orders",inbox:"inbox"};
+const ALLOW={mirror:"owner",notif:"owner",overview:"owner",pay:"owner",delivery:"owner",accounts:"owner",banners:"owner",reviews:"products",ai:"owner",team:"owner",channels:"owner",products:"products",orders:"orders",retail:"orders",clients:"orders",inbox:"inbox"};
 let ME=null;const can=p=>!!ME&&(ME.role==="owner"||(ALLOW[p]!=="owner"&&ME.perms.includes(ALLOW[p])));
 async function boot(){const a=!!tok;$("#login").hidden=a;$("#app").hidden=!a;if(!a){ME=null;return}
  try{ME=await api("me")}catch(e){return}
@@ -220,8 +224,8 @@ $("#acm").onclick=e=>accToggle(e,"top");$("#acd").onclick=e=>accToggle(e,"side")
 document.addEventListener("click",e=>{const m=$("#accmenu");if(!m.hidden&&!m.contains(e.target))m.hidden=true});
 let lastArg,cur=localStorage.getItem("amura_view")||"overview",restoreY=0;try{const sp=JSON.parse(sessionStorage.getItem("amura_pos")||"null");if(sp&&sp.v===cur)restoreY=sp.y||0}catch(e){}
 const savePos=()=>{try{sessionStorage.setItem("amura_pos",JSON.stringify({v:cur,y:scrollY}))}catch(e){}};addEventListener("pagehide",savePos);document.addEventListener("visibilitychange",()=>{if(document.hidden)savePos()});document.querySelectorAll(".nav,.tabbar button").forEach(b=>b.onclick=()=>{document.querySelectorAll(".nav,.tabbar button").forEach(x=>x.classList.toggle("on",x.dataset.p===b.dataset.p));scrollTo(0,0);show(b.dataset.p)});
-const SEG={orders:[["orders","Заказы"],["retail","Розница"],["clients","Клиенты"]],products:[["products","Товары"],["banners","Баннеры на главной"]],overview:[["overview","Состояние"],["pay","Оплата"],["accounts","Счета"],["delivery","Доставка"],["notif","Уведомления"]],ai:[["ai","Чат-проверка"],["rules","Правила"],["kb","База знаний"],["channels","Каналы"],["team","Команда"]]};
-const grp=a=>({notif:"overview",delivery:"overview",accounts:"overview",clients:"orders",retail:"orders",banners:"products",pay:"overview",team:"ai",rules:"ai",kb:"ai",channels:"ai"}[a]||a);
+const SEG={orders:[["orders","Заказы"],["retail","Розница"],["clients","Клиенты"]],products:[["products","Товары"],["reviews","Отзывы"],["banners","Баннеры на главной"]],overview:[["overview","Состояние"],["pay","Оплата"],["accounts","Счета"],["delivery","Доставка"],["notif","Уведомления"]],ai:[["ai","Чат-проверка"],["rules","Правила"],["kb","База знаний"],["channels","Каналы"],["team","Команда"]]};
+const grp=a=>({notif:"overview",delivery:"overview",accounts:"overview",clients:"orders",retail:"orders",banners:"products",reviews:"products",pay:"overview",team:"ai",rules:"ai",kb:"ai",channels:"ai"}[a]||a);
 const seg=a=>{const g=SEG[grp(a)].filter(([k])=>can(k));if(g.length<2)return "";return `<div class="seg" data-g="${grp(a)}">${g.map(([k,t])=>`<button class="${k===a?"on":""}" data-go="${k}">${t}</button>`).join("")}</div>`};
 const bindSeg=()=>document.querySelectorAll("[data-go]").forEach(b=>b.onclick=()=>show(b.dataset.go));
 const renderSubs=()=>{const g=grp(cur);document.querySelectorAll(".subs").forEach(d=>{const k=d.dataset.for,l=(SEG[k]||[]).filter(([x])=>can(x));d.classList.toggle("open",k===g&&l.length>1);d.innerHTML=l.map(([x,t])=>`<button data-k="${x}" class="${x===cur?"on":""}">${t}</button>`).join("");d.querySelectorAll("button").forEach(b=>b.onclick=()=>{scrollTo(0,0);show(b.dataset.k)})});document.querySelectorAll(".nav").forEach(x=>x.classList.toggle("on",x.dataset.p===g))};
@@ -347,6 +351,28 @@ async overview(){const o=await api("overview");$("#main").innerHTML=head("Обз
 <div class="row"><div class="grow"><b>Оповещения в Telegram</b></div>${badge(o.tgOk,"Настроено","Не настроено")}</div>
 <div class="row"><div class="grow"><b>Вход по SMS</b></div>${badge(o.sms,"Подключён","Не подключён")}</div>
 <div class="row"><div class="grow"><b>WhatsApp</b></div>${badge(o.wa,"Подключён","Не подключён")}</div></div>`;bindSeg();dashDraw()},
+async reviews(st="new"){const o=await api("reviews?status="+st);
+ const stars=n=>'<span class="rvst">'+"★".repeat(n)+'<i>'+"★".repeat(5-n)+'</i></span>';
+ const C=o.counts||{};
+ $("#main").innerHTML=head("Отзывы","Отзывы покупателей о товарах на розничном сайте. Хранятся в нашей базе.")+seg("reviews")+
+ `<div class="card"><div class="row"><div class="grow"><b>Отзывы на сайте</b><div class="mut">Выключите — отзывы и звёзды пропадут с сайта, оставить новый будет нельзя</div></div><button class="sw ${o.on?"on":""}" data-rk="on" aria-label="Отзывы на сайте"></button></div>
+ <div class="row"><div class="grow"><b>Сначала проверять</b><div class="mut">Новый отзыв появится на сайте после «Опубликовать»</div></div><button class="sw ${o.premod?"on":""}" data-rk="premod" aria-label="Сначала проверять"></button></div></div>
+ <div class="chips cn" style="margin:12px 0 10px">${[["new","Новые"],["ok","Опубликованы"],["hidden","Скрытые"]].map(([k,t])=>`<button class="st ${st===k?"on":""}" data-rs="${k}">${t}${C[k]?" · "+C[k]:""}</button>`).join("")}</div>
+ <div class="card">${o.items.length?o.items.map(r=>`<div class="rvi" data-id="${r.id}">
+   <div class="rvh">${stars(r.rating)}<span class="mut">${esc(r.date)}</span></div>
+   <b class="rvp">${esc(r.pname||r.pid)}</b>
+   <div class="mut">${esc(r.name)}${r.city?", "+esc(r.city):""}${r.verified?' · <span class="rvv">купил на сайте</span>':""}</div>
+   ${r.text?`<div class="rvt">${esc(r.text)}</div>`:""}
+   ${r.answer?`<div class="rva"><b>Ответ магазина:</b> ${esc(r.answer)}</div>`:""}
+   <div class="rvb">${r.status!=="ok"?'<button class="btn" data-ra="ok">Опубликовать</button>':""}${r.status!=="hidden"?'<button class="btn ghost" data-ra="hidden">Скрыть</button>':""}<button class="btn ghost" data-ra="answer">${r.answer?"Изменить ответ":"Ответить"}</button><button class="btn ghost" data-ra="delete">Удалить</button></div></div>`).join("")
+  :`<div class="mut" style="padding:16px;text-align:center">${st==="new"?"Новых отзывов нет":"Пусто"}</div>`}</div>`;
+ bindSeg();
+ document.querySelectorAll("[data-rs]").forEach(b=>b.onclick=()=>views.reviews(b.dataset.rs));
+ document.querySelectorAll("[data-rk]").forEach(b=>b.onclick=async()=>{const on=!b.classList.contains("on");b.classList.toggle("on",on);try{await api("reviews/settings",{method:"POST",body:JSON.stringify({[b.dataset.rk]:on})})}catch(e){b.classList.toggle("on",!on);if(e.message!=="401")alert(e.message)}});
+ document.querySelectorAll("[data-ra]").forEach(b=>b.onclick=async()=>{const id=b.closest(".rvi").dataset.id,a=b.dataset.ra;let body;
+  if(a==="answer"){const cur=(o.items.find(x=>String(x.id)===id)||{}).answer||"";const t=prompt("Ответ магазина (виден на сайте под отзывом):",cur);if(t===null)return;body={answer:t}}
+  else if(a==="delete"){if(!confirm("Удалить отзыв навсегда?"))return;body={delete:true}}else body={status:a};
+  try{await api("reviews/"+id,{method:"POST",body:JSON.stringify(body)});views.reviews(st)}catch(e){if(e.message!=="401")alert(e.message)}})},
 async notif(){const o=await api("notif");
  $("#main").innerHTML=head("Уведомления","Что бот присылает вам и сотрудникам в Telegram. В самой системе (звук, счётчик, push) уведомления приходят всегда.")+seg("notif")+`<div class="card">${o.items.map(i=>`<div class="row"><div class="grow"><b>${esc(i.title)}</b></div><button class="sw ${i.on?"on":""}" data-nk="${i.key}" aria-label="${esc(i.title)}"></button></div>`).join("")}<div class="mut" style="margin-top:10px">Ошибки сайта и сбои связи с МойСклад приходят всегда.</div></div>`;
  bindSeg();

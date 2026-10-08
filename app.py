@@ -20,6 +20,8 @@ from webchat import bp as webchat_bp  # noqa: E402
 app.register_blueprint(webchat_bp)
 from checkout import bp as checkout_bp  # noqa: E402
 app.register_blueprint(checkout_bp)
+from reviews import bp as reviews_bp  # noqa: E402
+app.register_blueprint(reviews_bp)
 
 
 @app.get("/")

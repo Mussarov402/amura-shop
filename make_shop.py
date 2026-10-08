@@ -26,8 +26,8 @@ def build(src):
     def read(name):
         with open(os.path.join(ROOT, "retail", name), encoding="utf-8") as f:
             return f.read()
-    css = read("cards.css") + read("cart.css")       # карточки товаров и корзина как на WB
-    js = read("cards.js") + read("cart.js")
+    css = read("cards.css") + read("cart.css") + read("reviews.css")       # карточки, корзина как на WB, отзывы
+    js = read("cards.js") + read("cart.js") + read("reviews.js")
     s = rep(s, "</head>", "<style>\n" + css + "</style>\n</head>")
     s = rep(s, "</body>", "<script>\n" + js + "</script>\n</body>")
     return s
