@@ -67,7 +67,10 @@ class FakeMS:
                     raise AssertionError(f)
             rows = sorted(rows, key=lambda r: r["updated"])
             off, lim = params.get("offset", 0), params.get("limit", 1000)
-            return {"meta": {"size": len(rows)}, "rows": rows[off:off + lim]}
+            out = rows[off:off + lim]
+            if ent in self.docs and params.get("expand") != "positions":   # без expand МойСклад даёт только ссылку на позиции
+                out = [{**r, "positions": {"meta": {"size": len((r.get("positions") or {}).get("rows") or [])}}} for r in out]
+            return {"meta": {"size": len(rows)}, "rows": out}
         if path == "/entity/store":
             return {"rows": [{"id": STORE_A, "name": "Основной склад"}, {"id": STORE_B, "name": "Точка"}]}
         if path == "/report/stock/bystore/current":
@@ -263,6 +266,31 @@ class MirrorTest(unittest.TestCase):
         d1["sum"], d1["updated"] = 3000 * 100, ms(now_ms + timedelta(seconds=5))
         mirror.sync_entity("demand", pause=0)
         self.assertEqual(self.count("SELECT COUNT(*) FROM ms_doc_line WHERE doc_id='d1'"), 1)
+
+    def test_daily_full_pass_is_light(self):
+        from datetime import datetime, timedelta
+        now_ms = datetime.now(mirror.MS_TZ)
+        ms = lambda dt: dt.strftime("%Y-%m-%d %H:%M:%S.000")
+        pos = lambda i, q: {"id": f"pos{i}", "assortment": {"meta": {"href": "https://x/entity/product/p1"}}, "quantity": q, "price": 100000}
+        docs = [{"id": f"d{i}", "name": str(i), "moment": ms(now_ms), "updated": ms(now_ms - timedelta(minutes=i)), "sum": 1000 * 100,
+                 "applicable": True, "positions": {"meta": {"size": 1}, "rows": [pos(1, 1)]}, "_all_pos": [pos(1, 1)]} for i in range(4)]
+        self.ms.docs["demand"] = docs
+        mirror.sync_entity("demand", pause=0)                          # первая загрузка — с позициями
+        self.assertEqual(self.count("SELECT COUNT(*) FROM ms_doc_line"), 4)
+        # документ d2 изменили (позиций стало 2), но новая версия ещё не догружена; начинается суточный полный проход
+        docs[2]["updated"] = ms(now_ms + timedelta(minutes=1))
+        docs[2]["_all_pos"] = [pos(1, 1), pos(2, 3)]
+        docs[2]["positions"] = {"meta": {"size": 2}, "rows": docs[2]["_all_pos"]}
+        with mirror.db() as d:
+            d.run("UPDATE ms_sync SET full_done=1 WHERE entity='demand'")
+        self.ms.calls.clear()
+        mirror.sync_entity("demand", pause=0)
+        lists = [c[1] for c in self.ms.calls if c[0] == "/entity/demand"]
+        self.assertTrue(lists and all("expand" not in p and p["limit"] == mirror.PAGE for p in lists))
+        per_doc = [c[0] for c in self.ms.calls if c[0].endswith("/positions")]
+        self.assertEqual(per_doc, ["/entity/demand/d2/positions"])     # дочитаны позиции только изменённого документа
+        self.assertEqual(self.count("SELECT COUNT(*) FROM ms_doc_line WHERE doc_id='d2'"), 2)
+        self.assertEqual(self.count("SELECT COUNT(*) FROM ms_doc_line"), 5)
 
     def test_lines_reload_once(self):
         with mirror.db() as d:
