@@ -30,6 +30,7 @@ class RetailOrder(unittest.TestCase):
         oh.organization = lambda: "org-1"
         oh.store_id = lambda: "store-1"
         oh.fee_service_id = lambda: "fee-1"
+        oh.delivery_service_id = lambda: "dlv-1"
         oh.notify_bg = lambda fn: None
         oh._post_order = lambda body: self.posted.append(body) or {"name": "1530"}
 
@@ -58,7 +59,9 @@ class RetailOrder(unittest.TestCase):
         d["address"] = "Караганда, Бухар-Жырау 52"
         res, st = oh.order_core(d, "kc2", "1.1.1.1", None)
         self.assertEqual(st, 200)
-        self.assertIn("СДЭК — Караганда, Бухар-Жырау 52", self.posted[-1]["description"])
+        self.assertIn("Пункт выдачи СДЭК — Караганда, Бухар-Жырау 52", self.posted[-1]["description"])
+        self.assertEqual(res["total"], 6690 + 500)                          # доставка по ступени 5–15 тыс.
+        self.assertEqual(self.posted[-1]["positions"][-1]["price"], 50000)  # позиция «Доставка»
 
     def test_wholesale_unchanged(self):
         res, st = self.order()

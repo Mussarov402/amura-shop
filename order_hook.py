@@ -599,6 +599,19 @@ def loader_id():
                                                 params={"filter": f"code={LOADER_CODE}", "limit": 1})["rows"][0]["id"])
 
 
+DELIVERY_NAME = "Доставка"
+
+
+def delivery_service_id():
+    """Услуга «Доставка» в МойСклад (для розничных заказов); нет — создаём."""
+    def find_or_create():
+        rows = ms("GET", "/entity/service", params={"filter": f"name={DELIVERY_NAME}", "limit": 1})["rows"]
+        if rows:
+            return rows[0]["id"]
+        return ms("POST", "/entity/service", json={"name": DELIVERY_NAME})["id"]
+    return cached("dlvsvc", 86400, find_or_create)
+
+
 def fee_service_id():
     if FEE_ID:
         return FEE_ID
@@ -806,20 +819,27 @@ def order_core(d, key, ip, me, source="с сайта", panel=False):
         return dict(ok=False, error="Укажите, через какую логистику отправить"), 400
     if ship == "kazpost" and not (recipient and len(zipcode) == 6 and address):
         return dict(ok=False, error="Для Казпочты укажите ФИО, индекс и адрес"), 400
-    if ship == "courier" and not address:
-        return dict(ok=False, error="Укажите адрес доставки по Алматы"), 400
-    if ship == "cdek" and not address:
-        return dict(ok=False, error="Укажите город и адрес пункта СДЭК"), 400
-    if ship in ("courier", "cdek"):
-        ship_name += f" — {address}"
+    goods = sum(l["qty"] * l["price"] for l in lines)
+    dlv = 0
+    if retail:                                   # розница: цена доставки — по настройкам, считаем здесь (как на WB)
+        import checkout
+        dlv, ship_name, err = checkout.order_delivery(d, ship, city, goods)
+        if err:
+            return dict(ok=False, error=err), 400
+    else:
+        if ship == "courier" and not address:
+            return dict(ok=False, error="Укажите адрес доставки по Алматы"), 400
+        if ship == "cdek" and not address:
+            return dict(ok=False, error="Укажите город и адрес пункта СДЭК"), 400
+        if ship in ("courier", "cdek"):
+            ship_name += f" — {address}"
     if need_loader:
         ship_name += f" — {logistics}"
     elif ship == "kazpost":
         ship_name += f" — {recipient}, {zipcode}, {address}"
-    goods = sum(l["qty"] * l["price"] for l in lines)
     loader = LOADER_PRICE if need_loader else 0
     fee = 0 if retail else int((goods + loader) * FEE_RATE + 0.5)  # как Math.round на сайте; рознице комиссию не берём
-    total = goods + loader + fee
+    total = goods + loader + fee + dlv
 
     try:
         agent = me or find_or_create_agent(name, phone, telegram, city)
@@ -829,6 +849,8 @@ def order_core(d, key, ip, me, source="с сайта", panel=False):
             positions.append({"quantity": 1, "price": loader * 100, "assortment": meta("product", loader_id())})
         if fee:
             positions.append({"quantity": 1, "price": fee * 100, "assortment": meta("service", fee_service_id())})
+        if dlv:
+            positions.append({"quantity": 1, "price": dlv * 100, "assortment": meta("service", delivery_service_id())})
         contact = f"WhatsApp +{phone}" if phone else f"Telegram @{telegram}"
         order = _post_order({
             "externalCode": "site-" + hashlib.sha1(key.encode()).hexdigest()[:24],
@@ -848,7 +870,7 @@ def order_core(d, key, ip, me, source="с сайта", panel=False):
     tok = sign(number)
     data = {"number": number, "date": datetime.now(ALMATY).strftime("%d.%m.%Y %H:%M"), "name": name,
             "contact": contact, "city": city, "ship": ship_name, "lines": lines,
-            "loader": loader, "fee": fee, "total": total}
+            "loader": loader, "fee": fee, "delivery": dlv, "total": total}
     def notify_owner():                        # PDF и Telegram — в фоне, клиент не ждёт
         try:
             pdf = build_pdf(data)
@@ -966,6 +988,8 @@ def build_pdf(o):
         rows.append(["", "Услуга грузчика", "1", fmt(o["loader"]), fmt(o["loader"])])
     if o.get("fee"):
         rows.append(["", f"{FEE_NAME} 0,95%", "", "", fmt(o["fee"])])
+    if o.get("delivery"):
+        rows.append(["", DELIVERY_NAME, "", "", fmt(o["delivery"])])
     rows.append(["", "Итого к оплате", "", "", fmt(o["total"])])
     t = Table(rows, colWidths=[9 * mm, 95 * mm, 18 * mm, 28 * mm, 30 * mm], repeatRows=1)
     t.setStyle(TableStyle([
