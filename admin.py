@@ -941,12 +941,74 @@ def order_detail(number):
             fee += price * qty
         else:
             lines.append({"pos": p["id"], "type": a["meta"]["type"], "id": a["id"], "name": a["name"], "code": a.get("code", ""),
-                          "qty": int(qty), "price": price, "img": f"{oh.SITE_URL}/img/{a['id']}.webp" if a["id"] in imgs else ""})
+                          "qty": int(qty), "price": price, "img": f"{oh.SITE_URL}/img/{a['id']}.webp" if a["id"] in imgs else "",
+                          "reserve": int(p.get("reserve") or 0), "shipped": int(p.get("shipped") or 0)})
     sig = oh.sign(o["name"])
     return jsonify(ok=True, number=o["name"], id=o["id"], moment=o.get("moment", "")[:16],
                    pdf=f"{oh.PUBLIC_URL}/order/{o['name']}/pdf?t={sig}", xlsx=f"{oh.PUBLIC_URL}/order/{o['name']}/xlsx?t={sig}&id={o['id']}", client=o["agent"]["name"], state=(o.get("state") or {}).get("name", ""), states=_order_states(),
                    description=o.get("description") or "", lines=lines, loader=loader, fee=fee, total=o["sum"] / 100,
-                   feeRate=oh.FEE_RATE, hasFee=any(p["assortment"].get("name") == oh.FEE_NAME for p in pos))
+                   feeRate=oh.FEE_RATE, hasFee=any(p["assortment"].get("name") == oh.FEE_NAME for p in pos),
+                   store=(o.get("store") or {}).get("meta", {}).get("href", "").rstrip("/").rsplit("/", 1)[-1],
+                   reserved=any((l["reserve"] or 0) > 0 for l in lines if l["type"] in RESERVABLE))
+
+
+RESERVABLE = ("product", "variant", "bundle")       # резервируются товары, модификации и комплекты (не услуги)
+
+
+def _stock_by(kind, store):
+    """Остатки МойСклад одного вида (stock / reserve) по товарам — на складе заказа или по всем складам."""
+    if not store:
+        data = oh.ms("GET", "/report/stock/all/current", params={"stockType": kind}, timeout=20)
+        rows = data if isinstance(data, list) else data.get("rows", [])
+        return {r["assortmentId"]: r.get(kind) or 0 for r in rows}
+    data = oh.ms("GET", "/report/stock/bystore/current", params={"stockType": kind}, timeout=20)
+    rows = data if isinstance(data, list) else data.get("rows", [])
+    return {r["assortmentId"]: r.get(kind) or 0 for r in rows if r.get("storeId") == store}
+
+
+@bp.get("/admin/api/orders/<number>/stock")
+@need("orders")
+def order_stock(number):
+    """Остаток, резерв и доступно по позициям заказа — как колонки в МойСклад (на складе заказа)."""
+    store = str(request.args.get("store", ""))
+    store = store if oh.re.fullmatch(r"[0-9a-f-]{36}", store) else ""
+    ids = [i for i in str(request.args.get("ids", "")).split(",") if oh.re.fullmatch(r"[0-9a-f-]{36}", i)][:1000]
+    try:
+        st = oh.cached(f"ostk:{store}:stock", 60, lambda: _stock_by("stock", store))
+        rs = oh.cached(f"ostk:{store}:reserve", 60, lambda: _stock_by("reserve", store))
+    except Exception as e:
+        return jsonify(ok=False, error="МойСклад не ответил: " + str(e)[:150]), 502
+    return jsonify(ok=True, items={i: {"stock": st.get(i, 0), "reserve": rs.get(i, 0), "free": st.get(i, 0) - rs.get(i, 0)} for i in ids})
+
+
+@bp.post("/admin/api/orders/<number>/reserve")
+@need("orders")
+def order_reserve(number):
+    """Поставить или снять резерв по всем товарам заказа."""
+    on = bool((request.get_json(silent=True) or {}).get("on"))
+    try:
+        o, pos = _order_fetch(number)
+        if not o:
+            return jsonify(ok=False, error="Заказ не найден"), 404
+        if on and not o.get("store"):
+            return jsonify(ok=False, error="У заказа не указан склад — резерв поставить нельзя"), 400
+        positions = []
+        for p in pos:
+            a = p["assortment"]
+            e = {"id": p["id"], "quantity": p["quantity"], "price": p["price"], "assortment": {"meta": a["meta"]}}
+            for k in ("discount", "vat", "vatEnabled"):
+                if k in p:
+                    e[k] = p[k]
+            if a["meta"]["type"] in RESERVABLE:
+                e["reserve"] = p["quantity"] if on else 0
+            positions.append(e)
+        oh.ms("PUT", f"/entity/customerorder/{o['id']}", json={"positions": positions}, timeout=55)
+    except Exception as e:
+        return jsonify(ok=False, error="Не удалось: " + str(e)[:200]), 502
+    _olog(number, "Резерв поставлен" if on else "Резерв снят")
+    for k in [k for k in oh._cache if k.startswith("ostk:")]:
+        oh._cache.pop(k, None)
+    return jsonify(ok=True, reserved=on)
 
 
 @bp.post("/admin/api/orders/new")
@@ -1136,6 +1198,8 @@ def order_edit(number):
         if not o:
             return jsonify(ok=False, error="Заказ не найден"), 404
         positions, goods, loader = [], 0, 0
+        prod = [p for p in pos if p["assortment"]["meta"]["type"] in RESERVABLE]
+        keep_res = not prod or any((p.get("reserve") or 0) > 0 for p in prod)
         if len(lines) > 1000:
             return jsonify(ok=False, error="Слишком много позиций"), 400
         for l in lines:
@@ -1143,7 +1207,7 @@ def order_edit(number):
             if qty <= 0 or price < 0 or not oh.re.fullmatch(r"[0-9a-f-]{36}", str(l.get("id", ""))) or l.get("type") not in ("product", "bundle", "variant", "service"):
                 return jsonify(ok=False, error="Проверьте количество и цены"), 400
             p = {"quantity": qty, "price": round(price * 100), "assortment": oh.meta(l["type"], l["id"])}
-            if l["type"] != "service":
+            if l["type"] in RESERVABLE and keep_res:            # резерв остаётся как был: сняли — правка его не ставит
                 p["reserve"] = qty
             if l.get("pos") and oh.re.fullmatch(r"[0-9a-f-]{36}", str(l["pos"])):
                 p["id"] = l["pos"]
