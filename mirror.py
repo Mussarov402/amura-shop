@@ -7,7 +7,7 @@ import json
 import os
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import inbox
 import order_hook as oh
@@ -19,7 +19,10 @@ PAUSE = 1.0                # сек между страницами
 EVERY = 600                # сек между проходами, когда всё загружено
 EVERY_LOADING = 120        # сек между проходами во время первичной загрузки
 FULL_EVERY = 86400         # раз в сутки — полный проход: находим удалённые в МойСклад товары
-ENTITIES = ("product", "variant", "counterparty")
+DOC_TYPES = ("customerorder", "demand", "retaildemand", "salesreturn", "retailsalesreturn")   # документы продаж
+DOC_DAYS = 90              # документы берём за последние 90 дней по updated (вся история не нужна для сверки и тяжела)
+ENTITIES = ("product", "variant", "counterparty") + DOC_TYPES
+MS_TZ = timezone(timedelta(hours=3))   # время в МойСклад — Москва
 RECON_EVERY = 86400        # автосверка раз в сутки, когда загрузка догнала МойСклад
 
 _ready = [False]
@@ -38,6 +41,10 @@ def _schema(d):
         # контрагенты: tags — JSON-список тегов МойСклад; company_type — legal / entrepreneur / individual
         "CREATE TABLE IF NOT EXISTS ms_agent (id TEXT PRIMARY KEY, name TEXT, phone TEXT, email TEXT, inn TEXT, company_type TEXT,"
         " tags TEXT, archived INTEGER DEFAULT 0, updated TEXT, deleted INTEGER DEFAULT 0, seen DOUBLE PRECISION)",
+        # шапки документов продаж: type — сущность МойСклад; moment/updated — время МойСклад (Москва); sum — тенге;
+        # applicable — проведён; state_id — статус (у заказов); descr — первая строка комментария (источник заказа)
+        "CREATE TABLE IF NOT EXISTS ms_doc (id TEXT PRIMARY KEY, type TEXT, number TEXT, moment TEXT, agent_id TEXT, store_id TEXT,"
+        " state_id TEXT, sum DOUBLE PRECISION, applicable INTEGER, descr TEXT, updated TEXT, deleted INTEGER DEFAULT 0, seen DOUBLE PRECISION)",
         "CREATE TABLE IF NOT EXISTS ms_store (id TEXT PRIMARY KEY, name TEXT, archived INTEGER DEFAULT 0, updated TEXT, seen DOUBLE PRECISION)",
         "CREATE TABLE IF NOT EXISTS ms_stock (product_id TEXT, store_id TEXT, stock DOUBLE PRECISION, reserve DOUBLE PRECISION,"
         " synced DOUBLE PRECISION, PRIMARY KEY (product_id, store_id))",
@@ -112,11 +119,31 @@ def _parse_agent(row, now):
             1 if row.get("archived") else 0, (row.get("updated") or "")[:23], 0, now)
 
 
+_DCOLS = "id, type, number, moment, agent_id, store_id, state_id, sum, applicable, descr, updated, deleted, seen"
+
+
+def _doc_parser(kind):
+    def parse(row, now):
+        return (_id(row), kind, row.get("name") or "", (row.get("moment") or "")[:23], _href_id(row.get("agent")),
+                _href_id(row.get("store")), _href_id(row.get("state")), (row.get("sum") or 0) / 100,
+                1 if row.get("applicable") else 0, (row.get("description") or "").split("\n")[0][:200],
+                (row.get("updated") or "")[:23], 0, now)
+    return parse
+
+
+def _floor(entity):
+    """Нижняя граница updated для полного прохода: у документов — DOC_DAYS дней назад, у справочников — без границы."""
+    if entity not in DOC_TYPES:
+        return ""
+    return (datetime.now(MS_TZ) - timedelta(days=DOC_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
+
+
 # сущность МойСклад -> (таблица, колонки, разбор строки, условие «строки этой сущности» в таблице)
 _TABLES = {
     "product": ("ms_product", _COLS, lambda r, t: _parse("product", r, t), "kind='product'"),
     "variant": ("ms_product", _COLS, lambda r, t: _parse("variant", r, t), "kind='variant'"),
     "counterparty": ("ms_agent", _ACOLS, _parse_agent, "1=1"),
+    **{t: ("ms_doc", _DCOLS, _doc_parser(t), f"type='{t}'") for t in DOC_TYPES},
 }
 
 
@@ -153,7 +180,7 @@ def sync_entity(entity, max_pages=MAX_PAGES, pause=PAUSE):
     with db() as d:
         st = _state(d, entity)
         if not st["full_from"] and now - st["full_done"] > FULL_EVERY:
-            st.update(cursor="", skip=0, full_from=now)              # новый полный проход
+            st.update(cursor=_floor(entity), skip=0, full_from=now)  # новый полный проход
             _save_state(d, entity, st)
     total, caught = 0, False
     for _ in range(max_pages):
@@ -175,7 +202,9 @@ def sync_entity(entity, max_pages=MAX_PAGES, pause=PAUSE):
             if len(rows) < PAGE:
                 caught = True
                 if st["full_from"]:                                   # полный проход закончен: чего не видели — удалено в МойСклад
-                    d.run(f"UPDATE {table} SET deleted=1 WHERE {mine} AND (seen IS NULL OR seen<%s)", (st["full_from"],))
+                    fl = _floor(entity)                               # (у документов — только в окне полного прохода)
+                    d.run(f"UPDATE {table} SET deleted=1 WHERE {mine} AND (seen IS NULL OR seen<%s) AND COALESCE(updated, '')>=%s",
+                          (st["full_from"], fl))
                     st.update(full_from=0.0, full_done=t)
             _save_state(d, entity, st, last_run=t, last_ok=t, error="")
             d.run(f"UPDATE ms_sync SET rows=(SELECT COUNT(*) FROM {table} WHERE {mine} AND deleted=0) WHERE entity=%s", (entity,))
@@ -336,6 +365,50 @@ def _check(name, ours, theirs, unit="", detail=None, count=False):
     return {"name": name, "ours": ours, "theirs": theirs, "ok": ours == theirs, "unit": unit, "detail": detail or [], "count": count}
 
 
+SALE_TYPES, RETURN_TYPES = ("demand", "retaildemand"), ("salesreturn", "retailsalesreturn")
+
+
+def _day_bounds(day):
+    """Сутки по Алматы -> границы во времени МойСклад (строки, сравниваются как moment)."""
+    a = datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=oh.ALMATY)
+    f = lambda t: t.astimezone(MS_TZ).strftime("%Y-%m-%d %H:%M:%S")
+    return f(a), f(a + timedelta(days=1))
+
+
+def _ms_docs(entity, flt):
+    out, off = [], 0
+    while True:
+        r = oh.ms("GET", f"/entity/{entity}", params={"filter": flt, "limit": 1000, "offset": off}, timeout=60)
+        out += r.get("rows", [])
+        off += 1000
+        if off >= (r.get("meta") or {}).get("size", 0) or off >= 10000:
+            return out
+
+
+def _sales_checks():
+    """Продажи за вчера и сегодня (Алматы), как на «Обзоре»: проведённые отгрузки + чеки − возвраты; и число заказов."""
+    out = []
+    today = datetime.now(oh.ALMATY).date()
+    for day in (str(today - timedelta(days=1)), str(today)):
+        a, b = _day_bounds(day)
+        label = datetime.strptime(day, "%Y-%m-%d").strftime("%d.%m")
+        with db() as d:
+            ours = {t: d.run("SELECT COUNT(*), COALESCE(SUM(sum), 0) FROM ms_doc WHERE type=%s AND deleted=0 AND applicable=1"
+                             " AND moment>=%s AND moment<%s", (t, a, b), one=True) for t in SALE_TYPES + RETURN_TYPES}
+            ours_orders = d.run("SELECT COUNT(*) FROM ms_doc WHERE type='customerorder' AND deleted=0 AND moment>=%s AND moment<%s",
+                                (a, b), one=True)[0]
+        theirs = {}
+        for t in SALE_TYPES + RETURN_TYPES:
+            rows = _ms_docs(t, f"moment>={a};moment<{b};applicable=true")
+            theirs[t] = (len(rows), sum((r.get("sum") or 0) for r in rows) / 100)
+        net = lambda m: round(sum(m[t][1] for t in SALE_TYPES) - sum(m[t][1] for t in RETURN_TYPES))
+        cnt = lambda m: sum(m[t][0] for t in SALE_TYPES + RETURN_TYPES)
+        out.append(_check(f"Продажи {label}: отгрузки + чеки − возвраты", net(ours), net(theirs), "₸"))
+        out.append(_check(f"Документы продаж {label}", cnt(ours), cnt(theirs), "шт"))
+        out.append(_check(f"Заказы покупателей {label}", ours_orders, _ms_count("customerorder", f"moment>={a};moment<{b}"), "шт"))
+    return out
+
+
 def reconcile():
     """Сверка «наши цифры = МойСклад»: количество товаров и модификаций, остатки по товарам, цены сайта.
     Пишет результат в ms_recon и возвращает его."""
@@ -370,6 +443,7 @@ def reconcile():
                 if i.get(key) and p.get(ptype, 0) != round(i[key]):
                     diff.append(f"{i.get('name')}: {ptype.lower()} у нас {p.get(ptype, 0)} ₸, на сайте {round(i[key])} ₸")
         checks.append(_check("Цены товаров сайта", len(diff), 0, "", diff[:10], count=True))
+    checks += _sales_checks()
     res = {"checks": checks}
     ok = all(c["ok"] for c in checks)
     with db() as d:
