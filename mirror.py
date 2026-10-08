@@ -231,17 +231,27 @@ def sync_entity(entity, max_pages=MAX_PAGES, pause=PAUSE):
             _save_state(d, entity, st)
     total, caught = 0, False
     is_doc = entity in DOC_TYPES
-    page = DOC_PAGE if is_doc else PAGE
+    with_lines = is_doc and (not st["full_from"] or not st["full_done"])  # первый полный проход (и перезагрузка) — с позициями
+    # Суточный полный проход документов — «лёгкий»: только шапки (страницы по 200, без expand) для поиска удалённых;
+    # позиции дочитываются лишь у документов, которые изменились с прошлой загрузки. С позициями грузятся обычные
+    # догрузки изменений, самая первая загрузка и разовая перезагрузка после смены LINES_V (у них full_done = 0) (страница с позициями ~2 МБ, 5–12 с ответа).
+    page = DOC_PAGE if with_lines else PAGE
     for _ in range(max_pages):
         off = max(0, st["skip"] - min(SLACK, page // 2)) if st["cursor"] else st["skip"]   # перекрытие меньше страницы — загрузка всегда движется
         params = {"limit": page, "offset": off, "order": "updated,asc"}
         if st["cursor"]:
             params["filter"] = f"updated>={st['cursor']}"
-        if is_doc:
+        if with_lines:
             params["expand"] = "positions"
         _site_room()
         rows = oh.ms("GET", f"/entity/{entity}", params=params, timeout=60).get("rows", [])
-        lines = {_id(r): _doc_lines(entity, r) for r in rows} if is_doc else {}
+        need = rows if with_lines else []
+        if is_doc and not with_lines and rows:                        # лёгкий проход: позиции только у изменённых
+            with db() as d:
+                ids = [_id(r) for r in rows]
+                old = dict(d.run("SELECT id, updated FROM ms_doc WHERE id IN (" + ", ".join(["%s"] * len(ids)) + ")", ids, many=True) or [])
+            need = [r for r in rows if old.get(_id(r)) != (r.get("updated") or "")[:23]]
+        lines = {_id(r): _doc_lines(entity, r) for r in need}
         t = time.time()
         with db() as d:
             _upsert(d, table, cols, "id", [parse(r, t) for r in rows])
