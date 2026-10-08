@@ -371,10 +371,23 @@ paintMe = function(p, orders){
 };
 
 renderCart = renderRetailCart;
+/* розница: вход и регистрация только по номеру телефона (код по SMS), без Telegram */
+prepareTg = function(){};
+const _renderAuth = renderAuth;
+renderAuth = function(){
+  _renderAuth();
+  ["#tgLogin", "#tgHint", "#meBody .or"].forEach(sel => { const el = $(sel); if(el) el.remove(); });
+};
+const _api = api;
+api = async function(path, opts){
+  try{ return await _api(path, opts); }
+  catch(e){ if(path === "/auth/sms/send" && /telegram/i.test(e.message)) throw new Error("Вход по SMS временно недоступен. Попробуйте позже или напишите нам в WhatsApp"); throw e; }
+};
 const _go = go;
 go = function(v, keep){ if(v === "cart"){ STEP = NEXT || "cart"; NEXT = ""; } return _go(v, keep); };
 dlvRefresh = () => { paint(); const n = $("#rsNote"); if(n) n.textContent = courierNote(); };
 document.addEventListener("keydown", e => { if(e.key === "Escape" && $("#rSheet") && !$("#rSheet").hidden) closeSheet(); });
 markRetail();
 if(VIEW === "cart") renderCart();
+if(VIEW === "me" && !AUTH.token) renderAuth();
 })();
