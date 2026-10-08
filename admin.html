@@ -114,7 +114,9 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 .nog{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}.nog input,.nog select{width:100%;padding:10px 12px;border:1px solid #D9E0DB;border-radius:10px;font:inherit;font-size:16px;box-sizing:border-box;background:#fff}.nog:empty{display:none}
 .ord{cursor:pointer}.vo .voh{display:flex;align-items:flex-start;gap:10px;justify-content:space-between}.vox{border:0;background:#EEF1EE;border-radius:50%;width:36px;height:36px;font-size:16px;flex:none;cursor:pointer}
 .vod{white-space:pre-wrap;font-size:13px;color:#4A5751;background:#F5F8F6;border-radius:10px;padding:8px 10px;margin:6px 0}
-.voa{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:10px 0 4px}.voa button{border:1px solid #DCE5DF;background:#F1F6F3;color:#0E3B2C;border-radius:12px;padding:8px 2px;font:inherit;font-size:12.5px;font-weight:700;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;min-height:58px;justify-content:center}.voa i{font-style:normal;font-size:19px;line-height:1}.voa button:disabled{opacity:.6}
+.voa{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin:10px 0 4px}
+.voa button.on{background:#FFF4E0;border-color:#F0D9A8;color:#8A4B08}.vrs{color:#8A4B08;font-weight:700}
+.vstk{font-size:12px;color:#5F6B65;margin-top:2px}.vstk b{color:#16201B;font-weight:700}.vstk b.vbad{color:#C0392B}.voa button{border:1px solid #DCE5DF;background:#F1F6F3;color:#0E3B2C;border-radius:12px;padding:8px 2px;font:inherit;font-size:12.5px;font-weight:700;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;min-height:58px;justify-content:center}.voa i{font-style:normal;font-size:19px;line-height:1}.voa button:disabled{opacity:.6}
 .vol{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid #EEF1EE}.voi{width:52px;height:52px;flex:none;border-radius:10px;background:#F1F4F2;display:flex;align-items:center;justify-content:center;overflow:hidden;font-size:22px}.voi img{width:100%;height:100%;object-fit:contain}
 .von{flex:1;min-width:0;font-size:14px;line-height:1.3}.von .mut{font-size:12.5px;margin-top:2px}.vos{font-size:14px;white-space:nowrap}
 .vot{border-top:2px solid #0E3B2C;margin-top:6px;padding-top:8px;font-size:14px}.vot div{display:flex;justify-content:space-between;padding:2px 0}.vot .vott{font-weight:800;font-size:16px}
@@ -317,9 +319,9 @@ const viewOrder=async(n,oid,opt={})=>{const ov=document.createElement("div");ov.
  const goods=d.lines.reduce((s,x)=>s+x.qty*x.price,0),cnt=d.lines.reduce((s,x)=>s+x.qty,0);
  ov.querySelector(".eo").innerHTML=`<div class="voh"><div style="min-width:0"><div style="font-weight:800;font-size:18px">Заказ №${esc(d.number)}</div><div class="mut" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:2px">${esc((d.moment||"").replace("T"," "))} ${stBtn(d)}</div></div><button class="vox" aria-label="Закрыть">✕</button></div>
   <div style="font-weight:700;margin:6px 0 2px">${esc(d.client)}</div>${d.description?`<div class="vod">${esc(d.description)}</div>`:""}
-  <div class="voa"><button data-a="pdf"><i>📄</i>PDF</button><button data-a="xlsx"><i>📊</i>Excel</button><button data-a="share"><i>📤</i>Отправить</button><button data-a="edit"><i>✏️</i>Изменить</button></div>
+  <div class="voa"><button data-a="pdf"><i>📄</i>PDF</button><button data-a="xlsx"><i>📊</i>Excel</button><button data-a="share"><i>📤</i>Отправить</button><button data-a="edit"><i>✏️</i>Изменить</button><button data-a="rsv" class="${d.reserved?"on":""}"><i>${d.reserved?"🔓":"🔒"}</i>${d.reserved?"Снять резерв":"Резерв"}</button></div>
   <div class="mut" style="margin:10px 0 2px">${d.lines.length} поз. · ${fmt(cnt)} шт.</div>
-  <div>${d.lines.map((x,i)=>`<div class="vol">${x.img?`<a class="phl voi" href="${esc(x.img)}"><img src="${esc(x.img)}" loading="lazy" alt=""></a>`:`<span class="voi">🧴</span>`}<div class="von"><div>${esc(x.name)}</div><div class="mut">${x.code?esc(x.code)+" · ":""}${fmt(x.qty)} × ${fmt(x.price)} ₸</div></div><b class="vos">${fmt(x.qty*x.price)} ₸</b></div>`).join("")}</div>
+  <div>${d.lines.map((x,i)=>`<div class="vol">${x.img?`<a class="phl voi" href="${esc(x.img)}"><img src="${esc(x.img)}" loading="lazy" alt=""></a>`:`<span class="voi">🧴</span>`}<div class="von"><div>${esc(x.name)}</div><div class="mut">${x.code?esc(x.code)+" · ":""}${fmt(x.qty)} × ${fmt(x.price)} ₸${x.reserve?` · <span class="vrs">в резерве ${fmt(x.reserve)}</span>`:""}${x.shipped?` · отгружено ${fmt(x.shipped)}`:""}</div>${x.type!=="service"?`<div class="vstk" data-sid="${esc(x.id)}"></div>`:""}</div><b class="vos">${fmt(x.qty*x.price)} ₸</b></div>`).join("")}</div>
   <div class="vot"><div><span>Товары</span><span>${fmt(goods)} ₸</span></div>${d.loader?`<div><span>Грузчик</span><span>${fmt(d.loader)} ₸</span></div>`:""}${d.fee?`<div><span>Комиссия банка</span><span>${fmt(d.fee)} ₸</span></div>`:""}<div class="vott"><span>Итого</span><span>${fmt(d.total)} ₸</span></div></div>
   <div class="vhh">История изменений</div><div class="vhl"><div class="mut">Загружаю…</div></div>`;
  if(opt.pending){const bar=document.createElement("div");bar.className="vsv";bar.textContent="⏳ Сохраняю изменения в МойСклад…";ov.querySelector(".eo").prepend(bar);
@@ -328,11 +330,22 @@ const viewOrder=async(n,oid,opt={})=>{const ov=document.createElement("div");ov.
   const dt=t=>{const x=new Date(t*1000);return x.toLocaleDateString("ru",{day:"2-digit",month:"2-digit"})+" "+x.toLocaleTimeString("ru",{hour:"2-digit",minute:"2-digit"})};
   el.innerHTML=(h.warn?`<div class="mut" style="margin-bottom:6px">${esc(h.warn)}</div>`:"")+(h.items.length?h.items.map(i=>`<div class="vhi"><div class="vht"><b>${esc(i.who||"")}</b><span class="vhs ${i.src}">${i.src==="panel"?"панель":"МойСклад"}</span><span class="mut">${i.at?dt(i.at):""}</span></div><div class="vhx">${esc(i.text)}</div></div>`).join(""):'<div class="mut">Изменений пока нет</div>')})
   .catch(e=>{const el=ov.querySelector(".vhl");if(el)el.innerHTML='<div class="mut">История не загрузилась: '+esc(e.message)+'</div>'});loadHist();
+ /* остаток по позициям — как в МойСклад: остаток на складе заказа, резерв (все заказы), доступно; не хватает — красным */
+ const ids=[...new Set(d.lines.filter(x=>x.type!=="service").map(x=>x.id))];
+ if(ids.length)api("orders/"+encodeURIComponent(d.number)+"/stock?store="+encodeURIComponent(d.store||"")+"&ids="+ids.join(",")).then(r=>{
+  ov.querySelectorAll(".vstk").forEach(el=>{const v=r.items[el.dataset.sid];if(!v){el.textContent="";return}
+   const x=d.lines.find(l=>l.id===el.dataset.sid)||{},need=(x.qty||0)-(x.reserve||0),bad=v.free<need;
+   el.innerHTML=`Остаток <b>${fmt(v.stock)}</b> · Резерв <b>${fmt(v.reserve)}</b> · Доступно <b class="${bad?"vbad":""}">${fmt(v.free)}</b>`})})
+  .catch(()=>ov.querySelectorAll(".vstk").forEach(el=>el.textContent="Остаток не загрузился"));
  ov.querySelector(".vox").onclick=()=>ov.remove();
  bindStBtn(ov,d,()=>loadHist());
  if(touchDev){const nm="AMURA-"+d.number;getFile(d.pdf,nm+".pdf","application/pdf").catch(()=>{});getFile(d.xlsx,nm+".xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet").catch(()=>{})}   // заранее: «Поделиться» откроется с первого нажатия
  ov.querySelectorAll(".voa button").forEach(b=>b.onclick=()=>{const a=b.dataset.a,nm="AMURA-"+d.number;
   if(a==="edit"){ov.remove();editOrder(d.number,d.id)}
+  else if(a==="rsv"){const on=!d.reserved;if(!on&&!confirm("Снять резерв со всех товаров заказа №"+d.number+"? Товар станет доступен для других заказов."))return;
+   b.disabled=true;b.lastChild.textContent=on?"Ставлю…":"Снимаю…";
+   api("orders/"+encodeURIComponent(d.number)+"/reserve?id="+encodeURIComponent(d.id||""),{method:"POST",body:JSON.stringify({on})}).then(()=>{toast(on?"Резерв поставлен":"Резерв снят");ov.remove();viewOrder(d.number,d.id)})
+    .catch(e=>{b.disabled=false;b.lastChild.textContent=d.reserved?"Снять резерв":"Резерв";if(e.message!=="401")alert(e.message)})}
   else if(a==="xlsx")fileAct(b,d.xlsx,nm+".xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",true);
   else if(a==="pdf")openDoc(d.pdf,nm+".pdf");else fileAct(b,d.pdf,nm+".pdf","application/pdf",true)})};
 const head=(t,s)=>`<h1>${t}</h1><div class="sub">${s}</div>`;

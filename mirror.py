@@ -14,6 +14,9 @@ import order_hook as oh
 
 FLAG = "feat_mirror_sync"
 PAGE = 200                 # строк на страницу (товары с ценами — тяжёлые, большие страницы МойСклад отдаёт медленно)
+SLACK = 5                  # перекрытие страниц: столько уже загруженных строк перечитываем (см. sync_entity)
+DOC_PAGE = 100             # документы грузятся вместе с позициями (expand=positions) — МойСклад разрешает expand при limit ≤ 100
+LINES_V = "1"              # версия загрузки позиций: смена версии один раз перезагружает документы в окне DOC_DAYS
 MAX_PAGES = 10             # страниц одной сущности за проход
 PAUSE = 1.0                # сек между страницами
 EVERY = 600                # сек между проходами, когда всё загружено
@@ -45,6 +48,9 @@ def _schema(d):
         # applicable — проведён; state_id — статус (у заказов); descr — первая строка комментария (источник заказа)
         "CREATE TABLE IF NOT EXISTS ms_doc (id TEXT PRIMARY KEY, type TEXT, number TEXT, moment TEXT, agent_id TEXT, store_id TEXT,"
         " state_id TEXT, sum DOUBLE PRECISION, applicable INTEGER, descr TEXT, updated TEXT, deleted INTEGER DEFAULT 0, seen DOUBLE PRECISION)",
+        # позиции документов: price и sum — тенге, discount — %, sum = qty × price × (1 − discount/100)
+        "CREATE TABLE IF NOT EXISTS ms_doc_line (doc_id TEXT, pos_id TEXT, product_id TEXT, qty DOUBLE PRECISION, price DOUBLE PRECISION,"
+        " discount DOUBLE PRECISION, sum DOUBLE PRECISION, PRIMARY KEY (doc_id, pos_id))",
         "CREATE TABLE IF NOT EXISTS ms_store (id TEXT PRIMARY KEY, name TEXT, archived INTEGER DEFAULT 0, updated TEXT, seen DOUBLE PRECISION)",
         "CREATE TABLE IF NOT EXISTS ms_stock (product_id TEXT, store_id TEXT, stock DOUBLE PRECISION, reserve DOUBLE PRECISION,"
         " synced DOUBLE PRECISION, PRIMARY KEY (product_id, store_id))",
@@ -131,6 +137,45 @@ def _doc_parser(kind):
     return parse
 
 
+def _line(doc_id, p):
+    qty, price, disc = p.get("quantity") or 0, (p.get("price") or 0) / 100, p.get("discount") or 0
+    return (doc_id, _id(p), _href_id(p.get("assortment")), qty, price, disc, qty * price * (1 - disc / 100))
+
+
+def _doc_lines(entity, row):
+    """Позиции документа: обычно приходят в expand=positions; если их больше, чем вложено, — дочитываем отдельно."""
+    pos = row.get("positions") or {}
+    items = pos.get("rows")
+    if items is None or (pos.get("meta") or {}).get("size", len(items)) > len(items):
+        items, off = [], 0
+        while True:
+            _site_room()
+            r = oh.ms("GET", f"/entity/{entity}/{_id(row)}/positions", params={"limit": 1000, "offset": off}, timeout=60)
+            items += r.get("rows", [])
+            off += 1000
+            if off >= (r.get("meta") or {}).get("size", 0):
+                break
+    return [_line(_id(row), p) for p in items]
+
+
+def _save_lines(d, lines_by_doc):
+    for doc_id, lines in lines_by_doc.items():
+        d.run("DELETE FROM ms_doc_line WHERE doc_id=%s", (doc_id,))
+        for ln in lines:
+            d.run("INSERT INTO ms_doc_line (doc_id, pos_id, product_id, qty, price, discount, sum) VALUES (%s, %s, %s, %s, %s, %s, %s)", ln)
+
+
+def _lines_reload():
+    """Один раз на версию LINES_V: документы, загруженные без позиций, перечитываем полным проходом (окно DOC_DAYS)."""
+    with db() as d:
+        if inbox.get_setting(d, "mirror_lines_v", "") == LINES_V:
+            return
+        for t in DOC_TYPES:
+            d.run("UPDATE ms_sync SET cursor='', skip=0, full_from=0, full_done=0 WHERE entity=%s", (t,))
+        inbox.set_setting(d, "mirror_lines_v", LINES_V)
+    print("Зеркало МойСклад: документы будут перечитаны вместе с позициями", flush=True)
+
+
 def _floor(entity):
     """Нижняя граница updated для полного прохода: у документов — DOC_DAYS дней назад, у справочников — без границы."""
     if entity not in DOC_TYPES:
@@ -173,8 +218,10 @@ def _save_state(d, entity, st, **extra):
 
 def sync_entity(entity, max_pages=MAX_PAGES, pause=PAUSE):
     """Догрузка изменённых строк сущности по возрастанию updated. Возвращает (загружено строк, догнали ли МойСклад).
-    Пагинация «по ключу»: filter updated>=cursor и offset=skip — число уже загруженных строк ровно с этим updated,
-    поэтому новые изменения в МойСклад во время загрузки не сдвигают страницы и строки не теряются."""
+    Пагинация «по ключу»: filter updated>=cursor и offset ≈ skip — позиция в группе строк ровно с этим updated,
+    поэтому новые изменения в МойСклад во время загрузки не сдвигают страницы и строки не теряются.
+    Страница читается с перекрытием SLACK: если строку из группы за это время изменили (она ушла в конец),
+    группа сократилась и без перекрытия следующая строка была бы пропущена. Перечитанные строки просто перезаписываются."""
     table, cols, parse, mine = _TABLES[entity]
     now = time.time()
     with db() as d:
@@ -183,23 +230,30 @@ def sync_entity(entity, max_pages=MAX_PAGES, pause=PAUSE):
             st.update(cursor=_floor(entity), skip=0, full_from=now)  # новый полный проход
             _save_state(d, entity, st)
     total, caught = 0, False
+    is_doc = entity in DOC_TYPES
+    page = DOC_PAGE if is_doc else PAGE
     for _ in range(max_pages):
-        params = {"limit": PAGE, "offset": st["skip"], "order": "updated,asc"}
+        off = max(0, st["skip"] - min(SLACK, page // 2)) if st["cursor"] else st["skip"]   # перекрытие меньше страницы — загрузка всегда движется
+        params = {"limit": page, "offset": off, "order": "updated,asc"}
         if st["cursor"]:
             params["filter"] = f"updated>={st['cursor']}"
+        if is_doc:
+            params["expand"] = "positions"
         _site_room()
         rows = oh.ms("GET", f"/entity/{entity}", params=params, timeout=60).get("rows", [])
+        lines = {_id(r): _doc_lines(entity, r) for r in rows} if is_doc else {}
         t = time.time()
         with db() as d:
             _upsert(d, table, cols, "id", [parse(r, t) for r in rows])
-            for r in rows:
-                u = (r.get("updated") or "")[:19]
-                if u > st["cursor"]:
-                    st["cursor"], st["skip"] = u, 1
-                elif u == st["cursor"]:
-                    st["skip"] += 1
-            total += len(rows)
-            if len(rows) < PAGE:
+            _save_lines(d, lines)
+            seen_before = max(0, st["skip"] - off) if st["cursor"] else 0   # строки перекрытия — уже загружены раньше
+            top = max(((r.get("updated") or "")[:19] for r in rows), default=st["cursor"])
+            if top > st["cursor"]:                                    # группа нового курсора начинается на этой странице
+                st["cursor"], st["skip"] = top, sum(1 for r in rows if (r.get("updated") or "")[:19] == top)
+            else:                                                     # вся страница — внутри группы текущего курсора
+                st["skip"] = off + len(rows)
+            total += max(0, len(rows) - seen_before)
+            if len(rows) < page:
                 caught = True
                 if st["full_from"]:                                   # полный проход закончен: чего не видели — удалено в МойСклад
                     fl = _floor(entity)                               # (у документов — только в окне полного прохода)
@@ -269,6 +323,7 @@ def tick():
     if not _run_lock.acquire(blocking=False):
         return False
     try:
+        _lines_reload()
         caught_all, parts, t0 = True, [], time.time()
         for name, fn in (("store", sync_stores), *((e, (lambda e=e: sync_entity(e))) for e in ENTITIES), ("stock", sync_stock)):
             try:
@@ -385,6 +440,18 @@ def _ms_docs(entity, flt):
             return out
 
 
+def _lines_check():
+    """Внутренняя сверка: сумма позиций = сумме документа (продажи и возвраты за вчера и сегодня)."""
+    a = _day_bounds(str(datetime.now(oh.ALMATY).date() - timedelta(days=1)))[0]
+    types = SALE_TYPES + RETURN_TYPES
+    with db() as d:
+        rows = d.run("SELECT doc.type, doc.number, doc.sum, COALESCE(SUM(l.sum), 0), COUNT(l.pos_id) FROM ms_doc doc"
+                     " LEFT JOIN ms_doc_line l ON l.doc_id=doc.id WHERE doc.deleted=0 AND doc.moment>=%s AND doc.type IN ("
+                     + ", ".join(["%s"] * len(types)) + ") GROUP BY doc.id, doc.type, doc.number, doc.sum", (a, *types), many=True) or []
+    bad = [f"{t} №{n}: документ {round(s)} ₸, позиции {round(ls)} ₸ ({c} шт.)" for t, n, s, ls, c in rows if abs((s or 0) - (ls or 0)) >= 1]
+    return _check("Документы, где сумма позиций ≠ сумме документа", len(bad), 0, "", bad[:10], count=True)
+
+
 def _sales_checks():
     """Продажи за вчера и сегодня (Алматы), как на «Обзоре»: проведённые отгрузки + чеки − возвраты; и число заказов."""
     out = []
@@ -444,6 +511,7 @@ def reconcile():
                     diff.append(f"{i.get('name')}: {ptype.lower()} у нас {p.get(ptype, 0)} ₸, на сайте {round(i[key])} ₸")
         checks.append(_check("Цены товаров сайта", len(diff), 0, "", diff[:10], count=True))
     checks += _sales_checks()
+    checks.append(_lines_check())
     res = {"checks": checks}
     ok = all(c["ok"] for c in checks)
     with db() as d:
