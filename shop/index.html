@@ -2077,6 +2077,8 @@ $("#drawerBody").addEventListener("input", e => {
   if(e.target.id === "rName") saveForm({ name: e.target.value.trim() });
   if(e.target.id === "rPhone") saveForm({ phone: e.target.value.trim() });
 });
+// «← Корзина» стоит в заголовке, а не в #drawerBody — свой обработчик
+$("#drawerTitle").addEventListener("click", e => { if(e.target.closest("[data-rback]") && $("#rFix")){ STEP = "cart"; renderRetailCart(); scrollTo({ top: 0 }); } });
 function toLogin(){ try{ sessionStorage.setItem(WANT, "1"); }catch{} go("me"); }
 
 let busy = false;
