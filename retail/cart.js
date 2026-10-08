@@ -82,12 +82,20 @@ function slotsHTML(f){
     const on = DLV.slotSel && DLV.slotSel.date === s.date && DLV.slotSel.from === s.from;
     return `<button type="button" class="${on ? "on" : ""}" data-rslot="${esc(s.date + "|" + s.from)}"><b>${esc(slotDay(s))}</b><small>${esc(s.from)}–${esc(s.to)}</small></button>`; }).join("")}</div>`;
 }
+/* какая служба везёт: курьер по Алматы — Яндекс Доставка, в другие города и пункты — СДЭК */
+function provHTML(f){
+  const o = DLV.opts, alm = o ? o.almaty : /алмат/i.test(f.city || "");
+  const [name, note] = f.ship === "pickup" ? ["AMURA", "заберёте сами со склада в Алматы"]
+    : f.ship === "courier" ? (alm ? ["Яндекс Доставка", "курьер привезёт в выбранный интервал"] : ["СДЭК", "курьер до двери"])
+    : ["СДЭК", "пункт выдачи или постамат"];
+  return `<div class="rprov"><b class="${name === "Яндекс Доставка" ? "ya" : name === "СДЭК" ? "cd" : ""}">${name}</b><span>${note}</span></div>`;
+}
 function dlvCard(f, t){
   const tabs = TABS.map(([id, name]) => {
     const p = id === "pickup" ? 0 : dlvPrice(id, t.goods);
     return `<button type="button" role="tab" aria-selected="${f.ship === id}" data-rm="${id}">${name}${p === null ? "" : `<small>${priceTxt(p)}</small>`}</button>`; }).join("");
   const e = eta(f), w = t.dlv === null ? (f.city ? "считаем…" : "") : priceTxt(t.dlv);
-  return `<div class="rtabs" role="tablist">${tabs}</div>${addrRow(f)}
+  return `<div class="rtabs" role="tablist">${tabs}</div>${provHTML(f)}${addrRow(f)}
     <div class="reta"><b>${esc(e)}${w ? `, <span class="${t.dlv === 0 ? "free" : ""}">${w}</span>` : ""}</b><span>${fmt(t.count)} шт</span></div>
     ${DLV.opts && DLV.opts.warn ? `<div class="kv">${esc(DLV.opts.warn)}</div>` : ""}
     <div class="rthumbs">${t.ls.slice(0, 8).map(l => `<span>${l.it.img ? `<img src="${esc(l.it.img)}" alt="" loading="lazy">` : `<i>${esc((l.it.brand || l.it.name || "A").charAt(0))}</i>`}${l.q > 1 ? `<em>${l.q}</em>` : ""}</span>`).join("")}${t.ls.length > 8 ? `<span><i>+${t.ls.length - 8}</i></span>` : ""}</div>
