@@ -292,6 +292,31 @@ class MirrorTest(unittest.TestCase):
         self.assertEqual(self.count("SELECT COUNT(*) FROM ms_doc_line WHERE doc_id='d2'"), 2)
         self.assertEqual(self.count("SELECT COUNT(*) FROM ms_doc_line"), 5)
 
+    def test_stock_documents(self):
+        from datetime import datetime, timedelta
+        now_ms = datetime.now(mirror.MS_TZ)
+        ms = lambda dt: dt.strftime("%Y-%m-%d %H:%M:%S.000")
+        st = lambda sid: {"meta": {"href": f"https://x/entity/store/{sid}"}}
+        pos = {"id": "pos1", "assortment": {"meta": {"href": "https://x/entity/product/p1"}}, "quantity": 4, "price": 50000}
+        self.ms.docs["move"] = [{"id": "m1", "name": "00001", "moment": ms(now_ms - timedelta(days=1)), "updated": ms(now_ms),
+                                 "sum": 2000 * 100, "applicable": True, "sourceStore": st(STORE_A), "targetStore": st(STORE_B),
+                                 "positions": {"meta": {"size": 1}, "rows": [pos]}}]
+        self.ms.docs["supply"] = [{"id": "s1", "name": "00007", "moment": ms(now_ms - timedelta(days=d)), "updated": ms(now_ms),
+                                   "sum": 100, "applicable": True, "store": st(STORE_A), "agent": {"meta": {"href": "https://x/entity/counterparty/a9"}}}
+                                  for d in (2,)] + [{"id": "s2", "name": "00008", "moment": ms(now_ms - timedelta(days=20)),
+                                                     "updated": ms(now_ms), "sum": 100, "applicable": True, "store": st(STORE_A)}]
+        for t in mirror.STOCK_DOCS:
+            self.assertTrue(mirror.sync_entity(t, pause=0)[1], t)
+        with mirror.db() as d:
+            r = d.run("SELECT type, store_id, store2_id FROM ms_doc WHERE id='m1'", one=True)
+            self.assertEqual(tuple(r), ("move", STORE_A, STORE_B))
+            self.assertEqual(d.run("SELECT agent_id, store_id FROM ms_doc WHERE id='s1'", one=True)[0], "a9")
+        self.assertEqual(self.count("SELECT qty FROM ms_doc_line WHERE doc_id='m1'"), 4)
+        by = {c["name"]: c for c in mirror._stock_doc_checks()}
+        self.assertEqual((by["Перемещения за 7 дней"]["ours"], by["Перемещения за 7 дней"]["ok"]), (1, True))
+        self.assertEqual((by["Приёмки за 7 дней"]["ours"], by["Приёмки за 7 дней"]["ok"]), (1, True))   # s2 старше 7 дней
+        self.assertTrue(by["Инвентаризации за 7 дней"]["ok"])
+
     def test_lines_reload_once(self):
         with mirror.db() as d:
             d.run("DELETE FROM setting WHERE key='mirror_lines_v'")
