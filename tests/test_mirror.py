@@ -43,6 +43,12 @@ class FakeMS:
         assert method == "GET", "зеркало не должно писать в МойСклад"
         params = params or {}
         self.calls.append((path, dict(params)))
+        parts = path.strip("/").split("/")
+        if len(parts) == 4 and parts[0] == "entity" and parts[1] in self.docs and parts[3] == "positions":
+            doc = next(r for r in self.docs[parts[1]] if r["id"] == parts[2])
+            allp = doc.get("_all_pos", [])
+            off, lim = params.get("offset", 0), params.get("limit", 1000)
+            return {"meta": {"size": len(allp)}, "rows": allp[off:off + lim]}
         ent = path.rsplit("/", 1)[-1]
         if path.startswith("/entity/") and (ent in ("product", "variant", "counterparty") or ent in self.docs):
             rows = {"product": self.products, "variant": self.variants, "counterparty": self.agents, **self.docs}[ent]
@@ -78,7 +84,7 @@ class FakeMS:
 class MirrorTest(unittest.TestCase):
     def setUp(self):
         with mirror.db() as d:
-            for t in ("ms_product", "ms_agent", "ms_doc", "ms_store", "ms_stock", "ms_sync", "ms_recon"):
+            for t in ("ms_product", "ms_agent", "ms_doc", "ms_doc_line", "ms_store", "ms_stock", "ms_sync", "ms_recon"):
                 d.run(f"DELETE FROM {t}")
             inbox.set_setting(d, mirror.FLAG, "0")
         self.ms = FakeMS()
@@ -229,6 +235,45 @@ class MirrorTest(unittest.TestCase):
         self.assertEqual(self.count("SELECT deleted FROM ms_doc WHERE id='d1'"), 1)
         sale = {c["name"]: c for c in mirror._sales_checks()}[f"Продажи {day}: отгрузки + чеки − возвраты"]
         self.assertEqual((sale["ours"], sale["ok"]), (1500, True))
+
+    def test_document_lines(self):
+        from datetime import datetime, timedelta
+        now_ms = datetime.now(mirror.MS_TZ)
+        ms = lambda dt: dt.strftime("%Y-%m-%d %H:%M:%S.000")
+        pos = lambda i, pid, q, price, disc=0: {"id": f"pos{i}", "assortment": {"meta": {"href": f"https://x/entity/product/{pid}"}},
+                                                "quantity": q, "price": price * 100, "discount": disc}
+        d1 = {"id": "d1", "name": "1", "moment": ms(now_ms), "updated": ms(now_ms), "sum": 2700 * 100, "applicable": True,
+              "positions": {"meta": {"size": 2}, "rows": [pos(1, "p1", 2, 1000), pos(2, "p2", 1, 1000, disc=30)]}}
+        big = [pos(i, "p3", 1, 10) for i in range(5)]                  # позиций больше, чем вложено, — дочитываются отдельно
+        d2 = {"id": "d2", "name": "2", "moment": ms(now_ms), "updated": ms(now_ms), "sum": 60 * 100, "applicable": True,
+              "positions": {"meta": {"size": 5}, "rows": big[:2]}, "_all_pos": big}
+        self.ms.docs["demand"] = [d1, d2]
+        mirror.sync_entity("demand", pause=0)
+        self.assertTrue(any(c[1].get("expand") == "positions" and c[1]["limit"] == mirror.DOC_PAGE
+                            for c in self.ms.calls if c[0] == "/entity/demand"))
+        with mirror.db() as d:
+            ln = d.run("SELECT product_id, qty, price, discount, sum FROM ms_doc_line WHERE doc_id='d1' ORDER BY pos_id", many=True)
+        self.assertEqual([tuple(x) for x in ln], [("p1", 2, 1000, 0, 2000), ("p2", 1, 1000, 30, 700)])
+        self.assertEqual(self.count("SELECT COUNT(*) FROM ms_doc_line WHERE doc_id='d2'"), 5)
+        c = mirror._lines_check()
+        self.assertEqual((c["ours"], c["ok"]), (1, False))             # d2: документ 60 ₸, позиции 50 ₸
+        self.assertIn("demand №2", c["detail"][0])
+        # документ изменили — позиции заменяются, а не дублируются
+        d1["positions"] = {"meta": {"size": 1}, "rows": [pos(1, "p1", 3, 1000)]}
+        d1["sum"], d1["updated"] = 3000 * 100, ms(now_ms + timedelta(seconds=5))
+        mirror.sync_entity("demand", pause=0)
+        self.assertEqual(self.count("SELECT COUNT(*) FROM ms_doc_line WHERE doc_id='d1'"), 1)
+
+    def test_lines_reload_once(self):
+        with mirror.db() as d:
+            d.run("DELETE FROM setting WHERE key='mirror_lines_v'")
+            d.run("INSERT INTO ms_sync (entity, cursor, skip, full_from, full_done, rows) VALUES ('demand', '2026-10-08 10:00:00', 3, 0, 5, 0)")
+        mirror._lines_reload()
+        with mirror.db() as d:
+            self.assertEqual(tuple(d.run("SELECT cursor, skip, full_done FROM ms_sync WHERE entity='demand'", one=True)), ("", 0, 0))
+            d.run("UPDATE ms_sync SET full_done=5 WHERE entity='demand'")
+        mirror._lines_reload()                                          # второй раз — ничего не сбрасывает
+        self.assertEqual(self.count("SELECT full_done FROM ms_sync WHERE entity='demand'"), 5)
 
     def test_site_room_waits_for_free_slots(self):
         import threading
