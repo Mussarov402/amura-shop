@@ -87,3 +87,6 @@ body.rsheet-open{overflow:hidden}
 .rco{padding-bottom:84px}
 @media(max-width:899px){.rside .rgo,.rcart .rside{display:none}}
 @media(min-width:900px){.rfix{display:none}.rco{padding-bottom:0}}
+.rprov{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px;font-size:13px;color:var(--muted)}
+.rprov b{font-size:12.5px;font-weight:800;border-radius:8px;padding:3px 8px;background:var(--mint);color:var(--green-3)}
+.rprov b.ya{background:#FFE14D;color:#1A1A1A}.rprov b.cd{background:#1AB248;color:#fff}

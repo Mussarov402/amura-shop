@@ -456,6 +456,23 @@ body.rsheet-open{overflow:hidden}
 .rco{padding-bottom:84px}
 @media(max-width:899px){.rside .rgo,.rcart .rside{display:none}}
 @media(min-width:900px){.rfix{display:none}.rco{padding-bottom:0}}
+.rprov{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px;font-size:13px;color:var(--muted)}
+.rprov b{font-size:12.5px;font-weight:800;border-radius:8px;padding:3px 8px;background:var(--mint);color:var(--green-3)}
+.rprov b.ya{background:#FFE14D;color:#1A1A1A}.rprov b.cd{background:#1AB248;color:#fff}
+/* Розничный сайт: отзывы */
+.rpc-rate{font-size:13px;font-weight:700;display:flex;align-items:center;gap:3px}
+.rpc-rate b{color:#E8A317;font-size:14px}.rpc-rate span{color:var(--muted);font-weight:500}
+.rv-box{margin-top:18px;padding-top:14px;border-top:1px solid var(--line);display:grid;gap:10px}
+.rv-h{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}.rv-h h4{margin:0;font-size:18px}.rv-h>span{font-size:13.5px;color:var(--muted)}
+.rv-st{color:#E8A317;letter-spacing:1px}.rv-st i{font-style:normal;color:var(--line)}
+.rv-i{display:grid;gap:3px;padding:10px 0;border-bottom:1px solid var(--line)}
+.rv-t{display:flex;justify-content:space-between;align-items:center}
+.rv-n{font-size:13.5px;font-weight:700}.rv-n em{font-style:normal;font-weight:700;color:var(--green-3);font-size:12px;margin-left:4px}
+.rv-i p{margin:2px 0 0;font-size:14.5px;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere}
+.rv-a{background:var(--bg);border-radius:10px;padding:8px 10px;font-size:13.5px}
+.rv-f{display:grid;gap:8px}
+.rv-pick{display:flex;gap:4px}.rv-pick button{border:0;background:none;font-size:32px;line-height:1;color:var(--line);cursor:pointer;padding:2px}.rv-pick button.on{color:#E8A317}
+.rv-f textarea{width:100%;border:1px solid var(--line);background:var(--bg);border-radius:12px;padding:10px 12px;font:inherit;font-size:15px;color:var(--ink);resize:vertical}
 </style>
 </head>
 <body>
@@ -1633,6 +1650,12 @@ boot();
 if(!window.AMURA_RETAIL) return;
 const CART_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l-1 12H6L5 8Z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/></svg>';
 
+/* оценка из отзывов (retail/reviews.js кладёт сводку в window.RV_SUM) */
+function rateHTML(id){
+  const r = (window.RV_SUM || {})[id]; if(!r || !r[1]) return "";
+  const n = r[1], m = n % 10, h = n % 100, w = m === 1 && h !== 11 ? "оценка" : m >= 2 && m <= 4 && (h < 10 || h >= 20) ? "оценки" : "оценок";
+  return `<div class="rpc-rate"><b>★</b> ${String(r[0]).replace(".", ",")} <span>· ${fmt(n)} ${w}</span></div>`;
+}
 cardHTML = function(it){
   const q = cart[it.id] || 0;
   return `<article class="card rpc" data-id="${esc(it.id)}">
@@ -1641,7 +1664,8 @@ cardHTML = function(it){
       <button type="button" class="rpc-add${q ? " in" : ""}" data-radd aria-label="${q ? `В корзине ${q} шт, добавить ещё` : "В корзину"}">${CART_SVG}${q ? `<em>${q}</em>` : ""}</button>
     </div>
     <div class="rpc-price">${fmt(unitPrice(it, 1))} ₸</div>
-    <button type="button" class="rpc-name" data-open>${it.brand && it.brand.length <= 20 ? `<b>${esc(it.brand)}</b> / ` : ""}${esc(it.name)}</button>
+    <button type="button" class="rpc-name" data-open>${it.brand && it.brand.length <= 20 && !it.name.toLowerCase().startsWith(it.brand.toLowerCase()) ? `<b>${esc(it.brand)}</b> / ` : ""}${esc(it.name)}</button>
+    ${rateHTML(it.id)}
     ${it.qty <= 5 ? `<div class="rpc-low">Осталось ${fmt(it.qty)} шт</div>` : ""}
   </article>`;
 };
@@ -1787,12 +1811,20 @@ function slotsHTML(f){
     const on = DLV.slotSel && DLV.slotSel.date === s.date && DLV.slotSel.from === s.from;
     return `<button type="button" class="${on ? "on" : ""}" data-rslot="${esc(s.date + "|" + s.from)}"><b>${esc(slotDay(s))}</b><small>${esc(s.from)}–${esc(s.to)}</small></button>`; }).join("")}</div>`;
 }
+/* какая служба везёт: курьер по Алматы — Яндекс Доставка, в другие города и пункты — СДЭК */
+function provHTML(f){
+  const o = DLV.opts, alm = o ? o.almaty : /алмат/i.test(f.city || "");
+  const [name, note] = f.ship === "pickup" ? ["AMURA", "заберёте сами со склада в Алматы"]
+    : f.ship === "courier" ? (alm ? ["Яндекс Доставка", "курьер привезёт в выбранный интервал"] : ["СДЭК", "курьер до двери"])
+    : ["СДЭК", "пункт выдачи или постамат"];
+  return `<div class="rprov"><b class="${name === "Яндекс Доставка" ? "ya" : name === "СДЭК" ? "cd" : ""}">${name}</b><span>${note}</span></div>`;
+}
 function dlvCard(f, t){
   const tabs = TABS.map(([id, name]) => {
     const p = id === "pickup" ? 0 : dlvPrice(id, t.goods);
     return `<button type="button" role="tab" aria-selected="${f.ship === id}" data-rm="${id}">${name}${p === null ? "" : `<small>${priceTxt(p)}</small>`}</button>`; }).join("");
   const e = eta(f), w = t.dlv === null ? (f.city ? "считаем…" : "") : priceTxt(t.dlv);
-  return `<div class="rtabs" role="tablist">${tabs}</div>${addrRow(f)}
+  return `<div class="rtabs" role="tablist">${tabs}</div>${provHTML(f)}${addrRow(f)}
     <div class="reta"><b>${esc(e)}${w ? `, <span class="${t.dlv === 0 ? "free" : ""}">${w}</span>` : ""}</b><span>${fmt(t.count)} шт</span></div>
     ${DLV.opts && DLV.opts.warn ? `<div class="kv">${esc(DLV.opts.warn)}</div>` : ""}
     <div class="rthumbs">${t.ls.slice(0, 8).map(l => `<span>${l.it.img ? `<img src="${esc(l.it.img)}" alt="" loading="lazy">` : `<i>${esc((l.it.brand || l.it.name || "A").charAt(0))}</i>`}${l.q > 1 ? `<em>${l.q}</em>` : ""}</span>`).join("")}${t.ls.length > 8 ? `<span><i>+${t.ls.length - 8}</i></span>` : ""}</div>
@@ -2074,6 +2106,86 @@ dlvRefresh = () => { paint(); const n = $("#rsNote"); if(n) n.textContent = cour
 document.addEventListener("keydown", e => { if(e.key === "Escape" && $("#rSheet") && !$("#rSheet").hidden) closeSheet(); });
 markRetail();
 if(VIEW === "cart") renderCart();
+})();
+/* Розничный сайт: отзывы о товарах. Звёзды на карточках, список отзывов и «Оставить отзыв» в окне товара.
+   Оставить отзыв может только вошедший покупатель; новые отзывы появляются после проверки в панели (Товары → Отзывы). */
+(function(){
+if(!window.AMURA_RETAIL) return;
+let ON = true;
+const STAR = n => `<span class="rv-st">${"★".repeat(n)}<i>${"★".repeat(5 - n)}</i></span>`;
+const plur = n => { const m = n % 10, h = n % 100; return m === 1 && h !== 11 ? "отзыв" : m >= 2 && m <= 4 && (h < 10 || h >= 20) ? "отзыва" : "отзывов"; };
+
+async function loadSummary(){
+  if(DEMO) return;
+  try{
+    const j = await getJSON(`${CONFIG.apiUrl}/reviews/summary`, 15000);
+    ON = j.on !== false; window.RV_SUM = j.items || {};
+    if(ALL.length){ render(); if(VIEW === "fav") renderFav(); }
+  }catch{}
+}
+
+function boxHTML(j, it){
+  const mine = j.mine;
+  return `<div class="rv-h"><h4>Отзывы</h4>${j.count ? `<span>${STAR(Math.round(j.avg))} <b>${String(j.avg).replace(".", ",")}</b> · ${fmt(j.count)} ${plur(j.count)}</span>` : ""}</div>
+    ${j.items.length ? j.items.map(r => `<div class="rv-i">
+      <div class="rv-t">${STAR(r.rating)}<span class="kv">${esc(r.date)}</span></div>
+      <div class="rv-n">${esc(r.name)}${r.city ? `, ${esc(r.city)}` : ""}${r.verified ? ' <em>купил на сайте</em>' : ""}</div>
+      ${r.text ? `<p>${esc(r.text)}</p>` : ""}
+      ${r.answer ? `<div class="rv-a"><b>Ответ AMURA:</b> ${esc(r.answer)}</div>` : ""}</div>`).join("")
+      : `<p class="kv">Отзывов пока нет — будьте первым.</p>`}
+    ${mine && mine.status === "new" ? `<p class="kv">Ваш отзыв на проверке — скоро появится.</p>` : ""}
+    <button type="button" class="btn ghost" data-rvw>${!AUTH.token ? "Войти и оставить отзыв" : mine ? "Изменить мой отзыв" : "Оставить отзыв"}</button>
+    <div id="rvForm"></div>`;
+}
+function formHTML(mine){
+  const r = mine ? mine.rating : 0;
+  return `<div class="rv-f"><div class="rv-pick" role="radiogroup" aria-label="Оценка">${[1, 2, 3, 4, 5].map(n => `<button type="button" data-rvs="${n}" class="${n <= r ? "on" : ""}" aria-label="${n} из 5">★</button>`).join("")}</div>
+    <textarea id="rvText" rows="4" maxlength="2000" placeholder="Что понравилось, что нет, как подошло">${esc(mine ? mine.text : "")}</textarea>
+    <div class="err" id="rvErr"></div><button type="button" class="btn" data-rvsend>Отправить отзыв</button></div>`;
+}
+async function loadBox(it){
+  const box = $("#rvBox"); if(!box) return;
+  try{
+    const r = await fetch(`${CONFIG.apiUrl}/reviews?id=${encodeURIComponent(it.id)}`, { headers: authHeaders() });
+    const j = await r.json();
+    if($("#sheet").dataset.id !== it.id) return;
+    if(j.on === false){ ON = false; box.remove(); return; }
+    box.innerHTML = boxHTML(j, it); box.dataset.mine = JSON.stringify(j.mine || null);
+  }catch{ box.innerHTML = `<p class="kv">Отзывы сейчас не загрузились.</p>`; }
+}
+const _open = openProduct;
+openProduct = function(it){
+  _open(it);
+  if(!ON || DEMO) return;
+  const info = $("#sheet .info"); if(!info) return;
+  info.insertAdjacentHTML("beforeend", `<div class="rv-box" id="rvBox"><p class="kv">Загружаем отзывы…</p></div>`);
+  loadBox(it);
+};
+$("#sheet").addEventListener("click", async e => {
+  const box = $("#rvBox"); if(!box || !box.contains(e.target)) return;
+  const it = byId($("#sheet").dataset.id); if(!it) return;
+  if(e.target.closest("[data-rvw]")){
+    if(!AUTH.token){ closeAll(); toast("Войдите — и сможете оставить отзыв"); return go("me"); }
+    $("#rvForm").innerHTML = formHTML(JSON.parse(box.dataset.mine || "null")); e.target.closest("[data-rvw]").hidden = true; return;
+  }
+  const st = e.target.closest("[data-rvs]");
+  if(st){ const n = +st.dataset.rvs; box.querySelectorAll("[data-rvs]").forEach(b => b.classList.toggle("on", +b.dataset.rvs <= n)); box.dataset.rate = n; return; }
+  if(e.target.closest("[data-rvsend]")){
+    const btn = e.target.closest("[data-rvsend]"), err = $("#rvErr");
+    const rating = +(box.dataset.rate || box.querySelectorAll("[data-rvs].on").length), text = $("#rvText").value.trim();
+    if(!rating){ err.textContent = "Поставьте оценку — нажмите на звёзды"; return; }
+    btn.disabled = true; btn.textContent = "Отправляем…";
+    try{
+      const r = await fetch(`${CONFIG.apiUrl}/reviews`, { method: "POST", headers: authHeaders(), body: JSON.stringify({ id: it.id, rating, text }) });
+      const j = await r.json().catch(() => ({}));
+      if(r.status === 401){ closeAll(); toast("Войдите заново"); return go("me"); }
+      if(!r.ok || !j.ok) throw new Error(j.error || "Не получилось отправить");
+      toast(j.status === "new" ? "Спасибо! Отзыв появится после проверки" : "Спасибо за отзыв!");
+      loadBox(it); loadSummary();
+    }catch(ex){ err.textContent = ex.message; btn.disabled = false; btn.textContent = "Отправить отзыв"; }
+  }
+});
+loadSummary();
 })();
 </script>
 </body>

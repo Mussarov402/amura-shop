@@ -5,6 +5,12 @@
 if(!window.AMURA_RETAIL) return;
 const CART_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l-1 12H6L5 8Z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/></svg>';
 
+/* оценка из отзывов (retail/reviews.js кладёт сводку в window.RV_SUM) */
+function rateHTML(id){
+  const r = (window.RV_SUM || {})[id]; if(!r || !r[1]) return "";
+  const n = r[1], m = n % 10, h = n % 100, w = m === 1 && h !== 11 ? "оценка" : m >= 2 && m <= 4 && (h < 10 || h >= 20) ? "оценки" : "оценок";
+  return `<div class="rpc-rate"><b>★</b> ${String(r[0]).replace(".", ",")} <span>· ${fmt(n)} ${w}</span></div>`;
+}
 cardHTML = function(it){
   const q = cart[it.id] || 0;
   return `<article class="card rpc" data-id="${esc(it.id)}">
@@ -13,7 +19,8 @@ cardHTML = function(it){
       <button type="button" class="rpc-add${q ? " in" : ""}" data-radd aria-label="${q ? `В корзине ${q} шт, добавить ещё` : "В корзину"}">${CART_SVG}${q ? `<em>${q}</em>` : ""}</button>
     </div>
     <div class="rpc-price">${fmt(unitPrice(it, 1))} ₸</div>
-    <button type="button" class="rpc-name" data-open>${it.brand && it.brand.length <= 20 ? `<b>${esc(it.brand)}</b> / ` : ""}${esc(it.name)}</button>
+    <button type="button" class="rpc-name" data-open>${it.brand && it.brand.length <= 20 && !it.name.toLowerCase().startsWith(it.brand.toLowerCase()) ? `<b>${esc(it.brand)}</b> / ` : ""}${esc(it.name)}</button>
+    ${rateHTML(it.id)}
     ${it.qty <= 5 ? `<div class="rpc-low">Осталось ${fmt(it.qty)} шт</div>` : ""}
   </article>`;
 };
