@@ -11,7 +11,9 @@ const MON = ["января","февраля","марта","апреля","мая
 const WANT = "amura-r-checkout";                 // «после входа вернуться к оформлению»
 /* способы получения: Алматы — Яндекс «в течение дня», пункт СДЭК, самовывоз, Express; другие города — только пункт выдачи СДЭК */
 const isAlm = f => DLV.opts && DLV.city === ((f && f.city) || "") ? DLV.opts.almaty : /алмат/i.test((f && f.city) || "");
-const tabsFor = f => isAlm(f) ? [["courier", "В течение дня"], ["cdek", "Пункт СДЭК"], ["pickup", "Самовывоз"], ["express", "Express"]] : [["cdek", "Пункт выдачи СДЭК"]];
+/* Express — только в часы приёма (настраиваются в панели): сервер не отдаёт его в способах, вкладку не показываем */
+const xOff = f => DLV.opts && DLV.city === ((f && f.city) || "") && DLV.opts.express && !DLV.opts.express.open;
+const tabsFor = f => isAlm(f) ? [["courier", "В течение дня"], ["cdek", "Пункт СДЭК"], ["pickup", "Самовывоз"], ["express", "Express"]].filter(t => t[0] !== "express" || !xOff(f)) : [["cdek", "Пункт выдачи СДЭК"]];
 const isCour = s => s === "courier" || s === "express";
 const _dlvPrice = dlvPrice;
 dlvPrice = function(ship, goods){          // цена по способу: своя цена и свой порог бесплатной доставки (rates с сервера)
@@ -112,6 +114,7 @@ function dlvCard(f, t){
   return `<div class="rtabs n${TB.length}" role="tablist">${tabs}</div>${provHTML(f)}${addrRow(f)}
     <div class="reta"><b>${esc(e)}${w ? `, <span class="${t.dlv === 0 ? "free" : ""}">${w}</span>` : ""}</b><span>${fmt(t.count)} шт</span></div>
     ${DLV.opts && DLV.opts.warn ? `<div class="kv">${esc(DLV.opts.warn)}</div>` : ""}
+    ${xOff(f) ? `<div class="kv">Express — ${esc(DLV.opts.express.hours || "")}${DLV.opts.express.next ? `. Откроется ${esc(DLV.opts.express.next)}` : ""}</div>` : ""}
     <div class="rthumbs">${t.ls.slice(0, 8).map(l => `<span>${l.it.img ? `<img src="${esc(l.it.img)}" alt="" loading="lazy">` : `<i>${esc((l.it.brand || l.it.name || "A").charAt(0))}</i>`}${l.q > 1 ? `<em>${l.q}</em>` : ""}</span>`).join("")}${t.ls.length > 8 ? `<span><i>+${t.ls.length - 8}</i></span>` : ""}</div>
     ${slotsHTML(f)}`;
 }

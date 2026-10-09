@@ -100,6 +100,7 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 .accmenu button{all:unset;box-sizing:border-box;width:100%;padding:11px 10px;border-radius:10px;cursor:pointer;color:#B3261E;font-weight:700;font-size:14.5px}.accmenu button:hover{background:#FBEAE8}
 .btn.wab{background:#128C4A;font-size:16px;padding:14px 22px}.btn[disabled]{opacity:.45;cursor:not-allowed}details summary{outline:0}
 .lblrow{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid #E3E6E4}.lblrow .btn,.lblrow select{flex:1 1 150px}@media(min-width:801px){.lblrow .btn,.lblrow select{flex:0 0 auto}}
+.xhr{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:8px;margin:6px 0 12px}.xhd{display:flex;align-items:center;gap:6px}.xhd .dlday{flex:none;min-width:44px}.xhd input{flex:1;min-width:110px;padding:8px}.xhd input:disabled{opacity:.4}
 .selbar{position:fixed;left:12px;right:12px;bottom:calc(98px + env(safe-area-inset-bottom,0px));z-index:40;display:flex;align-items:center;gap:8px;background:#fff;border-radius:16px;padding:10px 12px;box-shadow:0 10px 30px rgba(8,25,18,.25);flex-wrap:wrap}
 .selbar .btn{padding:9px 11px;font-size:14px;white-space:nowrap}@media(max-width:800px){.selbar{gap:8px;padding:10px}.selbar b{order:-2}.selbar #sclr{order:-1;margin-left:auto;flex:0 0 auto}.selbar .sbsp{flex:0 0 100%!important;height:0}.selbar .btn:not(#sclr){flex:1 1 0}}@media(min-width:801px){.selbar{left:auto;right:28px;bottom:24px;min-width:520px}}
 </style><style id="eocss">.eo{background:#fff;width:100%;max-width:560px;max-height:92vh;overflow:auto;border-radius:18px 18px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom))}
@@ -654,6 +655,8 @@ async delivery(){const o=await api("delivery");const n=nav;const S=o.services,R=
  <div class="card dlc"><b>Цена доставки на розничном сайте</b><div class="mut">По Алматы — Яндекс «в течение дня», срочный курьер и самовывоз (бесплатно). В другие города — только пункт выдачи СДЭК. У каждого способа своя цена и своя сумма, от которой доставка бесплатная (0 — бесплатной нет)</div>
   <div class="dlz" style="margin-top:10px">${num("r-sdd_price","Алматы, в течение дня — цена",R.sdd_price??1000,"₸")}${num("r-sdd_free","Алматы, в течение дня — бесплатно от",R.sdd_free??15000,"₸")}</div>
   <div class="dlz">${num("r-express_price","Алматы, срочно (Яндекс Экспресс) — цена, всегда платно",R.express_price??2500,"₸")}</div>
+  <div class="dll" style="margin:6px 0 2px"><b>Express на сайте — часы приёма заказов</b><div class="mut" style="font-size:13px">Вне этих часов покупатель не видит Express в корзине и видит, когда он откроется. Выключенный день — Express нет.</div></div>
+  <div class="xhr">${o.days.map((d,i)=>{const h=(o.express_hours||[])[i];return `<div class="xhd"><button type="button" class="dlday xhon ${h?"on":""}" data-xd="${i}" aria-pressed="${!!h}">${d}</button><input type="time" class="xhf" value="${esc(h?h[0]:"09:30")}" ${h?"":"disabled"} aria-label="${d} с"><span class="mut">–</span><input type="time" class="xht" value="${esc(h?h[1]:"17:30")}" ${h?"":"disabled"} aria-label="${d} до"></div>`}).join("")}</div>
   <div class="dlz">${num("r-cdek_price","Другие города, пункт выдачи СДЭК — цена",R.cdek_price??1500,"₸")}${num("r-cdek_free","Пункт выдачи СДЭК — бесплатно от",R.cdek_free??20000,"₸")}</div>
   <div class="mut dlx" id="dlx2"></div>
   <div hidden><div class="dltr" id="dltr"></div><button type="button" id="dlta"></button>${num("r-free_from","",R.free_from,"₸")}${num("r-door_extra","",R.door_extra??1000,"₸")}<div id="dlx"></div></div></div>
@@ -687,7 +690,7 @@ async delivery(){const o=await api("delivery");const n=nav;const S=o.services,R=
  const ex2=()=>{const v=k=>+($("#r-"+k).value.replace(/\D/g,"")||0),pr=(s,p,f)=>f&&s>=f?"бесплатно":fmt(p)+" ₸";
   $("#dlx2").innerHTML=[8000,16000,21000].map(s=>`Товаров на ${fmt(s)} ₸: в течение дня — ${pr(s,v("sdd_price"),v("sdd_free"))}, срочно — ${fmt(v("express_price"))} ₸, СДЭК — ${pr(s,v("cdek_price"),v("cdek_free"))}`).join("<br>")};
  ex2();["sdd_price","sdd_free","express_price","cdek_price","cdek_free"].forEach(k=>$("#r-"+k).oninput=ex2);
- document.querySelectorAll(".dlday").forEach(b=>b.onclick=()=>{b.classList.toggle("on");b.setAttribute("aria-pressed",b.classList.contains("on"))});
+ document.querySelectorAll(".dlday").forEach(b=>b.onclick=()=>{b.classList.toggle("on");b.setAttribute("aria-pressed",b.classList.contains("on"));if(b.classList.contains("xhon"))b.parentNode.querySelectorAll("input").forEach(i=>i.disabled=!b.classList.contains("on"))});
  const slotRow=x=>{const r=document.createElement("div");r.className="dlsr";
   r.innerHTML=`<input class="dlsn" placeholder="Название, напр. Вечер" value="${esc(x.name)}" aria-label="Название интервала"><div class="dlst2"><input class="dlsf" type="time" value="${esc(x.from)}" aria-label="С"><span>—</span><input class="dlsto" type="time" value="${esc(x.to)}" aria-label="До"><button type="button" class="dlsx" aria-label="Удалить интервал">✕</button></div>`;
   r.querySelector(".dlsx").onclick=()=>r.remove();$("#dlsl").appendChild(r);return r};
@@ -697,6 +700,7 @@ async delivery(){const o=await api("delivery");const n=nav;const S=o.services,R=
   b.cdek.test=$("#d-cdek-test").checked;["free_from","door_extra","weight","cutoff","box_w","box_h","box_d","sdd_price","sdd_free","express_price","cdek_price","cdek_free"].forEach(k=>b.rules[k]=$("#r-"+k).value.replace(/\D/g,"")||0);b.tiers=tiers();
   b.schedule={days:[...document.querySelectorAll(".dlday")].map(x=>x.classList.contains("on")?"1":"0").join(""),open:$("#g-open").value,close:$("#g-close").value,
    slots:[...document.querySelectorAll(".dlsr")].map(r=>({name:r.querySelector(".dlsn").value,from:r.querySelector(".dlsf").value,to:r.querySelector(".dlsto").value})).filter(x=>x.name.trim())};
+  b.express_hours=[...document.querySelectorAll(".xhd")].map(r=>r.querySelector(".xhon").classList.contains("on")?[r.querySelector(".xhf").value,r.querySelector(".xht").value]:null);
   ["wh_addr","wh_phone","wh_hours","wh_coords"].forEach(k=>b.store[k]=$("#w-"+k).value);return b};
  const save=async b=>{await api("delivery",{method:"POST",body:JSON.stringify(b)})};
  $("#dsv").onclick=async()=>{$("#dsm").textContent="Сохраняю…";try{await save(collect());if(n===nav){await views.delivery();toast("Сохранено")}}catch(e){$("#dsm").textContent=e.message}};

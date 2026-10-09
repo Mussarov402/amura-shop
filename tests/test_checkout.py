@@ -22,6 +22,17 @@ import checkout  # noqa: E402
 ITEM = {"id": "p1", "name": "Крем", "qty": 50, "opt": 5000, "mid": 4900, "box": 4800, "boxQty": 40, "rtl": 3000}
 
 
+
+_xs = delivery.express_state
+
+
+def setUpModule():                    # Express открыт — тесты не зависят от часов приёма (их проверяет test_express_hours)
+    delivery.express_state = lambda now=None: {"open": True, "next": "", "today": "до 17:30"}
+
+
+def tearDownModule():
+    delivery.express_state = _xs
+
 class Prices(unittest.TestCase):
     def test_rates(self):
         cp = checkout.client_price
