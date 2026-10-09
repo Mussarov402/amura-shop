@@ -327,6 +327,41 @@ $("#drawerBody").addEventListener("input", e => {
 $("#drawerTitle").addEventListener("click", e => { if(e.target.closest("[data-rback]") && $("#rFix")){ STEP = "cart"; renderRetailCart(); scrollTo({ top: 0 }); } });
 function toLogin(){ try{ sessionStorage.setItem(WANT, "1"); }catch{} go("me"); }
 
+/* после заказа — как на WB: «Заказ оформлен», состав, доставка, что дальше; без WhatsApp и PDF — заказ уже у менеджера */
+function doneRetail(res, f, t){
+  const total = res.total || t.total, ph = String(f.phone || "").replace(/\D/g, "");
+  const phone = ph.length === 11 ? `+${ph[0]} ${ph.slice(1, 4)} ${ph.slice(4, 7)} ${ph.slice(7, 9)} ${ph.slice(9)}` : (f.phone || "");
+  const where = f.ship === "pickup" ? ((method("pickup") && method("pickup").note) || "Склад в Алматы")
+    : f.ship === "cdek" ? (f.pvz ? f.pvz.address : f.address) : f.address;
+  const how = { courier: "Курьер Яндекс, в течение дня", express: "Express, курьер Яндекс за 1–2 часа", cdek: "Пункт выдачи СДЭК", pickup: "Самовывоз" }[f.ship] || "";
+  const when = f.ship === "courier" && f.slot ? `${slotDay(f.slot)}, ${f.slot.from}–${f.slot.to}` : f.ship === "express" ? "Сегодня, за 1–2 часа после подтверждения" : eta(f);
+  $("#drawerTitle").textContent = "Заказ оформлен";
+  $("#drawerBody").innerHTML = `<div class="done rdone">
+    <div class="rdone-h">${CHECK_BIG}<div><h3>Спасибо! Заказ № ${esc(res.number)}</h3><p>${plTov(t.count)} на ${fmt(total)} ₸</p></div></div>
+    <ol class="rsteps">
+      <li class="on"><b>Заказ принят</b><span>Товары зарезервированы за вами</span></li>
+      <li><b>Подтвердим и пришлём ссылку на оплату</b><span>Напишем в WhatsApp на ${esc(phone)} — обычно в течение 15 минут в рабочее время</span></li>
+      <li><b>${f.ship === "pickup" ? "Можно забирать" : "Доставка"}</b><span>${esc(f.ship === "pickup" ? "Сообщим, когда заказ будет собран" : when || "")}</span></li>
+    </ol>
+    <div class="rcard rdone-d">
+      <div class="rrow"><span>Получение</span><b>${esc(how)}</b></div>
+      ${where ? `<div class="rrow"><span>${f.ship === "pickup" ? "Адрес склада" : "Адрес"}</span><b>${esc(where)}</b></div>` : ""}
+      ${f.ship === "courier" && when ? `<div class="rrow"><span>Когда</span><b>${esc(when)}</b></div>` : ""}
+      <div class="rrow"><span>Получатель</span><b>${esc(f.name || "")}, ${esc(phone)}</b></div>
+      <div class="rthumbs">${t.ls.slice(0, 8).map(l => `<span>${l.it.img ? `<img src="${esc(l.it.img)}" alt="" loading="lazy">` : `<i>${esc((l.it.brand || l.it.name || "A").charAt(0))}</i>`}${l.q > 1 ? `<em>${l.q}</em>` : ""}</span>`).join("")}</div>
+      <div class="rrow"><span>Товары</span><span>${fmt(t.goods)} ₸</span></div>
+      <div class="rrow"><span>Доставка</span><span>${t.dlv ? fmt(t.dlv) + " ₸" : "бесплатно"}</span></div>
+      <div class="rtot"><span>Итого</span><b>${fmt(total)} ₸</b></div>
+    </div>
+    <button class="btn" id="rdOrders" type="button">Мои заказы</button>
+    <button class="btn ghost" id="rdShop" type="button">Продолжить покупки</button>
+  </div>`;
+  $("#rdOrders").onclick = () => go("me");
+  $("#rdShop").onclick = () => go("home");
+  scrollTo({ top: 0 });
+}
+const CHECK_BIG = '<svg class="rdone-ok" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="22"/><path d="M14 24.5l7 7 13-14"/></svg>';
+
 let busy = false;
 async function submit(){
   if(busy) return;
@@ -366,7 +401,7 @@ async function submit(){
       if(!r.ok || !res.ok) throw new Error(res.error || "Сервер не ответил");
     }
     $("#drawerBody").parentElement.classList.remove("rwide", "rstep2");
-    showDone(res, { ...f, contact: "wa", pvz: DLV.pvzSel, slot: DLV.slotSel, address: f.address || "" }, t);
+    doneRetail(res, { ...f, pvz: DLV.pvzSel, slot: DLV.slotSel, address: f.address || "" }, t);
     orderKeyVal = ""; DLV.slotSel = null; STEP = "cart";
     t.ls.forEach(l => delete cart[l.it.id]); save("amura-cart2", cart); renderCartCount(); render();   // заказанное убираем, остальное остаётся
   }catch(ex){ err.textContent = (ex.message || "Ошибка") + ". Попробуйте ещё раз."; toast(ex.message || "Ошибка"); }
