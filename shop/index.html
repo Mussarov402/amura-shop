@@ -486,6 +486,15 @@ input,select,textarea{font-size:16px!important}
 /* Алматы: 4 способа — на телефоне 2×2, на компьютере в ряд */
 .rtabs.n4{grid-template-columns:repeat(2,minmax(0,1fr))}
 @media(min-width:900px){.rtabs.n4{grid-template-columns:repeat(4,minmax(0,1fr))}}
+/* юридические ссылки внизу (как на WB): мелко и серо, не мешают; на телефоне — над нижней панелью */
+.rlegal{max-width:1200px;margin:40px auto 0;padding:18px 16px 24px;border-top:1px solid var(--line);font-size:12.5px;color:var(--muted);display:grid;gap:6px}
+.rlegal nav{display:flex;flex-wrap:wrap;gap:4px 16px}
+.rlegal a{color:var(--muted);text-decoration:none}.rlegal a:hover{color:var(--ink);text-decoration:underline}
+@media(max-width:760px){.rlegal{display:none}}      /* телефон: как в приложении WB — ссылки только во вкладке «Я» */
+.rterms{font-size:12px;color:var(--muted);margin-top:8px;line-height:1.4}.rterms a{color:var(--muted)}
+.rlegal-me{margin:28px 0 8px;font-size:13px;color:var(--muted)}
+.rlegal-me b{display:block;margin-bottom:6px;font-size:13px;color:var(--ink)}
+.rlegal-me a{display:block;padding:7px 0;color:var(--muted);text-decoration:none;border-top:1px solid var(--line)}
 /* Розничный сайт: отзывы */
 .rpc-rate{font-size:13px;font-weight:700;display:flex;align-items:center;gap:3px}
 .rpc-rate b{color:#E8A317;font-size:14px}.rpc-rate span{color:var(--muted);font-weight:500}
@@ -1933,6 +1942,7 @@ function totalsHTML(f, t){
     ${rest ? `<div class="rfree">До бесплатной доставки ещё <b>${fmt(rest)} ₸</b><i><b style="width:${Math.round(100 * t.goods / ff)}%"></b></i></div>` : ""}
     <div class="err" id="rErr"></div>
     <button type="button" class="btn rgo" id="rGo">${login ? "Войти и заказать" : "Заказать"}</button>
+    ${window.AMURA_LEGAL ? `<div class="rterms">Нажимая «Заказать», вы принимаете условия <a href="legal/offer.html" target="_blank">оферты</a> и <a href="legal/privacy.html" target="_blank">политики конфиденциальности</a></div>` : ""}
     ${login ? `<div class="rhint mut">Чтобы оформить заказ, войдите или зарегистрируйтесь — по номеру телефона или через Telegram, без пароля</div>` : ""}`;
 }
 
@@ -2191,10 +2201,17 @@ function markRetail(){
 const _paintMe = paintMe;
 paintMe = function(p, orders){
   _paintMe(p, orders); markRetail();
+  legalMe();
   let want = false; try{ want = sessionStorage.getItem(WANT) === "1"; }catch{}
   if(want && AUTH.token && p && p.name){ try{ sessionStorage.removeItem(WANT); }catch{} toast("Вы вошли — оформляем заказ"); NEXT = "checkout"; go("cart"); }
 };
 
+/* вкладка «Я»: «Правовая информация» внизу — как в приложении WB (подвал сайта на телефоне скрыт) */
+function legalMe(){
+  if(!window.AMURA_LEGAL || $("#rLegalMe")) return;
+  const box = $("#meBody") || $("#viewMe"); if(!box) return;
+  box.insertAdjacentHTML("beforeend", `<div class="rlegal-me" id="rLegalMe"><b>Правовая информация</b>${[["offer", "Публичная оферта"], ["privacy", "Политика конфиденциальности"], ["delivery", "Доставка и оплата"], ["returns", "Возврат и обмен"], ["contacts", "Контакты и реквизиты"]].map(([k, t]) => `<a href="legal/${k}.html">${t}</a>`).join("")}</div>`);
+}
 renderCart = renderRetailCart;
 const _shipName = dlvShipName;
 dlvShipName = function(f){ return f.ship === "express" ? "Срочный курьер по Алматы (Яндекс Экспресс) — " + (f.address || "") : _shipName(f); };
@@ -2204,6 +2221,7 @@ const _renderAuth = renderAuth;
 renderAuth = function(){
   _renderAuth();
   ["#tgLogin", "#tgHint", "#meBody .or"].forEach(sel => { const el = $(sel); if(el) el.remove(); });
+  legalMe();
   const send = $("#aSend");
   if(send && !$("#aRemember")){
     send.insertAdjacentHTML("beforebegin", `<label class="rremember"><input type="checkbox" id="aRemember" ${remember() ? "checked" : ""}><span>Запомнить меня<small>Снимите на чужом телефоне — вход сбросится, когда закроете браузер</small></span></label>`);
