@@ -42,6 +42,16 @@ class ExpressHours(unittest.TestCase):
         self.assertIn("express", checkout.allowed("Алматы"))
         self.assertEqual(checkout.allowed("Астана"), ("cdek",))
 
+    def test_one_schedule(self):
+        """Один график: из него дни курьера «в течение дня» и часы самовывоза на сайте."""
+        delivery.save({"express_hours": [None, ["10:00", "18:00"], None, None, None, None, ["11:00", "15:00"]], "store": {"wh_hours": "старый текст"}})
+        self.addCleanup(lambda: delivery.save({"express_hours": delivery.EXPRESS_HOURS_DEFAULT}))
+        c = delivery.conf()
+        self.assertEqual(c["schedule"]["days"], "0100001")
+        self.assertEqual(c["store"]["wh_hours"], "Вт 10:00–18:00, Вс 11:00–15:00")
+        days = {x["day"] for x in delivery.slots_ahead(now=datetime(2026, 10, 12, 6, 0), days=2)}
+        self.assertEqual(days, {"Вт", "Вс"})
+
 
 if __name__ == "__main__":
     unittest.main()
