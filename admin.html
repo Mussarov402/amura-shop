@@ -364,13 +364,10 @@ const head=(t,s)=>`<h1>${t}</h1><div class="sub">${s}</div>`;
 const LBLF={a4:["A4 — 8 на листе","size:A4;margin:0","105mm","74.25mm","grid;grid-template-columns:105mm 105mm"],t58:["Термо 58×40","size:58mm 40mm;margin:0","58mm","40mm","block"],t75:["Термо 75×120","size:75mm 120mm;margin:0","75mm","120mm","block"]};
 const lblFmt=()=>{try{const v=localStorage.getItem("amura_lbl");return LBLF[v]?v:"a4"}catch(e){return "a4"}};
 const lblPick=()=>`<select id="lblf" style="width:auto;flex:none;padding:10px">${Object.entries(LBLF).map(([k,v])=>`<option value="${k}" ${k===lblFmt()?"selected":""}>${v[0]}</option>`).join("")}</select>`;
-function printLabels(list,kind){if(!list.length)return toast("Нет заказов для наклеек");const f=LBLF[lblFmt()],sm=lblFmt()==="t58";
- const one=x=>`<div class="l"><div class="t"><b>AMURA</b>${(x.kind||kind)?`<span>${esc(x.kind||kind)}</span>`:""}</div><div class="n">№${esc(x.num)}</div><div class="c">${esc(x.name||"")}</div><div class="a">${esc(x.addr||"")}</div>${sm?"":`<div class="m">${x.slot?esc(x.slot):""}${x.phone?" · тел. …"+esc(String(x.phone).slice(-4)):""}</div>`}</div>`;
- const html=`<!doctype html><html><head><meta charset="utf-8"><title>Наклейки</title><style>@page{${f[1]}}*{box-sizing:border-box;margin:0}body{font-family:Arial,sans-serif;color:#000;display:${f[4]}}
-.l{width:${f[2]};height:${f[3]};padding:${sm?"2.5mm 3mm":"6mm 7mm"};overflow:hidden;display:flex;flex-direction:column;gap:${sm?"0.6mm":"2mm"};border:${lblFmt()==="a4"?"0.2mm dashed #999":"0"};page-break-inside:avoid;break-inside:avoid}
-${lblFmt()==="a4"?"":".l{page-break-after:always;break-after:page}"}.t{display:flex;justify-content:space-between;font-size:${sm?"7pt":"10pt"}}.t span{border:0.3mm solid #000;padding:0 1.5mm;font-weight:700}
-.n{font-size:${sm?"20pt":lblFmt()==="t75"?"40pt":"32pt"};font-weight:900;line-height:1}.c{font-size:${sm?"8.5pt":"13pt"};font-weight:700}.a{font-size:${sm?"7.5pt":"11pt"};line-height:1.2}.m{font-size:10pt;margin-top:auto}</style></head><body>${list.map(one).join("")}</body></html>`;
- printHTML(html)}
+async function printLabels(list,kind){if(!list.length)return toast("Нет заказов для наклеек");
+ /* PDF точного размера с сервера: телефон и термопринтер не понимают размер страницы из HTML, а PDF печатают как есть */
+ try{const r=await api("labels",{method:"POST",body:JSON.stringify({fmt:lblFmt(),items:list.map(x=>({num:x.num,name:x.name||"",addr:x.addr||"",kind:x.kind||kind||"",slot:x.slot||"",phone:x.phone||""}))})});
+  openDoc(r.url,"AMURA-наклейки-"+lblFmt()+".pdf")}catch(e){toast(e.message)}}
 function printHTML(html){const fr=document.createElement("iframe");fr.style.cssText="position:fixed;right:0;bottom:0;width:0;height:0;border:0";document.body.appendChild(fr);
  fr.onload=()=>{setTimeout(()=>{try{fr.contentWindow.focus();fr.contentWindow.print()}catch(e){toast(e.message)}setTimeout(()=>fr.remove(),60000)},150)};fr.srcdoc=html}
 /* способ доставки коротко — для наклейки */
