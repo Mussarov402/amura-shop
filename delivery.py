@@ -48,11 +48,11 @@ class Cdek:
         self.cid, self.secret, self.test_mode = c.get("client_id", ""), c.get("secret", ""), c.get("test") == "1"
         self.base = "https://api.edu.cdek.ru/v2" if self.test_mode else "https://api.cdek.ru/v2"
 
-    def token(self):
+    def token(self, timeout=TIMEOUT):
         if not (self.cid and self.secret):
             raise RuntimeError("Не указаны Client ID и Client Secret")
         r = requests.post(self.base + "/oauth/token", data={"grant_type": "client_credentials", "client_id": self.cid,
-                                                            "client_secret": self.secret}, timeout=TIMEOUT)
+                                                            "client_secret": self.secret}, timeout=timeout)
         if r.status_code in (400, 401, 403):
             raise RuntimeError("СДЭК не принял Client ID / Client Secret")
         r.raise_for_status()

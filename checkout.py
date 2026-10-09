@@ -7,6 +7,7 @@
 Сервер пересчитывает цену доставки при заказе сам (order_core), цене из браузера не верим.
 """
 import re
+import time
 
 from flask import Blueprint, jsonify, request
 
@@ -48,13 +49,33 @@ def rates():
 
 
 # ---------- СДЭК: город, сроки, пункты выдачи (с кэшем — СДЭК отвечает не мгновенно) ----------
+CDEK_TIMEOUT = 6          # сек: СДЭК не ответил — корзина не ждёт (сайт ждёт ответа сервера до 20 с)
+CDEK_PAUSE = 300          # после сбоя 5 минут не обращаемся к СДЭК — ответ сразу, без ожидания
+_cdek_down = [0.0]
+
+
 def _cdek():
     c = delivery.conf()["svc"]["cdek"]
     if not (c.get("client_id") and c.get("secret")):
         return None
+    if time.time() - _cdek_down[0] < CDEK_PAUSE:
+        raise RuntimeError("СДЭК недавно не ответил — пауза")
     cd = delivery.Cdek(c)
-    tok = oh.cached("cdek_tok", 3000, cd.token)
+    try:
+        tok = oh.cached("cdek_tok", 3000, lambda: cd.token(timeout=CDEK_TIMEOUT))
+    except Exception:
+        _cdek_down[0] = time.time()
+        raise
     return cd, tok
+
+
+def _cdek_get(fn):
+    """Запрос к СДЭК: при сбое — пауза CDEK_PAUSE, чтобы следующие корзины не ждали таймаута."""
+    try:
+        return fn()
+    except Exception:
+        _cdek_down[0] = time.time()
+        raise
 
 
 def cdek_city_code(city):
@@ -67,11 +88,11 @@ def cdek_city_code(city):
             return None
         cd, tok = x
         r = oh.requests.get(cd.base + "/location/cities", params={"country_codes": "KZ", "city": city, "size": 1},
-                            headers={"Authorization": "Bearer " + tok}, timeout=15)
+                            headers={"Authorization": "Bearer " + tok}, timeout=CDEK_TIMEOUT)
         r.raise_for_status()
         j = r.json() or []
         return j[0]["code"] if j else None
-    return oh.cached("cdek_city:" + city.lower(), 86400, find)
+    return oh.cached("cdek_city:" + city.lower(), 86400, lambda: _cdek_get(find))
 
 
 def cdek_eta(city):
@@ -83,7 +104,7 @@ def cdek_eta(city):
         cd, tok = _cdek()
         src = cdek_city_code("Алматы")
         r = delivery.conf()["rules"]
-        r_ = oh.requests.post(cd.base + "/calculator/tarifflist", headers={"Authorization": "Bearer " + tok}, timeout=20, json={
+        r_ = oh.requests.post(cd.base + "/calculator/tarifflist", headers={"Authorization": "Bearer " + tok}, timeout=CDEK_TIMEOUT, json={
             "from_location": {"code": src}, "to_location": {"code": code},
             "packages": [{"weight": max(300, r["weight"] * 2), "length": r["box_w"], "width": r["box_h"], "height": r["box_d"]}]})
         r_.raise_for_status()
@@ -93,7 +114,7 @@ def cdek_eta(city):
             if kind and t.get("delivery_sum") is not None and (kind not in best or t["delivery_sum"] < best[kind][0]):
                 best[kind] = (t["delivery_sum"], t.get("period_min"), t.get("period_max"))
         return {k: (v[1], v[2]) for k, v in best.items()}
-    return oh.cached("cdek_eta:" + str(code), 6 * 3600, calc)
+    return oh.cached("cdek_eta:" + str(code), 6 * 3600, lambda: _cdek_get(calc))
 
 
 def cdek_points(city):
@@ -103,7 +124,7 @@ def cdek_points(city):
     def load():
         cd, tok = _cdek()
         r = oh.requests.get(cd.base + "/deliverypoints", params={"city_code": code, "country_code": "KZ"},
-                            headers={"Authorization": "Bearer " + tok}, timeout=20)
+                            headers={"Authorization": "Bearer " + tok}, timeout=CDEK_TIMEOUT)
         r.raise_for_status()
         out = []
         for p in r.json() or []:
@@ -115,7 +136,7 @@ def cdek_points(city):
                         "lat": loc.get("latitude"), "lon": loc.get("longitude")})
         out.sort(key=lambda x: x["address"])
         return out[:300]
-    return oh.cached("cdek_pvz:" + str(code), 6 * 3600, load)
+    return oh.cached("cdek_pvz:" + str(code), 6 * 3600, lambda: _cdek_get(load))
 
 
 def _days(p):
@@ -129,7 +150,7 @@ def options(city, goods_sum):
     c = delivery.conf()
     alm = is_almaty(city)
     eta, err = {}, ""
-    if city:
+    if city and "cdek" in allowed(city):          # Алматы — без СДЭК, ничего не ждём
         try:
             eta = cdek_eta(city)
         except Exception as e:

@@ -53,6 +53,26 @@ class Options(unittest.TestCase):
         self.assertEqual(r["rates"]["courier"], {"price": 1000, "free": 15000})
         self.assertIsInstance(r["slots"], list)
 
+    def test_cdek_down_fast(self):
+        """СДЭК не отвечает: Алматы его не спрашивает, другие города — один раз, дальше пауза без ожидания."""
+        import time as _t
+        calls = []
+        def boom(city):
+            calls.append(city)
+            checkout._cdek_down[0] = _t.time()
+            raise RuntimeError("timeout")
+        checkout.cdek_eta = boom
+        checkout._cdek_down[0] = 0
+        r = json.loads(self.c.get("/delivery/options?city=Алматы&sum=3000").data)
+        self.assertEqual([m["price"] for m in r["methods"]], [1000, 0, 2500])
+        self.assertEqual(calls, [])                                    # Алматы — без СДЭК
+        r = json.loads(self.c.get("/delivery/options?city=Астана&sum=3000").data)
+        self.assertEqual(r["methods"][0]["price"], 1500)               # цена есть и без СДЭК
+        self.assertTrue(r["warn"])
+        checkout.cdek_eta = lambda city: {"pvz": (2, 4)}
+        self.assertGreater(_t.time() - checkout._cdek_down[0], -1)
+        checkout._cdek_down[0] = 0
+
     def test_region(self):
         r = json.loads(self.c.get("/delivery/options?city=Караганда&sum=3000").data)
         self.assertFalse(r["almaty"])
