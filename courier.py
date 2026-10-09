@@ -5,6 +5,7 @@
 «Рассчитать» — по каждому заказу создаётся заявка в Яндексе (только оценка, ничего не стоит). «Подтвердить» — заявки
 принимаются, курьер едет. Без нажатия в панели сервер ничего платного не вызывает.
 Яндекс не присылает статусы сам (только опрос) — панель обновляет их кнопкой «Обновить» и при открытии раздела.
+Express («Срочный курьер по Алматы (Яндекс Экспресс)») — отдельный блок сверху: по одному заказу, без интервала (taxi_class=express).
 """
 import json
 import re
@@ -23,7 +24,8 @@ from admin import need
 bp = Blueprint("courier", __name__)
 TIMEOUT = 20
 YA = delivery.Yandex.BASE + "/b2b/cargo/integration/v2"
-SHIP_MARK = "Курьер по Алматы"
+SHIP_MARK = "Курьер по Алматы"          # ищется и в «Срочный курьер по Алматы (Яндекс Экспресс)»
+EXPRESS_MARK = "Яндекс Экспресс"
 # Алматы: рамка для поиска адреса (запад, север, восток, юг)
 ALMATY_BOX = (76.70, 43.40, 77.20, 43.10)
 STATUS = {"new": "Ещё не рассчитан", "estimating": "Яндекс считает цену…", "ready_for_approval": "Рассчитан — ждёт подтверждения",
@@ -143,8 +145,13 @@ def day_orders(day):
     b = (d0 + timedelta(days=2) - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S")
     r = oh.ms("GET", "/entity/customerorder", params={"filter": f"description~{SHIP_MARK};moment>={a};moment<{b}",
                                                       "order": "moment,asc", "limit": 100, "expand": "agent,state"}, timeout=20)
-    return [parse_order(o) for o in r.get("rows", []) if (o.get("description") or "").startswith(oh.RETAIL_MARK)
-            and "Яндекс Экспресс" not in (o.get("description") or "")]      # срочные — отдельно, не «в течение дня»
+    out = []
+    for o in r.get("rows", []):
+        if (o.get("description") or "").startswith(oh.RETAIL_MARK):
+            x = parse_order(o)
+            x["express"] = EXPRESS_MARK in (o.get("description") or "")       # срочные — отдельный блок, свой вызов
+            out.append(x)
+    return out
 
 
 def _row(d, num):
@@ -188,7 +195,8 @@ def claim_body(o, pt, wh, interval):
              "address": {"fullname": "Алматы, " + o["addr"], "coordinates": list(pt)},
              "external_order_id": o["num"]},
         ],
-        "same_day_data": {"delivery_interval": {"from": interval["from"], "to": interval["to"]}},
+        **({"same_day_data": {"delivery_interval": {"from": interval["from"], "to": interval["to"]}}} if interval
+           else {"client_requirements": {"taxi_class": "express"}}),             # Express: курьер едет сразу, за 1–2 часа
         "comment": f"AMURA, заказ №{o['num']}. Позвонить клиенту за 15 минут.",
         "emergency_contact": {"name": "AMURA", "phone": "+" + wh["phone"]},
         "optional_return": False,
@@ -248,8 +256,9 @@ def courier_coords():
 def courier_estimate():
     """Заявки в Яндексе по выбранным заказам — только расчёт цены (без подтверждения ничего не стоит)."""
     b = request.get_json(silent=True) or {}
-    iv = b.get("interval") or {}
-    if not (iv.get("from") and iv.get("to")):
+    express = bool(b.get("express"))
+    iv = None if express else (b.get("interval") or {})
+    if not express and not (iv.get("from") and iv.get("to")):
         return jsonify(ok=False, error="Выберите интервал забора"), 400
     nums = [str(n)[:20] for n in (b.get("nums") or [])][:30]
     try:
@@ -264,6 +273,9 @@ def courier_estimate():
             if not o:
                 res[n] = "заказ не найден за этот день"
                 continue
+            if o["express"] != express:
+                res[n] = "это заказ Express — вызывайте его отдельно" if o["express"] else "это заказ «В течение дня», не Express"
+                continue
             if row and row["claim"] and row["status"] not in DONE:
                 res[n] = "уже есть заявка"
                 continue
@@ -277,7 +289,7 @@ def courier_estimate():
             try:
                 j = ya("/claims/create", claim_body(o, pt, wh, iv), request_id=str(uuid.uuid4()))
                 _save(d, n, order_id=o["id"], agent_id=o.get("agent", ""), claim_id=j.get("id"), status=j.get("status", "estimating"), version=j.get("version", 1),
-                      ifrom=iv["from"], ito=iv["to"], lon=pt[0], lat=pt[1], addr=o["addr"], err="", price=_price(j))
+                      ifrom=(iv or {}).get("from", ""), ito=(iv or {}).get("to", ""), lon=pt[0], lat=pt[1], addr=o["addr"], err="", price=_price(j))
                 res[n] = "ok"
             except Exception as e:
                 _save(d, n, order_id=o["id"], err=str(e)[:300], status="new")
