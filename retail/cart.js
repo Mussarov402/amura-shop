@@ -124,6 +124,7 @@ function totalsHTML(f, t){
     ${rest ? `<div class="rfree">До бесплатной доставки ещё <b>${fmt(rest)} ₸</b><i><b style="width:${Math.round(100 * t.goods / ff)}%"></b></i></div>` : ""}
     <div class="err" id="rErr"></div>
     <button type="button" class="btn rgo" id="rGo">${login ? "Войти и заказать" : "Заказать"}</button>
+    ${window.AMURA_LEGAL ? `<div class="rterms">Нажимая «Заказать», вы принимаете условия <a href="legal/offer.html" target="_blank">оферты</a> и <a href="legal/privacy.html" target="_blank">политики конфиденциальности</a></div>` : ""}
     ${login ? `<div class="rhint mut">Чтобы оформить заказ, войдите или зарегистрируйтесь — по номеру телефона или через Telegram, без пароля</div>` : ""}`;
 }
 
