@@ -918,6 +918,16 @@ def order_core(d, key, ip, me, source="с сайта", panel=False):
             alert("notify", f"заказ № {number} записан в МойСклад, но PDF в Telegram не ушёл: {str(e)[:200]}")
 
     notify_bg(notify_owner)
+    if retail and "Яндекс Экспресс" in ship_name:
+        def notify_express():                  # срочный: сотрудникам — собрать сейчас; курьер вызовется после «Собран»
+            text = f"🔥 Express № {number} — собрать срочно. {name}, {fmt(total)} ₸. Курьер вызовется сам после «Отметить собранным»."
+            try:
+                import push
+                push.notify(f"🔥 Express № {number}", "Собрать срочно — курьер выедет после «Собран»", "/admin#express", perm="orders", tag=f"x{number}")
+            except Exception as e:
+                print("Push Express:", e, flush=True)
+            notify_staff(f"x{number}", text)
+        notify_bg(notify_express)
 
     return dict(ok=True, number=number, total=total, startToken=f"{number}_{tok}",
                 pdfUrl=f"{PUBLIC_URL}/order/{number}/pdf?t={tok}", _data=data), 200

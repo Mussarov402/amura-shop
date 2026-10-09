@@ -327,6 +327,75 @@ def refresh(nums=None):
                 _save(d, num, err=str(e)[:300])
 
 
+# ---------- Express: «Собран» → курьер вызывается сам ----------
+def auto_express(num, order_id="", wait=90):
+    """Заказ Express отметили собранным: рассчитать в Яндексе (тариф «Курьер») и вызвать, если цена ≤ лимита.
+    Дороже лимита или ошибка — уведомление сотрудникам, вызов вручную во вкладке Express → «Собраны»."""
+    import push
+    r = delivery.conf()["rules"]
+    if not int(r.get("xauto", 1) or 0) or not delivery.conf()["svc"]["yandex"].get("token"):
+        return "off"
+
+    def tell(text, title="Express"):
+        try:
+            push.notify(title, text, "/admin#express", perm="orders", tag="xa-" + num)
+        except Exception as e:
+            print("Express авто: push", str(e)[:200], flush=True)
+        try:
+            oh.notify_staff("xa-" + num, "🚚 " + text)
+        except Exception as e:
+            print("Express авто: Telegram", str(e)[:200], flush=True)
+    try:
+        if re.fullmatch(r"[0-9a-f-]{36}", order_id or ""):
+            raw = oh.ms("GET", f"/entity/customerorder/{order_id}", params={"expand": "agent,state"}, timeout=20)
+        else:
+            raw = (oh.ms("GET", "/entity/customerorder", params={"filter": f"name={num}", "limit": 1, "expand": "agent,state"}, timeout=20).get("rows") or [None])[0]
+        if not raw or not (raw.get("description") or "").startswith(oh.RETAIL_MARK) or EXPRESS_MARK not in (raw.get("description") or ""):
+            return "not express"
+        o = parse_order(raw)
+        with db() as d:
+            row = _row(d, num)
+            if row and row["claim"] and row["status"] not in DONE:
+                return "already"
+            if not o["phone"]:
+                tell(f"Express №{num}: нет телефона клиента — курьера не вызвал, поправьте телефон и вызовите вручную.")
+                return "no phone"
+            pt = (row or {}).get("pt") or geocode(o["addr"])
+            if not pt:
+                tell(f"Express №{num}: адрес не найден на карте — укажите точку и вызовите вручную.")
+                return "no point"
+            j = ya("/claims/create", claim_body(o, pt, warehouse(), None, "courier"), request_id=str(uuid.uuid4()))
+            cid = j.get("id")
+            _save(d, num, order_id=o["id"], agent_id=o.get("agent", ""), claim_id=cid, status=j.get("status", "estimating"),
+                  version=j.get("version", 1), ifrom="", ito="", lon=pt[0], lat=pt[1], addr=o["addr"], err="", price=_price(j))
+        info, t0 = {}, time.time()
+        while time.time() - t0 < wait:                 # Яндекс считает цену несколько секунд
+            info = ya("/claims/info", claim_id=cid)
+            if info.get("status") in ("ready_for_approval", "estimating_failed", "failed", "cancelled"):
+                break
+            time.sleep(3)
+        price, st = _price(info), info.get("status", "")
+        with db() as d:
+            _save(d, num, status=st or "estimating", version=info.get("version", 1), price=price)
+            if st != "ready_for_approval":
+                tell(f"Express №{num}: Яндекс не рассчитал ({STATUS.get(st, st) or 'нет ответа'}) — вызовите вручную во вкладке Express.")
+                return "not ready"
+            limit = int(r.get("xauto_limit", 3000) or 0)
+            if limit and price and price > limit:
+                tell(f"Express №{num}: Яндекс просит {round(price):,} ₸ — дороже лимита {limit:,} ₸. Вызвать — вкладка Express → «Собраны».".replace(",", " "),
+                     "Express: цена выше лимита")
+                return "over limit"
+            j = ya("/claims/accept", {"version": info.get("version", 1)}, claim_id=cid)
+            _save(d, num, status=j.get("status", "accepted"), version=j.get("version", info.get("version", 1)), err="")
+        tell(f"Express №{num}: курьер вызван · {round(price or 0):,} ₸.".replace(",", " "), "Express: курьер вызван")
+        return "called"
+    except Exception as e:
+        with db() as d:
+            _save(d, num, err=str(e)[:300])
+        tell(f"Express №{num}: курьера не вызвал — {str(e)[:150]}. Вызовите вручную во вкладке Express.")
+        return "error"
+
+
 # ---------- статус заказа в МойСклад и тревога менеджерам по событиям курьера ----------
 MS_STATE = {"pickuped": "Отгружен", "delivered": "Доставлен", "delivered_finish": "Доставлен"}
 TROUBLE = {"returning", "return_arrived", "returned", "returned_finish", "cancelled_by_taxi", "cancelled_with_items_on_hands", "failed"}
