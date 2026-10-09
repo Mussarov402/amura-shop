@@ -87,6 +87,8 @@ SCHEDULE_DEFAULT = {"days": "0111111", "open": "10:00", "close": "18:00",       
                     "slots": [{"name": "День", "from": "10:00", "to": "14:00"},
                               {"name": "Вечер", "from": "14:00", "to": "18:00"}]}
 DAYS = ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
+# Express на сайте: часы приёма заказов по дням Пн…Вс (None — в этот день Express нет)
+EXPRESS_HOURS_DEFAULT = [None, ["09:30", "17:30"], ["09:30", "17:30"], ["09:30", "17:30"], ["09:30", "17:30"], ["09:30", "17:30"], ["09:30", "15:00"]]
 # цена доставки по сумме товаров — одна для всех способов (курьер, СДЭК), самовывоз бесплатно:
 # [[до суммы, цена], …] — первая строка, где сумма меньше «до суммы»
 TIERS_DEFAULT = [[5000, 1500], [15000, 500], [20000, 500]]
@@ -142,7 +144,11 @@ def conf():
             tiers = json.loads(g("dlv_tiers") or "null") or TIERS_DEFAULT
         except ValueError:
             tiers = TIERS_DEFAULT
-    return {"svc": svcs, "rules": rules, "store": store, "schedule": sched, "tiers": tiers}
+        try:
+            xh = _clean_express_hours(json.loads(g("dlv_express_hours") or "null") or EXPRESS_HOURS_DEFAULT)
+        except ValueError:
+            xh = EXPRESS_HOURS_DEFAULT
+    return {"svc": svcs, "rules": rules, "store": store, "schedule": sched, "tiers": tiers, "express_hours": xh}
 
 
 def public_conf():
@@ -160,7 +166,7 @@ def public_conf():
                   "ready": all(v.get(f) for f, _, _ in P.fields)}
     pt = resolve_coords(c["store"].get("wh_coords")) if c["store"].get("wh_coords") else None
     return {"services": out, "rules": c["rules"], "store": {**c["store"], "wh_point": [pt[1], pt[0]] if pt else None},
-            "schedule": c["schedule"], "tiers": c["tiers"], "days": DAYS}
+            "schedule": c["schedule"], "tiers": c["tiers"], "days": DAYS, "express_hours": c["express_hours"]}
 
 
 def save(b):
@@ -187,6 +193,8 @@ def save(b):
                 inbox.set_setting(d, "dlv_" + k, str(b["store"][k] or "").strip()[:300])
         if isinstance(b.get("tiers"), list):
             inbox.set_setting(d, "dlv_tiers", json.dumps(_clean_tiers(b["tiers"])))
+        if isinstance(b.get("express_hours"), list):
+            inbox.set_setting(d, "dlv_express_hours", json.dumps(_clean_express_hours(b["express_hours"])))
         if isinstance(b.get("schedule"), dict):
             inbox.set_setting(d, "dlv_schedule", json.dumps(_clean_schedule(b["schedule"]), ensure_ascii=False))
     oh._cache.pop("dlv_conf", None)
@@ -218,6 +226,46 @@ def _clean_schedule(sc):
             slots.append({"name": name, "from": a, "to": b})
     slots.sort(key=lambda x: x["from"])
     return {"days": days, "open": _hm(sc.get("open"), "08:00"), "close": _hm(sc.get("close"), "18:00"), "slots": slots}
+
+
+def _clean_express_hours(rows):
+    out = []
+    for i in range(7):
+        x = rows[i] if isinstance(rows, list) and i < len(rows) else None
+        a, b = (_hm(x[0], ""), _hm(x[1], "")) if isinstance(x, (list, tuple)) and len(x) == 2 else ("", "")
+        out.append([a, b] if a and b and a < b else None)
+    return out
+
+
+def express_state(now=None):
+    """Принимаем ли Express сейчас (время Алматы) и когда откроется. → {"open": bool, "next": "вт 09:30", "today": "до 17:30"}"""
+    from datetime import datetime, timedelta
+    now = now or datetime.now(oh.ALMATY)
+    hours = conf()["express_hours"]
+    hm = now.strftime("%H:%M")
+    today = hours[now.weekday()]
+    if today and today[0] <= hm < today[1]:
+        return {"open": True, "next": "", "today": "до " + today[1]}
+    for k in range(0, 8):
+        d = now + timedelta(days=k)
+        h = hours[d.weekday()]
+        if h and (k > 0 or hm < h[0]):
+            when = "сегодня" if k == 0 else "завтра" if k == 1 else DAYS[d.weekday()].lower()
+            return {"open": False, "next": f"{when} в {h[0]}", "today": ""}
+    return {"open": False, "next": "", "today": ""}
+
+
+def express_hours_text():
+    """«Вт–Сб 09:30–17:30, Вс 09:30–15:00» — для подсказки покупателю."""
+    hours, parts, i = conf()["express_hours"], [], 0
+    while i < 7:
+        j = i
+        while j + 1 < 7 and hours[j + 1] == hours[i]:
+            j += 1
+        if hours[i]:
+            parts.append((DAYS[i] if i == j else f"{DAYS[i]}–{DAYS[j]}") + f" {hours[i][0]}–{hours[i][1]}")
+        i = j + 1
+    return ", ".join(parts)
 
 
 def _clean_tiers(rows):

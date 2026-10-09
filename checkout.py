@@ -28,7 +28,9 @@ def door_extra():
 
 def allowed(city):
     """Способы получения на рознице: Алматы — Яндекс «в течение дня», пункт СДЭК, самовывоз, Express; другие города — пункт выдачи СДЭК."""
-    return ("courier", "cdek", "pickup", "express") if is_almaty(city) else ("cdek",)
+    if not is_almaty(city):
+        return ("cdek",)
+    return ("courier", "cdek", "pickup", "express") if delivery.express_state()["open"] else ("courier", "cdek", "pickup")
 
 
 def client_price(goods_sum, method, city):
@@ -170,7 +172,8 @@ def options(city, goods_sum):
     }
     methods = [all_methods[m] for m in allowed(city)]
     return {"almaty": alm, "methods": methods, "rates": rates(), "slots": slots, "freeFrom": ff, "doorExtra": door_extra(),
-            "tiers": c["tiers"], "hours": c["store"].get("wh_hours") or "", "warn": err}
+            "tiers": c["tiers"], "hours": c["store"].get("wh_hours") or "", "warn": err,
+            "express": ({**delivery.express_state(), "hours": delivery.express_hours_text()} if alm else None)}
 
 
 @bp.get("/delivery/options")
@@ -214,6 +217,9 @@ def order_delivery(d, ship, city, goods_sum):
     """(цена, текст для описания, ошибка) для розничного заказа; цена считается здесь, не в браузере."""
     address = str(d.get("address", "")).strip()[:200]
     if ship not in allowed(city):
+        if ship == "express" and is_almaty(city):
+            x = delivery.express_state()
+            return 0, "", f"Express сейчас не принимаем{', откроется ' + x['next'] if x['next'] else ''}. Выберите доставку в течение дня"
         return 0, "", ("По Алматы — доставка в течение дня, пункт СДЭК, самовывоз или Express" if is_almaty(city)
                        else "В ваш город доставляем в пункт выдачи СДЭК")
     if ship == "pickup":
