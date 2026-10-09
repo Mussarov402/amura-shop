@@ -980,6 +980,96 @@ def orders_assembly():
     return jsonify(ok=True, orders=res)
 
 
+# ---------- наклейки на пакеты: PDF точного размера (термопринтер / A4), телефон печатает его через «Поделиться» ----------
+LABEL_SIZES = {"t58": (58, 40), "t75": (75, 120), "a4": (210, 297)}
+_labels = {}                       # токен → (время, pdf); воркер один (gunicorn --workers 1), живут 30 минут
+
+
+def labels_pdf(items, fmt):
+    import io
+    from reportlab.lib.units import mm
+    from reportlab.lib.utils import simpleSplit
+    from reportlab.pdfgen import canvas
+    W, H = LABEL_SIZES.get(fmt, LABEL_SIZES["a4"])
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=(W * mm, H * mm))
+    c.setTitle("Наклейки AMURA")
+    small = fmt == "t58"
+    lw, lh = (105, 74.25) if fmt == "a4" else (W, H)
+    pad = (3 if small else 6) * mm
+    for i, x in enumerate(items):
+        if fmt == "a4":
+            k = i % 8
+            if i and not k:
+                c.showPage()
+            ox, oy = (k % 2) * lw * mm, H * mm - (k // 2 + 1) * lh * mm
+            c.setDash(1, 2)
+            c.setLineWidth(0.3)
+            c.setStrokeGray(0.6)
+            c.rect(ox, oy, lw * mm, lh * mm)
+            c.setDash()
+        else:
+            if i:
+                c.showPage()
+            ox, oy = 0, 0
+        left, top, width = ox + pad, oy + lh * mm - pad, lw * mm - 2 * pad
+        y = top
+        fs = 7 if small else 10
+        c.setFillGray(0)
+        c.setFont("DVB", fs)
+        c.drawString(left, y - fs, "AMURA")
+        kind = str(x.get("kind") or "")[:20]
+        if kind:
+            kw = c.stringWidth(kind, "DVB", fs) + 3 * mm
+            c.setStrokeGray(0)
+            c.setLineWidth(0.6)
+            c.rect(left + width - kw, y - fs - 1.2 * mm, kw, fs + 1.8 * mm)
+            c.drawString(left + width - kw + 1.5 * mm, y - fs, kind)
+        y -= fs + (2 if small else 4) * mm
+        big = 20 if small else 40 if fmt == "t75" else 32
+        c.setFont("DVB", big)
+        c.drawString(left, y - big * 0.8, "№" + str(x.get("num") or "")[:20])
+        y -= big * 0.8 + (1.5 if small else 3) * mm
+        for text, font, size, maxl in ((x.get("name"), "DVB", 8.5 if small else 13, 1), (x.get("addr"), "DV", 7.5 if small else 11, 2 if small else 4)):
+            for line in simpleSplit(str(text or ""), font, size, width)[:maxl]:
+                c.setFont(font, size)
+                c.drawString(left, y - size, line)
+                y -= size * 1.2
+            y -= 1 * mm
+        foot = " · ".join(v for v in (str(x.get("slot") or ""), ("тел. …" + str(x.get("phone"))[-4:]) if x.get("phone") else "") if v)
+        if foot and not small:
+            c.setFont("DV", 9 if fmt == "a4" else 10)
+            for j, line in enumerate(reversed(simpleSplit(foot, "DV", 10, width)[:2])):
+                c.drawString(left, oy + pad + j * 12, line)
+    c.save()
+    return buf.getvalue()
+
+
+@bp.post("/admin/api/labels")
+@need("orders")
+def labels_make():
+    b = request.get_json(silent=True) or {}
+    items = [x for x in (b.get("items") or []) if isinstance(x, dict)][:200]
+    if not items:
+        return jsonify(ok=False, error="Нет заказов для наклеек"), 400
+    fmt = b.get("fmt") if b.get("fmt") in LABEL_SIZES else "a4"
+    now = time.time()
+    for k in [k for k, v in _labels.items() if now - v[0] > 1800]:
+        _labels.pop(k, None)
+    tok = secrets.token_urlsafe(18)
+    _labels[tok] = (now, labels_pdf(items, fmt))
+    return jsonify(ok=True, url=f"/labels/{tok}.pdf")
+
+
+@bp.get("/labels/<tok>.pdf")
+def labels_get(tok):
+    from flask import Response
+    v = _labels.get(tok)
+    if not v:
+        return "Наклейки устарели — нажмите «Печать наклеек» ещё раз", 404
+    return Response(v[1], mimetype="application/pdf", headers={"Content-Disposition": "inline; filename=AMURA-labels.pdf", "Cache-Control": "no-store"})
+
+
 RESERVABLE = ("product", "variant", "bundle")       # резервируются товары, модификации и комплекты (не услуги)
 
 

@@ -55,6 +55,22 @@ class Assembly(unittest.TestCase):
         self.assertEqual(a1["lines"], [{"id": "p1", "name": "Крем", "code": "Cp1", "qty": 2}])          # доставка (услуга) — не в сборке
         self.assertEqual((a2["number"], a2["lines"][0]["name"], a2["ship"]), ("1543", "Тоник (200 мл)", "СДЭК — ПВЗ"))
 
+    def test_labels_pdf(self):
+        from pypdf import PdfReader
+        import io
+        items = [{"num": "1542", "name": "Arafat Mussarov", "addr": "Туркебаева 63, кв 12", "kind": "В течение дня", "slot": "14:00–17:30", "phone": "77011234567"},
+                 {"num": "1543", "name": "Дана", "addr": "Абая 12", "kind": "EXPRESS"}]
+        for fmt, size, pages in (("t58", (58, 40), 2), ("t75", (75, 120), 2), ("a4", (210, 297), 1)):
+            r = json.loads(self.c.post("/admin/api/labels", data=json.dumps({"items": items, "fmt": fmt}), content_type="application/json").data)
+            pdf = self.c.get(r["url"])
+            self.assertEqual(pdf.mimetype, "application/pdf")
+            rd = PdfReader(io.BytesIO(pdf.data))
+            self.assertEqual(len(rd.pages), pages)
+            box = rd.pages[0].mediabox
+            self.assertEqual((round(float(box.width) / 72 * 25.4), round(float(box.height) / 72 * 25.4)), size)    # размер страницы = наклейке
+            self.assertIn("1542", rd.pages[0].extract_text())
+        self.assertEqual(self.c.get("/labels/nope.pdf").status_code, 404)
+
 
 if __name__ == "__main__":
     unittest.main()
