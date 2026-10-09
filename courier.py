@@ -106,7 +106,16 @@ def warehouse():
     pt = delivery.resolve_coords(st.get("wh_coords")) or geocode(st.get("wh_addr", ""))
     if not pt:
         raise RuntimeError("Не найдены координаты склада — Обзор → Доставка → «Координаты склада»")
-    return {"addr": st.get("wh_addr", ""), "phone": re.sub(r"\D", "", st.get("wh_phone", "")), "pt": pt}
+    phone = kz_phone(st.get("wh_phone"))
+    if not phone:
+        raise RuntimeError("Не указан телефон склада (нужен Яндексу) — Обзор → Доставка → «Телефон на складе», формат +7 7XX XXX XX XX")
+    return {"addr": st.get("wh_addr", ""), "phone": phone, "pt": pt}
+
+
+def kz_phone(v):
+    """Номер для Яндекса: 7XXXXXXXXXX (11 цифр) — из «8 777…», «777…», «+7 (777) …». Иначе пусто."""
+    d = oh.norm_phone(v)
+    return d if len(d) == 11 and d[0] == "7" else ""
 
 
 # ---------- заказы ----------
@@ -116,8 +125,8 @@ def parse_order(o):
     who = lines[1] if len(lines) > 1 else ""
     ship = next((l[len("Отправка: "):] for l in lines if l.startswith("Отправка: ")), "")
     name = who.split(",")[0].strip() or (o.get("agent") or {}).get("name", "")
-    m = re.search(r"\+?(\d{10,12})", who)
-    phone = m.group(1) if m else re.sub(r"\D", "", (o.get("agent") or {}).get("phone", ""))
+    m = re.search(r"\+?(\d[\d\s()-]{9,16}\d)", who)
+    phone = kz_phone(m.group(1) if m else "") or kz_phone((o.get("agent") or {}).get("phone", ""))
     addr, slot = ship.split(" — ", 1)[1] if " — " in ship else "", ""
     m = re.search(r",\s*(\d\d\.\d\d\s.*)$", addr)
     if m:
@@ -259,7 +268,7 @@ def courier_estimate():
                 res[n] = "уже есть заявка"
                 continue
             if not o["phone"]:
-                res[n] = "нет телефона клиента"
+                res[n] = "нет телефона клиента (нужен формат +7 7XX XXX XX XX) — поправьте в карточке клиента"
                 continue
             pt = (row or {}).get("pt") or geocode(o["addr"])
             if not pt:

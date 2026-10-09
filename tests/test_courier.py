@@ -91,6 +91,14 @@ class Courier(unittest.TestCase):
         o = courier.parse_order(ORDER)
         self.assertEqual((o["phone"], o["addr"], o["slot"], o["sum"]), ("77011234567", "Абая 10, кв 5", "09.10 Обед 11:00–14:00", 15000))
 
+    def test_kz_phone(self):
+        for v in ("+7 (701) 123-45-67", "87011234567", "7011234567", "+77011234567"):
+            self.assertEqual(courier.kz_phone(v), "77011234567", v)
+        for v in ("", "12345", "+996 555 123 456"):
+            self.assertEqual(courier.kz_phone(v), "", v)
+        o = courier.parse_order({**ORDER, "description": ORDER["description"].replace("+77011234567", "+7 (701) 123-45-67")})
+        self.assertEqual(o["phone"], "77011234567")
+
     def test_coords(self):
         self.assertEqual(courier.parse_coords("43.2389, 76.8897"), (76.8897, 43.2389))
         self.assertEqual(courier.parse_coords("https://yandex.kz/maps/?ll=76.9450%2C43.2380&z=17"), (76.945, 43.238))
