@@ -157,6 +157,13 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 .eor input{width:74px;padding:8px;border:1px solid #D9E0DB;border-radius:8px;font:inherit;text-align:right}.eor input:first-of-type{width:56px}.eox{border:0;background:#F4E4E4;color:#9B2C2C;border-radius:8px;width:32px;height:32px;cursor:pointer}
 .eos input,.eo textarea{width:100%;padding:10px 12px;border:1px solid #D9E0DB;border-radius:10px;font:inherit;box-sizing:border-box}#eor button{all:unset;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 6px;border-bottom:1px solid #EEF1EE;font-size:14px;width:calc(100% - 12px)}#eor button:hover{background:#F1F6F3}
 .eot{display:flex;flex-wrap:wrap;gap:6px 14px;margin:12px 0 8px;font-size:14px}.eot b{margin-left:auto}
+/* поля ровно во всех разделах: не шире своего блока, одна высота; iPhone — время и дата слева и не вылезают за край */
+input,select,textarea{max-width:100%;min-width:0;font-size:16px!important}   /* меньше 16px — iPhone приближает экран при вводе */
+input:not([type=checkbox]):not([type=radio]):not([type=color]):not([type=range]),select{min-height:44px}
+.eor input,.eox{min-height:0}
+input[type=time],input[type=date],input[type=datetime-local],input[type=month]{-webkit-appearance:none;appearance:none;display:block;width:100%;min-width:0;text-align:left;background:#fff;color:inherit;line-height:1.25}
+input[type=time]::-webkit-date-and-time-value,input[type=date]::-webkit-date-and-time-value,input[type=datetime-local]::-webkit-date-and-time-value{text-align:left;margin:0;min-height:1.25em}
+.dll input,.dlsr input{width:100%;box-sizing:border-box}
 </style>
 <style id="sidecss">
 .subs{display:none;flex-direction:column;gap:2px;margin:0 0 8px 16px;padding-left:10px;border-left:1px solid rgba(255,255,255,.16)}.subs.open{display:flex}
@@ -449,7 +456,7 @@ async courier(day){day=day||views.courier.day||new Date(Date.now()+5*3600e3).toI
  const ready=x=>x.ya&&x.ya.status==="ready_for_approval",live=x=>x.ya&&x.ya.claim&&!/^(cancel|fail|estimating_failed|returned|delivered)/.test(x.ya.status);
  const draw=()=>{const R=o.orders.filter(ready),sumR=R.reduce((s,x)=>s+(x.ya.price||0),0);
  $("#main").innerHTML=head("Курьер Яндекс","Доставка «В течение дня» по Алматы: курьер забирает все заказы со склада за один заезд и развозит за ~4 часа. Рассчитать — бесплатно, платно только после «Подтвердить».")+seg("courier")+
- `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px"><input type="date" id="cday" value="${esc(day)}" style="width:auto"><button class="btn ghost" id="cref">Обновить статусы</button><span class="mut" id="cm"></span></div>`+
+ `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px"><input type="date" id="cday" value="${esc(day)}" style="width:180px;flex:none"><button class="btn ghost" id="cref">Обновить статусы</button><span class="mut" id="cm"></span></div>`+
  (!o.ready?`<div class="card" style="margin-bottom:12px">Ключ Яндекс Доставки не введён. Обзор → Доставка → Яндекс.</div>`:"")+
  (o.error?`<div class="card" style="margin-bottom:12px;color:var(--bad)">${esc(o.error)}</div>`:"")+
  (o.ready&&IV.length?`<div class="card" style="margin-bottom:12px"><b>Интервал забора со склада</b><div class="chips cn" style="margin-top:8px;flex-wrap:wrap">${IV.map((v,i)=>`<button class="st ${i===iv?"on":""}" data-iv="${i}">${tm(v.from)}–${tt(v.to)}</button>`).join("")}</div></div>`:(o.ready&&!o.error?`<div class="card mut" style="margin-bottom:12px">Яндекс сейчас не дал интервалов на этот день.</div>`:""))+
@@ -540,6 +547,7 @@ async delivery(){const o=await api("delivery");const n=nav;const S=o.services,R=
   <label>Телефон на складе<input id="w-wh_phone" inputmode="tel" autocomplete="off" value="${esc(W.wh_phone)}" placeholder="+7 7__ ___ __ __"></label>
   <label>Когда можно забирать<input id="w-wh_hours" autocomplete="off" value="${esc(W.wh_hours)}" placeholder="Пн–Сб 10:00–18:00"></label>
   <label>Координаты склада (для Яндекса)<input id="w-wh_coords" autocomplete="off" value="${esc(W.wh_coords||"")}" placeholder="43.2389, 76.8897 или ссылка из 2ГИС / Яндекс Карт"></label>
+  ${W.wh_coords?(W.wh_point?`<div class="mut" style="font-size:13px;color:#1E7A4C">✓ Точка склада: ${W.wh_point[0].toFixed(5)}, ${W.wh_point[1].toFixed(5)} · <a href="https://2gis.kz/almaty/geo/${W.wh_point[1]},${W.wh_point[0]}" target="_blank" rel="noopener">проверить на карте</a></div>`:`<div class="mut" style="font-size:13px;color:var(--bad)">Не нашёл координаты в этой ссылке. В 2ГИС нажмите на здание → «Поделиться» → «Копировать ссылку», или вставьте цифры вида 43.2389, 76.8897</div>`):""}
   ${num("r-weight","Вес на 1 товар, если в карточке МойСклад «Вес» пустой",R.weight,"г")}
   <div class="dlg3">${num("r-box_w","Коробка: ширина",R.box_w,"см")}${num("r-box_h","высота",R.box_h,"см")}${num("r-box_d","глубина",R.box_d,"см")}</div>
   <div class="mut" style="font-size:12.5px">Для расчёта цены СДЭК и Яндекс берут вес и размеры посылки. Берём их из карточки товара в МойСклад: стандартное поле «Вес» и доп. поля «Ширина, см», «Высота, см», «Глубина, см». Если поля пустые — значения отсюда.</div></div></div>
