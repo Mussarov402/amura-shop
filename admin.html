@@ -101,7 +101,7 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 .btn.wab{background:#128C4A;font-size:16px;padding:14px 22px}.btn[disabled]{opacity:.45;cursor:not-allowed}details summary{outline:0}
 .lblrow{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid #E3E6E4}.lblrow .btn,.lblrow select{flex:1 1 150px}@media(min-width:801px){.lblrow .btn,.lblrow select{flex:0 0 auto}}
 .selbar{position:fixed;left:12px;right:12px;bottom:calc(98px + env(safe-area-inset-bottom,0px));z-index:40;display:flex;align-items:center;gap:8px;background:#fff;border-radius:16px;padding:10px 12px;box-shadow:0 10px 30px rgba(8,25,18,.25);flex-wrap:wrap}
-.selbar .btn{padding:9px 11px;font-size:14px;white-space:nowrap}@media(max-width:800px){.selbar{flex-wrap:nowrap;gap:6px;padding:10px}}@media(min-width:801px){.selbar{left:auto;right:28px;bottom:24px;min-width:520px}}
+.selbar .btn{padding:9px 11px;font-size:14px;white-space:nowrap}@media(max-width:800px){.selbar{gap:8px;padding:10px}.selbar b{order:-2}.selbar #sclr{order:-1;margin-left:auto;flex:0 0 auto}.selbar .sbsp{flex:0 0 100%!important;height:0}.selbar .btn:not(#sclr){flex:1 1 0}}@media(min-width:801px){.selbar{left:auto;right:28px;bottom:24px;min-width:520px}}
 </style><style id="eocss">.eo{background:#fff;width:100%;max-width:560px;max-height:92vh;overflow:auto;border-radius:18px 18px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom))}
 @media(min-width:801px){.eo{border-radius:0;margin:0;width:100%;max-width:none;height:100%;max-height:none;box-sizing:border-box;padding:28px max(28px,calc((100vw - 1000px)/2)) 40px}.eo .voa{max-width:560px}}   /* компьютер: заказ на весь экран, содержимое по центру */
 .eor{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid #EEF1EE}.eor:first-child{border-top:0}.eon{flex:1;min-width:0;font-size:14px}
@@ -361,6 +361,17 @@ const viewOrder=async(n,oid,opt={})=>{const ov=document.createElement("div");ov.
   else if(a==="xlsx")fileAct(b,d.xlsx,nm+".xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",true);
   else if(a==="pdf")openDoc(d.pdf,nm+".pdf");else fileAct(b,d.pdf,nm+".pdf","application/pdf",true)})};
 const head=(t,s)=>`<h1>${t}</h1><div class="sub">${s}</div>`;
+/* этапы как в FBS у WB: Новые → Собраны → В доставке → Доставлены / Отменённые — по статусу заказа в МойСклад и курьера Яндекса */
+const STG=[["all","Все"],["new","Новые"],["built","Собраны"],["ship","В доставке"],["done","Доставлены"],["cancel","Отменённые"]];
+const stageOf=x=>{const y=(x.ya||{}).status||"",m=x.state||"";
+ if(/Отмен|Возврат/.test(m))return "cancel";             // отмена заявки Яндекса — не отмена заказа: его можно отправить заново
+ if(/^delivered/.test(y)||m==="Доставлен")return "done";
+ if(/^(pickuped|delivery_arrived|pay_waiting|ready_for_delivery_confirmation|returning)$/.test(y)||m==="Отгружен")return "ship";
+ return m==="Собран"?"built":"new"};
+const stgChips=(list,cur,id)=>`<div class="chips cn" id="${id}" style="margin-bottom:10px;flex-wrap:wrap">${STG.map(([k,t])=>{const n=k==="all"?list.length:list.filter(x=>stageOf(x)===k).length;return k!=="all"&&!n&&k!==cur?"":`<button class="st ${k===cur?"on":""}" data-stg="${k}">${t} ${n}</button>`}).join("")}</div>`;
+const bldBtn=x=>{const g=stageOf(x);return g==="new"||g==="built"?`<button class="btn ${g==="built"?"":"ghost"}" data-bld="${esc(x.num)}" data-id="${esc(x.id||"")}" data-on="${g==="built"?1:0}" style="padding:6px 10px">${g==="built"?"✓ Собран":"Отметить собранным"}</button>`:""};
+async function setBuilt(list,on){let bad=[];for(const x of list){try{await api("orders/state",{method:"POST",body:JSON.stringify({number:x.number,id:x.id||"",state:on?"Собран":"Новый"})})}catch(e){bad.push("№"+x.number+": "+e.message)}}
+ toast(bad.length?bad.join("; "):on?"Отмечено: собрано":"Снята отметка «Собран»")}
 /* наклейки на пакеты для курьера: № заказа крупно, имя, адрес, окно — курьер сверяет номер с приложением Яндекса */
 const LBLF={a4:["A4 — 8 на листе","size:A4;margin:0","105mm","74.25mm","grid;grid-template-columns:105mm 105mm"],t58:["Термо 58×40","size:58mm 40mm;margin:0","58mm","40mm","block"],t75:["Термо 75×120","size:75mm 120mm;margin:0","75mm","120mm","block"]};
 const lblFmt=()=>{try{const v=localStorage.getItem("amura_lbl");return LBLF[v]?v:"a4"}catch(e){return "a4"}};
@@ -482,10 +493,11 @@ async orders(q,kind){q=q==null?"":String(q);const rt=kind==="retail",vw=rt?"reta
  let all=[],more=null;const osel=new Set();
  const selBar=()=>{let b=$("#selbar");const n=osel.size;if(!n){if(b)b.remove();const ca=$("#oall");if(ca)ca.checked=false;return}
   if(!b){b=document.createElement("div");b.id="selbar";b.className="selbar";document.body.appendChild(b)}
-  b.innerHTML=`<b style="white-space:nowrap">Выбрано ${n}</b><span style="flex:1"></span><button class="btn" id="sasm">Лист сборки</button><button class="btn ghost" id="slbl">Наклейки</button><button class="btn ghost" id="sclr" aria-label="Снять выбор">✕</button>`;
+  b.innerHTML=`<b style="white-space:nowrap">Выбрано ${n}</b><span class="sbsp" style="flex:1"></span><button class="btn" id="sasm">Лист сборки</button><button class="btn ghost" id="slbl">Наклейки</button><button class="btn ghost" id="sbld">Собраны</button><button class="btn ghost" id="sclr" aria-label="Снять выбор">✕</button>`;
   const L=()=>all.filter(x=>osel.has(x.number));
   $("#sasm").onclick=()=>printAssembly(L());
   $("#slbl").onclick=()=>printLabels(L().map(x=>({num:x.number,name:x.client,addr:(x.ship||"").split(" — ").slice(1).join(" — ")||x.ship||"",kind:shipKind(x.ship||"")})),"");
+  $("#sbld").onclick=async()=>{if(!confirm(`Отметить собранными: ${n} шт? Статус в МойСклад станет «Собран».`))return;await setBuilt(L(),true);osel.clear();selBar();views[vw](q)};
   $("#sclr").onclick=()=>{osel.clear();document.querySelectorAll(".osel").forEach(c=>c.checked=false);selBar()};
   const ca=$("#oall");if(ca)ca.checked=all.length>0&&all.every(x=>osel.has(x.number))};
  const navNow=nav;const bye=setInterval(()=>{if(nav!==navNow){clearInterval(bye);const b=$("#selbar");if(b)b.remove()}},500);
@@ -523,17 +535,20 @@ async courier(day){day=day||views.courier.day||new Date(Date.now()+5*3600e3).toI
  (!o.ready?`<div class="card" style="margin-bottom:12px">Ключ Яндекс Доставки не введён. Обзор → Доставка → Яндекс.</div>`:"")+
  (o.error?`<div class="card" style="margin-bottom:12px;color:var(--bad)">${esc(o.error)}</div>`:"")+
  (o.ready&&ivDay.length?(()=>{const sh=allIv||!ivPref.length?ivDay:ivPref;return `<div class="card" style="margin-bottom:12px"><b>Интервал забора со склада</b><div class="mut" style="font-size:13px">Курьер заберёт заказы в это окно и развезёт за 4 часа${ivPref.length&&!allIv?" · как у клиентов на сайте":""}</div><div class="chips cn" style="margin-top:8px;flex-wrap:wrap">${sh.map(x=>`<button class="st ${x.i===iv?"on":""}" data-iv="${x.i}">${tt(x.v.from)}–${tt(x.v.to)}</button>`).join("")}${ivDay.length>ivPref.length&&ivPref.length?`<button class="st" id="ivall">${allIv?"Только окна сайта":"Другие интервалы ("+(ivDay.length-ivPref.length)+")"}</button>`:""}</div></div>`})():(o.ready&&!o.error?`<div class="card mut" style="margin-bottom:12px">На ${esc(day)} Яндекс интервалов не дал — выберите другой день.</div>`:""))+
- `<div class="card">${o.orders.length?o.orders.map(x=>{const y=x.ya||{},can=!live(x)&&y.pt;return `<div class="ord cyo" data-num="${esc(x.num)}"><div class="o1">${can?`<input type="checkbox" data-sel="${esc(x.num)}" ${sel.has(x.num)?"checked":""} style="width:20px;height:20px">`:""}<b>№${esc(x.num)}</b><span class="mut">${esc(x.slot||x.moment.slice(5))}</span><span style="flex:1"></span><b style="white-space:nowrap">${fmt(x.sum)} ₸</b></div>
+ (o.orders.length?stgChips(o.orders,views.courier.stg||"all","cstg"):"")+
+ `<div class="card">${o.orders.filter(x=>(views.courier.stg||"all")==="all"||stageOf(x)===views.courier.stg).length?o.orders.filter(x=>(views.courier.stg||"all")==="all"||stageOf(x)===views.courier.stg).map(x=>{const y=x.ya||{},can=!live(x)&&y.pt;return `<div class="ord cyo" data-num="${esc(x.num)}"><div class="o1">${can?`<input type="checkbox" data-sel="${esc(x.num)}" ${sel.has(x.num)?"checked":""} style="width:20px;height:20px">`:""}<b>№${esc(x.num)}</b><span class="mut">${esc(x.slot||x.moment.slice(5))}</span><span style="flex:1"></span><b style="white-space:nowrap">${fmt(x.sum)} ₸</b></div>
   <div class="o2"><span class="cl">${esc(x.name)} · ${esc(x.addr||"адрес не указан")}</span></div>
   <div class="o3" style="flex-wrap:wrap"><span class="b ${y.status==="ready_for_approval"?"w":/deliver/.test(y.status||"")?"ok":/cancel|fail/.test(y.status||"")?"x":"n"}">${esc(x.statusText)}${y.price?" · "+fmt(Math.round(y.price))+" ₸":""}</span>
   ${y.pt?`<a class="mut" target="_blank" rel="noopener" href="https://2gis.kz/almaty/geo/${y.pt[0]},${y.pt[1]}">на карте</a>`:`<span class="b x">адрес не найден на карте</span>`}
   ${live(x)?"":`<button class="btn ghost" data-co="${esc(x.num)}" style="padding:6px 10px">${y.pt?"Поправить точку":"Указать точку"}</button>`}
-  ${live(x)&&y.status!=="ready_for_approval"?"":""}${y.claim&&live(x)?`<button class="btn ghost" data-cx="${esc(x.num)}" style="padding:6px 10px">Отменить</button>`:""}</div>
-  ${y.err?`<div class="mut" style="color:var(--bad);margin-top:4px">${esc(y.err)}</div>`:""}</div>`}).join(""):`<div class="mut">На ${esc(day)} заказов «В течение дня» с розничного сайта нет.</div>`}</div>`+
+  ${live(x)&&y.status!=="ready_for_approval"?"":""}${y.claim&&live(x)?`<button class="btn ghost" data-cx="${esc(x.num)}" style="padding:6px 10px">Отменить</button>`:""}${bldBtn(x)}</div>
+  ${y.err?`<div class="mut" style="color:var(--bad);margin-top:4px">${esc(y.err)}</div>`:""}</div>`}).join(""):`<div class="mut">${o.orders.length?"В этом разделе заказов нет.":`На ${esc(day)} заказов «В течение дня» с розничного сайта нет.`}</div>`}</div>`+
  `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px"><button class="btn" id="cest" ${o.ready&&iv>=0&&sel.size?"":"disabled"}>Рассчитать выбранные (${sel.size})</button>`+
  `<button class="btn" id="cacc" ${R.length?"":"disabled"} style="background:#B8860B">Подтвердить ${R.length?R.length+" · "+fmt(Math.round(sumR))+" ₸":""}</button></div><div class="lblrow">${lblPick()}<button class="btn ghost" id="asmp" ${o.orders.length?"":"disabled"}>Лист сборки</button><button class="btn ghost" id="lblp" ${o.orders.length?"":"disabled"}>Печать наклеек (${o.orders.length})</button></div>`;
  bindSeg();
- $("#cday").onchange=e=>views.courier(e.target.value);bindLabels(o.orders.filter(x=>!/^cancel/.test((x.ya||{}).status||"")),"В течение дня");
+ $("#cday").onchange=e=>views.courier(e.target.value);
+ document.querySelectorAll("#cstg [data-stg]").forEach(b=>b.onclick=()=>{views.courier.stg=b.dataset.stg;draw()});
+ document.querySelectorAll("[data-bld]").forEach(b=>b.onclick=async()=>{b.disabled=true;await setBuilt([{number:b.dataset.bld,id:b.dataset.id}],b.dataset.on!=="1");if(n===nav)views.courier(day)});bindLabels(o.orders.filter(x=>!/^cancel/.test((x.ya||{}).status||"")),"В течение дня");
  document.querySelectorAll("[data-iv]").forEach(b=>b.onclick=()=>{iv=+b.dataset.iv;draw()});
  const ia=$("#ivall");if(ia)ia.onclick=()=>{allIv=!allIv;draw()};
  document.querySelectorAll("[data-sel]").forEach(b=>b.onchange=()=>{b.checked?sel.add(b.dataset.sel):sel.delete(b.dataset.sel);draw()});
@@ -557,18 +572,21 @@ async express(day){day=day||views.express.day||new Date(Date.now()+5*3600e3).toI
  `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px"><input type="date" id="xday" value="${esc(day)}" style="width:180px;flex:none"><button class="btn ghost" id="xref">Обновить статусы</button><span class="mut" id="xm"></span></div>`+
  (!o.ready?`<div class="card" style="margin-bottom:12px">Ключ Яндекс Доставки не введён. Обзор → Доставка → Яндекс.</div>`:"")+
  `<div class="card" style="margin-bottom:12px"><b>Тариф Яндекса</b><div class="mut" style="font-size:13px">Для новых расчётов. Уже рассчитанные заказы не меняются — чтобы сменить тариф, отмените и рассчитайте заново.</div><div class="chips cn" style="margin-top:8px;flex-wrap:wrap"><button class="st ${TX==="courier"?"on":""}" data-tx="courier">Курьер — мото, вело, пешком · дешевле</button><button class="st ${TX==="express"?"on":""}" data-tx="express">Экспресс — на машине</button></div></div>`+
- `<div class="card">${E.length?E.map(x=>{const y=x.ya||{},lv=live(x),bc=ready(x)?"w":/deliver/.test(st(x))?"ok":/cancel|fail/.test(st(x))?"x":"n";return `<div class="ord"><div class="o1"><b>№${esc(x.num)}</b><span class="mut">${esc(x.moment.slice(11))}</span><span style="flex:1"></span><b style="white-space:nowrap">${fmt(x.sum)} ₸</b></div>
+ (E.length?stgChips(E,views.express.stg||"all","xstg"):"")+
+ `<div class="card">${E.filter(x=>(views.express.stg||"all")==="all"||stageOf(x)===views.express.stg).length?E.filter(x=>(views.express.stg||"all")==="all"||stageOf(x)===views.express.stg).map(x=>{const y=x.ya||{},lv=live(x),bc=ready(x)?"w":/deliver/.test(st(x))?"ok":/cancel|fail/.test(st(x))?"x":"n";return `<div class="ord"><div class="o1"><b>№${esc(x.num)}</b><span class="mut">${esc(x.moment.slice(11))}</span><span style="flex:1"></span><b style="white-space:nowrap">${fmt(x.sum)} ₸</b></div>
   <div class="o2"><span class="cl">${esc(x.name)} · ${esc(x.addr||"адрес не указан")}</span></div>
   <div class="o3" style="flex-wrap:wrap;gap:8px"><span class="b ${bc}">${esc(x.statusText)}${y.price?" · "+fmt(Math.round(y.price))+" ₸":""}</span>
   ${y.pt?`<a class="mut" target="_blank" rel="noopener" href="https://2gis.kz/almaty/geo/${y.pt[0]},${y.pt[1]}">на карте</a>`:`<span class="b x">адрес не найден на карте</span>`}
   ${lv?"":`<button class="btn ghost" data-co="${esc(x.num)}" style="padding:6px 10px">${y.pt?"Поправить точку":"Указать точку"}</button>`}
-  ${y.claim&&lv?`<button class="btn ghost" data-cx="${esc(x.num)}" style="padding:6px 10px">Отменить</button>`:""}</div>
-  ${y.err?`<div class="mut" style="color:var(--bad);margin-top:4px">${esc(y.err)}</div>`:""}</div>`}).join(""):`<div class="mut">На ${esc(day)} заказов Express нет.</div>`}</div>`+
+  ${y.claim&&lv?`<button class="btn ghost" data-cx="${esc(x.num)}" style="padding:6px 10px">Отменить</button>`:""}${bldBtn(x)}</div>
+  ${y.err?`<div class="mut" style="color:var(--bad);margin-top:4px">${esc(y.err)}</div>`:""}</div>`}).join(""):`<div class="mut">${E.length?"В этом разделе заказов нет.":`На ${esc(day)} заказов Express нет.`}</div>`}</div>`+
  `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px"><button class="btn" id="xest" ${o.ready&&toEst.length?"":"disabled"}>Рассчитать все (${toEst.length})</button>`+
  `<button class="btn" id="xacc" ${R.length?"":"disabled"} style="background:#B8860B">Вызвать все ${R.length?R.length+" · "+fmt(sumR)+" ₸":""}</button></div><div class="lblrow">${lblPick()}<button class="btn ghost" id="asmp" ${E.length?"":"disabled"}>Лист сборки</button><button class="btn ghost" id="lblp" ${E.length?"":"disabled"}>Печать наклеек (${E.length})</button></div>`;
  bindSeg();
  const msg=t=>$("#xm").textContent=t,res=r=>Object.entries(r.result||{}).filter(([,v])=>v!=="ok").map(([k,v])=>"№"+k+": "+v).join("; ");
- $("#xday").onchange=e=>views.express(e.target.value);bindLabels(E.filter(x=>!/^cancel/.test(st(x))),"EXPRESS");
+ $("#xday").onchange=e=>views.express(e.target.value);
+ document.querySelectorAll("#xstg [data-stg]").forEach(b=>b.onclick=()=>{views.express.stg=b.dataset.stg;views.express(day)});
+ document.querySelectorAll("[data-bld]").forEach(b=>b.onclick=async()=>{b.disabled=true;await setBuilt([{number:b.dataset.bld,id:b.dataset.id}],b.dataset.on!=="1");if(n===nav)views.express(day)});bindLabels(E.filter(x=>!/^cancel/.test(st(x))),"EXPRESS");
  document.querySelectorAll("[data-tx]").forEach(b=>b.onclick=()=>{try{localStorage.setItem("amura_xtaxi",b.dataset.tx)}catch(e){}views.express(day)});
  $("#xref").onclick=async()=>{msg("Обновляю…");try{await api("courier/refresh",{method:"POST",body:"{}"});if(n===nav)views.express(day)}catch(e){msg(e.message)}};
  $("#xest").onclick=async()=>{msg("Рассчитываю в Яндексе…");try{const r=await api("courier/estimate",{method:"POST",body:JSON.stringify({date:day,nums:toEst.map(x=>x.num),express:true,taxi:TX})});const bad=res(r);msg("Яндекс считает цену…"+(bad?" "+bad:""));
