@@ -7,6 +7,7 @@
 Службы подключаемые (PROVIDERS); выключенная служба ни на что не влияет. Ключи хранятся на сервере и в панель целиком не отдаются.
 """
 import json
+import re
 from datetime import datetime, timedelta
 
 import requests
@@ -92,6 +93,36 @@ TIERS_DEFAULT = [[5000, 1500], [15000, 500], [20000, 500]]
 STORE = ("wh_addr", "wh_phone", "wh_hours", "wh_coords")   # wh_coords — точка склада для Яндекса («43.23, 76.94» или ссылка с карты)
 
 
+def parse_coords(s):
+    """«43.23, 76.94» или ссылка с карты (2ГИС, Яндекс Карты, Google) → (lon, lat) или None.
+    В Казахстане долгота (46–87) всегда больше широты (40–56) — порядок чисел в ссылке не важен."""
+    s = str(s or "").replace("%2C", ",").replace("%2c", ",")
+    m = re.search(r"(-?\d{2}\.\d{2,})\s*[,; ]\s*(-?\d{2}\.\d{2,})", s)
+    if not m:
+        return None
+    a, b = float(m.group(1)), float(m.group(2))
+    lon, lat = max(a, b), min(a, b)
+    return (lon, lat) if 40 <= lat <= 56 and 46 <= lon <= 88 else None
+
+
+def resolve_coords(s):
+    """Как parse_coords, но короткие ссылки «Поделиться» (go.2gis.com, yandex.kz/maps/-/…, maps.app.goo.gl) сначала открываем."""
+    pt = parse_coords(s)
+    url = re.search(r"https?://\S+", str(s or ""))
+    if pt or not url:
+        return pt
+    def follow():
+        r = requests.get(url.group(0), timeout=10, allow_redirects=True, headers={"User-Agent": "Mozilla/5.0 (iPhone) AMURA"})
+        p = parse_coords(r.url) or parse_coords(r.text[:300000])
+        return list(p) if p else []
+    try:
+        res = oh.cached("coords:" + url.group(0), 86400 * 30, follow)
+    except Exception as e:
+        print("Доставка: координаты по ссылке", str(e)[:200], flush=True)
+        return None
+    return tuple(res) if res else None
+
+
 def _k(svc, f):
     return f"dlv_{svc}_{f}"
 
@@ -127,7 +158,9 @@ def public_conf():
                            "value": "" if secret else val, "tail": val[-4:] if secret and val else ""})
         out[s] = {"name": P.name, "on": v["on"], "test": v["test"] == "1", "fields": fields,
                   "ready": all(v.get(f) for f, _, _ in P.fields)}
-    return {"services": out, "rules": c["rules"], "store": c["store"], "schedule": c["schedule"], "tiers": c["tiers"], "days": DAYS}
+    pt = resolve_coords(c["store"].get("wh_coords")) if c["store"].get("wh_coords") else None
+    return {"services": out, "rules": c["rules"], "store": {**c["store"], "wh_point": [pt[1], pt[0]] if pt else None},
+            "schedule": c["schedule"], "tiers": c["tiers"], "days": DAYS}
 
 
 def save(b):

@@ -9,7 +9,7 @@
 if(!window.AMURA_RETAIL) return;
 const MON = ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"];
 const WANT = "amura-r-checkout";                 // «после входа вернуться к оформлению»
-/* способы получения: Алматы — Яндекс «в течение дня», самовывоз, срочный курьер (всегда платно); другие города — только пункт выдачи СДЭК */
+/* способы получения: Алматы — Яндекс «в течение дня», самовывоз, срочный курьер Express; другие города — только пункт выдачи СДЭК */
 const isAlm = f => DLV.opts && DLV.city === ((f && f.city) || "") ? DLV.opts.almaty : /алмат/i.test((f && f.city) || "");
 const tabsFor = f => isAlm(f) ? [["courier", "В течение дня"], ["pickup", "Самовывоз"], ["express", "Express"]] : [["cdek", "Пункт выдачи СДЭК"]];
 const isCour = s => s === "courier" || s === "express";
@@ -98,7 +98,7 @@ function slotsHTML(f){
 function provHTML(f){
   const o = DLV.opts, alm = o ? o.almaty : /алмат/i.test(f.city || "");
   const [name, note] = f.ship === "pickup" ? ["AMURA", "заберёте сами со склада, бесплатно"]
-    : f.ship === "express" ? ["Яндекс Экспресс", "курьер едет сразу после сборки · всегда платно"]
+    : f.ship === "express" ? ["Яндекс Экспресс", "курьер едет сразу после сборки, за 1–2 часа"]
     : f.ship === "courier" ? ["Яндекс Доставка", "привезём за 4 часа в выбранное окно"]
     : ["СДЭК", alm ? "пункт выдачи или постамат" : "пункт выдачи или постамат · в другие города только так"];
   return `<div class="rprov"><b class="${name === "Яндекс Доставка" ? "ya" : name === "СДЭК" ? "cd" : ""}">${name}</b><span>${note}</span></div>`;
@@ -122,7 +122,6 @@ function totalsHTML(f, t){
     <div class="rrow"><span>${fmt(t.count)} ${plural(t.count, "товар", "товара", "товаров")} на сумму</span><span>${fmt(t.goods)} ₸</span></div>
     <div class="rrow"><span>Доставка</span><span class="${t.dlv === 0 ? "free" : ""}">${t.dlv === null ? (f.city ? "считаем…" : "укажите город") : priceTxt(t.dlv)}</span></div>
     ${rest ? `<div class="rfree">До бесплатной доставки ещё <b>${fmt(rest)} ₸</b><i><b style="width:${Math.round(100 * t.goods / ff)}%"></b></i></div>` : ""}
-    ${f.ship === "express" ? `<div class="rhint mut">Express — всегда платно</div>` : ""}
     <div class="err" id="rErr"></div>
     <button type="button" class="btn rgo" id="rGo">${login ? "Войти и заказать" : "Заказать"}</button>
     ${login ? `<div class="rhint mut">Чтобы оформить заказ, войдите или зарегистрируйтесь — по номеру телефона или через Telegram, без пароля</div>` : ""}`;

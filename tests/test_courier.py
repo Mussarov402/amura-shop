@@ -93,6 +93,16 @@ class Courier(unittest.TestCase):
         self.assertEqual(courier.parse_coords("https://yandex.kz/maps/?ll=76.9450%2C43.2380&z=17"), (76.945, 43.238))
         self.assertEqual(courier.parse_coords("https://www.google.com/maps/@43.25,76.92,17z"), (76.92, 43.25))
         self.assertIsNone(courier.parse_coords("Абая 10"))
+        self.assertEqual(courier.parse_coords("https://2gis.kz/almaty/geo/9430047375017163/76.889697,43.238949"), (76.889697, 43.238949))
+        self.assertEqual(courier.parse_coords("https://2gis.kz/almaty?m=76.94512%2C43.23801%2F17"), (76.94512, 43.23801))
+
+    def test_short_share_link(self):
+        """«Поделиться» в 2ГИС даёт go.2gis.com/… без координат — открываем ссылку и берём их из адреса, куда она ведёт."""
+        class R:
+            url, text = "https://2gis.kz/almaty/geo/70000001/76.889697,43.238949", ""
+        self.patch(delivery.requests, "get", lambda *a, **k: R())
+        oh._cache.pop("coords:https://go.2gis.com/abc12", None)
+        self.assertEqual(delivery.resolve_coords("https://go.2gis.com/abc12"), (76.889697, 43.238949))
 
     def test_day_list_geocodes_and_intervals(self):
         r = json.loads(self.c.get("/admin/api/courier?date=2026-10-09").data)

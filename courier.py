@@ -73,22 +73,7 @@ def ya(path, body=None, **params):
 
 # ---------- координаты ----------
 def parse_coords(s):
-    """«43.23, 76.94», ссылка 2ГИС / Яндекс Карт / Google → (lon, lat) или None."""
-    s = str(s or "")
-    m = re.search(r"[?&]ll=(-?\d+\.\d+)(?:,|%2C)(-?\d+\.\d+)", s)            # Яндекс Карты: ll=lon,lat
-    if m:
-        return float(m.group(1)), float(m.group(2))
-    m = re.search(r"/(\d{2}\.\d+)%2C(\d{2}\.\d+)", s) or re.search(r"m=(\d{2}\.\d+)(?:%2C|,)(\d{2}\.\d+)", s)   # 2ГИС: lon,lat
-    if m:
-        return float(m.group(1)), float(m.group(2))
-    m = re.search(r"@(-?\d+\.\d+),(-?\d+\.\d+)", s)                          # Google: @lat,lon
-    if m:
-        return float(m.group(2)), float(m.group(1))
-    m = re.search(r"(-?\d{1,2}\.\d+)\s*[,; ]\s*(-?\d{1,3}\.\d+)", s)          # «43.23, 76.94» — широта, долгота
-    if m:
-        a, b = float(m.group(1)), float(m.group(2))
-        return (b, a) if a < b else (a, b)                                    # в Алматы долгота (76–77) > широты (43)
-    return None
+    return delivery.parse_coords(s)
 
 
 def geocode(address):
@@ -112,7 +97,7 @@ def geocode(address):
 
 def warehouse():
     st = delivery.conf()["store"]
-    pt = parse_coords(st.get("wh_coords")) or geocode(st.get("wh_addr", ""))
+    pt = delivery.resolve_coords(st.get("wh_coords")) or geocode(st.get("wh_addr", ""))
     if not pt:
         raise RuntimeError("Не найдены координаты склада — Обзор → Доставка → «Координаты склада»")
     return {"addr": st.get("wh_addr", ""), "phone": re.sub(r"\D", "", st.get("wh_phone", "")), "pt": pt}
@@ -233,7 +218,7 @@ def courier_day():
 @need("orders")
 def courier_coords():
     b = request.get_json(silent=True) or {}
-    pt = parse_coords(b.get("coords"))
+    pt = delivery.resolve_coords(b.get("coords"))
     if not pt:
         return jsonify(ok=False, error="Не понял координаты — вставьте «43.23, 76.94» или ссылку из 2ГИС / Яндекс Карт"), 400
     with db() as d:
