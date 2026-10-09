@@ -100,6 +100,7 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 .accmenu button{all:unset;box-sizing:border-box;width:100%;padding:11px 10px;border-radius:10px;cursor:pointer;color:#B3261E;font-weight:700;font-size:14.5px}.accmenu button:hover{background:#FBEAE8}
 .btn.wab{background:#128C4A;font-size:16px;padding:14px 22px}.btn[disabled]{opacity:.45;cursor:not-allowed}details summary{outline:0}
 .lblrow{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid #E3E6E4}.lblrow .btn,.lblrow select{flex:1 1 150px}@media(min-width:801px){.lblrow .btn,.lblrow select{flex:0 0 auto}}
+#dle summary{cursor:pointer;list-style:none}#dle summary::-webkit-details-marker{display:none}#dle summary::after{content:" ▾";color:#6B726E}#dle[open] summary::after{content:" ▴"}
 .xhr{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:8px;margin:6px 0 12px}.xhd{display:flex;align-items:center;gap:6px}.xhd .dlday{flex:none;min-width:44px}.xhd input{flex:1;min-width:110px;padding:8px}.xhd input:disabled{opacity:.4}
 .selbar{position:fixed;left:12px;right:12px;bottom:calc(98px + env(safe-area-inset-bottom,0px));z-index:40;display:flex;align-items:center;gap:8px;background:#fff;border-radius:16px;padding:10px 12px;box-shadow:0 10px 30px rgba(8,25,18,.25);flex-wrap:wrap}
 .selbar .btn{padding:9px 11px;font-size:14px;white-space:nowrap}@media(max-width:800px){.selbar{gap:8px;padding:10px}.selbar b{order:-2}.selbar #sclr{order:-1;margin-left:auto;flex:0 0 auto}.selbar .sbsp{flex:0 0 100%!important;height:0}.selbar .btn:not(#sclr){flex:1 1 0}}@media(min-width:801px){.selbar{left:auto;right:28px;bottom:24px;min-width:520px}}
@@ -657,28 +658,25 @@ async delivery(){const o=await api("delivery");const n=nav;const S=o.services,R=
   <div class="dlz" style="margin-top:10px">${num("r-sdd_price","Алматы, в течение дня — цена",R.sdd_price??1000,"₸")}${num("r-sdd_free","Алматы, в течение дня — бесплатно от",R.sdd_free??15000,"₸")}</div>
   <div class="dlz">${num("r-express_price","Алматы, срочно (Яндекс Экспресс) — цена, всегда платно",R.express_price??2500,"₸")}</div>
   <div class="dlz"><label class="dll">Express: автовызов курьера (тариф «Курьер»), когда заказ отметили «Собран»<select id="r-xauto"><option value="1" ${(R.xauto??1)?"selected":""}>Включён — вызывается сам</option><option value="0" ${(R.xauto??1)?"":"selected"}>Выключен — вручную</option></select></label>${num("r-xauto_limit","Автовызов, если Яндекс просит не больше (дороже — спросит вас)",R.xauto_limit??3000,"₸")}</div>
-  <div class="dll" style="margin:6px 0 2px"><b>Express на сайте — часы приёма заказов</b><div class="mut" style="font-size:13px">Вне этих часов покупатель не видит Express в корзине и видит, когда он откроется. Выключенный день — Express нет.</div></div>
-  <div class="xhr">${o.days.map((d,i)=>{const h=(o.express_hours||[])[i];return `<div class="xhd"><button type="button" class="dlday xhon ${h?"on":""}" data-xd="${i}" aria-pressed="${!!h}">${d}</button><input type="time" class="xhf" value="${esc(h?h[0]:"09:30")}" ${h?"":"disabled"} aria-label="${d} с"><span class="mut">–</span><input type="time" class="xht" value="${esc(h?h[1]:"17:30")}" ${h?"":"disabled"} aria-label="${d} до"></div>`}).join("")}</div>
   <div class="dlz">${num("r-cdek_price","Другие города, пункт выдачи СДЭК — цена",R.cdek_price??1500,"₸")}${num("r-cdek_free","Пункт выдачи СДЭК — бесплатно от",R.cdek_free??20000,"₸")}</div>
   <div class="mut dlx" id="dlx2"></div>
   <div hidden><div class="dltr" id="dltr"></div><button type="button" id="dlta"></button>${num("r-free_from","",R.free_from,"₸")}${num("r-door_extra","",R.door_extra??1000,"₸")}<div id="dlx"></div></div></div>
- <div class="card dlc"><b>График и интервалы доставки</b><div class="mut">Клиент выбирает день и удобный интервал, курьер Яндекса вызывается под него</div>
-  <div class="dld">${o.days.map((d,i)=>`<button type="button" class="dlday ${G.days[i]==="1"?"on":""}" data-d="${i}" aria-pressed="${G.days[i]==="1"}">${d}</button>`).join("")}</div>
-  <div class="dlg"><label class="dll">Начало работы<input id="g-open" type="time" value="${esc(G.open)}"></label><label class="dll">Конец работы<input id="g-close" type="time" value="${esc(G.close)}"></label></div>
+ <div class="card dlc"><b>График работы</b><div class="mut">Один график на всё: в эти часы сайт принимает Express, в эти дни возит курьер «в течение дня», его же видит покупатель у самовывоза. Выключенный день — выходной.</div>
+  <div class="xhr">${o.days.map((d,i)=>{const h=(o.express_hours||[])[i];return `<div class="xhd"><button type="button" class="dlday xhon ${h?"on":""}" data-xd="${i}" aria-pressed="${!!h}">${d}</button><input type="time" class="xhf" value="${esc(h?h[0]:"09:30")}" ${h?"":"disabled"} aria-label="${d} с"><span class="mut">–</span><input type="time" class="xht" value="${esc(h?h[1]:"17:30")}" ${h?"":"disabled"} aria-label="${d} до"></div>`}).join("")}</div>
+  <div class="dll" style="margin:4px 0 2px"><b>Интервалы доставки «в течение дня»</b><div class="mut" style="font-size:13px">Клиент выбирает рабочий день и интервал, курьер Яндекса вызывается под него</div></div>
   <div class="dlsl" id="dlsl"></div>
   <button type="button" class="btn sm ghost" id="dlsa">＋ Добавить интервал</button>
   ${num("r-cutoff","Интервал можно выбрать, если до его начала больше",R.cutoff,"мин")}</div>
  <div class="card dlc"><b>Склад — откуда забирает курьер</b><div class="dlf">
   <label>Адрес<input id="w-wh_addr" autocomplete="off" value="${esc(W.wh_addr)}" placeholder="Алматы, улица, дом"></label>
   <label>Телефон на складе<input id="w-wh_phone" inputmode="tel" autocomplete="off" value="${esc(W.wh_phone)}" placeholder="+7 7__ ___ __ __"></label>
-  <label>Когда можно забирать<input id="w-wh_hours" autocomplete="off" value="${esc(W.wh_hours)}" placeholder="Пн–Сб 10:00–18:00"></label>
   <label>Координаты склада (для Яндекса)<input id="w-wh_coords" autocomplete="off" value="${esc(W.wh_coords||"")}" placeholder="43.2389, 76.8897 или ссылка из 2ГИС / Яндекс Карт"></label>
   ${W.wh_coords?(W.wh_point?`<div class="mut" style="font-size:13px;color:#1E7A4C">✓ Точка склада: ${W.wh_point[0].toFixed(5)}, ${W.wh_point[1].toFixed(5)} · <a href="https://2gis.kz/almaty/geo/${W.wh_point[1]},${W.wh_point[0]}" target="_blank" rel="noopener">проверить на карте</a></div>`:`<div class="mut" style="font-size:13px;color:var(--bad)">Не нашёл координаты в этой ссылке. В 2ГИС нажмите на здание → «Поделиться» → «Копировать ссылку», или вставьте цифры вида 43.2389, 76.8897</div>`):""}
   ${num("r-weight","Вес на 1 товар, если в карточке МойСклад «Вес» пустой",R.weight,"г")}
   <div class="dlg3">${num("r-box_w","Коробка: ширина",R.box_w,"см")}${num("r-box_h","высота",R.box_h,"см")}${num("r-box_d","глубина",R.box_d,"см")}</div>
   <div class="mut" style="font-size:12.5px">Для расчёта цены СДЭК и Яндекс берут вес и размеры посылки. Берём их из карточки товара в МойСклад: стандартное поле «Вес» и доп. поля «Ширина, см», «Высота, см», «Глубина, см». Если поля пустые — значения отсюда.</div></div></div>
  <div class="dlb"><button class="btn" id="dsv">Сохранить</button><span class="mut" id="dsm"></span></div>
- <div class="card dlc" id="dle"><b>Реальная стоимость доставки</b><div class="mut">Адреса ваших прошлых заказов прогоняются через Яндекс (Алматы) и СДЭК (регионы) — только расчёт, ничего не заказывается</div><div id="dler"><div class="mut" style="margin-top:8px">Загружаю…</div></div></div>
+ <details class="card dlc" id="dle"><summary><b>Реальная стоимость доставки</b> <span class="mut">— справка по прошлым заказам</span></summary><div class="mut">Адреса ваших прошлых заказов прогоняются через Яндекс (Алматы) и СДЭК (регионы) — только расчёт, ничего не заказывается</div><div id="dler"><div class="mut" style="margin-top:8px">Загружаю…</div></div></details>
  <div class="mut" style="font-size:13px">Ключи вставляются только здесь — в чат их не присылайте. На сервере они хранятся целиком, в панели показываются последние 4 символа.</div></div>`;
  bindSeg();
  const tiers=()=>[...document.querySelectorAll(".dltrr")].map(r=>[+(r.querySelector(".dlu").value.replace(/\D/g,"")||0),+(r.querySelector(".dlp").value.replace(/\D/g,"")||0)]).filter(x=>x[0]>0).sort((a,b)=>a[0]-b[0]);
@@ -700,10 +698,10 @@ async delivery(){const o=await api("delivery");const n=nav;const S=o.services,R=
  $("#dlsa").onclick=()=>{const last=[...document.querySelectorAll(".dlsto")].pop();const r=slotRow({name:"",from:last&&last.value||"",to:""});r.querySelector(".dlsn").focus()};
  const collect=()=>{const b={rules:{},store:{}};for(const k of Object.keys(S)){b[k]={};document.querySelectorAll(`[data-s="${k}"] [data-f]`).forEach(i=>b[k][i.dataset.f]=i.value)}
   b.cdek.test=$("#d-cdek-test").checked;["free_from","door_extra","weight","cutoff","box_w","box_h","box_d","sdd_price","sdd_free","express_price","cdek_price","cdek_free","xauto","xauto_limit"].forEach(k=>b.rules[k]=$("#r-"+k).value.replace(/\D/g,"")||0);b.tiers=tiers();
-  b.schedule={days:[...document.querySelectorAll(".dlday")].map(x=>x.classList.contains("on")?"1":"0").join(""),open:$("#g-open").value,close:$("#g-close").value,
+  b.schedule={days:[...document.querySelectorAll(".xhd .xhon")].map(x=>x.classList.contains("on")?"1":"0").join(""),
    slots:[...document.querySelectorAll(".dlsr")].map(r=>({name:r.querySelector(".dlsn").value,from:r.querySelector(".dlsf").value,to:r.querySelector(".dlsto").value})).filter(x=>x.name.trim())};
   b.express_hours=[...document.querySelectorAll(".xhd")].map(r=>r.querySelector(".xhon").classList.contains("on")?[r.querySelector(".xhf").value,r.querySelector(".xht").value]:null);
-  ["wh_addr","wh_phone","wh_hours","wh_coords"].forEach(k=>b.store[k]=$("#w-"+k).value);return b};
+  ["wh_addr","wh_phone","wh_coords"].forEach(k=>b.store[k]=$("#w-"+k).value);return b};
  const save=async b=>{await api("delivery",{method:"POST",body:JSON.stringify(b)})};
  $("#dsv").onclick=async()=>{$("#dsm").textContent="Сохраняю…";try{await save(collect());if(n===nav){await views.delivery();toast("Сохранено")}}catch(e){$("#dsm").textContent=e.message}};
  document.querySelectorAll("[data-on]").forEach(b=>b.onclick=async()=>{const k=b.dataset.on;b.disabled=true;try{await save({[k]:{on:!S[k].on}});if(n===nav)views.delivery()}catch(e){b.disabled=false;toast(e.message)}});

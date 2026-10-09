@@ -88,7 +88,7 @@ SCHEDULE_DEFAULT = {"days": "0111111", "open": "10:00", "close": "18:00",       
                     "slots": [{"name": "День", "from": "10:00", "to": "14:00"},
                               {"name": "Вечер", "from": "14:00", "to": "18:00"}]}
 DAYS = ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
-# Express на сайте: часы приёма заказов по дням Пн…Вс (None — в этот день Express нет)
+# график работы по дням Пн…Вс (None — выходной): часы приёма Express, дни курьера «в течение дня», часы самовывоза на сайте
 EXPRESS_HOURS_DEFAULT = [None, ["09:30", "17:30"], ["09:30", "17:30"], ["09:30", "17:30"], ["09:30", "17:30"], ["09:30", "17:30"], ["09:30", "15:00"]]
 # цена доставки по сумме товаров — одна для всех способов (курьер, СДЭК), самовывоз бесплатно:
 # [[до суммы, цена], …] — первая строка, где сумма меньше «до суммы»
@@ -149,6 +149,8 @@ def conf():
             xh = _clean_express_hours(json.loads(g("dlv_express_hours") or "null") or EXPRESS_HOURS_DEFAULT)
         except ValueError:
             xh = EXPRESS_HOURS_DEFAULT
+    sched["days"] = "".join("1" if h else "0" for h in xh)                     # дни курьера — из того же графика
+    store["wh_hours"] = hours_text(xh)                                         # самовывоз: «Вт–Сб 09:30–17:30, Вс 09:30–15:00»
     return {"svc": svcs, "rules": rules, "store": store, "schedule": sched, "tiers": tiers, "express_hours": xh}
 
 
@@ -257,8 +259,12 @@ def express_state(now=None):
 
 
 def express_hours_text():
+    return hours_text(conf()["express_hours"])
+
+
+def hours_text(hours):
     """«Вт–Сб 09:30–17:30, Вс 09:30–15:00» — для подсказки покупателю."""
-    hours, parts, i = conf()["express_hours"], [], 0
+    parts, i = [], 0
     while i < 7:
         j = i
         while j + 1 < 7 and hours[j + 1] == hours[i]:
