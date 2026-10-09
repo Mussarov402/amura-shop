@@ -158,13 +158,18 @@ class Courier(unittest.TestCase):
         self.assertEqual(r["result"]["1701"], "ok")
         self.assertIn("не Express", r["result"]["1700"])                                         # обычный заказ Express-ом не вызывается
         body = [c for c in self.calls if c[0] == "/claims/create"][0][2]
-        self.assertEqual(body["client_requirements"], {"taxi_class": "express"})
+        self.assertEqual(body["client_requirements"], {"taxi_class": "courier"})                  # по умолчанию — «Курьер», дешевле
         self.assertNotIn("same_day_data", body)
         self.assertEqual(body["route_points"][1]["contact"]["phone"], "+77017654321")
         self.assertEqual(body["route_points"][1]["address"]["fullname"], "Алматы, Абая 12")
         r = self.post("/admin/api/courier/estimate", {"date": "2026-10-09", "nums": ["1701"], "interval": {"from": "a", "to": "b"}})
         self.assertIn("Express", r["result"]["1701"])                                             # и наоборот
         self.assertEqual(self.post("/admin/api/courier/accept", {"nums": ["1701"]})["result"]["1701"], "ok")
+        with courier.db() as d:
+            d.run("DELETE FROM ya_claim WHERE num='1701'")
+        self.post("/admin/api/courier/estimate", {"date": "2026-10-09", "nums": ["1701"], "express": True, "taxi": "express"})
+        body = [c for c in self.calls if c[0] == "/claims/create"][-1][2]
+        self.assertEqual(body["client_requirements"], {"taxi_class": "express"})                  # «Экспресс» — машина
 
     def test_accept_needs_estimate_ready(self):
         self.post("/admin/api/courier/estimate", {"date": "2026-10-09", "nums": ["1700"], "interval": {"from": "a", "to": "b"}})
