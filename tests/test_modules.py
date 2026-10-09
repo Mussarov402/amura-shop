@@ -38,13 +38,15 @@ class ModulesTest(unittest.TestCase):
             d.run("INSERT INTO ms_money (account_id, name, balance, synced) VALUES ('a1', 'Kaspi', 120000, 1)")
             d.run("INSERT INTO ms_money (account_id, name, balance, synced) VALUES ('cash:o', 'Касса', 30000, 1)")
             d.run("INSERT INTO ms_agent_balance (agent_id, name, balance, synced) VALUES ('c1', 'ИП Клиент', -4500, 1)")
+            d.run("INSERT INTO ms_agent_balance (agent_id, name, balance, synced) VALUES ('s1', 'KorShop', 800000, 1)")
             a, _ = mirror._day_bounds(str(mirror.datetime.now(oh.ALMATY).date()))
             for i, (t, s) in enumerate((("paymentin", 5000), ("cashin", 1500), ("paymentout", 700), ("demand", 9000), ("salesreturn", 1000))):
                 d.run("INSERT INTO ms_doc (id, type, moment, sum, applicable, deleted) VALUES (%s, %s, %s, %s, 1, 0)", (f"x{i}", t, a, s))
         j = self.c.get("/admin/api/finance", headers=self.h).get_json()
         self.assertEqual(j["moneyTotal"], 150000)
         self.assertEqual({k: j["flow"][0][k] for k in ("in", "out", "sales", "returns")}, {"in": 6500, "out": 700, "sales": 9000, "returns": 1000})
-        self.assertEqual((j["agentsMinus"], j["agents"][0]["name"]), (-4500, "ИП Клиент"))
+        self.assertEqual((j["owedUsTotal"], j["owedUs"][0]["name"], j["owedUs"][0]["sum"]), (4500, "ИП Клиент", 4500))   # минус — должен нам
+        self.assertEqual((j["weOweTotal"], j["weOwe"][0]["name"]), (800000, "KorShop"))                         # плюс — мы должны
         self.c.put("/admin/api/modules", headers=self.h, json={"id": "finance", "on": False})
         self.assertEqual(self.c.get("/admin/api/finance", headers=self.h).status_code, 404)
 
