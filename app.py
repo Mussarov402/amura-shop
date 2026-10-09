@@ -24,6 +24,8 @@ from reviews import bp as reviews_bp  # noqa: E402
 app.register_blueprint(reviews_bp)
 from courier import bp as courier_bp  # noqa: E402
 app.register_blueprint(courier_bp)
+import courier  # noqa: E402
+courier.start_poller()            # статусы курьера Яндекса — в фоне, для «Моих заказов» на сайте
 
 
 @app.get("/")

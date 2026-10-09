@@ -47,6 +47,12 @@ def db():
               " price DOUBLE PRECISION, ifrom TEXT, ito TEXT, lon DOUBLE PRECISION, lat DOUBLE PRECISION, addr TEXT, err TEXT,"
               " at DOUBLE PRECISION, updated DOUBLE PRECISION)")
         d.c.commit()
+        for col in ("agent_id TEXT", "track TEXT"):          # чей заказ (клиент видит только свои) и ссылка «где курьер»
+            try:
+                d.run("ALTER TABLE ya_claim ADD COLUMN " + col)
+                d.c.commit()
+            except Exception:
+                d.c.rollback()
         _ready[0] = True
     return d
 
@@ -117,6 +123,7 @@ def parse_order(o):
     if m:
         addr, slot = addr[:m.start()].strip(), m.group(1).strip()
     return {"id": o["id"], "num": o["name"], "name": name, "phone": phone, "addr": addr, "slot": slot,
+            "agent": (o.get("agent") or {}).get("id") or str((o.get("agent") or {}).get("meta", {}).get("href", "")).rsplit("/", 1)[-1],
             "sum": round(o.get("sum", 0) / 100), "state": (o.get("state") or {}).get("name", ""), "moment": o.get("moment", "")[:16]}
 
 
@@ -260,7 +267,7 @@ def courier_estimate():
                 continue
             try:
                 j = ya("/claims/create", claim_body(o, pt, wh, iv), request_id=str(uuid.uuid4()))
-                _save(d, n, order_id=o["id"], claim_id=j.get("id"), status=j.get("status", "estimating"), version=j.get("version", 1),
+                _save(d, n, order_id=o["id"], agent_id=o.get("agent", ""), claim_id=j.get("id"), status=j.get("status", "estimating"), version=j.get("version", 1),
                       ifrom=iv["from"], ito=iv["to"], lon=pt[0], lat=pt[1], addr=o["addr"], err="", price=_price(j))
                 res[n] = "ok"
             except Exception as e:
@@ -280,10 +287,94 @@ def refresh(nums=None):
                 continue
             try:
                 j = ya("/claims/info", claim_id=cid)
-                _save(d, num, status=j.get("status", row["status"]), version=j.get("version", row["version"]),
+                st = j.get("status", row["status"])
+                _save(d, num, status=st, version=j.get("version", row["version"]),
                       price=_price(j) or row["price"], err=(j.get("error_messages") or [{}])[0].get("message", "") if j.get("error_messages") else "")
+                if st in TRACKABLE and not d.run("SELECT track FROM ya_claim WHERE num=%s", (num,), one=True)[0]:
+                    link = tracking_link(cid)
+                    if link:
+                        _save(d, num, track=link)
             except Exception as e:
                 _save(d, num, err=str(e)[:300])
+
+
+# ---------- отслеживание для покупателя (сайт → «Мои заказы») ----------
+TRACKABLE = {"performer_found", "pickup_arrived", "ready_for_pickup_confirmation", "pickuped", "delivery_arrived",
+             "pay_waiting", "ready_for_delivery_confirmation"}
+# шаг ленты (0 принят · 1 курьер назначен · 2 в пути · 3 доставлен) и текст для клиента
+CLIENT = {"accepted": (0, "Ищем курьера"), "performer_lookup": (0, "Ищем курьера"), "performer_draft": (0, "Ищем курьера"),
+          "performer_found": (1, "Курьер назначен"), "pickup_arrived": (1, "Курьер приехал за заказом"),
+          "ready_for_pickup_confirmation": (1, "Курьер приехал за заказом"), "pickuped": (2, "Курьер забрал заказ и едет к вам"),
+          "delivery_arrived": (2, "Курьер у вас"), "pay_waiting": (2, "Курьер у вас"), "ready_for_delivery_confirmation": (2, "Курьер у вас"),
+          "delivered": (3, "Доставлен"), "delivered_finish": (3, "Доставлен"),
+          "returning": (-1, "Возвращается на склад — свяжемся с вами"), "returned": (-1, "Вернулся на склад — свяжемся с вами"),
+          "returned_finish": (-1, "Вернулся на склад — свяжемся с вами"), "cancelled": (-1, "Доставка отменена — свяжемся с вами"),
+          "cancelled_by_taxi": (-1, "Доставка отменена — свяжемся с вами"), "cancelled_with_payment": (-1, "Доставка отменена — свяжемся с вами"),
+          "cancelled_with_items_on_hands": (-1, "Доставка отменена — свяжемся с вами"), "failed": (-1, "Задержка доставки — свяжемся с вами")}
+
+
+def tracking_link(cid):
+    """Ссылка «где курьер» (карта Яндекса) для получателя; None — Яндекс не дал."""
+    try:
+        j = ya("/claims/tracking-links", claim_id=cid)
+    except Exception as e:
+        print("Курьер: ссылка отслеживания", str(e)[:200], flush=True)
+        return None
+    def find(x):
+        if isinstance(x, dict):
+            if x.get("type") == "destination" and isinstance(x.get("sharing_link"), str):
+                return x["sharing_link"]
+            for v in x.values():
+                r = find(v)
+                if r:
+                    return r
+        if isinstance(x, list):
+            for v in x:
+                r = find(v)
+                if r:
+                    return r
+        if isinstance(x, str) and x.startswith("https://") and "track" in x.lower():
+            return x
+        return None
+    return find(j)
+
+
+def client_tracks(agent_id, nums=None):
+    """{номер заказа: отслеживание} — только заказы этого покупателя, только с подтверждённой заявкой Яндекса."""
+    with db() as d:
+        rows = d.run("SELECT num, status, ifrom, ito, track FROM ya_claim WHERE agent_id=%s AND claim_id IS NOT NULL AND claim_id<>''",
+                     (agent_id,), many=True) or []
+    out = {}
+    for num, st, ifrom, ito, track in rows:
+        if nums is not None and num not in nums:
+            continue
+        step, label = CLIENT.get(st, (None, None))
+        if step is None:
+            continue                                       # ещё не подтверждено (оценка) — клиенту не показываем
+        out[num] = {"code": st, "step": step, "label": label, "link": track if step in (1, 2) else "",
+                    "from": ifrom or "", "to": ito or "", "kind": "yandex"}
+    return out
+
+
+def _poll():
+    """Фон: раз в 2,5 минуты обновляем статусы подтверждённых заявок (Яндекс сам их не присылает)."""
+    while True:
+        time.sleep(150)
+        try:
+            if delivery.conf()["svc"]["yandex"].get("token"):
+                refresh()
+        except Exception as e:
+            print("Курьер: фоновое обновление", str(e)[:200], flush=True)
+
+
+_poller = [None]
+
+
+def start_poller():
+    import threading
+    if _poller[0] is None:
+        _poller[0] = threading.Thread(target=_poll, daemon=True, name="ya-poll")
+        _poller[0].start()
 
 
 @bp.post("/admin/api/courier/refresh")

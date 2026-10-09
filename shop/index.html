@@ -508,6 +508,17 @@ input,select,textarea{font-size:16px!important}
 .rsteps b{font-size:15px}.rsteps span{font-size:13.5px;color:var(--muted)}
 .rdone-d{display:grid;gap:8px}
 .rdone-d .rrow b{text-align:right;font-weight:600}
+/* отслеживание доставки в «Моих заказах» */
+.rtrk{margin:10px 0 4px;padding:12px;border-radius:14px;background:var(--bg);display:grid;gap:10px}
+.rtrk-l{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:baseline}.rtrk-l b{font-size:15px}.rtrk-l span{font-size:13px;color:var(--muted)}
+.rtrk.bad .rtrk-l b{color:#B5661B}
+.rtrk ol{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+.rtrk li{display:grid;gap:5px;font-size:11.5px;color:var(--muted);text-align:center;justify-items:center}
+.rtrk li i{display:block;width:100%;height:5px;border-radius:5px;background:var(--line)}
+.rtrk li.on i{background:#1E9E5A}.rtrk li.cur span{color:var(--ink);font-weight:700}
+.rtrk .btn{text-decoration:none;text-align:center}
+[data-view="me"].rdot{position:relative}
+[data-view="me"].rdot::after{content:"";position:absolute;top:6px;right:calc(50% - 16px);width:9px;height:9px;border-radius:50%;background:#E5483A;box-shadow:0 0 0 2px #173A2A}
 /* Розничный сайт: отзывы */
 .rpc-rate{font-size:13px;font-weight:700;display:flex;align-items:center;gap:3px}
 .rpc-rate b{color:#E8A317;font-size:14px}.rpc-rate span{color:var(--muted);font-weight:500}
@@ -2248,9 +2259,57 @@ function markRetail(){
   if(done === AUTH.token.slice(-16)) return;
   api("/me/retail", { method: "POST" }).then(() => { try{ localStorage.setItem(k, AUTH.token.slice(-16)); }catch{} }).catch(() => {});
 }
+/* ---------- отслеживание доставки (курьер Яндекс): лента в «Моих заказах», уведомления на сайте ---------- */
+const TRK = "amura-r-track", STEPS = ["Принят", "Курьер назначен", "В пути", "Доставлен"];
+const tm5 = s => { try{ return new Date(s).toLocaleTimeString("ru-RU", { timeZone: "Asia/Almaty", hour: "2-digit", minute: "2-digit" }); }catch{ return ""; } };
+function trackHTML(tr){
+  const bad = tr.step < 0;
+  return `<div class="rtrk${bad ? " bad" : ""}"><div class="rtrk-l"><b>${esc(tr.label)}</b>${tr.from && tr.to && tr.step < 3 && !bad ? `<span>окно ${tm5(tr.from)}–${tm5(tr.to)}</span>` : ""}</div>
+    ${bad ? "" : `<ol>${STEPS.map((t, i) => `<li class="${i <= tr.step ? "on" : ""}${i === tr.step ? " cur" : ""}"><i></i><span>${t}</span></li>`).join("")}</ol>`}
+    ${tr.link ? `<a class="btn" href="${esc(tr.link)}" target="_blank" rel="noopener">Где курьер?</a>` : ""}</div>`;
+}
+let TRACK_ORDERS = null;
+function trackPaint(orders){
+  TRACK_ORDERS = orders || null;
+  if(!orders) return;
+  const panels = document.querySelectorAll("#orders .order");
+  orders.forEach((o, i) => { const el = panels[i]; if(!el) return; const old = el.querySelector(".rtrk"); if(old) old.remove();
+    if(o.track) el.querySelector(".top + .top").insertAdjacentHTML("afterend", trackHTML(o.track)); });
+  seenTracks(Object.fromEntries(orders.filter(o => o.track).map(o => [o.number, o.track])), false);
+  meDot(false);
+}
+function seenTracks(tracks, notify){
+  let seen = {}; try{ seen = JSON.parse(localStorage.getItem(TRK) || "{}"); }catch{}
+  let changed = false;
+  Object.entries(tracks).forEach(([n, tr]) => {
+    if(seen[n] !== tr.code){ if(notify && seen[n] !== undefined){ toast(`Заказ № ${n}: ${tr.label}`); changed = true; } seen[n] = tr.code; }
+  });
+  try{ localStorage.setItem(TRK, JSON.stringify(seen)); }catch{}
+  return changed;
+}
+function meDot(on){ document.querySelectorAll('[data-view="me"]').forEach(b => b.classList.toggle("rdot", on)); }
+/* пока есть заказ в пути — раз в 1,5 минуты спрашиваем сервер; новый статус — всплывающее сообщение и точка на «Я» */
+async function trackPoll(){
+  if(!AUTH.token || document.visibilityState !== "visible") return;
+  let seen = {}; try{ seen = JSON.parse(localStorage.getItem(TRK) || "{}"); }catch{}
+  const active = Object.values(seen).some(c => !/deliver|return|cancel|fail/.test(c));
+  if(!active && TRACK_ORDERS === null && trackPoll.done) return;
+  trackPoll.done = true;
+  try{
+    const j = await api("/me/track");
+    const tr = j.tracks || {};
+    if(seenTracks(tr, true)){
+      if(VIEW === "me" && TRACK_ORDERS){ TRACK_ORDERS.forEach(o => { if(tr[o.number]) o.track = tr[o.number]; }); trackPaint(TRACK_ORDERS); }
+      else meDot(true);
+    }
+  }catch{}
+}
+setInterval(trackPoll, 90000); setTimeout(trackPoll, 4000);
+document.addEventListener("visibilitychange", () => { if(document.visibilityState === "visible") trackPoll(); });
 const _paintMe = paintMe;
 paintMe = function(p, orders){
   _paintMe(p, orders); markRetail();
+  trackPaint(orders);
   let want = false; try{ want = sessionStorage.getItem(WANT) === "1"; }catch{}
   if(want && AUTH.token && p && p.name){ try{ sessionStorage.removeItem(WANT); }catch{} toast("Вы вошли — оформляем заказ"); NEXT = "checkout"; go("cart"); }
 };

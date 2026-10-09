@@ -1596,4 +1596,24 @@ def me():
                        "status": (o.get("state") or {}).get("name", "Новый"), "sum": o["sum"] / 100,
                        "count": count, "items": items,
                        "pdfUrl": f"{PUBLIC_URL}/order/{o['name']}/pdf?t={sign(o['name'])}"})
+    try:                                             # отслеживание курьера Яндекса — только своих заказов
+        import courier
+        tr = courier.client_tracks(cid)
+        for o in orders:
+            if o["number"] in tr:
+                o["track"] = tr[o["number"]]
+    except Exception as e:
+        print("Кабинет: отслеживание", str(e)[:200], flush=True)
     return jsonify(ok=True, profile=profile(cp), orders=orders)
+
+
+@bp.route("/me/track", methods=["GET", "OPTIONS"])
+def me_track():
+    """Лёгкий опрос для сайта (раз в 1,5 мин, пока есть заказ в пути): статусы доставки своих заказов, без МойСклад."""
+    if request.method == "OPTIONS":
+        return "", 204
+    cid = session_cid()
+    if not cid:
+        return jsonify(ok=False, error="Войдите заново"), 401
+    import courier
+    return jsonify(ok=True, tracks=courier.client_tracks(cid))

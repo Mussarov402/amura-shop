@@ -415,9 +415,57 @@ function markRetail(){
   if(done === AUTH.token.slice(-16)) return;
   api("/me/retail", { method: "POST" }).then(() => { try{ localStorage.setItem(k, AUTH.token.slice(-16)); }catch{} }).catch(() => {});
 }
+/* ---------- отслеживание доставки (курьер Яндекс): лента в «Моих заказах», уведомления на сайте ---------- */
+const TRK = "amura-r-track", STEPS = ["Принят", "Курьер назначен", "В пути", "Доставлен"];
+const tm5 = s => { try{ return new Date(s).toLocaleTimeString("ru-RU", { timeZone: "Asia/Almaty", hour: "2-digit", minute: "2-digit" }); }catch{ return ""; } };
+function trackHTML(tr){
+  const bad = tr.step < 0;
+  return `<div class="rtrk${bad ? " bad" : ""}"><div class="rtrk-l"><b>${esc(tr.label)}</b>${tr.from && tr.to && tr.step < 3 && !bad ? `<span>окно ${tm5(tr.from)}–${tm5(tr.to)}</span>` : ""}</div>
+    ${bad ? "" : `<ol>${STEPS.map((t, i) => `<li class="${i <= tr.step ? "on" : ""}${i === tr.step ? " cur" : ""}"><i></i><span>${t}</span></li>`).join("")}</ol>`}
+    ${tr.link ? `<a class="btn" href="${esc(tr.link)}" target="_blank" rel="noopener">Где курьер?</a>` : ""}</div>`;
+}
+let TRACK_ORDERS = null;
+function trackPaint(orders){
+  TRACK_ORDERS = orders || null;
+  if(!orders) return;
+  const panels = document.querySelectorAll("#orders .order");
+  orders.forEach((o, i) => { const el = panels[i]; if(!el) return; const old = el.querySelector(".rtrk"); if(old) old.remove();
+    if(o.track) el.querySelector(".top + .top").insertAdjacentHTML("afterend", trackHTML(o.track)); });
+  seenTracks(Object.fromEntries(orders.filter(o => o.track).map(o => [o.number, o.track])), false);
+  meDot(false);
+}
+function seenTracks(tracks, notify){
+  let seen = {}; try{ seen = JSON.parse(localStorage.getItem(TRK) || "{}"); }catch{}
+  let changed = false;
+  Object.entries(tracks).forEach(([n, tr]) => {
+    if(seen[n] !== tr.code){ if(notify && seen[n] !== undefined){ toast(`Заказ № ${n}: ${tr.label}`); changed = true; } seen[n] = tr.code; }
+  });
+  try{ localStorage.setItem(TRK, JSON.stringify(seen)); }catch{}
+  return changed;
+}
+function meDot(on){ document.querySelectorAll('[data-view="me"]').forEach(b => b.classList.toggle("rdot", on)); }
+/* пока есть заказ в пути — раз в 1,5 минуты спрашиваем сервер; новый статус — всплывающее сообщение и точка на «Я» */
+async function trackPoll(){
+  if(!AUTH.token || document.visibilityState !== "visible") return;
+  let seen = {}; try{ seen = JSON.parse(localStorage.getItem(TRK) || "{}"); }catch{}
+  const active = Object.values(seen).some(c => !/deliver|return|cancel|fail/.test(c));
+  if(!active && TRACK_ORDERS === null && trackPoll.done) return;
+  trackPoll.done = true;
+  try{
+    const j = await api("/me/track");
+    const tr = j.tracks || {};
+    if(seenTracks(tr, true)){
+      if(VIEW === "me" && TRACK_ORDERS){ TRACK_ORDERS.forEach(o => { if(tr[o.number]) o.track = tr[o.number]; }); trackPaint(TRACK_ORDERS); }
+      else meDot(true);
+    }
+  }catch{}
+}
+setInterval(trackPoll, 90000); setTimeout(trackPoll, 4000);
+document.addEventListener("visibilitychange", () => { if(document.visibilityState === "visible") trackPoll(); });
 const _paintMe = paintMe;
 paintMe = function(p, orders){
   _paintMe(p, orders); markRetail();
+  trackPaint(orders);
   let want = false; try{ want = sessionStorage.getItem(WANT) === "1"; }catch{}
   if(want && AUTH.token && p && p.name){ try{ sessionStorage.removeItem(WANT); }catch{} toast("Вы вошли — оформляем заказ"); NEXT = "checkout"; go("cart"); }
 };
