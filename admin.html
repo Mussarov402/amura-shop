@@ -99,6 +99,7 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 .amh{display:flex;gap:10px;align-items:center;padding:8px 8px 10px}.amh small{display:block;color:var(--mut);font-size:12.5px}
 .accmenu button{all:unset;box-sizing:border-box;width:100%;padding:11px 10px;border-radius:10px;cursor:pointer;color:#B3261E;font-weight:700;font-size:14.5px}.accmenu button:hover{background:#FBEAE8}
 .btn.wab{background:#128C4A;font-size:16px;padding:14px 22px}.btn[disabled]{opacity:.45;cursor:not-allowed}details summary{outline:0}
+.lblrow{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid #E3E6E4}.lblrow .btn,.lblrow select{flex:1 1 150px}@media(min-width:801px){.lblrow .btn,.lblrow select{flex:0 0 auto}}
 .selbar{position:fixed;left:12px;right:12px;bottom:calc(98px + env(safe-area-inset-bottom,0px));z-index:40;display:flex;align-items:center;gap:8px;background:#fff;border-radius:16px;padding:10px 12px;box-shadow:0 10px 30px rgba(8,25,18,.25);flex-wrap:wrap}
 .selbar .btn{padding:9px 11px;font-size:14px;white-space:nowrap}@media(max-width:800px){.selbar{flex-wrap:nowrap;gap:6px;padding:10px}}@media(min-width:801px){.selbar{left:auto;right:28px;bottom:24px;min-width:520px}}
 </style><style id="eocss">.eo{background:#fff;width:100%;max-width:560px;max-height:92vh;overflow:auto;border-radius:18px 18px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom))}
@@ -530,7 +531,7 @@ async courier(day){day=day||views.courier.day||new Date(Date.now()+5*3600e3).toI
   ${live(x)&&y.status!=="ready_for_approval"?"":""}${y.claim&&live(x)?`<button class="btn ghost" data-cx="${esc(x.num)}" style="padding:6px 10px">Отменить</button>`:""}</div>
   ${y.err?`<div class="mut" style="color:var(--bad);margin-top:4px">${esc(y.err)}</div>`:""}</div>`}).join(""):`<div class="mut">На ${esc(day)} заказов «В течение дня» с розничного сайта нет.</div>`}</div>`+
  `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px"><button class="btn" id="cest" ${o.ready&&iv>=0&&sel.size?"":"disabled"}>Рассчитать выбранные (${sel.size})</button>`+
- `<button class="btn" id="cacc" ${R.length?"":"disabled"} style="background:#B8860B">Подтвердить ${R.length?R.length+" · "+fmt(Math.round(sumR))+" ₸":""}</button><span style="flex:1"></span>${lblPick()}<button class="btn ghost" id="asmp" ${o.orders.length?"":"disabled"}>Лист сборки</button><button class="btn ghost" id="lblp" ${o.orders.length?"":"disabled"}>Печать наклеек (${o.orders.length})</button></div>`;
+ `<button class="btn" id="cacc" ${R.length?"":"disabled"} style="background:#B8860B">Подтвердить ${R.length?R.length+" · "+fmt(Math.round(sumR))+" ₸":""}</button></div><div class="lblrow">${lblPick()}<button class="btn ghost" id="asmp" ${o.orders.length?"":"disabled"}>Лист сборки</button><button class="btn ghost" id="lblp" ${o.orders.length?"":"disabled"}>Печать наклеек (${o.orders.length})</button></div>`;
  bindSeg();
  $("#cday").onchange=e=>views.courier(e.target.value);bindLabels(o.orders.filter(x=>!/^cancel/.test((x.ya||{}).status||"")),"В течение дня");
  document.querySelectorAll("[data-iv]").forEach(b=>b.onclick=()=>{iv=+b.dataset.iv;draw()});
@@ -564,7 +565,7 @@ async express(day){day=day||views.express.day||new Date(Date.now()+5*3600e3).toI
   ${y.claim&&lv?`<button class="btn ghost" data-cx="${esc(x.num)}" style="padding:6px 10px">Отменить</button>`:""}</div>
   ${y.err?`<div class="mut" style="color:var(--bad);margin-top:4px">${esc(y.err)}</div>`:""}</div>`}).join(""):`<div class="mut">На ${esc(day)} заказов Express нет.</div>`}</div>`+
  `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px"><button class="btn" id="xest" ${o.ready&&toEst.length?"":"disabled"}>Рассчитать все (${toEst.length})</button>`+
- `<button class="btn" id="xacc" ${R.length?"":"disabled"} style="background:#B8860B">Вызвать все ${R.length?R.length+" · "+fmt(sumR)+" ₸":""}</button><span style="flex:1"></span>${lblPick()}<button class="btn ghost" id="asmp" ${E.length?"":"disabled"}>Лист сборки</button><button class="btn ghost" id="lblp" ${E.length?"":"disabled"}>Печать наклеек (${E.length})</button></div>`;
+ `<button class="btn" id="xacc" ${R.length?"":"disabled"} style="background:#B8860B">Вызвать все ${R.length?R.length+" · "+fmt(sumR)+" ₸":""}</button></div><div class="lblrow">${lblPick()}<button class="btn ghost" id="asmp" ${E.length?"":"disabled"}>Лист сборки</button><button class="btn ghost" id="lblp" ${E.length?"":"disabled"}>Печать наклеек (${E.length})</button></div>`;
  bindSeg();
  const msg=t=>$("#xm").textContent=t,res=r=>Object.entries(r.result||{}).filter(([,v])=>v!=="ok").map(([k,v])=>"№"+k+": "+v).join("; ");
  $("#xday").onchange=e=>views.express(e.target.value);bindLabels(E.filter(x=>!/^cancel/.test(st(x))),"EXPRESS");

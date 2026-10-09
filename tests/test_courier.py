@@ -237,6 +237,39 @@ class Courier(unittest.TestCase):
         self.assertEqual([b for _, _, b in sent], ["Курьер приехал за заказом", "Курьер забрал заказ и едет к вам"])
         self.assertTrue(all(a == "ag1" for a, _, _ in sent))
 
+    def test_ms_state_and_trouble(self):
+        """Забрали → «Отгружен», доставили → «Доставлен» в МойСклад; возврат — уведомление сотрудникам, статус не трогаем."""
+        import admin
+        import push
+        puts, alerts, pushes = [], [], []
+
+        def ms(m, p, **kw):
+            if m == "PUT":
+                puts.append((p, kw["json"]["state"]["meta"]["href"]))
+                return {}
+            if p == "/entity/customerorder/metadata":
+                return {"states": [{"name": n, "meta": {"href": "st/" + n}} for n in ("Новый", "Отгружен", "Доставлен")]}
+            return {"rows": [ORDER]}
+        self.patch(oh, "ms", ms)
+        oh._cache.pop("ya_ms_states", None)
+        self.patch(push, "notify_client", lambda *a, **k: None)
+        self.patch(push, "notify", lambda title, body, **kw: pushes.append(body))
+        self.patch(oh, "notify_staff", lambda key, text, **kw: alerts.append(text))
+        self.patch(admin, "_olog", lambda *a, **k: None)
+        self.post("/admin/api/courier/estimate", {"date": "2026-10-09", "nums": ["1700"], "interval": {"from": "a", "to": "b"}})
+        self.post("/admin/api/courier/accept", {"nums": ["1700"]})
+        for st in ("performer_found", "pickuped", "pickuped", "delivered"):
+            self.status = st
+            courier.refresh()
+        self.assertEqual(puts, [("/entity/customerorder/o1", "st/Отгружен"), ("/entity/customerorder/o1", "st/Доставлен")])   # по разу, без повторов
+        self.assertFalse(alerts or pushes)
+        with courier.db() as d:
+            d.run("UPDATE ya_claim SET status='pickuped' WHERE num='1700'")
+        self.status = "returning"
+        courier.refresh()
+        self.assertEqual(len(puts), 2)
+        self.assertTrue(alerts and "№1700" in alerts[0] and pushes)
+
     def test_me_push_subscribe(self):
         import push
         self.patch(push, "keys", lambda: ("priv", "PUBKEY"))

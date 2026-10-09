@@ -315,6 +315,8 @@ def refresh(nums=None):
                     ag = d.run("SELECT agent_id FROM ya_claim WHERE num=%s", (num,), one=True)[0]
                     import push
                     push.notify_client(ag, f"AMURA · заказ № {num}", CLIENT[st][1], tag="order-" + num)
+                if st != row["status"]:
+                    on_status(d, num, st)
                 _save(d, num, status=st, version=j.get("version", row["version"]),
                       price=_price(j) or row["price"], err=(j.get("error_messages") or [{}])[0].get("message", "") if j.get("error_messages") else "")
                 if st in TRACKABLE and not d.run("SELECT track FROM ya_claim WHERE num=%s", (num,), one=True)[0]:
@@ -323,6 +325,45 @@ def refresh(nums=None):
                         _save(d, num, track=link)
             except Exception as e:
                 _save(d, num, err=str(e)[:300])
+
+
+# ---------- статус заказа в МойСклад и тревога менеджерам по событиям курьера ----------
+MS_STATE = {"pickuped": "Отгружен", "delivered": "Доставлен", "delivered_finish": "Доставлен"}
+TROUBLE = {"returning", "return_arrived", "returned", "returned_finish", "cancelled_by_taxi", "cancelled_with_items_on_hands", "failed"}
+
+
+def set_ms_state(order_id, name):
+    """Статус заказа в МойСклад по названию (Новый / Отгружен / Доставлен …). Нет такого статуса — молча пропускаем."""
+    md = oh.cached("ya_ms_states", 3600, lambda: oh.ms("GET", "/entity/customerorder/metadata", timeout=15))
+    st = next((x for x in md.get("states", []) if x.get("name") == name), None)
+    if st and order_id:
+        oh.ms("PUT", f"/entity/customerorder/{order_id}", json={"state": {"meta": st["meta"]}}, timeout=20)
+        return True
+    return False
+
+
+def on_status(d, num, st):
+    """Забрали со склада → «Отгружен», доставили → «Доставлен»; возврат / отмена Яндексом / сбой — уведомление сотрудникам."""
+    r = d.run("SELECT order_id FROM ya_claim WHERE num=%s", (num,), one=True)
+    oid = r[0] if r else ""
+    try:
+        if st in MS_STATE and set_ms_state(oid, MS_STATE[st]):
+            import admin
+            admin._olog(num, f"Статус → «{MS_STATE[st]}» (курьер Яндекс)", who_name="Яндекс")
+            oh._cache.pop("adm_orders", None)
+    except Exception as e:
+        print("Курьер: статус в МойСклад", num, str(e)[:200], flush=True)
+    if st in TROUBLE:
+        text = f"Курьер Яндекс: заказ №{num} — {STATUS.get(st, st)}. Свяжитесь с клиентом и решите: повторная доставка или возврат."
+        try:
+            import push
+            push.notify("Курьер: проблема с заказом", text, url="/admin", perm="orders", tag="ya-" + num)
+        except Exception as e:
+            print("Курьер: push", str(e)[:200], flush=True)
+        try:
+            oh.notify_staff("ya-" + num, "🚚 " + text)
+        except Exception as e:
+            print("Курьер: Telegram", str(e)[:200], flush=True)
 
 
 # ---------- отслеживание для покупателя (сайт → «Мои заказы») ----------
