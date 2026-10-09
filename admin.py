@@ -896,6 +896,9 @@ def order_state():
             oid = rows[0]["id"]
         oh.ms("PUT", f"/entity/customerorder/{oid}", json={"state": {"meta": st["meta"]}}, timeout=30)
         _olog(num, f"Статус → «{name}»")
+        if name == "Собран":                      # Express: собрали — курьер вызывается сам (Обзор → Доставка → автовызов)
+            import courier
+            threading.Thread(target=courier.auto_express, args=(num, oid), daemon=True, name="xauto-" + num).start()
     except Busy:
         return jsonify(ok=False, error="МойСклад долго отвечает — повторите через минуту"), 503
     except Exception as e:

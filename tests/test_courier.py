@@ -270,6 +270,34 @@ class Courier(unittest.TestCase):
         self.assertEqual(len(puts), 2)
         self.assertTrue(alerts and "№1700" in alerts[0] and pushes)
 
+    def test_auto_express(self):
+        """«Собран» у Express: рассчитать тарифом «Курьер» и вызвать, если цена ≤ лимита; дороже — только уведомление."""
+        import push
+        told = []
+        xo = {**ORDER, "id": "o2", "name": "1701",
+              "description": f"{oh.RETAIL_MARK}\nДана, WhatsApp +77017654321\nГород: Алматы\nОтправка: Срочный курьер по Алматы (Яндекс Экспресс) — Абая 12"}
+        self.patch(oh, "ms", lambda m, p, **kw: xo if p == "/entity/customerorder/" + "a" * 36
+                   else {"rows": [ORDER if "1700" in str((kw.get("params") or {}).get("filter")) else xo]})
+        self.patch(push, "notify", lambda title, body, *a, **k: told.append(body))
+        self.patch(oh, "notify_staff", lambda key, text, **k: None)
+        self.assertEqual(courier.auto_express("1701", "a" * 36, wait=5), "called")
+        create = [c for c in self.calls if c[0] == "/claims/create"][-1][2]
+        self.assertEqual(create["client_requirements"], {"taxi_class": "courier"})
+        self.assertTrue([c for c in self.calls if c[0] == "/claims/accept"])
+        self.assertIn("курьер вызван", told[-1])
+        self.assertEqual(courier.auto_express("1701", "a" * 36, wait=5), "already")            # второй раз не вызываем
+        with courier.db() as d:
+            d.run("DELETE FROM ya_claim")
+        self.calls.clear()
+        conf = delivery.conf()
+        self.patch(delivery, "conf", lambda: {**conf, "rules": {**conf["rules"], "xauto_limit": 1000}})   # Яндекс просит 1 100
+        self.assertEqual(courier.auto_express("1701", "a" * 36, wait=5), "over limit")
+        self.assertFalse([c for c in self.calls if c[0] == "/claims/accept"])
+        self.assertIn("дороже лимита 1 000", told[-1])
+        self.assertEqual(courier.auto_express("1700", "", wait=5), "not express")             # обычный заказ — не трогаем
+        self.patch(delivery, "conf", lambda: {**conf, "rules": {**conf["rules"], "xauto": 0}})
+        self.assertEqual(courier.auto_express("1701", "", wait=5), "off")
+
     def test_me_push_subscribe(self):
         import push
         self.patch(push, "keys", lambda: ("priv", "PUBKEY"))
