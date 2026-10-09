@@ -102,8 +102,11 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 .lblrow{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid #E3E6E4}.lblrow .btn,.lblrow select{flex:1 1 150px}@media(min-width:801px){.lblrow .btn,.lblrow select{flex:0 0 auto}}
 #dle summary{cursor:pointer;list-style:none}#dle summary::-webkit-details-marker{display:none}#dle summary::after{content:" ▾";color:#6B726E}#dle[open] summary::after{content:" ▴"}
 .xhr{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:8px;margin:6px 0 12px}.xhd{display:flex;align-items:center;gap:6px}.xhd .dlday{flex:none;min-width:44px}.xhd input{flex:1;min-width:110px;padding:8px}.xhd input:disabled{opacity:.4}
-.selbar{position:fixed;left:12px;right:12px;bottom:calc(98px + env(safe-area-inset-bottom,0px));z-index:40;display:flex;align-items:center;gap:8px;background:#fff;border-radius:16px;padding:10px 12px;box-shadow:0 10px 30px rgba(8,25,18,.25);flex-wrap:wrap}
+.selbar{position:fixed;left:12px;right:12px;bottom:calc(82px + env(safe-area-inset-bottom,0px));z-index:40;display:flex;align-items:center;gap:8px;background:#fff;border-radius:16px;padding:10px 12px;box-shadow:0 10px 30px rgba(8,25,18,.25);flex-wrap:wrap}
 .selbar .btn{padding:9px 11px;font-size:14px;white-space:nowrap}@media(max-width:800px){.selbar{gap:8px;padding:10px}.selbar b{order:-2}.selbar #sclr{order:-1;margin-left:auto;flex:0 0 auto}.selbar .sbsp{flex:0 0 100%!important;height:0}.selbar .btn:not(#sclr){flex:1 1 28%}}.vdel{color:var(--bad)!important}@media(min-width:801px){.selbar{left:auto;right:28px;bottom:24px;min-width:520px}}
+/* заголовок и пояснение раздела убраны: на телефоне вкладки сразу под зелёной шапкой, на компьютере — без поясняющей строки */
+#main > .sub{display:none}#main > h1{margin-bottom:14px}
+@media(max-width:800px){#main > h1{display:none}main#main{padding-top:10px}}
 </style><style id="eocss">.eo{background:#fff;width:100%;max-width:560px;max-height:92vh;overflow:auto;border-radius:18px 18px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom))}
 @media(min-width:801px){.eo{border-radius:0;margin:0;width:100%;max-width:none;height:100%;max-height:none;box-sizing:border-box;padding:28px max(28px,calc((100vw - 1000px)/2)) 40px}.eo .voa{max-width:560px}}   /* компьютер: заказ на весь экран, содержимое по центру */
 .eor{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid #EEF1EE}.eor:first-child{border-top:0}.eon{flex:1;min-width:0;font-size:14px}
