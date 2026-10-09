@@ -238,12 +238,13 @@ function openSheet(){
   const cdek = f.ship === "cdek";
   el.innerHTML = `<div class="rsbox" role="dialog" aria-modal="true" aria-label="${cdek ? "Пункт выдачи" : "Адрес доставки"}">
     <div class="rsh"><b>${cdek ? "Пункт выдачи СДЭК" : "Адрес доставки"}</b><button type="button" class="rx" data-rclose aria-label="Закрыть">×</button></div>
-    <div class="field"><label for="rCity">Город</label><input id="rCity" autocomplete="address-level2" placeholder="Например, Алматы" value="${esc(f.city)}"></div>
+    <div class="field rcity"><label for="rCity">Город</label><input id="rCity" autocomplete="off" placeholder="Начните вводить: Алматы, Астана…" value="${esc(f.city)}"><div class="rcl" id="rCityList" hidden></div></div>
     <div id="rSheetBody"></div>
     <div class="err" id="rsErr"></div>
     <button type="button" class="btn" id="rsOk">${cdek ? "Выбрать" : "Готово"}</button></div>`;
   el.hidden = false; document.body.classList.add("rsheet-open");
   sheetBody();
+  $("#rCity").addEventListener("focus", e => drawCities(e.target.value === form().city ? "" : e.target.value));
   if(!f.city) setTimeout(() => $("#rCity").focus(), 50);
 }
 function sheetBody(){
@@ -265,7 +266,32 @@ function courierNote(){
 }
 function closeSheet(){ const el = $("#rSheet"); if(el) el.hidden = true; document.body.classList.remove("rsheet-open"); paint(); }
 let cityT = 0;
+/* города Казахстана для подсказки: сначала крупные, потом все остальные по алфавиту (можно вписать и свой посёлок) */
+const KZ_TOP = ["Алматы","Астана","Шымкент","Караганда","Актобе","Тараз","Павлодар","Усть-Каменогорск","Семей","Атырау","Костанай","Кызылорда",
+  "Уральск","Петропавловск","Актау","Туркестан","Кокшетау","Талдыкорган","Экибастуз","Конаев"];
+const KZ_CITIES = KZ_TOP.concat(["Абай","Акколь","Аксай","Аксу","Алга","Алтай","Аральск","Аркалык","Арыс","Атбасар","Аягоз","Байконур","Балхаш",
+  "Булаево","Державинск","Ерейментау","Есик","Есиль","Жанаозен","Жанатас","Жаркент","Жезказган","Жем","Жетысай","Житикара","Зайсан",
+  "Казалинск","Кандыагаш","Каражал","Каратау","Каркаралинск","Каскелен","Кентау","Косшы","Кульсары","Курчатов","Ленгер","Лисаковск",
+  "Макинск","Мамлютка","Приозёрск","Риддер","Рудный","Сарань","Сарканд","Сарыагаш","Сатпаев","Сергеевка","Серебрянск","Степногорск",
+  "Степняк","Тайынша","Талгар","Текели","Темир","Темиртау","Тобыл","Ушарал","Уштобе","Форт-Шевченко","Хромтау","Шалкар","Шар","Шардара",
+  "Шахтинск","Шемонаиха","Шу","Щучинск","Эмба","Боралдай","Иргели","Отеген батыр","Узынагаш","Шамалган","Бесагаш","Туздыбастау",
+  "Кордай","Жалагаш","Аулиеколь","Шиели","Мерке","Каратобе","Индербор","Махамбет","Мойынкум","Шетпе","Бейнеу","Жанакорган"].sort((a, b) => a.localeCompare(b, "ru")));
+const cityKey = v => String(v || "").toLowerCase().replace(/ё/g, "е").replace(/[\s-]+/g, " ").trim();
+function drawCities(q){
+  const box = $("#rCityList"); if(!box) return;
+  const k = cityKey(q), hit = k ? KZ_CITIES.filter(c => cityKey(c).startsWith(k)).concat(KZ_CITIES.filter(c => !cityKey(c).startsWith(k) && cityKey(c).includes(k))) : KZ_CITIES;
+  box.innerHTML = hit.length ? hit.map(c => `<button type="button" data-city="${esc(c)}">${esc(c)}</button>`).join("")
+    : `<div class="kv">Такого города нет в списке — можно оставить как написали, СДЭК проверит</div>`;
+  box.hidden = false;
+}
+function pickCity(city){
+  const inp = $("#rCity"), box = $("#rCityList"); clearTimeout(cityT);
+  if(inp) inp.value = city; if(box) box.hidden = true;
+  if(city === form().city) return sheetBody();
+  DLV.pvzSel = null; DLV.pvz = []; DLV.pvzFor = ""; saveForm({ city, address: "" }); Promise.resolve(loadDlv(city)).then(() => { saveForm({}); sheetBody(); }); sheetBody();
+}
 function sheetInput(e){
+  if(e.target.id === "rCity") drawCities(e.target.value);
   if(e.target.id === "rCity"){ clearTimeout(cityT); cityT = setTimeout(() => {
     const city = e.target.value.trim(); if(city === form().city) return;
     DLV.pvzSel = null; DLV.pvz = []; DLV.pvzFor = ""; saveForm({ city, address: "" }); Promise.resolve(loadDlv(city)).then(() => { saveForm({}); sheetBody(); }); sheetBody(); }, 600); }
@@ -277,6 +303,8 @@ function sheetChange(e){
 }
 function sheetClick(e){
   if(e.target.id === "rSheet" || e.target.closest("[data-rclose]")) return closeSheet();
+  const pc = e.target.closest("[data-city]"); if(pc) return pickCity(pc.dataset.city);
+  if(e.target.id !== "rCity" && $("#rCityList")) $("#rCityList").hidden = true;
   if(e.target.id !== "rsOk") return;
   const f = form(), city = $("#rCity").value.trim(), err = $("#rsErr");
   if(!city){ err.textContent = "Укажите город"; return $("#rCity").focus(); }

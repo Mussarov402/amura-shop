@@ -49,6 +49,10 @@
 .rx{border:0;background:var(--bg);width:34px;height:34px;border-radius:50%;font-size:22px;line-height:1;color:var(--ink);cursor:pointer}
 .rsbox #pvzQ{width:100%;border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:11px 12px;margin:0}
 .rsbox .pvzl{max-height:46vh}
+.rcl{display:grid;max-height:42vh;overflow-y:auto;margin-top:6px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.rcl[hidden]{display:none}
+.rcl button{border:0;border-bottom:1px solid var(--line);background:none;text-align:left;padding:12px 14px;font:inherit;font-size:15px;color:var(--ink);cursor:pointer}
+.rcl button:last-child{border-bottom:0}.rcl button:hover{background:var(--bg)}.rcl .kv{padding:12px 14px}
 body.rsheet-open{overflow:hidden}
 @media(max-width:400px){.rtabs button{font-size:13px}}
 @media(min-width:900px){
