@@ -27,3 +27,4 @@
   .rpc-buy svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
   .rpc-buy.in{background:var(--mint);color:var(--green-3)}
 }
+.rpc-ok{width:15px;height:15px;fill:#2F80ED;vertical-align:-2px;margin-right:4px;flex:none}
