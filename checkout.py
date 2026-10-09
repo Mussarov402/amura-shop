@@ -27,8 +27,8 @@ def door_extra():
 
 
 def allowed(city):
-    """Способы получения на рознице: Алматы — Яндекс «в течение дня», самовывоз, срочный курьер; другие города — пункт выдачи СДЭК."""
-    return ("courier", "pickup", "express") if is_almaty(city) else ("cdek",)
+    """Способы получения на рознице: Алматы — Яндекс «в течение дня», пункт СДЭК, самовывоз, Express; другие города — пункт выдачи СДЭК."""
+    return ("courier", "cdek", "pickup", "express") if is_almaty(city) else ("cdek",)
 
 
 def client_price(goods_sum, method, city):
@@ -214,7 +214,7 @@ def order_delivery(d, ship, city, goods_sum):
     """(цена, текст для описания, ошибка) для розничного заказа; цена считается здесь, не в браузере."""
     address = str(d.get("address", "")).strip()[:200]
     if ship not in allowed(city):
-        return 0, "", ("По Алматы — доставка в течение дня, срочный курьер или самовывоз" if is_almaty(city)
+        return 0, "", ("По Алматы — доставка в течение дня, пункт СДЭК, самовывоз или Express" if is_almaty(city)
                        else "В ваш город доставляем в пункт выдачи СДЭК")
     if ship == "pickup":
         return 0, "Самовывоз", None

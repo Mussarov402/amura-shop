@@ -9,9 +9,9 @@
 if(!window.AMURA_RETAIL) return;
 const MON = ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"];
 const WANT = "amura-r-checkout";                 // «после входа вернуться к оформлению»
-/* способы получения: Алматы — Яндекс «в течение дня», самовывоз, срочный курьер Express; другие города — только пункт выдачи СДЭК */
+/* способы получения: Алматы — Яндекс «в течение дня», пункт СДЭК, самовывоз, Express; другие города — только пункт выдачи СДЭК */
 const isAlm = f => DLV.opts && DLV.city === ((f && f.city) || "") ? DLV.opts.almaty : /алмат/i.test((f && f.city) || "");
-const tabsFor = f => isAlm(f) ? [["courier", "В течение дня"], ["pickup", "Самовывоз"], ["express", "Express"]] : [["cdek", "Пункт выдачи СДЭК"]];
+const tabsFor = f => isAlm(f) ? [["courier", "В течение дня"], ["cdek", "Пункт СДЭК"], ["pickup", "Самовывоз"], ["express", "Express"]] : [["cdek", "Пункт выдачи СДЭК"]];
 const isCour = s => s === "courier" || s === "express";
 const _dlvPrice = dlvPrice;
 dlvPrice = function(ship, goods){          // цена по способу: своя цена и свой порог бесплатной доставки (rates с сервера)

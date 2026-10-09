@@ -33,7 +33,7 @@ class Prices(unittest.TestCase):
         self.assertEqual(cp(3000, "pickup", "Алматы"), 0)
 
     def test_allowed(self):
-        self.assertEqual(checkout.allowed("Алматы"), ("courier", "pickup", "express"))
+        self.assertEqual(checkout.allowed("Алматы"), ("courier", "cdek", "pickup", "express"))
         self.assertEqual(checkout.allowed("Караганда"), ("cdek",))
 
 
@@ -49,7 +49,7 @@ class Options(unittest.TestCase):
     def test_almaty(self):
         r = json.loads(self.c.get("/delivery/options?city=Алматы&sum=3000").data)
         self.assertTrue(r["almaty"])
-        self.assertEqual([(m["id"], m["price"]) for m in r["methods"]], [("courier", 1000), ("pickup", 0), ("express", 2500)])
+        self.assertEqual([(m["id"], m["price"]) for m in r["methods"]], [("courier", 1000), ("cdek", 1500), ("pickup", 0), ("express", 2500)])
         self.assertEqual(r["rates"]["courier"], {"price": 1000, "free": 15000})
         self.assertIsInstance(r["slots"], list)
 
@@ -64,8 +64,7 @@ class Options(unittest.TestCase):
         checkout.cdek_eta = boom
         checkout._cdek_down[0] = 0
         r = json.loads(self.c.get("/delivery/options?city=Алматы&sum=3000").data)
-        self.assertEqual([m["price"] for m in r["methods"]], [1000, 0, 2500])
-        self.assertEqual(calls, [])                                    # Алматы — без СДЭК
+        self.assertEqual([m["price"] for m in r["methods"]], [1000, 1500, 0, 2500])   # цены есть и без СДЭК
         r = json.loads(self.c.get("/delivery/options?city=Астана&sum=3000").data)
         self.assertEqual(r["methods"][0]["price"], 1500)               # цена есть и без СДЭК
         self.assertTrue(r["warn"])
@@ -143,7 +142,10 @@ class Orders(unittest.TestCase):
         res, st = self.order(city="Караганда", address="Ерубаева 1")            # курьера в другие города нет
         self.assertEqual(st, 400)
         self.assertIn("пункт выдачи СДЭК", res["error"])
-        res, st = self.order(shipping="cdek", pvz={"code": "ALM1", "address": "Абая 1"})   # в Алматы СДЭК не предлагаем
+        res, st = self.order(shipping="cdek", pvz={"code": "ALM1", "address": "Абая 1"})   # в Алматы — пункт СДЭК тоже можно
+        self.assertEqual(st, 200)
+        self.assertEqual(res["total"], 3000 + 1500)
+        res, st = self.order(city="Караганда", shipping="pickup")                     # самовывоз — только Алматы
         self.assertEqual(st, 400)
 
     def test_express(self):
