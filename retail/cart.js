@@ -383,17 +383,10 @@ function markRetail(){
 const _paintMe = paintMe;
 paintMe = function(p, orders){
   _paintMe(p, orders); markRetail();
-  legalMe();
   let want = false; try{ want = sessionStorage.getItem(WANT) === "1"; }catch{}
   if(want && AUTH.token && p && p.name){ try{ sessionStorage.removeItem(WANT); }catch{} toast("Вы вошли — оформляем заказ"); NEXT = "checkout"; go("cart"); }
 };
 
-/* вкладка «Я»: «Правовая информация» внизу — как в приложении WB (подвал сайта на телефоне скрыт) */
-function legalMe(){
-  if(!window.AMURA_LEGAL || $("#rLegalMe")) return;
-  const box = $("#meBody") || $("#viewMe"); if(!box) return;
-  box.insertAdjacentHTML("beforeend", `<div class="rlegal-me" id="rLegalMe"><b>Правовая информация</b>${[["offer", "Публичная оферта"], ["privacy", "Политика конфиденциальности"], ["delivery", "Доставка и оплата"], ["returns", "Возврат и обмен"], ["contacts", "Контакты и реквизиты"]].map(([k, t]) => `<a href="legal/${k}.html">${t}</a>`).join("")}</div>`);
-}
 renderCart = renderRetailCart;
 const _shipName = dlvShipName;
 dlvShipName = function(f){ return f.ship === "express" ? "Срочный курьер по Алматы (Яндекс Экспресс) — " + (f.address || "") : _shipName(f); };
@@ -403,7 +396,6 @@ const _renderAuth = renderAuth;
 renderAuth = function(){
   _renderAuth();
   ["#tgLogin", "#tgHint", "#meBody .or"].forEach(sel => { const el = $(sel); if(el) el.remove(); });
-  legalMe();
   const send = $("#aSend");
   if(send && !$("#aRemember")){
     send.insertAdjacentHTML("beforebegin", `<label class="rremember"><input type="checkbox" id="aRemember" ${remember() ? "checked" : ""}><span>Запомнить меня<small>Снимите на чужом телефоне — вход сбросится, когда закроете браузер</small></span></label>`);
