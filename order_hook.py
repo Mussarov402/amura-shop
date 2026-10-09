@@ -663,10 +663,9 @@ def find_or_create_agent(name, phone, telegram, city):
 
 def _find_or_create_agent(name, phone, telegram, city):
     if phone:
-        rows = ms("GET", "/entity/counterparty", params={"search": phone[-10:], "limit": 5})["rows"]
-        for r in rows:
-            if re.sub(r"\D", "", r.get("phone", ""))[-10:] == phone[-10:]:
-                return r["id"]
+        r = cp_by_phone(phone)
+        if r:
+            return r["id"]
     if telegram:
         rows = ms("GET", "/entity/counterparty", params={"search": f"@{telegram}", "limit": 5})["rows"]
         for r in rows:
@@ -1403,10 +1402,46 @@ def norm_phone(v):
     return d
 
 
+def _phone_searches(p10):
+    # МойСклад ищет подстрокой, а номер в карточке бывает записан как угодно:
+    # «+7 (701) 234-56-78», «8 701 234 56 78», «87012345678» — пробуем разные куски
+    return [p10, f"{p10[3:6]}-{p10[6:8]}-{p10[8:]}", f"{p10[3:6]} {p10[6:8]} {p10[8:]}", p10[3:]]
+
+
+def _mirror_agent_ids(p10):
+    """Клиенты с этим номером из копии базы (если она включена) — поиск по цифрам, без оглядки на формат."""
+    try:
+        import mirror
+        if not mirror.enabled():
+            return []
+        with mirror.db() as d:
+            rows = d.run("SELECT id, phone FROM ms_agent WHERE deleted=0 AND archived=0 AND phone LIKE %s",
+                         ("%" + p10[-2:],), many=True)
+        return [r[0] for r in rows if norm_phone(r[1])[-10:] == p10]
+    except Exception:
+        return []
+
+
 def cp_by_phone(phone):
-    for r in ms("GET", "/entity/counterparty", params={"search": phone[-10:], "limit": 10})["rows"]:
-        if norm_phone(r.get("phone", ""))[-10:] == phone[-10:]:
+    """Ищет клиента по номеру, как бы номер ни был записан в МойСклад, — чтобы не плодить дубли."""
+    p10 = norm_phone(phone)[-10:]
+    if len(p10) < 10:
+        return None
+    for cid in _mirror_agent_ids(p10):
+        try:
+            r = ms("GET", f"/entity/counterparty/{cid}")
+        except Exception:
+            continue
+        if not r.get("archived") and norm_phone(r.get("phone", ""))[-10:] == p10:
             return r
+    seen = set()
+    for q in _phone_searches(p10):
+        rows = ms("GET", "/entity/counterparty", params={"search": q, "limit": 50})["rows"]
+        hits = [r for r in rows if r["id"] not in seen and norm_phone(r.get("phone", ""))[-10:] == p10]
+        if hits:
+            hits.sort(key=lambda r: (bool(r.get("archived")), r.get("created") or ""))
+            return hits[0]
+        seen.update(r["id"] for r in rows)
     return None
 
 
