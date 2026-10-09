@@ -126,3 +126,14 @@ input,select,textarea{font-size:16px!important}
 .rsteps b{font-size:15px}.rsteps span{font-size:13.5px;color:var(--muted)}
 .rdone-d{display:grid;gap:8px}
 .rdone-d .rrow b{text-align:right;font-weight:600}
+/* отслеживание доставки в «Моих заказах» */
+.rtrk{margin:10px 0 4px;padding:12px;border-radius:14px;background:var(--bg);display:grid;gap:10px}
+.rtrk-l{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:baseline}.rtrk-l b{font-size:15px}.rtrk-l span{font-size:13px;color:var(--muted)}
+.rtrk.bad .rtrk-l b{color:#B5661B}
+.rtrk ol{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+.rtrk li{display:grid;gap:5px;font-size:11.5px;color:var(--muted);text-align:center;justify-items:center}
+.rtrk li i{display:block;width:100%;height:5px;border-radius:5px;background:var(--line)}
+.rtrk li.on i{background:#1E9E5A}.rtrk li.cur span{color:var(--ink);font-weight:700}
+.rtrk .btn{text-decoration:none;text-align:center}
+[data-view="me"].rdot{position:relative}
+[data-view="me"].rdot::after{content:"";position:absolute;top:6px;right:calc(50% - 16px);width:9px;height:9px;border-radius:50%;background:#E5483A;box-shadow:0 0 0 2px #173A2A}

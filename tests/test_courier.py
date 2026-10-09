@@ -22,7 +22,7 @@ import delivery  # noqa: E402
 import inbox  # noqa: E402
 import order_hook as oh  # noqa: E402
 
-ORDER = {"id": "o1", "name": "1700", "sum": 1500000, "moment": "2026-10-09 09:00:00", "agent": {"name": "Аружан"},
+ORDER = {"id": "o1", "name": "1700", "sum": 1500000, "moment": "2026-10-09 09:00:00", "agent": {"id": "ag1", "name": "Аружан"},
          "state": {"name": "Новый"},
          "description": f"{oh.RETAIL_MARK}\nАружан, WhatsApp +77011234567\nГород: Алматы\n"
                         "Отправка: Курьер по Алматы (Яндекс) — Абая 10, кв 5, 09.10 Обед 11:00–14:00"}
@@ -55,6 +55,9 @@ class Courier(unittest.TestCase):
                 return Resp({"id": "cl1", "status": self.status, "version": 2, "pricing": {"offer": {"price": "1100.00"}}, "available_cancel_state": "free"})
             if path == "/claims/accept":
                 return Resp({"id": "cl1", "status": "accepted", "version": 3})
+            if path == "/claims/tracking-links":
+                return Resp({"route_points": [{"type": "source", "sharing_link": "https://x/src"},
+                                              {"type": "destination", "sharing_link": "https://dostavka.yandex.ru/route/abc"}]})
             if path == "/claims/cancel":
                 return Resp({"id": "cl1", "status": "cancelled", "version": 3})
             raise AssertionError(path)
@@ -155,6 +158,36 @@ class Courier(unittest.TestCase):
         r = json.loads(self.c.get("/admin/api/courier?date=2026-10-09").data)
         self.assertFalse(r["ready"])
         self.assertEqual(r["intervals"], [])
+
+    def test_client_tracking(self):
+        """Клиент видит статус только своих заказов; до подтверждения — ничего; в пути — ссылка «где курьер»."""
+        iv = {"from": "2026-10-09T09:00:00+00:00", "to": "2026-10-09T13:00:00+00:00"}
+        self.post("/admin/api/courier/estimate", {"date": "2026-10-09", "nums": ["1700"], "interval": iv})
+        self.assertEqual(courier.client_tracks("ag1"), {})                    # только оценка — клиенту не показываем
+        self.post("/admin/api/courier/accept", {"nums": ["1700"]})
+        self.assertEqual(courier.client_tracks("ag1")["1700"]["label"], "Ищем курьера")
+        self.status = "pickuped"
+        courier.refresh()
+        t = courier.client_tracks("ag1")["1700"]
+        self.assertEqual((t["step"], t["label"]), (2, "Курьер забрал заказ и едет к вам"))
+        self.assertEqual(t["link"], "https://dostavka.yandex.ru/route/abc")
+        self.assertEqual(courier.client_tracks("someone-else"), {})            # чужие заказы не видны
+        self.status = "delivered"
+        courier.refresh()
+        t = courier.client_tracks("ag1")["1700"]
+        self.assertEqual((t["step"], t["link"]), (3, ""))                      # доставлен — ссылка больше не нужна
+
+    def test_me_track_endpoint(self):
+        self.post("/admin/api/courier/estimate", {"date": "2026-10-09", "nums": ["1700"], "interval": {"from": "a", "to": "b"}})
+        self.post("/admin/api/courier/accept", {"nums": ["1700"]})
+        app = Flask(__name__)
+        app.register_blueprint(oh.bp)
+        c = app.test_client()
+        self.assertEqual(c.get("/me/track").status_code, 401)                  # без входа — нельзя
+        r = json.loads(c.get("/me/track", headers={"Authorization": "Bearer " + oh.make_token("ag1")}).data)
+        self.assertEqual(list(r["tracks"]), ["1700"])
+        r = json.loads(c.get("/me/track", headers={"Authorization": "Bearer " + oh.make_token("other")}).data)
+        self.assertEqual(r["tracks"], {})
 
     def test_staff_without_orders_perm(self):
         self.patch(admin, "who", lambda: {"role": "staff", "perms": ["inbox"], "name": "С"})
