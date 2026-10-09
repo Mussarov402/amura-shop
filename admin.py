@@ -952,6 +952,34 @@ def order_detail(number):
                    reserved=any((l["reserve"] or 0) > 0 for l in lines if l["type"] in RESERVABLE))
 
 
+@bp.post("/admin/api/orders/assembly")
+@need("orders")
+def orders_assembly():
+    """Лист сборки: по выбранным заказам — товары всех заказов (сумма штук) и состав каждого заказа."""
+    want = [x for x in ((request.get_json(silent=True) or {}).get("orders") or []) if isinstance(x, dict)][:60]
+    def one(x):
+        oid, num = str(x.get("id") or ""), str(x.get("number") or "")[:20]
+        if oh.re.fullmatch(r"[0-9a-f-]{36}", oid):
+            o = oh.ms("GET", f"/entity/customerorder/{oid}", params={"expand": "agent"}, timeout=30)
+        else:
+            rows = oh.ms("GET", "/entity/customerorder", params={"filter": f"name={num}", "limit": 1, "expand": "agent"}, timeout=30).get("rows", [])
+            o = rows[0] if rows else None
+        if not o:
+            return {"number": num, "error": "не найден"}
+        lines = [{"id": p["assortment"]["id"], "name": p["assortment"].get("name", ""), "code": p["assortment"].get("code", ""), "qty": int(p["quantity"])}
+                 for p in oh.order_positions(o["id"]) if p["assortment"]["meta"]["type"] in RESERVABLE]
+        desc = (o.get("description") or "").split("\n")
+        ship = next((l[len("Отправка: "):] for l in desc if l.startswith("Отправка: ")), "")
+        return {"number": o["name"], "client": (o.get("agent") or {}).get("name", ""), "ship": ship, "lines": lines}
+    from concurrent.futures import ThreadPoolExecutor
+    try:
+        with ThreadPoolExecutor(4) as ex:                  # МойСклад: не больше 5 запросов одновременно
+            res = list(ex.map(one, want))
+    except Exception as e:
+        return jsonify(ok=False, error="МойСклад не ответил: " + str(e)[:150]), 502
+    return jsonify(ok=True, orders=res)
+
+
 RESERVABLE = ("product", "variant", "bundle")       # резервируются товары, модификации и комплекты (не услуги)
 
 
