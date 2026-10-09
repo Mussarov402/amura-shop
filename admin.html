@@ -362,13 +362,15 @@ const viewOrder=async(n,oid,opt={})=>{const ov=document.createElement("div");ov.
   else if(a==="pdf")openDoc(d.pdf,nm+".pdf");else fileAct(b,d.pdf,nm+".pdf","application/pdf",true)})};
 const head=(t,s)=>`<h1>${t}</h1><div class="sub">${s}</div>`;
 /* этапы как в FBS у WB: Новые → Собраны → В доставке → Доставлены / Отменённые — по статусу заказа в МойСклад и курьера Яндекса */
-const STG=[["all","Все"],["new","Новые"],["built","Собраны"],["ship","В доставке"],["done","Доставлены"],["cancel","Отменённые"]];
+const STG=[["new","Новые"],["built","Собраны"],["ship","В доставке"],["done","Доставлены"],["cancel","Отменённые"]];
 const stageOf=x=>{const y=(x.ya||{}).status||"",m=x.state||"";
  if(/Отмен|Возврат/.test(m))return "cancel";             // отмена заявки Яндекса — не отмена заказа: его можно отправить заново
  if(/^delivered/.test(y)||m==="Доставлен")return "done";
  if(/^(pickuped|delivery_arrived|pay_waiting|ready_for_delivery_confirmation|returning)$/.test(y)||m==="Отгружен")return "ship";
  return m==="Собран"?"built":"new"};
-const stgChips=(list,cur,id)=>`<div class="chips cn" id="${id}" style="margin-bottom:10px;flex-wrap:wrap">${STG.map(([k,t])=>{const n=k==="all"?list.length:list.filter(x=>stageOf(x)===k).length;return k!=="all"&&!n&&k!==cur?"":`<button class="st ${k===cur?"on":""}" data-stg="${k}">${t} ${n}</button>`}).join("")}</div>`;
+const stgChips=(list,cur,id)=>`<div class="chips cn" id="${id}" style="margin-bottom:10px;flex-wrap:wrap">${STG.map(([k,t])=>{const n=list.filter(x=>stageOf(x)===k).length;return !n&&k!==cur&&k!=="new"&&k!=="built"?"":`<button class="st ${k===cur?"on":""}" data-stg="${k}">${t} ${n}</button>`}).join("")}</div>`;
+/* открытый этап: выбранный раньше, иначе первый непустой — Новые → Собраны → … */
+const pickStg=(list,saved)=>STG.some(([k])=>k===saved)?saved:(STG.find(([k])=>list.some(x=>stageOf(x)===k))||["new"])[0];
 const bldBtn=x=>{const g=stageOf(x);return g==="new"||g==="built"?`<button class="btn ${g==="built"?"":"ghost"}" data-bld="${esc(x.num)}" data-id="${esc(x.id||"")}" data-on="${g==="built"?1:0}" style="padding:6px 10px">${g==="built"?"✓ Собран":"Отметить собранным"}</button>`:""};
 async function setBuilt(list,on){let bad=[];for(const x of list){try{await api("orders/state",{method:"POST",body:JSON.stringify({number:x.number,id:x.id||"",state:on?"Собран":"Новый"})})}catch(e){bad.push("№"+x.number+": "+e.message)}}
  toast(bad.length?bad.join("; "):on?"Отмечено: собрано":"Снята отметка «Собран»")}
@@ -523,40 +525,43 @@ async orders(q,kind){q=q==null?"":String(q);const rt=kind==="retail",vw=rt?"reta
 retail(q){return views.orders(q,"retail")},
 async courier(day){day=day||views.courier.day||new Date(Date.now()+5*3600e3).toISOString().slice(0,10);views.courier.day=day;const o=await api("courier?date="+day);const n=nav;
  o.orders=o.orders.filter(x=>!x.express);   // Express — своя вкладка
+ const SG=pickStg(o.orders,views.courier.stg),SL=o.orders.filter(x=>stageOf(x)===SG);   // Новые — собрать; Собраны — рассчитать и вызвать курьера
  const tm=s=>new Date(s).toLocaleString("ru-RU",{timeZone:"Asia/Almaty",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
  const tt=s=>new Date(s).toLocaleTimeString("ru-RU",{timeZone:"Asia/Almaty",hour:"2-digit",minute:"2-digit"});
  const IV=o.intervals||[],dayOf=s=>new Date(s).toLocaleDateString("sv-SE",{timeZone:"Asia/Almaty"}),W=o.windows||[];
  const ivDay=IV.map((v,i)=>({v,i})).filter(x=>dayOf(x.v.from)===day),ivPref=ivDay.filter(x=>W.includes(tt(x.v.from)));let allIv=false;
- let iv=(ivPref[0]||ivDay[0]||{i:-1}).i,sel=new Set(o.orders.filter(x=>!(x.ya&&x.ya.claim&&!/^(cancel|fail|estimating_failed|returned)/.test(x.ya.status))&&x.ya&&x.ya.pt).map(x=>x.num));
- const ready=x=>x.ya&&x.ya.status==="ready_for_approval",live=x=>x.ya&&x.ya.claim&&!/^(cancel|fail|estimating_failed|returned|delivered)/.test(x.ya.status);
+ let iv=(ivPref[0]||ivDay[0]||{i:-1}).i,sel=new Set(o.orders.filter(x=>!(x.ya&&x.ya.claim&&!/^(cancel|fail|estimating_failed|returned)/.test(x.ya.status))&&x.ya&&x.ya.pt&&stageOf(x)==="built").map(x=>x.num));
+ const ready=x=>x.ya&&x.ya.status==="ready_for_approval"&&stageOf(x)==="built",live=x=>x.ya&&x.ya.claim&&!/^(cancel|fail|estimating_failed|returned|delivered)/.test(x.ya.status);
  const draw=()=>{const R=o.orders.filter(ready),sumR=R.reduce((s,x)=>s+(x.ya.price||0),0);
  $("#main").innerHTML=head("Курьер Яндекс","Доставка «В течение дня» по Алматы: курьер забирает все заказы со склада за один заезд и развозит за ~4 часа. Рассчитать — бесплатно, платно только после «Подтвердить».")+seg("courier")+
  `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px"><input type="date" id="cday" value="${esc(day)}" style="width:180px;flex:none"><button class="btn ghost" id="cref">Обновить статусы</button><span class="mut" id="cm"></span></div>`+
  (!o.ready?`<div class="card" style="margin-bottom:12px">Ключ Яндекс Доставки не введён. Обзор → Доставка → Яндекс.</div>`:"")+
  (o.error?`<div class="card" style="margin-bottom:12px;color:var(--bad)">${esc(o.error)}</div>`:"")+
- (o.ready&&ivDay.length?(()=>{const sh=allIv||!ivPref.length?ivDay:ivPref;return `<div class="card" style="margin-bottom:12px"><b>Интервал забора со склада</b><div class="mut" style="font-size:13px">Курьер заберёт заказы в это окно и развезёт за 4 часа${ivPref.length&&!allIv?" · как у клиентов на сайте":""}</div><div class="chips cn" style="margin-top:8px;flex-wrap:wrap">${sh.map(x=>`<button class="st ${x.i===iv?"on":""}" data-iv="${x.i}">${tt(x.v.from)}–${tt(x.v.to)}</button>`).join("")}${ivDay.length>ivPref.length&&ivPref.length?`<button class="st" id="ivall">${allIv?"Только окна сайта":"Другие интервалы ("+(ivDay.length-ivPref.length)+")"}</button>`:""}</div></div>`})():(o.ready&&!o.error?`<div class="card mut" style="margin-bottom:12px">На ${esc(day)} Яндекс интервалов не дал — выберите другой день.</div>`:""))+
- (o.orders.length?stgChips(o.orders,views.courier.stg||"all","cstg"):"")+
- `<div class="card">${o.orders.filter(x=>(views.courier.stg||"all")==="all"||stageOf(x)===views.courier.stg).length?o.orders.filter(x=>(views.courier.stg||"all")==="all"||stageOf(x)===views.courier.stg).map(x=>{const y=x.ya||{},can=!live(x)&&y.pt;return `<div class="ord cyo" data-num="${esc(x.num)}"><div class="o1">${can?`<input type="checkbox" data-sel="${esc(x.num)}" ${sel.has(x.num)?"checked":""} style="width:20px;height:20px">`:""}<b>№${esc(x.num)}</b><span class="mut">${esc(x.slot||x.moment.slice(5))}</span><span style="flex:1"></span><b style="white-space:nowrap">${fmt(x.sum)} ₸</b></div>
+ (SG!=="built"?"":o.ready&&ivDay.length?(()=>{const sh=allIv||!ivPref.length?ivDay:ivPref;return `<div class="card" style="margin-bottom:12px"><b>Интервал забора со склада</b><div class="mut" style="font-size:13px">Курьер заберёт заказы в это окно и развезёт за 4 часа${ivPref.length&&!allIv?" · как у клиентов на сайте":""}</div><div class="chips cn" style="margin-top:8px;flex-wrap:wrap">${sh.map(x=>`<button class="st ${x.i===iv?"on":""}" data-iv="${x.i}">${tt(x.v.from)}–${tt(x.v.to)}</button>`).join("")}${ivDay.length>ivPref.length&&ivPref.length?`<button class="st" id="ivall">${allIv?"Только окна сайта":"Другие интервалы ("+(ivDay.length-ivPref.length)+")"}</button>`:""}</div></div>`})():(o.ready&&!o.error?`<div class="card mut" style="margin-bottom:12px">На ${esc(day)} Яндекс интервалов не дал — выберите другой день.</div>`:""))+
+ stgChips(o.orders,SG,"cstg")+
+ `<div class="card">${SL.length?SL.map(x=>{const y=x.ya||{},can=SG==="built"&&!live(x)&&y.pt;return `<div class="ord cyo" data-num="${esc(x.num)}"><div class="o1">${can?`<input type="checkbox" data-sel="${esc(x.num)}" ${sel.has(x.num)?"checked":""} style="width:20px;height:20px">`:""}<b>№${esc(x.num)}</b><span class="mut">${esc(x.slot||x.moment.slice(5))}</span><span style="flex:1"></span><b style="white-space:nowrap">${fmt(x.sum)} ₸</b></div>
   <div class="o2"><span class="cl">${esc(x.name)} · ${esc(x.addr||"адрес не указан")}</span></div>
   <div class="o3" style="flex-wrap:wrap"><span class="b ${y.status==="ready_for_approval"?"w":/deliver/.test(y.status||"")?"ok":/cancel|fail/.test(y.status||"")?"x":"n"}">${esc(x.statusText)}${y.price?" · "+fmt(Math.round(y.price))+" ₸":""}</span>
   ${y.pt?`<a class="mut" target="_blank" rel="noopener" href="https://2gis.kz/almaty/geo/${y.pt[0]},${y.pt[1]}">на карте</a>`:`<span class="b x">адрес не найден на карте</span>`}
   ${live(x)?"":`<button class="btn ghost" data-co="${esc(x.num)}" style="padding:6px 10px">${y.pt?"Поправить точку":"Указать точку"}</button>`}
   ${live(x)&&y.status!=="ready_for_approval"?"":""}${y.claim&&live(x)?`<button class="btn ghost" data-cx="${esc(x.num)}" style="padding:6px 10px">Отменить</button>`:""}${bldBtn(x)}</div>
   ${y.err?`<div class="mut" style="color:var(--bad);margin-top:4px">${esc(y.err)}</div>`:""}</div>`}).join(""):`<div class="mut">${o.orders.length?"В этом разделе заказов нет.":`На ${esc(day)} заказов «В течение дня» с розничного сайта нет.`}</div>`}</div>`+
- `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px"><button class="btn" id="cest" ${o.ready&&iv>=0&&sel.size?"":"disabled"}>Рассчитать выбранные (${sel.size})</button>`+
- `<button class="btn" id="cacc" ${R.length?"":"disabled"} style="background:#B8860B">Подтвердить ${R.length?R.length+" · "+fmt(Math.round(sumR))+" ₸":""}</button></div><div class="lblrow">${lblPick()}<button class="btn ghost" id="asmp" ${o.orders.length?"":"disabled"}>Лист сборки</button><button class="btn ghost" id="lblp" ${o.orders.length?"":"disabled"}>Печать наклеек (${o.orders.length})</button></div>`;
+ (SG==="built"?`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px"><button class="btn" id="cest" ${o.ready&&iv>=0&&sel.size?"":"disabled"}>Рассчитать выбранные (${sel.size})</button>`+
+ `<button class="btn" id="cacc" ${R.length?"":"disabled"} style="background:#B8860B">Подтвердить ${R.length?R.length+" · "+fmt(Math.round(sumR))+" ₸":""}</button></div>`:SG==="new"&&SL.length?`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px"><button class="btn" id="cbld">Отметить все собранными (${SL.length})</button></div>`:"")+
+ (SG==="new"||SG==="built"?`<div class="lblrow">${lblPick()}<button class="btn ghost" id="asmp" ${SL.length?"":"disabled"}>Лист сборки (${SL.length})</button><button class="btn ghost" id="lblp" ${SL.length?"":"disabled"}>Печать наклеек (${SL.length})</button></div>`:"");
  bindSeg();
  $("#cday").onchange=e=>views.courier(e.target.value);
- document.querySelectorAll("#cstg [data-stg]").forEach(b=>b.onclick=()=>{views.courier.stg=b.dataset.stg;draw()});
- document.querySelectorAll("[data-bld]").forEach(b=>b.onclick=async()=>{b.disabled=true;await setBuilt([{number:b.dataset.bld,id:b.dataset.id}],b.dataset.on!=="1");if(n===nav)views.courier(day)});bindLabels(o.orders.filter(x=>!/^cancel/.test((x.ya||{}).status||"")),"В течение дня");
+ document.querySelectorAll("#cstg [data-stg]").forEach(b=>b.onclick=()=>{views.courier.stg=b.dataset.stg;views.courier(day)});
+ document.querySelectorAll("[data-bld]").forEach(b=>b.onclick=async()=>{b.disabled=true;await setBuilt([{number:b.dataset.bld,id:b.dataset.id}],b.dataset.on!=="1");if(n===nav)views.courier(day)});bindLabels(SL,"В течение дня");
+ const cb=$("#cbld");if(cb)cb.onclick=async()=>{if(!confirm(`Отметить собранными все ${SL.length}? Статус в МойСклад станет «Собран».`))return;cb.disabled=true;await setBuilt(SL.map(x=>({number:x.num,id:x.id})),true);if(n===nav){views.courier.stg="built";views.courier(day)}};
  document.querySelectorAll("[data-iv]").forEach(b=>b.onclick=()=>{iv=+b.dataset.iv;draw()});
  const ia=$("#ivall");if(ia)ia.onclick=()=>{allIv=!allIv;draw()};
  document.querySelectorAll("[data-sel]").forEach(b=>b.onchange=()=>{b.checked?sel.add(b.dataset.sel):sel.delete(b.dataset.sel);draw()});
  const msg=t=>$("#cm").textContent=t,res=r=>Object.entries(r.result||{}).filter(([,v])=>v!=="ok").map(([k,v])=>"№"+k+": "+v).join("; ");
  $("#cref").onclick=async()=>{msg("Обновляю…");try{await api("courier/refresh",{method:"POST",body:"{}"});if(n===nav)views.courier(day)}catch(e){msg(e.message)}};
- $("#cest").onclick=async()=>{msg("Рассчитываю в Яндексе…");try{const r=await api("courier/estimate",{method:"POST",body:JSON.stringify({date:day,nums:[...sel],interval:IV[iv]})});
+ ($("#cest")||{}).onclick=async()=>{msg("Рассчитываю в Яндексе…");try{const r=await api("courier/estimate",{method:"POST",body:JSON.stringify({date:day,nums:[...sel],interval:IV[iv]})});
    const bad=res(r);setTimeout(async()=>{try{await api("courier/refresh",{method:"POST",body:"{}"})}catch(e){}if(n===nav){await views.courier(day);if(bad)$("#cm").textContent=bad}},4000);msg("Яндекс считает цену…"+(bad?" "+bad:""))}catch(e){msg(e.message)}};
- $("#cacc").onclick=async()=>{const R=o.orders.filter(ready);if(!confirm(`Подтвердить ${R.length} заявок на ${fmt(Math.round(R.reduce((s,x)=>s+(x.ya.price||0),0)))} ₸? Яндекс начнёт искать курьера — это платно.`))return;
+ ($("#cacc")||{}).onclick=async()=>{const R=o.orders.filter(ready);if(!confirm(`Подтвердить ${R.length} заявок на ${fmt(Math.round(R.reduce((s,x)=>s+(x.ya.price||0),0)))} ₸? Яндекс начнёт искать курьера — это платно.`))return;
    msg("Подтверждаю…");try{const r=await api("courier/accept",{method:"POST",body:JSON.stringify({nums:R.map(x=>x.num)})});const bad=res(r);if(n===nav){await views.courier(day);if(bad)$("#cm").textContent=bad}}catch(e){msg(e.message)}};
  document.querySelectorAll("[data-co]").forEach(b=>b.onclick=async()=>{const v=prompt("Точка клиента: «43.2389, 76.8897» или ссылка из 2ГИС / Яндекс Карт");if(!v)return;
    try{await api("courier/coords",{method:"POST",body:JSON.stringify({num:b.dataset.co,coords:v})});views.courier(day)}catch(e){msg(e.message)}});
@@ -565,33 +570,36 @@ async courier(day){day=day||views.courier.day||new Date(Date.now()+5*3600e3).toI
  };draw()},
 async express(day){day=day||views.express.day||new Date(Date.now()+5*3600e3).toISOString().slice(0,10);views.express.day=day;const o=await api("courier?date="+day);const n=nav;
  const E=o.orders.filter(x=>x.express),st=x=>(x.ya||{}).status||"new";
- const live=x=>x.ya&&x.ya.claim&&!/^(cancel|fail|estimating_failed|returned|delivered)/.test(st(x)),ready=x=>st(x)==="ready_for_approval";
+ const SG=pickStg(E,views.express.stg),SL=E.filter(x=>stageOf(x)===SG);   // Новые — собрать; Собраны — рассчитать и вызвать
+ const live=x=>x.ya&&x.ya.claim&&!/^(cancel|fail|estimating_failed|returned|delivered)/.test(st(x)),ready=x=>st(x)==="ready_for_approval"&&stageOf(x)==="built";
  let TX="courier";try{TX=localStorage.getItem("amura_xtaxi")==="express"?"express":"courier"}catch(e){}
- const toEst=E.filter(x=>!live(x)&&x.ya&&x.ya.pt),R=E.filter(ready),sumR=R.reduce((s,x)=>s+Math.round(x.ya.price||0),0);
+ const toEst=E.filter(x=>!live(x)&&x.ya&&x.ya.pt&&stageOf(x)==="built"),R=E.filter(ready),sumR=R.reduce((s,x)=>s+Math.round(x.ya.price||0),0);
  $("#main").innerHTML=head("Express","Срочно по Алматы: курьер выезжает сразу, к каждому заказу — свой, везёт за 1–2 часа. «Рассчитать» — бесплатно, «Вызвать» — платно.")+seg("express")+
  `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px"><input type="date" id="xday" value="${esc(day)}" style="width:180px;flex:none"><button class="btn ghost" id="xref">Обновить статусы</button><span class="mut" id="xm"></span></div>`+
  (!o.ready?`<div class="card" style="margin-bottom:12px">Ключ Яндекс Доставки не введён. Обзор → Доставка → Яндекс.</div>`:"")+
- `<div class="card" style="margin-bottom:12px"><b>Тариф Яндекса</b><div class="mut" style="font-size:13px">Для новых расчётов. Уже рассчитанные заказы не меняются — чтобы сменить тариф, отмените и рассчитайте заново.</div><div class="chips cn" style="margin-top:8px;flex-wrap:wrap"><button class="st ${TX==="courier"?"on":""}" data-tx="courier">Курьер — мото, вело, пешком · дешевле</button><button class="st ${TX==="express"?"on":""}" data-tx="express">Экспресс — на машине</button></div></div>`+
- (E.length?stgChips(E,views.express.stg||"all","xstg"):"")+
- `<div class="card">${E.filter(x=>(views.express.stg||"all")==="all"||stageOf(x)===views.express.stg).length?E.filter(x=>(views.express.stg||"all")==="all"||stageOf(x)===views.express.stg).map(x=>{const y=x.ya||{},lv=live(x),bc=ready(x)?"w":/deliver/.test(st(x))?"ok":/cancel|fail/.test(st(x))?"x":"n";return `<div class="ord"><div class="o1"><b>№${esc(x.num)}</b><span class="mut">${esc(x.moment.slice(11))}</span><span style="flex:1"></span><b style="white-space:nowrap">${fmt(x.sum)} ₸</b></div>
+ (SG!=="built"?"":`<div class="card" style="margin-bottom:12px"><b>Тариф Яндекса</b><div class="mut" style="font-size:13px">Для новых расчётов. Уже рассчитанные заказы не меняются — чтобы сменить тариф, отмените и рассчитайте заново.</div><div class="chips cn" style="margin-top:8px;flex-wrap:wrap"><button class="st ${TX==="courier"?"on":""}" data-tx="courier">Курьер — мото, вело, пешком · дешевле</button><button class="st ${TX==="express"?"on":""}" data-tx="express">Экспресс — на машине</button></div></div>`)+
+ stgChips(E,SG,"xstg")+
+ `<div class="card">${SL.length?SL.map(x=>{const y=x.ya||{},lv=live(x),bc=ready(x)?"w":/deliver/.test(st(x))?"ok":/cancel|fail/.test(st(x))?"x":"n";return `<div class="ord"><div class="o1"><b>№${esc(x.num)}</b><span class="mut">${esc(x.moment.slice(11))}</span><span style="flex:1"></span><b style="white-space:nowrap">${fmt(x.sum)} ₸</b></div>
   <div class="o2"><span class="cl">${esc(x.name)} · ${esc(x.addr||"адрес не указан")}</span></div>
   <div class="o3" style="flex-wrap:wrap;gap:8px"><span class="b ${bc}">${esc(x.statusText)}${y.price?" · "+fmt(Math.round(y.price))+" ₸":""}</span>
   ${y.pt?`<a class="mut" target="_blank" rel="noopener" href="https://2gis.kz/almaty/geo/${y.pt[0]},${y.pt[1]}">на карте</a>`:`<span class="b x">адрес не найден на карте</span>`}
   ${lv?"":`<button class="btn ghost" data-co="${esc(x.num)}" style="padding:6px 10px">${y.pt?"Поправить точку":"Указать точку"}</button>`}
   ${y.claim&&lv?`<button class="btn ghost" data-cx="${esc(x.num)}" style="padding:6px 10px">Отменить</button>`:""}${bldBtn(x)}</div>
   ${y.err?`<div class="mut" style="color:var(--bad);margin-top:4px">${esc(y.err)}</div>`:""}</div>`}).join(""):`<div class="mut">${E.length?"В этом разделе заказов нет.":`На ${esc(day)} заказов Express нет.`}</div>`}</div>`+
- `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px"><button class="btn" id="xest" ${o.ready&&toEst.length?"":"disabled"}>Рассчитать все (${toEst.length})</button>`+
- `<button class="btn" id="xacc" ${R.length?"":"disabled"} style="background:#B8860B">Вызвать все ${R.length?R.length+" · "+fmt(sumR)+" ₸":""}</button></div><div class="lblrow">${lblPick()}<button class="btn ghost" id="asmp" ${E.length?"":"disabled"}>Лист сборки</button><button class="btn ghost" id="lblp" ${E.length?"":"disabled"}>Печать наклеек (${E.length})</button></div>`;
+ (SG==="built"?`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px"><button class="btn" id="xest" ${o.ready&&toEst.length?"":"disabled"}>Рассчитать все (${toEst.length})</button>`+
+ `<button class="btn" id="xacc" ${R.length?"":"disabled"} style="background:#B8860B">Вызвать все ${R.length?R.length+" · "+fmt(sumR)+" ₸":""}</button></div>`:SG==="new"&&SL.length?`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px"><button class="btn" id="xbld">Отметить все собранными (${SL.length})</button></div>`:"")+
+ (SG==="new"||SG==="built"?`<div class="lblrow">${lblPick()}<button class="btn ghost" id="asmp" ${SL.length?"":"disabled"}>Лист сборки (${SL.length})</button><button class="btn ghost" id="lblp" ${SL.length?"":"disabled"}>Печать наклеек (${SL.length})</button></div>`:"");
  bindSeg();
  const msg=t=>$("#xm").textContent=t,res=r=>Object.entries(r.result||{}).filter(([,v])=>v!=="ok").map(([k,v])=>"№"+k+": "+v).join("; ");
  $("#xday").onchange=e=>views.express(e.target.value);
  document.querySelectorAll("#xstg [data-stg]").forEach(b=>b.onclick=()=>{views.express.stg=b.dataset.stg;views.express(day)});
- document.querySelectorAll("[data-bld]").forEach(b=>b.onclick=async()=>{b.disabled=true;await setBuilt([{number:b.dataset.bld,id:b.dataset.id}],b.dataset.on!=="1");if(n===nav)views.express(day)});bindLabels(E.filter(x=>!/^cancel/.test(st(x))),"EXPRESS");
+ document.querySelectorAll("[data-bld]").forEach(b=>b.onclick=async()=>{b.disabled=true;await setBuilt([{number:b.dataset.bld,id:b.dataset.id}],b.dataset.on!=="1");if(n===nav)views.express(day)});bindLabels(SL,"EXPRESS");
+ const xb=$("#xbld");if(xb)xb.onclick=async()=>{if(!confirm(`Отметить собранными все ${SL.length}? Статус в МойСклад станет «Собран».`))return;xb.disabled=true;await setBuilt(SL.map(x=>({number:x.num,id:x.id})),true);if(n===nav){views.express.stg="built";views.express(day)}};
  document.querySelectorAll("[data-tx]").forEach(b=>b.onclick=()=>{try{localStorage.setItem("amura_xtaxi",b.dataset.tx)}catch(e){}views.express(day)});
  $("#xref").onclick=async()=>{msg("Обновляю…");try{await api("courier/refresh",{method:"POST",body:"{}"});if(n===nav)views.express(day)}catch(e){msg(e.message)}};
- $("#xest").onclick=async()=>{msg("Рассчитываю в Яндексе…");try{const r=await api("courier/estimate",{method:"POST",body:JSON.stringify({date:day,nums:toEst.map(x=>x.num),express:true,taxi:TX})});const bad=res(r);msg("Яндекс считает цену…"+(bad?" "+bad:""));
+ ($("#xest")||{}).onclick=async()=>{msg("Рассчитываю в Яндексе…");try{const r=await api("courier/estimate",{method:"POST",body:JSON.stringify({date:day,nums:toEst.map(x=>x.num),express:true,taxi:TX})});const bad=res(r);msg("Яндекс считает цену…"+(bad?" "+bad:""));
    setTimeout(async()=>{try{await api("courier/refresh",{method:"POST",body:"{}"})}catch(e){}if(n===nav){await views.express(day);if(bad)msg(bad)}},4000)}catch(e){msg(e.message)}};
- $("#xacc").onclick=async()=>{if(!confirm(`Вызвать Express: ${R.length} ${R.length===1?"курьер":"курьеров"} на ${fmt(sumR)} ₸? Курьеры выедут сразу — это платно.`))return;
+ ($("#xacc")||{}).onclick=async()=>{if(!confirm(`Вызвать Express: ${R.length} ${R.length===1?"курьер":"курьеров"} на ${fmt(sumR)} ₸? Курьеры выедут сразу — это платно.`))return;
    msg("Вызываю…");try{const r=await api("courier/accept",{method:"POST",body:JSON.stringify({nums:R.map(x=>x.num)})});const bad=res(r);if(n===nav){await views.express(day);if(bad)msg(bad)}}catch(e){msg(e.message)}};
  document.querySelectorAll("[data-co]").forEach(b=>b.onclick=async()=>{const v=prompt("Точка клиента: «43.2389, 76.8897» или ссылка из 2ГИС / Яндекс Карт");if(!v)return;
    try{await api("courier/coords",{method:"POST",body:JSON.stringify({num:b.dataset.co,coords:v})});views.express(day)}catch(e){msg(e.message)}});
