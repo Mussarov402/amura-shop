@@ -211,7 +211,8 @@ def courier_day():
                     _save(d, o["num"], order_id=o["id"], status=(o["ya"] or {}).get("status") or "new", lon=pt[0], lat=pt[1], addr=o["addr"])
                     o["ya"] = _row(d, o["num"])
             o["statusText"] = STATUS.get((o["ya"] or {}).get("status") or "new", (o["ya"] or {}).get("status") or "")
-    return jsonify(ok=True, date=day, ready=ready, error=err, intervals=intervals, orders=orders)
+    windows = [s.get("from", "") for s in (delivery.conf().get("schedule") or {}).get("slots", [])]     # окна, которые выбирают клиенты на сайте
+    return jsonify(ok=True, date=day, ready=ready, error=err, intervals=intervals, windows=windows, orders=orders)
 
 
 @bp.post("/admin/api/courier/coords")
