@@ -35,6 +35,8 @@ class FakeMS:
         self.variants = []
         self.agents = []
         self.docs = {t: [] for t in mirror.DOC_TYPES}
+        self.money = []        # строки /report/money/byaccount
+        self.balances = []     # строки /report/counterparty
         self.calls = []
         self.stock = {}       # (pid, store) -> qty
         self.reserve = {}
@@ -71,6 +73,11 @@ class FakeMS:
             if ent in self.docs and params.get("expand") != "positions":   # без expand МойСклад даёт только ссылку на позиции
                 out = [{**r, "positions": {"meta": {"size": len((r.get("positions") or {}).get("rows") or [])}}} for r in out]
             return {"meta": {"size": len(rows)}, "rows": out}
+        if path == "/report/money/byaccount":
+            return {"meta": {"size": len(self.money)}, "rows": self.money}
+        if path == "/report/counterparty":
+            off, lim = params.get("offset", 0), params.get("limit", 1000)
+            return {"meta": {"size": len(self.balances)}, "rows": self.balances[off:off + lim]}
         if path == "/entity/store":
             return {"rows": [{"id": STORE_A, "name": "Основной склад"}, {"id": STORE_B, "name": "Точка"}]}
         if path == "/report/stock/bystore/current":
@@ -87,7 +94,8 @@ class FakeMS:
 class MirrorTest(unittest.TestCase):
     def setUp(self):
         with mirror.db() as d:
-            for t in ("ms_product", "ms_agent", "ms_doc", "ms_doc_line", "ms_store", "ms_stock", "ms_sync", "ms_recon"):
+            for t in ("ms_product", "ms_agent", "ms_doc", "ms_doc_line", "ms_store", "ms_stock", "ms_sync", "ms_recon",
+                      "ms_money", "ms_agent_balance"):
                 d.run(f"DELETE FROM {t}")
             inbox.set_setting(d, mirror.FLAG, "0")
         self.ms = FakeMS()
@@ -316,6 +324,38 @@ class MirrorTest(unittest.TestCase):
         self.assertEqual((by["Перемещения за 7 дней"]["ours"], by["Перемещения за 7 дней"]["ok"]), (1, True))
         self.assertEqual((by["Приёмки за 7 дней"]["ours"], by["Приёмки за 7 дней"]["ok"]), (1, True))   # s2 старше 7 дней
         self.assertTrue(by["Инвентаризации за 7 дней"]["ok"])
+
+    def test_money(self):
+        from datetime import datetime, timedelta
+        now_ms = datetime.now(mirror.MS_TZ)
+        ms = lambda dt: dt.strftime("%Y-%m-%d %H:%M:%S.000")
+        acc = {"meta": {"href": "https://x/entity/organization/org1/accounts/acc1"}, "name": "Kaspi"}
+        pay = lambda i, kind, s, appl=True, **kw: {"id": f"{kind}{i}", "name": str(i), "moment": ms(now_ms), "updated": ms(now_ms),
+                                                    "sum": s * 100, "applicable": appl, **kw}
+        self.ms.docs["paymentin"] = [pay(1, "pi", 5000, organizationAccount=acc, paymentPurpose="Оплата заказа 123"), pay(2, "pi", 99, appl=False)]
+        self.ms.docs["cashin"] = [pay(1, "ci", 1500)]
+        self.ms.docs["paymentout"] = [pay(1, "po", 700)]
+        self.ms.money = [{"account": acc, "balance": 120000 * 100},
+                         {"organization": {"meta": {"href": "https://x/entity/organization/org1"}}, "balance": 30000 * 100}]
+        self.ms.balances = [{"counterparty": {"meta": {"href": "https://x/entity/counterparty/a1"}, "name": "ИП Клиент"}, "balance": -4500 * 100}]
+        for t in mirror.MONEY_DOCS:
+            self.assertTrue(mirror.sync_entity(t, pause=0)[1], t)
+        self.assertFalse(any(c[1].get("expand") for c in self.ms.calls if c[0] in ("/entity/paymentin", "/entity/cashin")))   # у платежей нет позиций
+        with mirror.db() as d:
+            r = d.run("SELECT account_id, sum, descr FROM ms_doc WHERE id='pi1'", one=True)
+        self.assertEqual(tuple(r), ("acc1", 5000, "Оплата заказа 123"))
+        self.assertEqual(mirror.sync_money(), 3)
+        with mirror.db() as d:
+            self.assertEqual(sorted(tuple(x) for x in d.run("SELECT account_id, name, balance FROM ms_money", many=True)),
+                             [("acc1", "Kaspi", 120000), ("cash:org1", "Касса", 30000)])
+        by = {c["name"]: c for c in mirror._money_checks()}
+        day = datetime.now(oh.ALMATY).strftime("%d.%m")
+        self.assertEqual((by[f"Поступления {day} (платежи + ордера)"]["ours"], by[f"Поступления {day} (платежи + ордера)"]["ok"]), (6500, True))
+        self.assertEqual(by[f"Выплаты {day} (платежи + ордера)"]["ours"], 700)
+        self.assertTrue(by["Деньги на счетах и в кассах, всего"]["ok"])
+        self.assertEqual(by["Взаиморасчёты с контрагентами, итог"]["ours"], -4500)
+        self.ms.money[0]["balance"] = 125000 * 100                     # в МойСклад пришли деньги после снимка — сверка это видит
+        self.assertFalse({c["name"]: c for c in mirror._money_checks()}["Деньги на счетах и в кассах, всего"]["ok"])
 
     def test_lines_reload_once(self):
         with mirror.db() as d:
