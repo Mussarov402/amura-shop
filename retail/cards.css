@@ -16,3 +16,14 @@
 .rfly-i{width:100%;height:100%;object-fit:contain;background:#fff;border-radius:14px;box-shadow:0 10px 28px rgba(8,25,18,.3);display:grid;place-items:center}
 /* рознице ступени цен не нужны — в окне товара тоже */
 #sheet .tiers{display:none}
+/* компьютер: кнопка «в корзину» под карточкой во всю ширину со сроком доставки (как на WB); на телефоне — круглая на фото */
+.rpc-buy{display:none}
+@media (min-width:761px) and (min-height:501px), (min-width:761px) and (pointer:fine){
+  .rpc-add{display:none}
+  .rpc-buy{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:auto;padding-top:0;height:44px;border:0;border-radius:12px;background:var(--green);color:#fff;font:inherit;font-size:15px;font-weight:700;cursor:pointer;transition:filter .15s,transform .12s}
+  .card.rpc>:nth-last-child(2){margin-bottom:8px}      /* отступ над кнопкой; сама кнопка прижата к низу — в ряду на одной линии */
+  .rpc-buy:hover{filter:brightness(1.12)}
+  .rpc-buy:active{transform:scale(.98)}
+  .rpc-buy svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+  .rpc-buy.in{background:var(--mint);color:var(--green-3)}
+}
