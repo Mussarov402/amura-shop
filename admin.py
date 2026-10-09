@@ -2120,3 +2120,35 @@ def reviews_update(rid):
             d.run("DELETE FROM review WHERE id=%s", (rid,))
     oh._cache.pop("rv_sum", None)
     return jsonify(ok=True)
+
+
+# ---------- подключаемые модули (по умолчанию выключены; см. modules.py) ----------
+import modules  # noqa: E402
+
+
+@bp.get("/admin/api/modules/on")
+def modules_on():
+    if not who():
+        return jsonify(ok=False, error="Войдите заново"), 401
+    return jsonify(ok=True, on=modules.on_map())
+
+
+@bp.route("/admin/api/modules", methods=["GET", "PUT"])
+@guard
+def modules_admin():
+    if request.method == "PUT":
+        b = request.get_json(silent=True) or {}
+        try:
+            modules.update(str(b.get("id", "")), on=(bool(b["on"]) if "on" in b else None), src=b.get("source"))
+        except KeyError:
+            return jsonify(ok=False, error="Нет такого модуля"), 404
+    return jsonify(ok=True, modules=modules.listing())
+
+
+@bp.get("/admin/api/finance")
+@guard
+def finance_money():
+    if not modules.enabled("finance"):
+        return jsonify(ok=False, error="Модуль «Финансы» выключен"), 404
+    return jsonify(ok=True, source=modules.source("finance"), **mirror.finance_view())
+

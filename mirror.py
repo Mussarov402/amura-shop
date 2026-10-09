@@ -678,3 +678,30 @@ def stock_of(q, limit=30):
             out.append({"id": pid, "code": code, "name": name, "prices": json.loads(pr or "{}"),
                         "stores": [{"store": stores.get(s, s), "stock": a or 0, "reserve": b or 0} for s, a, b in st]})
     return out
+
+
+def finance_view(days=14, top=20):
+    """Модуль «Финансы» (только просмотр, из зеркала): деньги по счетам, движение по дням (Алматы), взаиморасчёты."""
+    today = datetime.now(oh.ALMATY).date()
+    with db() as d:
+        money = [{"name": n or a, "balance": round(b or 0)} for a, n, b in
+                 d.run("SELECT account_id, name, balance FROM ms_money ORDER BY balance DESC", many=True) or []]
+        synced = (d.run("SELECT MAX(synced) FROM ms_money", one=True) or [0])[0] or 0
+        flow = []
+        for i in range(days):
+            day = str(today - timedelta(days=i))
+            a, b = _day_bounds(day)
+            row = {"day": day}
+            for key, types in (("in", IN_TYPES), ("out", OUT_TYPES), ("sales", SALE_TYPES), ("returns", RETURN_TYPES)):
+                row[key] = round(d.run("SELECT COALESCE(SUM(sum), 0) FROM ms_doc WHERE deleted=0 AND applicable=1 AND moment>=%s"
+                                       " AND moment<%s AND type IN (" + ", ".join(["%s"] * len(types)) + ")",
+                                       (a, b, *types), one=True)[0] or 0)
+            flow.append(row)
+        agents = [{"id": a, "name": n, "balance": round(b or 0)} for a, n, b in
+                  d.run("SELECT agent_id, name, balance FROM ms_agent_balance WHERE balance<>0 ORDER BY ABS(balance) DESC LIMIT %s",
+                        (top,), many=True) or []]
+        total = d.run("SELECT COALESCE(SUM(CASE WHEN balance>0 THEN balance ELSE 0 END), 0),"
+                      " COALESCE(SUM(CASE WHEN balance<0 THEN balance ELSE 0 END), 0) FROM ms_agent_balance", one=True)
+    return {"money": money, "moneyTotal": sum(m["balance"] for m in money), "synced": synced, "flow": flow,
+            "agents": agents, "agentsPlus": round(total[0] or 0), "agentsMinus": round(total[1] or 0)}
+
