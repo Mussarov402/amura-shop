@@ -288,6 +288,10 @@ def refresh(nums=None):
             try:
                 j = ya("/claims/info", claim_id=cid)
                 st = j.get("status", row["status"])
+                if st != row["status"] and CLIENT.get(st, (None, None))[1] != CLIENT.get(row["status"], (None, None))[1] and st in CLIENT:
+                    ag = d.run("SELECT agent_id FROM ya_claim WHERE num=%s", (num,), one=True)[0]
+                    import push
+                    push.notify_client(ag, f"AMURA · заказ № {num}", CLIENT[st][1], tag="order-" + num)
                 _save(d, num, status=st, version=j.get("version", row["version"]),
                       price=_price(j) or row["price"], err=(j.get("error_messages") or [{}])[0].get("message", "") if j.get("error_messages") else "")
                 if st in TRACKABLE and not d.run("SELECT track FROM ya_claim WHERE num=%s", (num,), one=True)[0]:

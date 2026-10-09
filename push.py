@@ -93,6 +93,58 @@ def _send(title, body, url, perm, tag, only_chat):
         print("Push:", str(e)[:200], flush=True)
 
 
+# ---------- покупатели розничного сайта: уведомления о доставке ----------
+_cready = [False]
+
+
+def _cdb():
+    d = inbox.db()
+    if not _cready[0]:
+        d.run("CREATE TABLE IF NOT EXISTS push_client (endpoint TEXT PRIMARY KEY, sub TEXT, agent TEXT, at DOUBLE PRECISION)")
+        d.c.commit()
+        _cready[0] = True
+    return d
+
+
+def subscribe_client(sub, agent):
+    ep = str((sub or {}).get("endpoint", ""))
+    if not ep.startswith("https://") or not (sub.get("keys") or {}).get("p256dh"):
+        raise ValueError("Некорректная подписка")
+    with _cdb() as d:
+        d.run("DELETE FROM push_client WHERE endpoint=%s", (ep,))
+        d.run("INSERT INTO push_client (endpoint, sub, agent, at) VALUES (%s,%s,%s,%s)", (ep, json.dumps(sub), str(agent), time.time()))
+
+
+def _send_client(agent, title, body, url, tag):
+    try:
+        from pywebpush import WebPushException, webpush
+        priv, _ = keys()
+        with _cdb() as d:
+            rows = d.run("SELECT endpoint, sub FROM push_client WHERE agent=%s", (str(agent),), many=True) or []
+        data = json.dumps({"title": title, "body": body[:180], "url": url, "tag": tag}, ensure_ascii=False)
+        for ep, sub in rows:
+            try:
+                webpush(subscription_info=json.loads(sub), data=data, vapid_private_key=priv,
+                        vapid_claims={"sub": "https://amura.kz"}, ttl=6 * 3600, timeout=10)
+            except WebPushException as e:
+                code = getattr(getattr(e, "response", None), "status_code", 0)
+                if code in (404, 410):
+                    with _cdb() as d:
+                        d.run("DELETE FROM push_client WHERE endpoint=%s", (ep,))
+                else:
+                    print("Push покупателю не отправлен:", code, str(e)[:200], flush=True)
+            except Exception as e:
+                print("Push покупателю не отправлен:", str(e)[:200], flush=True)
+    except Exception as e:
+        print("Push покупателю:", str(e)[:200], flush=True)
+
+
+def notify_client(agent, title, body, url="https://amura.kz/shop/#me", tag=""):
+    """Уведомление покупателю розничного сайта (все его устройства с включёнными уведомлениями)."""
+    if agent:
+        threading.Thread(target=_send_client, args=(agent, title, body or "", url, tag), daemon=True).start()
+
+
 def notify(title, body, url="/admin", perm="", tag="", only_chat=None):
     """Уведомление в фоне: владельцу и сотрудникам с правом perm (inbox / orders / products)."""
     threading.Thread(target=_send, args=(title, body or "", url, perm, tag, only_chat), daemon=True).start()

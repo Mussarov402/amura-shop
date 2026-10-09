@@ -519,6 +519,10 @@ input,select,textarea{font-size:16px!important}
 .rtrk .btn{text-decoration:none;text-align:center}
 [data-view="me"].rdot{position:relative}
 [data-view="me"].rdot::after{content:"";position:absolute;top:6px;right:calc(50% - 16px);width:9px;height:9px;border-radius:50%;background:#E5483A;box-shadow:0 0 0 2px #173A2A}
+/* предложение включить уведомления о доставке */
+.rpush{display:grid;gap:6px;padding:14px;border-radius:14px;background:#EAF4EE;border:1px solid #CFE6D8;margin:4px 0 12px}
+.rpush b{font-size:15px}.rpush span{font-size:13.5px;color:var(--muted)}
+.rpush .btn{justify-self:start;padding:10px 18px;margin-top:4px}
 /* Розничный сайт: отзывы */
 .rpc-rate{font-size:13px;font-weight:700;display:flex;align-items:center;gap:3px}
 .rpc-rate b{color:#E8A317;font-size:14px}.rpc-rate span{color:var(--muted);font-weight:500}
@@ -2187,6 +2191,7 @@ function doneRetail(res, f, t){
       <li><b>Подтвердим и пришлём ссылку на оплату</b><span>Напишем в WhatsApp на ${esc(phone)} — обычно в течение 15 минут в рабочее время</span></li>
       <li><b>${f.ship === "pickup" ? "Можно забирать" : "Доставка"}</b><span>${esc(f.ship === "pickup" ? "Сообщим, когда заказ будет собран" : when || "")}</span></li>
     </ol>
+    ${pushBoxHTML()}
     <div class="rcard rdone-d">
       <div class="rrow"><span>Получение</span><b>${esc(how)}</b></div>
       ${where ? `<div class="rrow"><span>${f.ship === "pickup" ? "Адрес склада" : "Адрес"}</span><b>${esc(where)}</b></div>` : ""}
@@ -2306,10 +2311,42 @@ async function trackPoll(){
 }
 setInterval(trackPoll, 90000); setTimeout(trackPoll, 4000);
 document.addEventListener("visibilitychange", () => { if(document.visibilityState === "visible") trackPoll(); });
+/* ---------- уведомления о доставке (Web Push): предложение включить — после заказа и в «Моих заказах» ---------- */
+const PUSH_OK = "amura-r-push";
+const pushCan = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+const isIOS = () => /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const standalone = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+function pushOn(){ try{ return Notification.permission === "granted" && localStorage.getItem(PUSH_OK) === "1"; }catch{ return false; } }
+function pushBoxHTML(){
+  if(!AUTH.token || DEMO) return "";
+  if(!pushCan()){
+    return isIOS() && !standalone() ? `<div class="rpush"><b>🔔 Уведомления о доставке</b><span>Чтобы получать их на iPhone, добавьте сайт на экран «Домой»: кнопка «Поделиться» → «На экран Домой», затем откройте AMURA с иконки и включите уведомления.</span></div>` : "";
+  }
+  if(pushOn()) return "";
+  if(Notification.permission === "denied") return `<div class="rpush"><b>🔔 Уведомления выключены</b><span>Разрешите уведомления для сайта в настройках браузера — сообщим, когда курьер заберёт заказ.</span></div>`;
+  return `<div class="rpush"><b>🔔 Включите уведомления</b><span>Сообщим, когда курьер заберёт заказ и когда будет у вас — даже если сайт закрыт.</span><button type="button" class="btn" data-rpush>Включить</button></div>`;
+}
+async function pushEnable(btn){
+  try{
+    btn.disabled = true; btn.textContent = "Включаем…";
+    if(await Notification.requestPermission() !== "granted") throw new Error("Уведомления не разрешены");
+    const reg = await navigator.serviceWorker.register("/sw.js").then(() => navigator.serviceWorker.ready);
+    const { key } = await api("/me/push");
+    const raw = atob(key.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((key.length + 3) % 4));
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: Uint8Array.from(raw, c => c.charCodeAt(0)) });
+    await api("/me/push", { method: "POST", body: JSON.stringify({ sub: sub.toJSON() }) });
+    try{ localStorage.setItem(PUSH_OK, "1"); }catch{}
+    const box = btn.closest(".rpush"); if(box) box.innerHTML = "<b>🔔 Уведомления включены</b><span>Сообщим о каждом шаге доставки.</span>";
+    toast("Уведомления включены");
+  }catch(e){ btn.disabled = false; btn.textContent = "Включить"; toast(e.message || "Не получилось включить уведомления"); }
+}
+document.addEventListener("click", e => { const b = e.target.closest("[data-rpush]"); if(b) pushEnable(b); });
+
 const _paintMe = paintMe;
 paintMe = function(p, orders){
   _paintMe(p, orders); markRetail();
   trackPaint(orders);
+  const oh = $("#orders"); if(oh && orders && orders.length && !$("#meBody .rpush")) oh.insertAdjacentHTML("beforebegin", pushBoxHTML());
   let want = false; try{ want = sessionStorage.getItem(WANT) === "1"; }catch{}
   if(want && AUTH.token && p && p.name){ try{ sessionStorage.removeItem(WANT); }catch{} toast("Вы вошли — оформляем заказ"); NEXT = "checkout"; go("cart"); }
 };
