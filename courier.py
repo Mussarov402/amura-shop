@@ -5,7 +5,8 @@
 «Рассчитать» — по каждому заказу создаётся заявка в Яндексе (только оценка, ничего не стоит). «Подтвердить» — заявки
 принимаются, курьер едет. Без нажатия в панели сервер ничего платного не вызывает.
 Яндекс не присылает статусы сам (только опрос) — панель обновляет их кнопкой «Обновить» и при открытии раздела.
-Express («Срочный курьер по Алматы (Яндекс Экспресс)») — отдельный блок сверху: по одному заказу, без интервала (taxi_class=express).
+Express («Срочный курьер по Алматы (Яндекс Экспресс)») — своя вкладка: курьер едет сразу, без интервала; тариф Яндекса
+«Курьер» (taxi_class=courier — мото/вело/пеший, дешевле, по умолчанию) или «Экспресс» (taxi_class=express — на машине).
 """
 import json
 import re
@@ -179,7 +180,7 @@ def _price(info):
         return None
 
 
-def claim_body(o, pt, wh, interval):
+def claim_body(o, pt, wh, interval, taxi="courier"):
     rules = delivery.conf()["rules"]
     w = max(0.1, round(int(rules.get("weight") or 300) * max(1, o.get("qty", 1)) / 1000, 2))
     size = {"length": rules["box_d"] / 100, "width": rules["box_w"] / 100, "height": rules["box_h"] / 100}
@@ -196,7 +197,7 @@ def claim_body(o, pt, wh, interval):
              "external_order_id": o["num"]},
         ],
         **({"same_day_data": {"delivery_interval": {"from": interval["from"], "to": interval["to"]}}} if interval
-           else {"client_requirements": {"taxi_class": "express"}}),             # Express: курьер едет сразу, за 1–2 часа
+           else {"client_requirements": {"taxi_class": taxi}}),                  # Express: курьер едет сразу, за 1–2 часа
         "comment": f"AMURA, заказ №{o['num']}. Позвонить клиенту за 15 минут.",
         "emergency_contact": {"name": "AMURA", "phone": "+" + wh["phone"]},
         "optional_return": False,
@@ -257,6 +258,7 @@ def courier_estimate():
     """Заявки в Яндексе по выбранным заказам — только расчёт цены (без подтверждения ничего не стоит)."""
     b = request.get_json(silent=True) or {}
     express = bool(b.get("express"))
+    taxi = "express" if b.get("taxi") == "express" else "courier"       # тариф Яндекса для срочных: «Курьер» дешевле, «Экспресс» — машина
     iv = None if express else (b.get("interval") or {})
     if not express and not (iv.get("from") and iv.get("to")):
         return jsonify(ok=False, error="Выберите интервал забора"), 400
@@ -287,7 +289,7 @@ def courier_estimate():
                 res[n] = "не найден адрес — укажите координаты"
                 continue
             try:
-                j = ya("/claims/create", claim_body(o, pt, wh, iv), request_id=str(uuid.uuid4()))
+                j = ya("/claims/create", claim_body(o, pt, wh, iv, taxi), request_id=str(uuid.uuid4()))
                 _save(d, n, order_id=o["id"], agent_id=o.get("agent", ""), claim_id=j.get("id"), status=j.get("status", "estimating"), version=j.get("version", 1),
                       ifrom=(iv or {}).get("from", ""), ito=(iv or {}).get("to", ""), lon=pt[0], lat=pt[1], addr=o["addr"], err="", price=_price(j))
                 res[n] = "ok"

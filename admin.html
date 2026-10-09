@@ -507,10 +507,12 @@ async courier(day){day=day||views.courier.day||new Date(Date.now()+5*3600e3).toI
 async express(day){day=day||views.express.day||new Date(Date.now()+5*3600e3).toISOString().slice(0,10);views.express.day=day;const o=await api("courier?date="+day);const n=nav;
  const E=o.orders.filter(x=>x.express),st=x=>(x.ya||{}).status||"new";
  const live=x=>x.ya&&x.ya.claim&&!/^(cancel|fail|estimating_failed|returned|delivered)/.test(st(x)),ready=x=>st(x)==="ready_for_approval";
+ let TX="courier";try{TX=localStorage.getItem("amura_xtaxi")==="express"?"express":"courier"}catch(e){}
  const toEst=E.filter(x=>!live(x)&&x.ya&&x.ya.pt),R=E.filter(ready),sumR=R.reduce((s,x)=>s+Math.round(x.ya.price||0),0);
- $("#main").innerHTML=head("Express","Срочно по Алматы: к каждому заказу едет свой курьер и везёт за 1–2 часа. «Рассчитать» — бесплатно, «Вызвать» — платно.")+seg("express")+
+ $("#main").innerHTML=head("Express","Срочно по Алматы: курьер выезжает сразу, к каждому заказу — свой, везёт за 1–2 часа. «Рассчитать» — бесплатно, «Вызвать» — платно.")+seg("express")+
  `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px"><input type="date" id="xday" value="${esc(day)}" style="width:180px;flex:none"><button class="btn ghost" id="xref">Обновить статусы</button><span class="mut" id="xm"></span></div>`+
  (!o.ready?`<div class="card" style="margin-bottom:12px">Ключ Яндекс Доставки не введён. Обзор → Доставка → Яндекс.</div>`:"")+
+ `<div class="card" style="margin-bottom:12px"><b>Тариф Яндекса</b><div class="mut" style="font-size:13px">Для новых расчётов. Уже рассчитанные заказы не меняются — чтобы сменить тариф, отмените и рассчитайте заново.</div><div class="chips cn" style="margin-top:8px;flex-wrap:wrap"><button class="st ${TX==="courier"?"on":""}" data-tx="courier">Курьер — мото, вело, пешком · дешевле</button><button class="st ${TX==="express"?"on":""}" data-tx="express">Экспресс — на машине</button></div></div>`+
  `<div class="card">${E.length?E.map(x=>{const y=x.ya||{},lv=live(x),bc=ready(x)?"w":/deliver/.test(st(x))?"ok":/cancel|fail/.test(st(x))?"x":"n";return `<div class="ord"><div class="o1"><b>№${esc(x.num)}</b><span class="mut">${esc(x.moment.slice(11))}</span><span style="flex:1"></span><b style="white-space:nowrap">${fmt(x.sum)} ₸</b></div>
   <div class="o2"><span class="cl">${esc(x.name)} · ${esc(x.addr||"адрес не указан")}</span></div>
   <div class="o3" style="flex-wrap:wrap;gap:8px"><span class="b ${bc}">${esc(x.statusText)}${y.price?" · "+fmt(Math.round(y.price))+" ₸":""}</span>
@@ -523,8 +525,9 @@ async express(day){day=day||views.express.day||new Date(Date.now()+5*3600e3).toI
  bindSeg();
  const msg=t=>$("#xm").textContent=t,res=r=>Object.entries(r.result||{}).filter(([,v])=>v!=="ok").map(([k,v])=>"№"+k+": "+v).join("; ");
  $("#xday").onchange=e=>views.express(e.target.value);
+ document.querySelectorAll("[data-tx]").forEach(b=>b.onclick=()=>{try{localStorage.setItem("amura_xtaxi",b.dataset.tx)}catch(e){}views.express(day)});
  $("#xref").onclick=async()=>{msg("Обновляю…");try{await api("courier/refresh",{method:"POST",body:"{}"});if(n===nav)views.express(day)}catch(e){msg(e.message)}};
- $("#xest").onclick=async()=>{msg("Рассчитываю в Яндексе…");try{const r=await api("courier/estimate",{method:"POST",body:JSON.stringify({date:day,nums:toEst.map(x=>x.num),express:true})});const bad=res(r);msg("Яндекс считает цену…"+(bad?" "+bad:""));
+ $("#xest").onclick=async()=>{msg("Рассчитываю в Яндексе…");try{const r=await api("courier/estimate",{method:"POST",body:JSON.stringify({date:day,nums:toEst.map(x=>x.num),express:true,taxi:TX})});const bad=res(r);msg("Яндекс считает цену…"+(bad?" "+bad:""));
    setTimeout(async()=>{try{await api("courier/refresh",{method:"POST",body:"{}"})}catch(e){}if(n===nav){await views.express(day);if(bad)msg(bad)}},4000)}catch(e){msg(e.message)}};
  $("#xacc").onclick=async()=>{if(!confirm(`Вызвать Express: ${R.length} ${R.length===1?"курьер":"курьеров"} на ${fmt(sumR)} ₸? Курьеры выедут сразу — это платно.`))return;
    msg("Вызываю…");try{const r=await api("courier/accept",{method:"POST",body:JSON.stringify({nums:R.map(x=>x.num)})});const bad=res(r);if(n===nav){await views.express(day);if(bad)msg(bad)}}catch(e){msg(e.message)}};
