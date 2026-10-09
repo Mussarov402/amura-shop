@@ -24,7 +24,9 @@ EVERY_LOADING = 120        # сек между проходами во врем�
 FULL_EVERY = 86400         # раз в сутки — полный проход: находим удалённые в МойСклад товары
 SALES_DOCS = ("customerorder", "demand", "retaildemand", "salesreturn", "retailsalesreturn")   # документы продаж
 STOCK_DOCS = ("supply", "loss", "enter", "move", "inventory")   # складские: приёмки, списания, оприходования, перемещения, инвентаризации
-DOC_TYPES = SALES_DOCS + STOCK_DOCS
+MONEY_DOCS = ("paymentin", "paymentout", "cashin", "cashout")   # деньги: входящие/исходящие платежи, приходные/расходные ордера
+LINE_DOCS = SALES_DOCS + STOCK_DOCS                               # у этих документов есть позиции (у денежных — нет)
+DOC_TYPES = LINE_DOCS + MONEY_DOCS
 DOC_DAYS = 90              # документы берём за последние 90 дней по updated (вся история не нужна для сверки и тяжела)
 ENTITIES = ("product", "variant", "counterparty") + DOC_TYPES
 MS_TZ = timezone(timedelta(hours=3))   # время в МойСклад — Москва
@@ -53,6 +55,9 @@ def _schema(d):
         # позиции документов: price и sum — тенге, discount — %, sum = qty × price × (1 − discount/100)
         "CREATE TABLE IF NOT EXISTS ms_doc_line (doc_id TEXT, pos_id TEXT, product_id TEXT, qty DOUBLE PRECISION, price DOUBLE PRECISION,"
         " discount DOUBLE PRECISION, sum DOUBLE PRECISION, PRIMARY KEY (doc_id, pos_id))",
+        # снимки отчётов (заменяются целиком каждый проход): деньги на счетах и в кассах, взаиморасчёты с контрагентами (₸)
+        "CREATE TABLE IF NOT EXISTS ms_money (account_id TEXT PRIMARY KEY, name TEXT, balance DOUBLE PRECISION, synced DOUBLE PRECISION)",
+        "CREATE TABLE IF NOT EXISTS ms_agent_balance (agent_id TEXT PRIMARY KEY, name TEXT, balance DOUBLE PRECISION, synced DOUBLE PRECISION)",
         "CREATE TABLE IF NOT EXISTS ms_store (id TEXT PRIMARY KEY, name TEXT, archived INTEGER DEFAULT 0, updated TEXT, seen DOUBLE PRECISION)",
         "CREATE TABLE IF NOT EXISTS ms_stock (product_id TEXT, store_id TEXT, stock DOUBLE PRECISION, reserve DOUBLE PRECISION,"
         " synced DOUBLE PRECISION, PRIMARY KEY (product_id, store_id))",
@@ -65,7 +70,8 @@ def _schema(d):
         d.run(s)
     d.c.commit()
     # добавочные колонки (миграции только добавляющие): store2_id — склад-получатель у перемещения
-    for col in ("ALTER TABLE ms_doc ADD COLUMN store2_id TEXT",):
+    for col in ("ALTER TABLE ms_doc ADD COLUMN store2_id TEXT",
+                "ALTER TABLE ms_doc ADD COLUMN account_id TEXT"):      # счёт организации у платежа
         try:
             d.run(col)
             d.c.commit()
@@ -134,15 +140,16 @@ def _parse_agent(row, now):
             1 if row.get("archived") else 0, (row.get("updated") or "")[:23], 0, now)
 
 
-_DCOLS = "id, type, number, moment, agent_id, store_id, store2_id, state_id, sum, applicable, descr, updated, deleted, seen"
+_DCOLS = "id, type, number, moment, agent_id, store_id, store2_id, account_id, state_id, sum, applicable, descr, updated, deleted, seen"
 
 
 def _doc_parser(kind):
     def parse(row, now):
         return (_id(row), kind, row.get("name") or "", (row.get("moment") or "")[:23], _href_id(row.get("agent")),
                 _href_id(row.get("store") or row.get("sourceStore")), _href_id(row.get("targetStore")),
-                _href_id(row.get("state")), (row.get("sum") or 0) / 100,
-                1 if row.get("applicable") else 0, (row.get("description") or "").split("\n")[0][:200],
+                _href_id(row.get("organizationAccount")), _href_id(row.get("state")), (row.get("sum") or 0) / 100,
+                1 if row.get("applicable") else 0,
+                (row.get("description") or row.get("paymentPurpose") or "").split("\n")[0][:200],
                 (row.get("updated") or "")[:23], 0, now)
     return parse
 
@@ -241,7 +248,7 @@ def sync_entity(entity, max_pages=MAX_PAGES, pause=PAUSE):
             _save_state(d, entity, st)
     total, caught = 0, False
     is_doc = entity in DOC_TYPES
-    with_lines = is_doc and (not st["full_from"] or not st["full_done"])  # первый полный проход (и перезагрузка) — с позициями
+    with_lines = entity in LINE_DOCS and (not st["full_from"] or not st["full_done"])  # первый полный проход (и перезагрузка) — с позициями
     # Суточный полный проход документов — «лёгкий»: только шапки (страницы по 200, без expand) для поиска удалённых;
     # позиции дочитываются лишь у документов, которые изменились с прошлой загрузки. С позициями грузятся обычные
     # догрузки изменений, самая первая загрузка и разовая перезагрузка после смены LINES_V (у них full_done = 0) (страница с позициями ~2 МБ, 5–12 с ответа).
@@ -256,7 +263,7 @@ def sync_entity(entity, max_pages=MAX_PAGES, pause=PAUSE):
         _site_room()
         rows = oh.ms("GET", f"/entity/{entity}", params=params, timeout=60).get("rows", [])
         need = rows if with_lines else []
-        if is_doc and not with_lines and rows:                        # лёгкий проход: позиции только у изменённых
+        if entity in LINE_DOCS and not with_lines and rows:           # лёгкий проход: позиции только у изменённых
             with db() as d:
                 ids = [_id(r) for r in rows]
                 old = dict(d.run("SELECT id, updated FROM ms_doc WHERE id IN (" + ", ".join(["%s"] * len(ids)) + ")", ids, many=True) or [])
@@ -328,6 +335,42 @@ def sync_stock():
     return len(stock)
 
 
+def _report_rows(path, params=None):
+    out, off = [], 0
+    while True:
+        _site_room()
+        r = oh.ms("GET", path, params={"limit": 1000, "offset": off, **(params or {})}, timeout=60)
+        rows = r if isinstance(r, list) else r.get("rows", [])
+        out += rows
+        off += 1000
+        if isinstance(r, list) or off >= (r.get("meta") or {}).get("size", 0):
+            return out
+
+
+def sync_money():
+    """Снимки отчётов МойСклад (заменяются целиком): деньги по счетам и кассам, взаиморасчёты с контрагентами."""
+    money = []
+    for r in _report_rows("/report/money/byaccount"):
+        acc = r.get("account") or {}
+        org = r.get("organization") or {}
+        aid = _href_id(acc) or "cash:" + _href_id(org)                # без счёта — касса организации
+        money.append((aid, acc.get("name") or r.get("name") or ("Касса" if not _href_id(acc) else ""), (r.get("balance") or 0) / 100))
+    agents = [(_href_id(r.get("counterparty")), (r.get("counterparty") or {}).get("name") or "", (r.get("balance") or 0) / 100)
+              for r in _report_rows("/report/counterparty")]
+    t = time.time()
+    with db() as d:
+        d.run("DELETE FROM ms_money")
+        for aid, name, bal in money:
+            d.run("INSERT INTO ms_money (account_id, name, balance, synced) VALUES (%s, %s, %s, %s)", (aid, name, bal, t))
+        d.run("DELETE FROM ms_agent_balance")
+        for aid, name, bal in agents:
+            if aid:
+                d.run("INSERT INTO ms_agent_balance (agent_id, name, balance, synced) VALUES (%s, %s, %s, %s)", (aid, name, bal, t))
+        st = _state(d, "money")
+        _save_state(d, "money", st, last_run=t, last_ok=t, rows=len(money) + len(agents), error="")
+    return len(money) + len(agents)
+
+
 def _fail(entity, e):
     print("Зеркало МойСклад:", entity, e.__class__.__name__, str(e)[:200], flush=True)
     try:
@@ -345,7 +388,7 @@ def tick():
     try:
         _lines_reload()
         caught_all, parts, t0 = True, [], time.time()
-        for name, fn in (("store", sync_stores), *((e, (lambda e=e: sync_entity(e))) for e in ENTITIES), ("stock", sync_stock)):
+        for name, fn in (("store", sync_stores), *((e, (lambda e=e: sync_entity(e))) for e in ENTITIES), ("stock", sync_stock), ("money", sync_money)):
             try:
                 r = fn()
                 if isinstance(r, tuple):
@@ -486,6 +529,33 @@ def _stock_doc_checks(days=7):
     return out
 
 
+IN_TYPES, OUT_TYPES = ("paymentin", "cashin"), ("paymentout", "cashout")
+
+
+def _money_checks():
+    """Деньги за вчера и сегодня (Алматы): поступления и выплаты (проведённые платежи и ордера);
+    остатки на счетах и долги — снимок в нашей базе против отчёта МойСклад прямо сейчас."""
+    out = []
+    today = datetime.now(oh.ALMATY).date()
+    for day in (str(today - timedelta(days=1)), str(today)):
+        a, b = _day_bounds(day)
+        label = datetime.strptime(day, "%Y-%m-%d").strftime("%d.%m")
+        for title, types in (("Поступления", IN_TYPES), ("Выплаты", OUT_TYPES)):
+            with db() as d:
+                ours = d.run("SELECT COALESCE(SUM(sum), 0) FROM ms_doc WHERE deleted=0 AND applicable=1 AND moment>=%s AND moment<%s"
+                             " AND type IN (" + ", ".join(["%s"] * len(types)) + ")", (a, b, *types), one=True)[0]
+            theirs = sum((r.get("sum") or 0) for t in types for r in _ms_docs(t, f"moment>={a};moment<{b};applicable=true")) / 100
+            out.append(_check(f"{title} {label} (платежи + ордера)", round(ours), round(theirs), "₸"))
+    with db() as d:
+        ours_money = d.run("SELECT COALESCE(SUM(balance), 0) FROM ms_money", one=True)[0]
+        ours_debt = d.run("SELECT COALESCE(SUM(balance), 0) FROM ms_agent_balance", one=True)[0]
+    theirs_money = sum((r.get("balance") or 0) for r in _report_rows("/report/money/byaccount")) / 100
+    theirs_debt = sum((r.get("balance") or 0) for r in _report_rows("/report/counterparty")) / 100
+    out.append(_check("Деньги на счетах и в кассах, всего", round(ours_money), round(theirs_money), "₸"))
+    out.append(_check("Взаиморасчёты с контрагентами, итог", round(ours_debt), round(theirs_debt), "₸"))
+    return out
+
+
 def _sales_checks():
     """Продажи за вчера и сегодня (Алматы), как на «Обзоре»: проведённые отгрузки + чеки − возвраты; и число заказов."""
     out = []
@@ -547,6 +617,7 @@ def reconcile():
     checks += _sales_checks()
     checks.append(_lines_check())
     checks += _stock_doc_checks()
+    checks += _money_checks()
     res = {"checks": checks}
     ok = all(c["ok"] for c in checks)
     with db() as d:
