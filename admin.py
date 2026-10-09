@@ -955,6 +955,60 @@ def order_detail(number):
                    reserved=any((l["reserve"] or 0) > 0 for l in lines if l["type"] in RESERVABLE))
 
 
+@bp.post("/admin/api/orders/bulk")
+@need("orders")
+def orders_bulk():
+    """Массово по выбранным заказам: сменить статус ({"action": "state", "state": "Собран"}) или удалить ({"action": "delete"}).
+    Удаляет только владелец; заказ с действующей заявкой курьера Яндекса не удаляется — сначала отмените заявку."""
+    b = request.get_json(silent=True) or {}
+    act = b.get("action")
+    items = [x for x in (b.get("orders") or []) if isinstance(x, dict) and x.get("number")][:100]
+    if not items or act not in ("state", "delete"):
+        return jsonify(ok=False, error="Не выбраны заказы или действие"), 400
+    if act == "delete" and (who() or {}).get("role") != "owner":
+        return jsonify(ok=False, error="Удалять заказы может только владелец"), 403
+    st = None
+    if act == "state":
+        name = str(b.get("state", "")).strip()
+        md = fresh("adm_order_states", 600, _ms_states)
+        st = next((x for x in md.get("states", []) if x["name"] == name), None)
+        if not st:
+            return jsonify(ok=False, error="Такого статуса нет в МойСклад"), 400
+    import courier
+    res = {}
+    for x in items:
+        num = str(x["number"])[:20]
+        try:
+            oid = str(x.get("id") or "")
+            if not oh.re.fullmatch(r"[0-9a-f-]{36}", oid):
+                rows = oh.ms("GET", "/entity/customerorder", params={"filter": f"name={num}", "limit": 1}, timeout=30).get("rows", [])
+                if not rows:
+                    res[num] = "не найден"
+                    continue
+                oid = rows[0]["id"]
+            if act == "state":
+                oh.ms("PUT", f"/entity/customerorder/{oid}", json={"state": {"meta": st["meta"]}}, timeout=30)
+                _olog(num, f"Статус → «{st['name']}» (массово)")
+                if st["name"] == "Собран":
+                    threading.Thread(target=courier.auto_express, args=(num, oid), daemon=True, name="xauto-" + num).start()
+            else:
+                with courier.db() as d:
+                    row = courier._row(d, num)
+                if row and row["claim"] and row["status"] not in courier.DONE and row["status"] not in ("new", "estimating", "ready_for_approval"):
+                    res[num] = "у заказа едет курьер Яндекса — сначала отмените заявку"
+                    continue
+                oh.ms("DELETE", f"/entity/customerorder/{oid}", timeout=30)
+                _olog(num, "Заказ удалён из панели")
+            res[num] = "ok"
+        except Busy:
+            res[num] = "МойСклад долго отвечает — повторите"
+        except Exception as e:
+            msg = str(e)
+            res[num] = "есть связанные документы (отгрузка, платёж) — удалите их в МойСклад или поставьте статус «Отменен»" if "связ" in msg.lower() or "1052" in msg or "linked" in msg.lower() else msg[:150]
+    oh._cache.pop("adm_orders", None)
+    return jsonify(ok=True, result=res)
+
+
 @bp.post("/admin/api/orders/assembly")
 @need("orders")
 def orders_assembly():

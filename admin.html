@@ -103,7 +103,7 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 #dle summary{cursor:pointer;list-style:none}#dle summary::-webkit-details-marker{display:none}#dle summary::after{content:" ▾";color:#6B726E}#dle[open] summary::after{content:" ▴"}
 .xhr{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:8px;margin:6px 0 12px}.xhd{display:flex;align-items:center;gap:6px}.xhd .dlday{flex:none;min-width:44px}.xhd input{flex:1;min-width:110px;padding:8px}.xhd input:disabled{opacity:.4}
 .selbar{position:fixed;left:12px;right:12px;bottom:calc(98px + env(safe-area-inset-bottom,0px));z-index:40;display:flex;align-items:center;gap:8px;background:#fff;border-radius:16px;padding:10px 12px;box-shadow:0 10px 30px rgba(8,25,18,.25);flex-wrap:wrap}
-.selbar .btn{padding:9px 11px;font-size:14px;white-space:nowrap}@media(max-width:800px){.selbar{gap:8px;padding:10px}.selbar b{order:-2}.selbar #sclr{order:-1;margin-left:auto;flex:0 0 auto}.selbar .sbsp{flex:0 0 100%!important;height:0}.selbar .btn:not(#sclr){flex:1 1 0}}@media(min-width:801px){.selbar{left:auto;right:28px;bottom:24px;min-width:520px}}
+.selbar .btn{padding:9px 11px;font-size:14px;white-space:nowrap}@media(max-width:800px){.selbar{gap:8px;padding:10px}.selbar b{order:-2}.selbar #sclr{order:-1;margin-left:auto;flex:0 0 auto}.selbar .sbsp{flex:0 0 100%!important;height:0}.selbar .btn:not(#sclr){flex:1 1 28%}}.vdel{color:var(--bad)!important}@media(min-width:801px){.selbar{left:auto;right:28px;bottom:24px;min-width:520px}}
 </style><style id="eocss">.eo{background:#fff;width:100%;max-width:560px;max-height:92vh;overflow:auto;border-radius:18px 18px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom))}
 @media(min-width:801px){.eo{border-radius:0;margin:0;width:100%;max-width:none;height:100%;max-height:none;box-sizing:border-box;padding:28px max(28px,calc((100vw - 1000px)/2)) 40px}.eo .voa{max-width:560px}}   /* компьютер: заказ на весь экран, содержимое по центру */
 .eor{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid #EEF1EE}.eor:first-child{border-top:0}.eon{flex:1;min-width:0;font-size:14px}
@@ -333,7 +333,7 @@ const viewOrder=async(n,oid,opt={})=>{const ov=document.createElement("div");ov.
  const goods=d.lines.reduce((s,x)=>s+x.qty*x.price,0),cnt=d.lines.reduce((s,x)=>s+x.qty,0);
  ov.querySelector(".eo").innerHTML=`<div class="voh"><div style="min-width:0"><div style="font-weight:800;font-size:18px">Заказ №${esc(d.number)}</div><div class="mut" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:2px">${esc((d.moment||"").replace("T"," "))} ${stBtn(d)}</div></div><button class="vox" aria-label="Закрыть">✕</button></div>
   <div style="font-weight:700;margin:6px 0 2px">${esc(d.client)}</div>${d.description?`<div class="vod">${esc(d.description)}</div>`:""}
-  <div class="voa"><button data-a="pdf"><i>📄</i>PDF</button><button data-a="xlsx"><i>📊</i>Excel</button><button data-a="share"><i>📤</i>Отправить</button><button data-a="edit"><i>✏️</i>Изменить</button><button data-a="rsv" class="${d.reserved?"on":""}"><i>${d.reserved?"🔓":"🔒"}</i>${d.reserved?"Снять резерв":"Резерв"}</button></div>
+  <div class="voa"><button data-a="pdf"><i>📄</i>PDF</button><button data-a="xlsx"><i>📊</i>Excel</button><button data-a="share"><i>📤</i>Отправить</button><button data-a="edit"><i>✏️</i>Изменить</button><button data-a="rsv" class="${d.reserved?"on":""}"><i>${d.reserved?"🔓":"🔒"}</i>${d.reserved?"Снять резерв":"Резерв"}</button>${ME&&ME.role==="owner"?`<button data-a="del" class="vdel"><i>🗑</i>Удалить</button>`:""}</div>
   <div class="mut" style="margin:10px 0 2px">${d.lines.length} поз. · ${fmt(cnt)} шт.</div>
   <div>${d.lines.map((x,i)=>`<div class="vol">${x.img?`<a class="phl voi" href="${esc(x.img)}"><img src="${esc(x.img)}" loading="lazy" alt=""></a>`:`<span class="voi">🧴</span>`}<div class="von"><div>${esc(x.name)}</div><div class="mut">${x.code?esc(x.code)+" · ":""}${fmt(x.qty)} × ${fmt(x.price)} ₸${x.reserve?` · <span class="vrs">в резерве ${fmt(x.reserve)}</span>`:""}${x.shipped?` · отгружено ${fmt(x.shipped)}`:""}</div>${x.type!=="service"?`<div class="vstk" data-sid="${esc(x.id)}"></div>`:""}</div><b class="vos">${fmt(x.qty*x.price)} ₸</b></div>`).join("")}</div>
   <div class="vot"><div><span>Товары</span><span>${fmt(goods)} ₸</span></div>${d.loader?`<div><span>Грузчик</span><span>${fmt(d.loader)} ₸</span></div>`:""}${d.fee?`<div><span>Комиссия банка</span><span>${fmt(d.fee)} ₸</span></div>`:""}<div class="vott"><span>Итого</span><span>${fmt(d.total)} ₸</span></div></div>
@@ -356,6 +356,7 @@ const viewOrder=async(n,oid,opt={})=>{const ov=document.createElement("div");ov.
  if(touchDev){const nm="AMURA-"+d.number;getFile(d.pdf,nm+".pdf","application/pdf").catch(()=>{});getFile(d.xlsx,nm+".xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet").catch(()=>{})}   // заранее: «Поделиться» откроется с первого нажатия
  ov.querySelectorAll(".voa button").forEach(b=>b.onclick=()=>{const a=b.dataset.a,nm="AMURA-"+d.number;
   if(a==="edit"){ov.remove();editOrder(d.number,d.id)}
+  else if(a==="del"){bulkDelete([{number:d.number,id:d.id}],()=>{ov.remove();if(views[cur])views[cur](lastArg)})}
   else if(a==="rsv"){const on=!d.reserved;if(!on&&!confirm("Снять резерв со всех товаров заказа №"+d.number+"? Товар станет доступен для других заказов."))return;
    b.disabled=true;b.lastChild.textContent=on?"Ставлю…":"Снимаю…";
    api("orders/"+encodeURIComponent(d.number)+"/reserve?id="+encodeURIComponent(d.id||""),{method:"POST",body:JSON.stringify({on})}).then(()=>{toast(on?"Резерв поставлен":"Резерв снят");ov.remove();viewOrder(d.number,d.id)})
@@ -374,6 +375,19 @@ const stgChips=(list,cur,id)=>`<div class="chips cn" id="${id}" style="margin-bo
 /* открытый этап: выбранный раньше, иначе первый непустой — Новые → Собраны → … */
 const pickStg=(list,saved)=>STG.some(([k])=>k===saved)?saved:(STG.find(([k])=>list.some(x=>stageOf(x)===k))||["new"])[0];
 const bldBtn=x=>{const g=stageOf(x);return g==="new"||g==="built"?`<button class="btn ${g==="built"?"":"ghost"}" data-bld="${esc(x.num)}" data-id="${esc(x.id||"")}" data-on="${g==="built"?1:0}" style="padding:6px 10px">${g==="built"?"✓ Собран":"Отметить собранным"}</button>`:""};
+/* массово: статус и удаление выбранных заказов (удаляет только владелец) */
+const bulkRes=r=>Object.entries(r.result||{}).filter(([,v])=>v!=="ok").map(([k,v])=>"№"+k+": "+v);
+function bulkState(list,states,done){if(!list.length)return;const ov=document.createElement("div");ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:flex-end;justify-content:center";
+ ov.innerHTML=`<div class="bsp" style="background:#fff;width:100%;max-width:480px;border-radius:18px 18px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom))"><div style="font-weight:800;margin-bottom:10px">Статус для ${list.length} ${list.length===1?"заказа":"заказов"}</div>`+
+  states.map(s=>`<button data-s="${esc(s.name)}" style="display:flex;align-items:center;gap:10px;width:100%;padding:12px;margin:4px 0;border:1px solid #E3E8E4;border-radius:12px;background:#fff;font:inherit;font-size:15px;cursor:pointer"><i style="width:14px;height:14px;border-radius:50%;background:${esc(s.color||"#999")}"></i>${esc(s.name)}</button>`).join("")+`<div class="mut" id="bsm" style="margin-top:6px"></div></div>`;
+ document.body.appendChild(ov);ov.onclick=e=>{if(e.target===ov)ov.remove()};
+ ov.querySelectorAll("[data-s]").forEach(b=>b.onclick=async()=>{$("#bsm").textContent="Меняю…";ov.querySelectorAll("[data-s]").forEach(x=>x.disabled=true);
+  try{const r=await api("orders/bulk",{method:"POST",body:JSON.stringify({action:"state",state:b.dataset.s,orders:list.map(x=>({number:x.number,id:x.id||""}))})});const bad=bulkRes(r);
+   ov.remove();toast(bad.length?bad.join("; "):`Статус «${b.dataset.s}» — ${list.length} шт.`,bad.length?6000:2600);done&&done()}catch(e){$("#bsm").textContent=e.message;ov.querySelectorAll("[data-s]").forEach(x=>x.disabled=false)}})}
+async function bulkDelete(list,done){if(!list.length)return;
+ if(!confirm(`Удалить ${list.length===1?"заказ №"+list[0].number:list.length+" заказов ("+list.slice(0,5).map(x=>"№"+x.number).join(", ")+(list.length>5?"…":"")+")"} из МойСклад навсегда? Это нельзя отменить. Если нужно просто убрать из работы — поставьте статус «Отменен».`))return;
+ try{const r=await api("orders/bulk",{method:"POST",body:JSON.stringify({action:"delete",orders:list.map(x=>({number:x.number,id:x.id||""}))})});const bad=bulkRes(r);
+  toast(bad.length?bad.join("; "):`Удалено: ${list.length} шт.`,bad.length?7000:2600);done&&done()}catch(e){toast(e.message)}}
 async function setBuilt(list,on){let bad=[];for(const x of list){try{await api("orders/state",{method:"POST",body:JSON.stringify({number:x.number,id:x.id||"",state:on?"Собран":"Новый"})})}catch(e){bad.push("№"+x.number+": "+e.message)}}
  toast(bad.length?bad.join("; "):on?"Отмечено: собрано":"Снята отметка «Собран»")}
 /* наклейки на пакеты для курьера: № заказа крупно, имя, адрес, окно — курьер сверяет номер с приложением Яндекса */
@@ -497,11 +511,13 @@ async orders(q,kind){q=q==null?"":String(q);const rt=kind==="retail",vw=rt?"reta
  let all=[],more=null;const osel=new Set();
  const selBar=()=>{let b=$("#selbar");const n=osel.size;if(!n){if(b)b.remove();const ca=$("#oall");if(ca)ca.checked=false;return}
   if(!b){b=document.createElement("div");b.id="selbar";b.className="selbar";document.body.appendChild(b)}
-  b.innerHTML=`<b style="white-space:nowrap">Выбрано ${n}</b><span class="sbsp" style="flex:1"></span><button class="btn" id="sasm">Лист сборки</button><button class="btn ghost" id="slbl">Наклейки</button><button class="btn ghost" id="sbld">Собраны</button><button class="btn ghost" id="sclr" aria-label="Снять выбор">✕</button>`;
+  b.innerHTML=`<b style="white-space:nowrap">Выбрано ${n}</b><span class="sbsp" style="flex:1"></span><button class="btn" id="sasm">Лист сборки</button><button class="btn ghost" id="slbl">Наклейки</button><button class="btn ghost" id="sbld">Собраны</button><button class="btn ghost" id="sst">Статус ▾</button>${ME&&ME.role==="owner"?'<button class="btn ghost" id="sdel" style="color:var(--bad)">Удалить</button>':""}<button class="btn ghost" id="sclr" aria-label="Снять выбор">✕</button>`;
   const L=()=>all.filter(x=>osel.has(x.number));
   $("#sasm").onclick=()=>printAssembly(L());
   $("#slbl").onclick=()=>printLabels(L().map(x=>({num:x.number,name:x.client,addr:(x.ship||"").split(" — ").slice(1).join(" — ")||x.ship||"",kind:shipKind(x.ship||"")})),"");
   $("#sbld").onclick=async()=>{if(!confirm(`Отметить собранными: ${n} шт? Статус в МойСклад станет «Собран».`))return;await setBuilt(L(),true);osel.clear();selBar();views[vw](q)};
+  $("#sst").onclick=()=>bulkState(L(),o.states||[],()=>{osel.clear();selBar();views[vw](q)});
+  const sd=$("#sdel");if(sd)sd.onclick=()=>bulkDelete(L(),()=>{osel.clear();selBar();views[vw](q)});
   $("#sclr").onclick=()=>{osel.clear();document.querySelectorAll(".osel").forEach(c=>c.checked=false);selBar()};
   const ca=$("#oall");if(ca)ca.checked=all.length>0&&all.every(x=>osel.has(x.number))};
  const navNow=nav;const bye=setInterval(()=>{if(nav!==navNow){clearInterval(bye);const b=$("#selbar");if(b)b.remove()}},500);
