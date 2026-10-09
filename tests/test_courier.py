@@ -189,6 +189,37 @@ class Courier(unittest.TestCase):
         r = json.loads(c.get("/me/track", headers={"Authorization": "Bearer " + oh.make_token("other")}).data)
         self.assertEqual(r["tracks"], {})
 
+    def test_push_on_status_change(self):
+        """Новый статус для клиента — уведомление ему; одинаковый текст (pickup_arrived → ready_for_pickup_confirmation) — без повтора."""
+        import push
+        sent = []
+        self.patch(push, "notify_client", lambda ag, title, body, **kw: sent.append((ag, title, body)))
+        self.post("/admin/api/courier/estimate", {"date": "2026-10-09", "nums": ["1700"], "interval": {"from": "a", "to": "b"}})
+        self.post("/admin/api/courier/accept", {"nums": ["1700"]})
+        self.status = "pickup_arrived"
+        courier.refresh()
+        self.status = "ready_for_pickup_confirmation"
+        courier.refresh()
+        self.status = "pickuped"
+        courier.refresh()
+        self.assertEqual([b for _, _, b in sent], ["Курьер приехал за заказом", "Курьер забрал заказ и едет к вам"])
+        self.assertTrue(all(a == "ag1" for a, _, _ in sent))
+
+    def test_me_push_subscribe(self):
+        import push
+        self.patch(push, "keys", lambda: ("priv", "PUBKEY"))
+        app = Flask(__name__)
+        app.register_blueprint(oh.bp)
+        c = app.test_client()
+        self.assertEqual(json.loads(c.get("/me/push").data)["key"], "PUBKEY")
+        sub = {"endpoint": "https://push.example/abc", "keys": {"p256dh": "k", "auth": "a"}}
+        self.assertEqual(c.post("/me/push", json={"sub": sub}).status_code, 401)
+        r = c.post("/me/push", json={"sub": sub}, headers={"Authorization": "Bearer " + oh.make_token("ag1")})
+        self.assertEqual(r.status_code, 200)
+        with push._cdb() as d:
+            self.assertEqual(d.run("SELECT agent FROM push_client WHERE endpoint=%s", (sub["endpoint"],), one=True)[0], "ag1")
+        self.assertEqual(c.post("/me/push", json={"sub": {"endpoint": "x"}}, headers={"Authorization": "Bearer " + oh.make_token("ag1")}).status_code, 400)
+
     def test_staff_without_orders_perm(self):
         self.patch(admin, "who", lambda: {"role": "staff", "perms": ["inbox"], "name": "С"})
         self.assertEqual(self.c.get("/admin/api/courier").status_code, 403)

@@ -137,3 +137,7 @@ input,select,textarea{font-size:16px!important}
 .rtrk .btn{text-decoration:none;text-align:center}
 [data-view="me"].rdot{position:relative}
 [data-view="me"].rdot::after{content:"";position:absolute;top:6px;right:calc(50% - 16px);width:9px;height:9px;border-radius:50%;background:#E5483A;box-shadow:0 0 0 2px #173A2A}
+/* предложение включить уведомления о доставке */
+.rpush{display:grid;gap:6px;padding:14px;border-radius:14px;background:#EAF4EE;border:1px solid #CFE6D8;margin:4px 0 12px}
+.rpush b{font-size:15px}.rpush span{font-size:13.5px;color:var(--muted)}
+.rpush .btn{justify-self:start;padding:10px 18px;margin-top:4px}

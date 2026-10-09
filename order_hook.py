@@ -1607,6 +1607,24 @@ def me():
     return jsonify(ok=True, profile=profile(cp), orders=orders)
 
 
+@bp.route("/me/push", methods=["GET", "POST", "OPTIONS"])
+def me_push():
+    """GET — публичный ключ для подписки; POST {sub} — включить уведомления о доставке на этом устройстве."""
+    if request.method == "OPTIONS":
+        return "", 204
+    import push
+    if request.method == "GET":
+        return jsonify(ok=True, key=push.keys()[1])
+    cid = session_cid()
+    if not cid:
+        return jsonify(ok=False, error="Войдите заново"), 401
+    try:
+        push.subscribe_client((request.get_json(silent=True) or {}).get("sub") or {}, cid)
+    except ValueError as e:
+        return jsonify(ok=False, error=str(e)), 400
+    return jsonify(ok=True)
+
+
 @bp.route("/me/track", methods=["GET", "OPTIONS"])
 def me_track():
     """Лёгкий опрос для сайта (раз в 1,5 мин, пока есть заказ в пути): статусы доставки своих заказов, без МойСклад."""

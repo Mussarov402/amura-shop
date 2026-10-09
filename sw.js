@@ -1,4 +1,4 @@
-// AMURA: сайт открывается мгновенно, как приложение.
+// AMURA: сайт открывается мгновенно, как приложение. Плюс уведомления о доставке заказа (розница).
 // Страница и фото — из памяти телефона сразу, в фоне обновляются.
 // Живые остатки, заказы и вход (сервер) — только из сети, не кэшируются.
 const V = "amura-v40";
@@ -19,5 +19,22 @@ self.addEventListener("fetch", e => {
     const net = fetch(req, { cache: "no-cache" }).then(r => { if(r.ok) c.put(req, r.clone()); return r; });
     const slow = new Promise(res => setTimeout(res, 3000)).then(() => c.match(req));
     return Promise.race([net, slow.then(h => h || net)]).catch(() => c.match(req));
+  }));
+});
+
+// уведомления покупателю: «Курьер забрал заказ…» — нажатие открывает «Мои заказы»
+self.addEventListener("push", e => {
+  let d = {};
+  try { d = e.data.json(); } catch (_) { d = { title: "AMURA", body: e.data ? e.data.text() : "" }; }
+  e.waitUntil(self.registration.showNotification(d.title || "AMURA", {
+    body: d.body || "", icon: "/icon-192.png", badge: "/icon-192.png", tag: d.tag || undefined, renotify: !!d.tag,
+    data: { url: d.url || "/shop/#me" } }));
+});
+self.addEventListener("notificationclick", e => {
+  e.notification.close();
+  const url = (e.notification.data || {}).url || "/shop/#me";
+  e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(ws => {
+    for (const w of ws) if (w.url.indexOf("/shop") >= 0) { w.navigate(url).catch(() => {}); return w.focus(); }
+    return self.clients.openWindow(url);
   }));
 });
