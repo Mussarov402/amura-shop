@@ -697,11 +697,14 @@ def finance_view(days=14, top=20):
                                        " AND moment<%s AND type IN (" + ", ".join(["%s"] * len(types)) + ")",
                                        (a, b, *types), one=True)[0] or 0)
             flow.append(row)
-        agents = [{"id": a, "name": n, "balance": round(b or 0)} for a, n, b in
-                  d.run("SELECT agent_id, name, balance FROM ms_agent_balance WHERE balance<>0 ORDER BY ABS(balance) DESC LIMIT %s",
-                        (top,), many=True) or []]
+        # знак /report/counterparty (проверено 09.10 на данных: у поставщика KorShop 54 приёмки и плюс):
+        # balance > 0 — мы должны контрагенту, balance < 0 — контрагент должен нам
+        rows = lambda cond, order: [{"id": a, "name": n, "sum": round(abs(b or 0))} for a, n, b in
+                                    d.run(f"SELECT agent_id, name, balance FROM ms_agent_balance WHERE {cond} ORDER BY balance {order} LIMIT %s",
+                                          (top,), many=True) or []]
+        owed_us, we_owe = rows("balance<0", "ASC"), rows("balance>0", "DESC")
         total = d.run("SELECT COALESCE(SUM(CASE WHEN balance>0 THEN balance ELSE 0 END), 0),"
                       " COALESCE(SUM(CASE WHEN balance<0 THEN balance ELSE 0 END), 0) FROM ms_agent_balance", one=True)
     return {"money": money, "moneyTotal": sum(m["balance"] for m in money), "synced": synced, "flow": flow,
-            "agents": agents, "agentsPlus": round(total[0] or 0), "agentsMinus": round(total[1] or 0)}
+            "owedUs": owed_us, "weOwe": we_owe, "owedUsTotal": round(abs(total[1] or 0)), "weOweTotal": round(total[0] or 0)}
 
