@@ -378,7 +378,8 @@ form.co{display:grid;gap:12px;padding-top:6px}
   .rpc-buy svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
   .rpc-buy.in{background:var(--mint);color:var(--green-3)}
 }
-.rpc-ok{width:15px;height:15px;fill:#2F80ED;vertical-align:-2px;margin-right:4px;flex:none}
+.rpc-ok{width:15px;height:15px;fill:#2F80ED;stroke:#2F80ED;vertical-align:-2px;margin-right:4px;flex:none}
+.rpc-ok path+path{stroke:#fff}
 /* Розничный сайт: оформление заказа как на WB (только amura.kz/shop, вставляет make_shop.py) */
 #viewCart .narrow.rwide{max-width:1080px}
 #drawerTitle .rsub{display:block;font-family:inherit;font-size:13.5px;font-weight:600;color:var(--muted);margin-top:2px}
@@ -1723,7 +1724,7 @@ boot();
 (function(){
 if(!window.AMURA_RETAIL) return;
 /* синяя галочка «оригинал» перед брендом, как у WB */
-const VERIFIED = '<svg class="rpc-ok" viewBox="0 0 24 24" aria-label="Оригинальный товар" role="img"><path d="M12 1.8l2.4 1.7 2.9-.2 1 2.8 2.5 1.5-.6 2.9 1 2.7-2.1 2 -.3 2.9-2.8.9-1.6 2.5-2.9-.5L12 22.2l-2.4-1.7-2.9.5-1.6-2.5-2.8-.9-.3-2.9-2.1-2 1-2.7-.6-2.9L2.8 6.1l1-2.8 2.9.2z"/><path d="M8 12.3l2.6 2.6L16.2 9.3" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const VERIFIED = '<svg class="rpc-ok" viewBox="0 0 24 24" aria-label="Оригинальный товар" role="img"><path d="M12.00 1.60 L14.41 3.02 L17.20 2.99 L18.58 5.42 L21.01 6.80 L20.98 9.59 L22.40 12.00 L20.98 14.41 L21.01 17.20 L18.58 18.58 L17.20 21.01 L14.41 20.98 L12.00 22.40 L9.59 20.98 L6.80 21.01 L5.42 18.58 L2.99 17.20 L3.02 14.41 L1.60 12.00 L3.02 9.59 L2.99 6.80 L5.42 5.42 L6.80 2.99 L9.59 3.02Z" stroke-linejoin="round" stroke-width="1.6"/><path d="M8 12.3l2.6 2.6L16.2 9.3" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const CART_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l-1 12H6L5 8Z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/></svg>';
 
 /* оценка из отзывов (retail/reviews.js кладёт сводку в window.RV_SUM) */
