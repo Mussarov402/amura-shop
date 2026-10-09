@@ -11,6 +11,15 @@ function rateHTML(id){
   const n = r[1], m = n % 10, h = n % 100, w = m === 1 && h !== 11 ? "оценка" : m >= 2 && m <= 4 && (h < 10 || h >= 20) ? "оценки" : "оценок";
   return `<div class="rpc-rate"><b>★</b> ${String(r[0]).replace(".", ",")} <span>· ${fmt(n)} ${w}</span></div>`;
 }
+/* срок на кнопке «в корзину» (компьютер, как на WB): Алматы — Яндекс «в течение дня» (до 13:00 — сегодня), другие города — СДЭК ~3 дня */
+const MON_R = ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"];
+function whenLabel(){
+  const f = load("amura-form", {}), city = f.city || (AUTH.profile && AUTH.profile.city) || "";
+  const now = new Date(Date.now() + (new Date().getTimezoneOffset() + 300) * 60000);    // время Алматы (UTC+5)
+  if(!city || /алмат/i.test(city)) return now.getHours() < 13 ? "Сегодня" : "Завтра";
+  const d = new Date(now.getTime() + 3 * 864e5); return d.getDate() + " " + MON_R[d.getMonth()];
+}
+const buyLabel = q => q ? `В корзине · ${q}` : whenLabel();
 cardHTML = function(it){
   const q = cart[it.id] || 0;
   return `<article class="card rpc" data-id="${esc(it.id)}">
@@ -22,6 +31,7 @@ cardHTML = function(it){
     <button type="button" class="rpc-name" data-open>${it.brand && it.brand.length <= 20 && !it.name.toLowerCase().startsWith(it.brand.toLowerCase()) ? `<b>${esc(it.brand)}</b> / ` : ""}${esc(it.name)}</button>
     ${rateHTML(it.id)}
     ${it.qty <= 5 ? `<div class="rpc-low">Осталось ${fmt(it.qty)} шт</div>` : ""}
+    <button type="button" class="rpc-buy${q ? " in" : ""}" data-radd>${CART_SVG}<span>${esc(buyLabel(q))}</span></button>
   </article>`;
 };
 
@@ -32,6 +42,9 @@ refreshCard = function(id){
   document.querySelectorAll(`.rpc[data-id="${CSS.escape(id)}"] .rpc-add`).forEach(b => {
     b.classList.toggle("in", !!q); b.innerHTML = CART_SVG + (q ? `<em>${q}</em>` : "");
     b.setAttribute("aria-label", q ? `В корзине ${q} шт, добавить ещё` : "В корзину");
+  });
+  document.querySelectorAll(`.rpc[data-id="${CSS.escape(id)}"] .rpc-buy`).forEach(b => {
+    b.classList.toggle("in", !!q); b.querySelector("span").textContent = buyLabel(q);
   });
 };
 
