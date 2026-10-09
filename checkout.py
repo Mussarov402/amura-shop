@@ -142,7 +142,7 @@ def options(city, goods_sum):
         "courier": {"id": "courier", "name": "В течение дня", "price": client_price(goods_sum, "courier", city),
                     "note": "Яндекс, привезём за 4 часа в выбранное окно", "days": None},
         "pickup": {"id": "pickup", "name": "Самовывоз", "price": 0, "note": c["store"].get("wh_addr") or "Со склада в Алматы", "days": None},
-        "express": {"id": "express", "name": "Срочно", "price": client_price(goods_sum, "express", city),
+        "express": {"id": "express", "name": "Express", "price": client_price(goods_sum, "express", city),
                     "note": "Яндекс Экспресс, за 1–2 часа, всегда платно", "days": None},
         "cdek": {"id": "cdek", "name": "Пункт выдачи СДЭК", "price": client_price(goods_sum, "cdek", city),
                  "note": "Пункты и постаматы СДЭК" + (f", {_days(eta.get('pvz'))}" if eta.get("pvz") else ""), "days": rng(eta.get("pvz"))},
