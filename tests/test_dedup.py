@@ -95,6 +95,33 @@ class DedupTest(unittest.TestCase):
         self.assertTrue(r.get_json()["ok"])
         self.assertEqual(self.ms.posts, [])
 
+    def test_mirror_prefers_oldest(self):
+        mirror.set_enabled(True)
+        with mirror.db() as d:
+            d.run("INSERT INTO ms_agent (id, name, phone, deleted, archived) VALUES ('new', 'Kamila', '77012345678', 0, 0)")
+            d.run("INSERT INTO ms_agent (id, name, phone, deleted, archived) VALUES ('old', 'Камила', '+77012345678', 0, 0)")
+        self.use([{"id": "new", "name": "Kamila", "phone": "77012345678", "created": "2026-03-07"},
+                  {"id": "old", "name": "Камила", "phone": "+77012345678", "created": "2025-10-25"}])
+        self.assertEqual(oh.cp_by_phone("77012345678")["id"], "old")
+
+    def test_merged_duplicate_redirects(self):
+        main = "11111111-2222-3333-4444-555555555555"
+        self.use([{"id": "dup", "name": "Kamila", "phone": "+77012345678", "archived": True,
+                   "description": f"Дубль → Камила Днг ({main})\nКлиент с сайта"},
+                  {"id": "solo", "name": "Айгуль", "phone": "+77019999999"}])
+        oh._live.clear()
+        self.assertEqual(oh.live_cid("dup"), main)
+        self.assertEqual(oh.live_cid("solo"), "solo")
+
+    def test_session_token_follows_merge(self):
+        from flask import Flask
+        main = "11111111-2222-3333-4444-555555555555"
+        self.use([{"id": "dup", "name": "Kamila", "archived": True, "description": f"Дубль → Камила ({main})"}])
+        oh._live.clear()
+        app = Flask(__name__)
+        with app.test_request_context(headers={"Authorization": "Bearer " + oh.make_token("dup")}):
+            self.assertEqual(oh.session_cid(), main)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1333,9 +1333,30 @@ def session_cid():
         if not hmac.compare_digest(sig, hmac.new(ORDER_SECRET, body.encode(), hashlib.sha256).hexdigest()[:32]):
             return None
         data = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
-        return data["c"] if data["e"] > time.time() else None
+        return live_cid(data["c"]) if data["e"] > time.time() else None
     except Exception:
         return None
+
+
+_live = {}     # cid -> (время, cid главной карточки)
+
+
+def live_cid(cid):
+    """Карточку-дубль, сведённую в архив («Дубль → Имя (id)»), заменяет главной — чтобы вход и заказы шли туда."""
+    hit = _live.get(cid)
+    if hit and time.time() - hit[0] < 3600:
+        return hit[1]
+    try:
+        cp = ms("GET", f"/entity/counterparty/{cid}")
+    except Exception:
+        return cid
+    to = cid
+    if cp.get("archived"):
+        m = re.search(r"Дубль → .*\(([0-9a-f-]{36})\)", cp.get("description") or "")
+        main = cp_by_phone(cp["phone"]) if not m and cp.get("phone") else None
+        to = m.group(1) if m else (main or {}).get("id", cid)
+    _live[cid] = (time.time(), to)
+    return to
 
 
 def tg_attr():
@@ -1427,13 +1448,16 @@ def cp_by_phone(phone):
     p10 = norm_phone(phone)[-10:]
     if len(p10) < 10:
         return None
+    live = []
     for cid in _mirror_agent_ids(p10):
         try:
             r = ms("GET", f"/entity/counterparty/{cid}")
         except Exception:
             continue
         if not r.get("archived") and norm_phone(r.get("phone", ""))[-10:] == p10:
-            return r
+            live.append(r)
+    if live:                      # несколько карточек с номером — берём самую старую, как и при поиске в МойСклад
+        return min(live, key=lambda r: r.get("created") or "")
     seen = set()
     for q in _phone_searches(p10):
         rows = ms("GET", "/entity/counterparty", params={"search": q, "limit": 50})["rows"]
@@ -1447,9 +1471,12 @@ def cp_by_phone(phone):
 
 def cp_by_tg(tg_id, username):
     href = tg_attr()["meta"]["href"]
-    rows = ms("GET", "/entity/counterparty", params={"filter": f"{href}={tg_id}", "limit": 1})["rows"]
+    # и архивные: у сведённого дубля остался Telegram ID — ведём клиента в главную карточку
+    rows = ms("GET", "/entity/counterparty", params={"filter": f"{href}={tg_id};archived=true;archived=false", "limit": 5})["rows"]
+    rows.sort(key=lambda r: bool(r.get("archived")))
     if rows:
-        return rows[0]
+        cid = live_cid(rows[0]["id"])
+        return rows[0] if cid == rows[0]["id"] else ms("GET", f"/entity/counterparty/{cid}")
     if username:
         for r in ms("GET", "/entity/counterparty", params={"search": f"@{username}", "limit": 5})["rows"]:
             if f"@{username}".lower() in (r.get("description", "") + " " + r.get("name", "")).lower():
