@@ -102,6 +102,29 @@ class Groups(unittest.TestCase):
         self.assertEqual(self.tg[-1][0], "sendPhoto")
         self.assertEqual(self.tg[-1][1]["caption"], "Новинка")
 
+    def test_add_ms_clients_and_template(self):
+        tg_attr = {"name": oh.ATTR_TGID, "value": "5005"}
+        cps = [{"id": "c1", "name": "Камила Днг", "phone": "+7 700 957 27 43", "attributes": [tg_attr]},
+               {"id": "c2", "name": "Лаура Актау", "phone": "8 (700) 666-16-05"},
+               {"id": "c3", "name": "Розничный покупатель"}]
+        self.patch(oh, "ms", lambda m, path, params=None, **k: {"rows": cps} if path == "/entity/counterparty" else next(c for c in cps if path.endswith(c["id"])))
+        sent = []
+        self.patch(admin.wa, "send_template", lambda chat, name, lang, params: sent.append((chat, name, lang, params)))
+        gid = self.c.post("/admin/api/inbox/groups", json={"name": "Все клиенты"}).get_json()["id"]
+        r = self.c.put(f"/admin/api/inbox/groups/{gid}", json={"all_clients": True}).get_json()
+        self.assertEqual((r["added"], r["nocontact"]), (2, 1))
+        g = self.c.get(f"/admin/api/inbox/groups/{gid}").get_json()["members"]
+        self.assertEqual(sorted((m["name"], m["channel"]) for m in g), [("Камила Днг", "tg"), ("Лаура Актау", "wa")])
+        self.assertEqual(self.c.put(f"/admin/api/inbox/groups/{gid}", json={"all_clients": True}).get_json()["added"], 0)   # повторно — без дублей
+        # пустые диалоги не появляются в списке чатов
+        self.assertNotIn("Лаура Актау", [c["name"] for c in self.c.get("/admin/api/inbox/convs").get_json()["convs"]])
+        s = self.c.post(f"/admin/api/inbox/groups/{gid}/send", data={"text": "{имя}, скидки!", "wa_tpl": "promo_oct", "wa_name": "1"}).get_json()
+        self.assertEqual(s["skipped"], 0)
+        self.assertEqual(sent, [("wa:77006661605", "promo_oct", "ru", ["Лаура"])])
+        self.assertEqual(self.tg[-1], ("sendMessage", {"chat_id": "5005", "text": "Камила, скидки!"}))
+        r = self.c.put(f"/admin/api/inbox/groups/{gid}", json={"clients": ["c3"]}).get_json()
+        self.assertEqual((r["added"], r["nocontact"]), (0, 1))
+
 
 if __name__ == "__main__":
     unittest.main()

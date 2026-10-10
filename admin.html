@@ -85,6 +85,7 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 .gbc{display:flex;align-items:center;gap:8px;padding:9px 0;border-top:1px solid #F2F4F2;cursor:pointer}.gbc:first-of-type{border-top:0}.gbt{font-size:14px;overflow:hidden;text-overflow:ellipsis}.grun{color:#8A4B08}
 .gmr{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid #F2F4F2}.gmr b{font-size:14.5px}.gdel{align-self:flex-start;margin-top:6px;color:#B3261E}
 .prow{display:flex;align-items:center;gap:10px;margin:10px 0 4px}.plist{flex:1;overflow:auto;min-height:120px}.pit2{display:flex;gap:10px;align-items:flex-start;padding:9px 2px;border-top:1px solid #F2F4F2;cursor:pointer}.pit2 input{width:20px;height:20px;margin-top:2px;flex:none;accent-color:#0E3B2C}.pit2.in{opacity:.55}
+.gtpl{margin:8px 0;border:1px solid #DCE5DF;border-radius:12px;padding:8px 12px;background:#F7FAF8}.gtpl summary{cursor:pointer;font-weight:700;font-size:13.5px;color:#128C4A}.gtpl input:not([type=checkbox]){flex:1;min-width:0}.gtpc{display:flex;gap:8px;align-items:center;cursor:pointer}.gtpc input{accent-color:#0E3B2C;width:18px;height:18px;flex:none;margin:0}.gtpl #gtl{flex:none;width:72px}
 .pbar{position:sticky;bottom:0;background:#fff;padding:10px 0 2px}
 @media(min-width:801px){.gsh{max-width:none}.gsh>*{max-width:720px;width:100%;margin-left:auto;margin-right:auto;box-sizing:border-box}}
 /* чат: вложения пачкой, меню скрепки, смайлы, запись с удержанием (влево — отмена, вверх — замок), видеокружок */
@@ -1123,22 +1124,26 @@ views.groups=async()=>{const r=await api("inbox/groups");
   <div class="glist">${r.groups.length?r.groups.map(card).join(""):'<div class="mut" style="padding:20px 4px">Групп пока нет. Создайте первую — например «Оптовики Алматы».</div>'}</div>`;
  bindSeg();
  $("#gnew").onclick=()=>{const ov=gSheet(`<div class="voh"><div style="font-weight:800;font-size:18px">Новая группа</div><button class="vox">✕</button></div>
-   <input id="gnm" placeholder="Название, например «Оптовики Алматы»" maxlength="80" style="margin:14px 0 10px"><button class="btn" id="gok" style="width:100%">Создать и добавить контакты</button>`);
+   <input id="gnm" placeholder="Название, например «Оптовики Алматы»" maxlength="80" style="margin-top:14px;margin-bottom:10px"><button class="btn" id="gok" style="width:100%">Создать и добавить контакты</button>`);
   ov.querySelector(".vox").onclick=()=>ov.remove();const i=ov.querySelector("#gnm");i.focus();
   const ok=async()=>{const n=i.value.trim();if(!n)return i.focus();const j=await api("inbox/groups",{method:"POST",body:JSON.stringify({name:n})});ov.remove();await views.groups();groupOpen(j.id,true)};
   ov.querySelector("#gok").onclick=ok;i.onkeydown=e=>{if(e.key==="Enter")ok()}};
  document.querySelectorAll(".gcard").forEach(c=>c.onclick=()=>groupOpen(+c.dataset.g))};
 async function groupOpen(gid,pick){
- const ov=gSheet('<div class="mut">Загружаю…</div>'),box=ov.querySelector(".eo");let file=null,poll=0,sending=false;
+ const ov=gSheet('<div class="mut">Загружаю…</div>'),box=ov.querySelector(".eo");let file=null,poll=0,sending=false,tpl={name:"",lang:"ru",nm:false};
  const close=()=>{clearTimeout(poll);ov.remove();if(cur==="groups")views.groups().catch(()=>{})};ov.onclick=e=>{if(e.target===ov)close()};
- const draw=async()=>{const r=await api("inbox/groups/"+gid);if(!document.body.contains(ov))return;const m=r.members,open=m.filter(x=>x.open).length,run=r.broadcasts.some(b=>b.state==="run");
+ const draw=async()=>{const r=await api("inbox/groups/"+gid);if(!document.body.contains(ov))return;const m=r.members,open=m.filter(x=>x.open).length,waC=m.filter(x=>!x.open&&x.channel==="wa").length,run=r.broadcasts.some(b=>b.state==="run");const reach=()=>open+(tpl.name?waC:0);
   const keep=box.querySelector("#gtx")?box.querySelector("#gtx").value:"";
   box.innerHTML=`<div class="voh"><input id="gname" class="gname" value="${esc(r.group.name)}" maxlength="80" aria-label="Название группы"><button class="vox" id="gx">✕</button></div>
    <div class="gsec"><div class="gst">Рассылка</div>
     <textarea id="gtx" rows="4" placeholder="Текст рассылки. {имя} — подставится имя клиента">${esc(keep)}</textarea>
     <div class="gfile" id="gfl"></div>
-    <div class="grow2"><button class="btn ghost sm" id="gat">📎 Фото или файл</button><input type="file" id="gfi" hidden><span class="grow"></span><button class="btn" id="gsd" ${open&&!sending?"":"disabled"}>Отправить ${open}</button></div>
-    <div class="mut gsm">${m.length?`Получат ${open} из ${m.length}${m.length-open?` · ${m.length-open} — окно WhatsApp/Instagram закрыто`:""}`:"Добавьте контакты в группу"}</div></div>
+    ${waC?`<details class="gtpl" ${tpl.name?"open":""}><summary>WhatsApp: ${waC} без открытого окна — отправить им шаблон</summary>
+     <div class="mut gsm" style="margin:6px 0">WhatsApp разрешает писать первым только шаблоном, одобренным в Meta (WhatsApp Manager → Шаблоны сообщений). Этим клиентам уйдёт текст шаблона, а не ваш.</div>
+     <div class="grow2"><input id="gtn" placeholder="Название шаблона, например promo_october" value="${esc(tpl.name)}"><input id="gtl" value="${esc(tpl.lang)}" style="width:72px" aria-label="Язык шаблона"></div>
+     <label class="gsm gtpc"><input type="checkbox" id="gtp" ${tpl.nm?"checked":""}> в шаблоне есть {{1}} — подставить имя клиента</label></details>`:""}
+    <div class="grow2"><button class="btn ghost sm" id="gat">📎 Фото или файл</button><input type="file" id="gfi" hidden><span class="grow"></span><button class="btn" id="gsd" ${reach()&&!sending?"":"disabled"}>Отправить ${reach()}</button></div>
+    <div class="mut gsm" id="gcnt"></div></div>
    ${r.broadcasts.length?`<div class="gsec"><div class="gst">История рассылок</div>${r.broadcasts.map(b=>`<div class="gbc" data-b="${b.id}"><div class="grow"><div class="gbt">${esc((b.text||"").slice(0,120))||"📎 "+esc(b.file||"файл")}</div>
      <div class="mut gsm">${gWhen(b.at)}${b.by?" · "+esc(b.by):""} · ${b.state==="run"?`<b class="grun">идёт ${b.sent+b.failed} из ${b.total-b.skipped}</b>`:`ушло ${b.sent} из ${b.total}`}${b.skipped?` · пропущено ${b.skipped}`:""}${b.failed?` · <b style="color:#B3261E">ошибок ${b.failed}</b>`:""}</div></div><span class="gar">›</span></div>`).join("")}</div>`:""}
    <div class="gsec"><div class="gst">Контакты (${m.length})<button class="btn ghost sm" id="gadd">+ Добавить</button></div>
@@ -1146,13 +1151,17 @@ async function groupOpen(gid,pick){
      <div class="gsm ${x.open?"gok":"mut"}">${x.open?"можно написать":esc(x.why)}</div></div><button class="x" data-rm="${x.id}" aria-label="Убрать из группы">✕</button></div>`).join("")||'<div class="mut gsm">Пока никого. Нажмите «+ Добавить».</div>'}</div>
    <button class="btn ghost sm gdel" id="gdl">Удалить группу</button>`;
   const $b=s=>box.querySelector(s);
+  const recount=()=>{const n=reach(),sk=m.length-n;$b("#gsd").textContent="Отправить "+n;$b("#gsd").disabled=!n||sending;
+   $b("#gcnt").textContent=m.length?`Получат ${n} из ${m.length}${tpl.name&&waC?` (из них ${waC} — шаблоном WhatsApp)`:""}${sk?` · ${sk} не получат: окно WhatsApp/Instagram закрыто`:""}`:"Добавьте контакты в группу"};recount();
+  if($b("#gtn")){$b("#gtn").oninput=e=>{tpl.name=e.target.value.trim();recount()};$b("#gtl").oninput=e=>{tpl.lang=e.target.value.trim()||"ru"};$b("#gtp").onchange=e=>{tpl.nm=e.target.checked}}
   $b("#gx").onclick=close;
   $b("#gname").onchange=async e=>{const n=e.target.value.trim();if(n)await api("inbox/groups/"+gid,{method:"PUT",body:JSON.stringify({name:n})})};
   const drawFile=()=>{$b("#gfl").innerHTML=file?`${file.type.startsWith("image/")?`<img src="${URL.createObjectURL(file)}">`:'<span class="fi">📎</span>'}<span class="grow">${esc(file.name)}</span><button class="x" id="gfx">✕</button>`:"";if(file)$b("#gfx").onclick=()=>{file=null;drawFile()}};drawFile();
   $b("#gat").onclick=()=>$b("#gfi").click();$b("#gfi").onchange=e=>{const f=e.target.files[0];e.target.value="";if(!f)return;if(f.size>20*1024*1024)return alert("Файл больше 20 МБ");file=f;drawFile()};
   $b("#gsd").onclick=async()=>{const t=$b("#gtx").value.trim();if(!t&&!file)return $b("#gtx").focus();
-   if(!confirm(`Отправить рассылку ${open} получателям?${m.length-open?`\n${m.length-open} не получат: в WhatsApp/Instagram прошло больше 24 часов с их последнего сообщения.`:""}`))return;
+   const n=reach();if(!confirm(`Отправить рассылку ${n} получателям?${tpl.name&&waC?`\n${waC} в WhatsApp получат шаблон «${tpl.name}».`:""}${m.length-n?`\n${m.length-n} не получат: в WhatsApp/Instagram прошло больше 24 часов с их последнего сообщения.`:""}`))return;
    sending=true;$b("#gsd").disabled=true;const fd=new FormData();fd.append("text",t);if(file)fd.append("file",file,file.name);
+   if(tpl.name&&waC){fd.append("wa_tpl",tpl.name);fd.append("wa_lang",tpl.lang);if(tpl.nm)fd.append("wa_name","1")}
    try{const q=await fetch(`/admin/api/inbox/groups/${gid}/send`,{method:"POST",headers:{Authorization:"Bearer "+tok},body:fd});if(q.status===401){localStorage.removeItem(T);tok="";boot();return}
     const j=await q.json().catch(()=>({}));if(!j.ok)throw Error(j.error||"Не отправилось");toast("Рассылка запущена");$b("#gtx").value="";file=null}catch(er){alert(er.message)}sending=false;draw()};
   box.querySelectorAll("[data-rm]").forEach(b=>b.onclick=async()=>{await api("inbox/groups/"+gid,{method:"PUT",body:JSON.stringify({remove:[+b.dataset.rm]})});draw()});
@@ -1168,23 +1177,31 @@ async function bcastReport(bid){const r=await api("inbox/broadcasts/"+bid),b=r.b
   <div class="mut gsm" style="margin-bottom:8px">Ушло ${b.sent} · пропущено ${b.skipped} · ошибок ${b.failed} · всего ${b.total}</div>
   ${it.map(x=>`<div class="gmr"><div class="grow"><b>${esc(x.name||"Без имени")}</b><div class="gch">${chb(x.channel)}</div>${x.error?`<div class="gsm mut">${esc(x.error)}</div>`:""}</div><span class="gsm ${ST[x.state][1]}">${ST[x.state][0]}</span></div>`).join("")}`);
  ov.querySelector(".vox").onclick=()=>ov.remove()}
-async function pickContacts(gid,have,done){let ch="",q="",sel=new Set(),list=[];const inG=new Set(have);
+async function pickContacts(gid,have,done){let ch="",q="",src="chat",sel=new Set(),list=[];const inG=new Set(have);
  const ov=gSheet(`<div class="voh"><div style="font-weight:800;font-size:18px">Добавить в группу</div><button class="vox">✕</button></div>
-  <input id="pq" placeholder="Имя, @ник или номер" style="margin:12px 0 8px"><div class="chips" id="pch"></div>
-  <div class="prow"><button class="btn ghost sm" id="pall">Выбрать всех найденных</button><span class="mut gsm" id="pn"></span></div>
+  <div class="chips psrc" id="psrc" style="margin-top:12px"><button data-s="chat" class="on">Чаты</button><button data-s="ms">Клиенты МойСклад</button></div>
+  <input id="pq" placeholder="Имя, @ник или номер" style="margin-top:10px;margin-bottom:8px"><div class="chips" id="pch"></div>
+  <div class="prow"><button class="btn ghost sm" id="pall">Выбрать всех найденных</button><button class="btn ghost sm" id="pmsall" hidden>Добавить всех клиентов МойСклад</button><span class="mut gsm" id="pn"></span></div>
+  <div class="mut gsm" id="pmsh" hidden>Клиенту из МойСклад пишем в Telegram, если он входил на сайт через Telegram, иначе — в WhatsApp по номеру. Без номера и Telegram добавить нельзя.</div>
   <div id="pl" class="plist"></div><div class="pbar"><button class="btn" id="pok" style="width:100%" disabled>Добавить</button></div>`);
  const $p=s=>ov.querySelector(s);$p(".vox").onclick=()=>ov.remove();
- const chips=()=>{$p("#pch").innerHTML=[["","Все"],["tg","Telegram"],["wa","WhatsApp"],["ig","Instagram"],["web","Сайт"]].map(([k,t])=>`<button class="${ch===k?"on":""}" data-c="${k}">${t}</button>`).join("");
+ const chips=()=>{$p("#pch").hidden=src==="ms";$p("#pch").innerHTML=[["","Все"],["tg","Telegram"],["wa","WhatsApp"],["ig","Instagram"],["web","Сайт"]].map(([k,t])=>`<button class="${ch===k?"on":""}" data-c="${k}">${t}</button>`).join("");
   $p("#pch").querySelectorAll("button").forEach(b=>b.onclick=()=>{ch=b.dataset.c;chips();load()})};
- const drawL=()=>{$p("#pl").innerHTML=list.map(x=>`<label class="pit2 ${inG.has(x.id)?"in":""}"><input type="checkbox" data-id="${x.id}" ${inG.has(x.id)||sel.has(x.id)?"checked":""} ${inG.has(x.id)?"disabled":""}>
-   <div class="grow"><b>${esc(x.name)}</b><div class="gch">${chb(x.channel)}${x.phone?`<small>+${esc(x.phone)}</small>`:x.username?`<small>@${esc(x.username)}</small>`:""}${inG.has(x.id)?'<small>уже в группе</small>':""}</div>
-   <div class="gsm ${x.open?"gok":"mut"}">${x.open?"можно написать":esc(x.why)}</div></div></label>`).join("")||'<div class="mut gsm" style="padding:14px 2px">Никого не нашлось</div>';
-  $p("#pl").querySelectorAll("input[data-id]").forEach(i=>i.onchange=()=>{const id=+i.dataset.id;i.checked?sel.add(id):sel.delete(id);cnt()});cnt()};
+ $p("#psrc").querySelectorAll("button").forEach(b=>b.onclick=()=>{src=b.dataset.s;sel.clear();$p("#psrc").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b));
+  $p("#pmsall").hidden=$p("#pmsh").hidden=src!=="ms";$p("#pq").placeholder=src==="ms"?"Имя или номер клиента":"Имя, @ник или номер";chips();load()});
+ const drawL=()=>{$p("#pl").innerHTML=list.map(x=>{const dis=src==="chat"?inG.has(x.id):!x.channel;return `<label class="pit2 ${dis?"in":""}"><input type="checkbox" data-id="${x.id}" ${(src==="chat"&&inG.has(x.id))||sel.has(x.id)?"checked":""} ${dis?"disabled":""}>
+   <div class="grow"><b>${esc(x.name)}</b><div class="gch">${x.channel?chb(x.channel):'<small>нет телефона и Telegram</small>'}${x.phone?`<small>+${esc(x.phone)}</small>`:x.username?`<small>@${esc(x.username)}</small>`:""}${src==="chat"&&inG.has(x.id)?'<small>уже в группе</small>':""}</div>
+   ${src==="chat"?`<div class="gsm ${x.open?"gok":"mut"}">${x.open?"можно написать":esc(x.why)}</div>`:x.channel==="wa"?'<div class="gsm mut">WhatsApp: первым — только шаблоном</div>':""}</div></label>`}).join("")||'<div class="mut gsm" style="padding:14px 2px">Никого не нашлось</div>';
+  $p("#pl").querySelectorAll("input[data-id]").forEach(i=>i.onchange=()=>{const id=src==="chat"?+i.dataset.id:i.dataset.id;i.checked?sel.add(id):sel.delete(id);cnt()});cnt()};
  const cnt=()=>{$p("#pok").disabled=!sel.size;$p("#pok").textContent=sel.size?`Добавить (${sel.size})`:"Добавить";$p("#pn").textContent=list.length?`найдено ${list.length}`:""};
- const load=async()=>{const r=await api(`inbox/contacts?ch=${ch}&q=${encodeURIComponent(q)}`);list=r.contacts;drawL()};
- let t;$p("#pq").oninput=e=>{clearTimeout(t);t=setTimeout(()=>{q=e.target.value.trim();load()},300)};
- $p("#pall").onclick=()=>{list.forEach(x=>{if(!inG.has(x.id))sel.add(x.id)});drawL()};
- $p("#pok").onclick=async()=>{$p("#pok").disabled=true;await api("inbox/groups/"+gid,{method:"PUT",body:JSON.stringify({add:[...sel]})});ov.remove();toast("Добавлено: "+sel.size);done()};
+ const load=async()=>{$p("#pl").innerHTML='<div class="mut gsm" style="padding:14px 2px">Загружаю…</div>';
+  try{const r=src==="ms"?await api(`inbox/ms-clients?q=${encodeURIComponent(q)}`):await api(`inbox/contacts?ch=${ch}&q=${encodeURIComponent(q)}`);list=src==="ms"?r.clients:r.contacts}catch(e){list=[];if(e.message!=="401")$p("#pl").innerHTML=`<div class="b x">${esc(e.message)}</div>`;return}drawL()};
+ let t;$p("#pq").oninput=e=>{clearTimeout(t);t=setTimeout(()=>{q=e.target.value.trim();load()},350)};
+ $p("#pall").onclick=()=>{list.forEach(x=>{if(src==="chat"?!inG.has(x.id):x.channel)sel.add(x.id)});drawL()};
+ const added=r=>{ov.remove();toast(`Добавлено: ${src==="chat"?sel.size:r.added}${r.nocontact?` · без телефона и Telegram: ${r.nocontact}`:""}`,4000);done()};
+ $p("#pmsall").onclick=async()=>{if(!confirm("Добавить в группу всех клиентов из МойСклад? Клиенты без телефона и Telegram будут пропущены."))return;$p("#pmsall").disabled=true;$p("#pmsall").textContent="Добавляю…";
+  try{added(await api("inbox/groups/"+gid,{method:"PUT",body:JSON.stringify({all_clients:true})}))}catch(e){$p("#pmsall").disabled=false;$p("#pmsall").textContent="Добавить всех клиентов МойСклад";if(e.message!=="401")alert(e.message)}};
+ $p("#pok").onclick=async()=>{$p("#pok").disabled=true;try{added(await api("inbox/groups/"+gid,{method:"PUT",body:JSON.stringify(src==="ms"?{clients:[...sel]}:{add:[...sel]})}))}catch(e){$p("#pok").disabled=false;if(e.message!=="401")alert(e.message)}};
  chips();await load();$p("#pq").focus()}
 </script><script>
 /* Потянуть вниз — обновить (только когда сайт добавлен на экран телефона). Индикатор: Человек-паук на нити, гнётся в двух местах, пружинная инерция. */

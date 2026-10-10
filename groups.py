@@ -10,6 +10,7 @@ from flask import Blueprint, jsonify, request
 
 import admin
 import inbox
+import order_hook as oh
 
 bp = Blueprint("groups", __name__)
 DAY = 86400
@@ -79,6 +80,78 @@ def contacts():
     if q:
         rows = [r for r in rows if q in (r["name"] + " " + r["username"] + " " + r["phone"]).lower()]
     return jsonify(ok=True, contacts=rows[:500])
+
+
+def _cp_chat(cp):
+    """Куда писать клиенту из МойСклад: Telegram (если входил на сайт через Telegram — бот может писать всегда), иначе WhatsApp по номеру."""
+    attrs = cp.get("attributes") or []
+    tg = next((str(a.get("value") or "").strip() for a in attrs if a.get("name") == oh.ATTR_TGID), "")
+    if tg.lstrip("-").isdigit():
+        return tg
+    ph = oh.norm_phone(cp.get("phone", ""))
+    return "wa:" + ph if len(ph) == 11 and ph.startswith("7") else None
+
+
+def _cp_card(cp):
+    chat = _cp_chat(cp)
+    return {"id": cp["id"], "name": cp.get("name") or "Без имени", "phone": oh.norm_phone(cp.get("phone", "")),
+            "channel": inbox.channel(chat) if chat else ""}
+
+
+def _ms_clients(q=""):
+    """Покупатели из МойСклад (без архивных): поиск — первые 100, без поиска — все, постранично по 1000."""
+    if q:
+        return oh.ms("GET", "/entity/counterparty", params={"search": q, "limit": 100}, timeout=20)["rows"]
+    out, off = [], 0
+    while True:
+        rows = oh.ms("GET", "/entity/counterparty", params={"limit": 1000, "offset": off}, timeout=40)["rows"]
+        out += rows
+        if len(rows) < 1000 or off > 20000:
+            return out
+        off += 1000
+
+
+def _conv_for(d, chat, name):
+    """Диалог для клиента: существующий или новый пустой (в списке чатов появится, когда в нём будет сообщение)."""
+    r = d.run("SELECT id FROM conv WHERE chat_id=%s", (chat,), one=True)
+    if r:
+        return r[0]
+    return d.run("INSERT INTO conv (chat_id, name, username, status, unread, last_at) VALUES (%s,%s,'','ai',0,0)", (chat, name[:120]), ins=True)
+
+
+@bp.get("/admin/api/inbox/ms-clients")
+@admin.need("inbox")
+def ms_clients():
+    """Клиенты из МойСклад для добавления в группу: поиск по имени и номеру."""
+    q = request.args.get("q", "").strip()[:60]
+    try:
+        rows = _ms_clients(q) if q else oh.ms("GET", "/entity/counterparty", params={"limit": 100, "order": "updated,desc"}, timeout=20)["rows"]
+    except Exception as e:
+        return jsonify(ok=False, error="МойСклад не ответил: " + str(e)[:200]), 502
+    return jsonify(ok=True, clients=[_cp_card(c) for c in rows])
+
+
+def _add_clients(d, gid, ids=None):
+    """Добавить в группу клиентов МойСклад (ids или всех). Возвращает (добавлено, без контакта)."""
+    if ids is None:
+        rows = _ms_clients()
+    else:
+        rows = []
+        for i in ids[:500]:
+            try:
+                rows.append(oh.ms("GET", f"/entity/counterparty/{i}", timeout=15))
+            except Exception:
+                pass
+    convs, nocontact = [], 0
+    for cp in rows:
+        chat = _cp_chat(cp)
+        if not chat:
+            nocontact += 1
+            continue
+        convs.append(_conv_for(d, chat, cp.get("name") or "Клиент"))
+    before = len(_members(d, gid))
+    _set_members(d, gid, add=convs)
+    return len(_members(d, gid)) - before, nocontact
 
 
 def _members(d, gid):
@@ -160,7 +233,13 @@ def group_put(gid):
                 return jsonify(ok=False, error="Назовите группу"), 400
             d.run("UPDATE grp SET name=%s WHERE id=%s", (name, gid))
         _set_members(d, gid, add=_ids(b.get("add")), remove=_ids(b.get("remove")))
-    return jsonify(ok=True)
+        added = nocontact = 0
+        if b.get("all_clients") or b.get("clients"):
+            try:
+                added, nocontact = _add_clients(d, gid, None if b.get("all_clients") else [str(x) for x in b.get("clients") or []])
+            except Exception as e:
+                return jsonify(ok=False, error="МойСклад не ответил: " + str(e)[:200]), 502
+    return jsonify(ok=True, added=added, nocontact=nocontact)
 
 
 @bp.delete("/admin/api/inbox/groups/<int:gid>")
@@ -175,18 +254,21 @@ def group_del(gid):
     return jsonify(ok=True)
 
 
-def _run(bid, text, f):
+def _run(bid, text, f, tpl=None):
     """Отправка рассылки по очереди. Каждое сообщение пишется в диалог клиента (как от менеджера); статус диалога не меняется — ИИ отвечает как обычно."""
     with db() as d:
-        items = d.run("SELECT i.conv_id, c.chat_id, c.name FROM bcast_item i JOIN conv c ON c.id=i.conv_id WHERE i.bcast_id=%s AND i.state='wait'",
+        items = d.run("SELECT i.conv_id, c.chat_id, c.name, i.state FROM bcast_item i JOIN conv c ON c.id=i.conv_id WHERE i.bcast_id=%s AND i.state IN ('wait','tpl')",
                       (bid,), many=True) or []
-    for cid, chat, name in items:
+    for cid, chat, name, st in items:
         body = text.replace("{имя}", first_name(name) or "").replace("{Имя}", first_name(name) or "")
         body = body.replace(" ,", ",").replace("  ", " ").strip()
         err = ""
         try:
             with db() as d:
-                if f:
+                if st == "tpl":                          # WhatsApp, окно закрыто — одобренным шаблоном
+                    admin.wa.send_template(chat, tpl["name"], tpl["lang"], [first_name(name) or "клиент"] if tpl["name_param"] else [])
+                    inbox.save_msg(d, cid, "manager", f"📋 Шаблон WhatsApp «{tpl['name']}»")
+                elif f:
                     admin.deliver_file(d, cid, chat, f["data"], f["name"], f["mime"], "", body)
                 else:
                     ext = inbox.send_text(chat, body)
@@ -215,6 +297,9 @@ def group_send(gid):
         f = {"data": data, "name": (up.filename or "file").replace("/", "_")[:80], "mime": up.mimetype or "application/octet-stream"}
     if not text and not f:
         return jsonify(ok=False, error="Напишите текст или приложите файл"), 400
+    tname = str(request.form.get("wa_tpl", "")).strip()[:120]
+    tpl = {"name": tname, "lang": str(request.form.get("wa_lang", "ru")).strip()[:10] or "ru",
+           "name_param": request.form.get("wa_name") in ("1", "true", "on")} if tname else None
     who = admin.who() or {}
     with db() as d:
         if not d.run("SELECT id FROM grp WHERE id=%s", (gid,), one=True):
@@ -222,13 +307,15 @@ def group_send(gid):
         cards = [_card(r) for r in _contacts(d, _members(d, gid))]
         if not cards:
             return jsonify(ok=False, error="В группе нет контактов"), 400
+        st = {c["id"]: "wait" if c["open"] else "tpl" if tpl and c["channel"] == "wa" else "skip" for c in cards}
+        skipped = sum(v == "skip" for v in st.values())
         bid = d.run("INSERT INTO bcast (grp_id, text, file, by_name, at, total, skipped, state) VALUES (%s,%s,%s,%s,%s,%s,%s,'run')",
-                    (gid, text, f["name"] if f else None, who.get("name", ""), time.time(), len(cards), sum(not c["open"] for c in cards)), ins=True)
+                    (gid, text, f["name"] if f else None, who.get("name", ""), time.time(), len(cards), skipped), ins=True)
         for c in cards:
             d.run("INSERT INTO bcast_item (bcast_id, conv_id, state, error) VALUES (%s,%s,%s,%s)",
-                  (bid, c["id"], "wait" if c["open"] else "skip", c["why"]))
-    threading.Thread(target=_run, args=(bid, text, f), daemon=True).start()
-    return jsonify(ok=True, id=bid, total=len(cards), skipped=sum(not c["open"] for c in cards))
+                  (bid, c["id"], st[c["id"]], c["why"] if st[c["id"]] == "skip" else ""))
+    threading.Thread(target=_run, args=(bid, text, f, tpl), daemon=True).start()
+    return jsonify(ok=True, id=bid, total=len(cards), skipped=skipped)
 
 
 @bp.get("/admin/api/inbox/broadcasts/<int:bid>")

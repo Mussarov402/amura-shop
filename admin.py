@@ -742,7 +742,7 @@ def clients():
     q, page = str(request.args.get("q", "")).strip()[:60], max(0, int(request.args.get("page", 0) or 0))
     if request.args.get("src") == "chat":
         with inbox.db() as d:
-            rows = d.run("SELECT id, name, username, chat_id, last_at, last_text, unread FROM conv ORDER BY last_at DESC LIMIT 300", many=True)
+            rows = d.run("SELECT id, name, username, chat_id, last_at, last_text, unread FROM conv WHERE last_at IS NULL OR last_at>0 ORDER BY last_at DESC LIMIT 300", many=True)
         out = [{"conv": r[0], "name": r[1], "username": r[2], "channel": inbox.channel(r[3]),
                 "phone": wa.number(r[3]) if wa.is_wa(r[3]) else "", "at": r[4], "text": r[5], "unread": r[6]} for r in rows]
         if q:
@@ -1693,7 +1693,7 @@ def inbox_status():
 @need("inbox")
 def inbox_convs():
     with inbox.db() as d:
-        rows = d.run("SELECT id, name, username, status, unread, last_at, last_text, chat_id FROM conv ORDER BY last_at DESC LIMIT 100", many=True)
+        rows = d.run("SELECT id, name, username, status, unread, last_at, last_text, chat_id FROM conv WHERE last_at IS NULL OR last_at>0 ORDER BY last_at DESC LIMIT 100", many=True)   # пустые диалоги (клиенты, добавленные в группу) — не показываем
     return jsonify(ok=True, convs=[{"id": r[0], "name": r[1], "username": r[2], "status": r[3], "unread": r[4], "at": r[5], "text": r[6],
                                     "channel": inbox.channel(r[7]), "phone": wa.number(r[7]) if wa.is_wa(r[7]) else ""} for r in rows])
 
