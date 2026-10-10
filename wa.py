@@ -83,6 +83,15 @@ def send_text(chat, text):
                                                            "text": {"body": text[:4000], "preview_url": True}})
 
 
+def send_template(chat, name, lang="ru", params=()):
+    """Одобренный в Meta шаблон — единственный способ написать первым, если клиент не писал 24 часа. params — значения {{1}}, {{2}}… в тексте шаблона."""
+    c = cfg()
+    tpl = {"name": name, "language": {"code": lang or "ru"}}
+    if params:
+        tpl["components"] = [{"type": "body", "parameters": [{"type": "text", "text": str(p)[:200] or "-"} for p in params]}]
+    return _call("POST", f"{c['phone_id']}/messages", json={"messaging_product": "whatsapp", "to": number(chat), "type": "template", "template": tpl})
+
+
 def upload(data, name, mime):
     c = cfg()
     j = _call("POST", f"{c['phone_id']}/media", data={"messaging_product": "whatsapp", "type": mime}, files={"file": (name, data, mime)})
