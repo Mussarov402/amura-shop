@@ -9,6 +9,8 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 
+import requests
+
 import inbox
 import order_hook as oh
 
@@ -31,6 +33,8 @@ DOC_DAYS = 90              # документы берём за последни
 ENTITIES = ("product", "variant", "counterparty") + DOC_TYPES
 MS_TZ = timezone(timedelta(hours=3))   # время в МойСклад — Москва
 RECON_EVERY = 86400        # автосверка раз в сутки, когда загрузка догнала МойСклад
+BACKOFF_MAX = 3600         # МойСклад не отвечает: пауза между проходами растёт 10 → 20 → 40 → 60 мин, чтобы не отнимать канал у сайта
+_net = {"fail": False, "streak": 0}
 
 _ready = [False]
 _run_lock = threading.Lock()
@@ -422,7 +426,11 @@ def tick():
         _lines_reload()
         _links_reload()
         caught_all, parts, t0 = True, [], time.time()
+        _net["fail"] = False
         for name, fn in (("store", sync_stores), *((e, (lambda e=e: sync_entity(e))) for e in ENTITIES), ("stock", sync_stock), ("money", sync_money)):
+            if _net["fail"]:                  # МойСклад уже не ответил в этом проходе — остальное не запрашиваем, бережём канал сайта
+                parts.append(f"{name} пропущено")
+                continue
             try:
                 r = fn()
                 if isinstance(r, tuple):
@@ -435,6 +443,8 @@ def tick():
                 caught_all = False
                 parts.append(f"{name} ОШИБКА")
                 _fail(name, e)
+                if isinstance(e, requests.RequestException):
+                    _net["fail"] = True
         # итог прохода — в логи Render (база снаружи закрыта): видно, что зеркало живо и догнало ли МойСклад
         print(f"Зеркало МойСклад, проход: {'; '.join(parts)}; {time.time() - t0:.0f} с; догнали: {'да' if caught_all else 'нет'}", flush=True)
         return caught_all
@@ -477,7 +487,14 @@ def _loop():
         try:
             if enabled() and time.time() >= nxt:
                 done = tick()
-                nxt = time.time() + (EVERY if done else EVERY_LOADING)
+                if _net["fail"]:
+                    _net["streak"] += 1
+                    wait = min(BACKOFF_MAX, EVERY * 2 ** (_net["streak"] - 1))
+                    print(f"Зеркало МойСклад: МойСклад не отвечает — следующий проход через {wait // 60} мин", flush=True)
+                    nxt = time.time() + wait
+                else:
+                    _net["streak"] = 0
+                    nxt = time.time() + (EVERY if done else EVERY_LOADING)
                 if done and time.time() - last_recon() > RECON_EVERY:
                     reconcile()
         except Exception as e:

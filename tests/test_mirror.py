@@ -421,6 +421,20 @@ class MirrorTest(unittest.TestCase):
         finally:
             oh.MS_PARALLEL = old
 
+    def test_network_failure_stops_pass(self):
+        import requests
+        calls = []
+        def slow(method, path, params=None, **kw):
+            calls.append(path)
+            raise requests.ConnectionError("Read timed out.")
+        oh.ms = slow
+        self.assertFalse(mirror.tick())
+        self.assertTrue(mirror._net["fail"])
+        self.assertEqual(calls, ["/entity/store"] * len([c for c in calls]))    # после первого таймаута — ни одного другого запроса
+        oh.ms = self.ms
+        mirror.tick()
+        self.assertFalse(mirror._net["fail"])
+
     def test_error_recorded_not_raised(self):
         def boom(*a, **k):
             raise RuntimeError("МойСклад 503")
