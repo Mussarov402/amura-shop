@@ -141,8 +141,12 @@ class CardsTest(unittest.TestCase):
         self.assertEqual((r.status_code, r.mimetype), (200, "video/mp4"))
         r = self.c.get(v["url"], headers={"Range": "bytes=0-99"})
         self.assertEqual((r.status_code, len(r.data)), (206, 100))     # перемотка работает
+        mime, path = cards.video_path("p1")
+        self.assertTrue(os.path.exists(path))                          # кэш на диске
+        r.close()
         self.assertEqual(self.c.get("/admin/api/cards/p1", headers=self.h).get_json()["card"]["video"]["status"], "ready")
         self.c.delete("/admin/api/cards/p1/video", headers=self.h)
+        self.assertFalse(os.path.exists(path))                         # удалено и с диска
         self.assertEqual(self.c.get("/media/product/p1.mp4").status_code, 404)
 
     def test_video_bad_file(self):
