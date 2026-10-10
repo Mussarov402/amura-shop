@@ -139,5 +139,24 @@ class WhOpsTest(unittest.TestCase):
         self.assertEqual([a["name"] for a in self.c.get("/admin/api/warehouse/agents?q=Kor", headers=self.h).get_json()["agents"]], ["KorShop"])
 
 
+    def test_staff_warehouse_role(self):
+        import team
+        self.assertEqual(team.PERMS["warehouse"], "Склад")
+        self.on()
+        old = admin.who
+        try:
+            admin.who = lambda: {"role": "staff", "perms": ["orders"], "name": "Продавец"}
+            self.assertEqual(self.c.get("/admin/api/warehouse/ops").status_code, 403)                # без права «Склад» — нельзя
+            self.assertEqual(self.post(kind="loss", store="sA", lines=[{"id": "p1", "qty": 1}]).status_code, 403)
+            admin.who = lambda: {"role": "staff", "perms": ["warehouse"], "name": "Кладовщик"}
+            self.assertEqual(self.c.get("/admin/api/warehouse").status_code, 200)                     # остатки
+            op = self.post(kind="loss", store="sA", lines=[{"id": "p1", "qty": 1}]).get_json()["op"]
+            self.assertEqual((op["status"], op["who"]), ("sent", "Кладовщик"))
+            self.assertIn("Кладовщик", self.ms.docs["loss"][0]["description"])
+            self.assertEqual(self.c.post("/admin/api/warehouse/ops/flag", json={"on": False}).status_code, 403)   # переключатель — только владелец
+        finally:
+            admin.who = old
+        self.assertTrue(whops.enabled())
+
 if __name__ == "__main__":
     unittest.main()

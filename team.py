@@ -7,7 +7,7 @@ import time
 
 import inbox
 
-PERMS = {"inbox": "Сообщения", "orders": "Заказы", "products": "Товары"}
+PERMS = {"inbox": "Сообщения", "orders": "Заказы", "products": "Товары", "warehouse": "Склад"}
 INVITE_TTL = 7 * 86400
 _lock = threading.Lock()
 _cache = {"t": 0.0, "rows": []}

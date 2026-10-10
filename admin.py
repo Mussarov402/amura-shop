@@ -2411,7 +2411,7 @@ def finance_money():
 
 
 @bp.get("/admin/api/warehouse")
-@guard
+@need("warehouse")
 def warehouse_stock():
     if not modules.enabled("warehouse"):
         return jsonify(ok=False, error="Модуль «Склад» выключен"), 404
@@ -2429,7 +2429,7 @@ import whops  # noqa: E402
 
 
 @bp.route("/admin/api/warehouse/ops", methods=["GET", "POST"])
-@guard
+@need("warehouse")
 def warehouse_ops():
     if not modules.enabled("warehouse"):
         return jsonify(ok=False, error="Модуль «Склад» выключен"), 404
@@ -2456,7 +2456,7 @@ def warehouse_ops_flag():
 
 
 @bp.post("/admin/api/warehouse/ops/<op_id>/retry")
-@guard
+@need("warehouse")
 def warehouse_ops_retry(op_id):
     if not whops.enabled():
         return jsonify(ok=False, error="Приёмка и списание из панели выключены"), 403
@@ -2467,7 +2467,7 @@ def warehouse_ops_retry(op_id):
 
 
 @bp.get("/admin/api/warehouse/agents")
-@guard
+@need("warehouse")
 def warehouse_agents():
     if not whops.enabled():
         return jsonify(ok=False, error="Приёмка и списание из панели выключены"), 403
