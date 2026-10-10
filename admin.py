@@ -1849,7 +1849,7 @@ def _send_file_ig(chat, data, name, mime, kind, caption, dur):
 @bp.post("/admin/api/inbox/conv/<int:cid>/send-file")
 @need("inbox")
 def inbox_send_file(cid):
-    """Менеджер отправляет клиенту фото, файл или голосовое (kind=voice) из панели."""
+    """Менеджер отправляет клиенту фото, файл, голосовое (kind=voice) или видеокружок (kind=round) из панели."""
     f = request.files.get("file")
     if not f:
         return jsonify(ok=False, error="Файл не выбран"), 400
@@ -1859,73 +1859,76 @@ def inbox_send_file(cid):
     caption = str(request.form.get("caption", "")).strip()[:900]
     kind, mime = request.form.get("kind", ""), (f.mimetype or "application/octet-stream")
     name = (f.filename or "file").replace("/", "_")[:80]
+    with inbox.db() as d:
+        c = d.run("SELECT chat_id FROM conv WHERE id=%s", (cid,), one=True)
+        if not c:
+            return jsonify(ok=False, error="Диалог не найден"), 404
+        try:
+            deliver_file(d, cid, c[0], data, name, mime, kind, caption, request.form.get("dur", 0))
+        except Exception as e:
+            return jsonify(ok=False, error=str(e)[:300]), 502
+        d.run("UPDATE conv SET status='manager' WHERE id=%s", (cid,))
+    return jsonify(ok=True)
+
+
+def deliver_file(d, cid, chat, data, name, mime, kind="", caption="", dur=0):
+    """Отправить файл клиенту в его мессенджер и записать в диалог (из чата панели и из рассылок). Ошибка отправки — исключение."""
     if kind == "round":                                 # видеокружок: квадрат 384×384, mp4 — как «кружок» Telegram
         mp4 = _convert(data, ["-vf", "crop='min(iw,ih)':'min(iw,ih)',scale=384:384", "-c:v", "libx264", "-preset", "veryfast",
                               "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "64k", "-movflags", "+faststart", ".mp4"],
                        ".mp4" if "mp4" in mime else ".webm")
         if mp4:
             data, mime, name = mp4, "video/mp4", "round.mp4"
-    with inbox.db() as d:
-        c = d.run("SELECT chat_id FROM conv WHERE id=%s", (cid,), one=True)
-        if not c:
-            return jsonify(ok=False, error="Диалог не найден"), 404
-        chat, media, photo = c[0], None, None
-        if str(chat).startswith("web:"):                # чат сайта: файл храним у себя, сайт заберёт опросом
-            import webchat
-            fid = webchat.store(chat, data, mime, name)
-            if mime.startswith("image/") and kind != "voice":
-                photo = fid
-            else:
-                media = {"t": "voice" if kind == "voice" else "video" if kind == "round" else "doc", "id": fid, "name": name, "size": len(data), "mime": mime}
-                if kind == "round":
-                    media["round"] = 1
-            inbox.save_msg(d, cid, "manager", caption if kind != "voice" else "", photo, media=media)
-            d.run("UPDATE conv SET status='manager' WHERE id=%s", (cid,))
-            return jsonify(ok=True)
-        if wa.is_wa(chat) or ig.is_ig(chat):
-            try:
-                media, photo = (_send_file_wa if wa.is_wa(chat) else _send_file_ig)(chat, data, name, mime, kind, caption, request.form.get("dur", 0))
-            except Exception as e:
-                return jsonify(ok=False, error=str(e)[:300]), 502
-            if kind == "round" and media:                # кружков там нет — уходит обычным видео, в панели показываем кружком
-                media["round"] = 1
-            inbox.save_msg(d, cid, "manager", caption if kind != "voice" else "", photo, media=media)
-            d.run("UPDATE conv SET status='manager' WHERE id=%s", (cid,))
-            return jsonify(ok=True)
-        if kind == "voice":
-            dur = int(float(request.form.get("dur", 0) or 0))
-            ogg = None
-            if "mp4" in mime or "m4a" in mime or "aac" in mime:
-                voice, vname, vmime = data, "voice.m4a", "audio/mp4"
-            else:                                       # webm/ogg с Opus -> ogg для голосового Telegram
-                ogg = _convert(data, ["-vn", "-c:a", "libopus", "-b:a", "32k", ".ogg"], ".webm")
-                voice, vname, vmime = ogg or data, "voice.ogg" if ogg else name, "audio/ogg" if ogg else mime
-            try:
-                j = oh.tg("sendVoice", chat_id=chat, duration=dur, _files={"voice": (vname, voice, vmime)})
-                media = {"t": "voice", "id": j["result"]["voice"]["file_id"], "dur": dur}
-            except Exception:                           # не приняли как голосовое — отправим как файл
-                j = oh.tg("sendDocument", chat_id=chat, _files={"document": (vname, voice, vmime)})
-                media = {"t": "doc", "id": j["result"]["document"]["file_id"], "name": vname, "size": len(voice)}
-        elif kind == "round" and mime == "video/mp4":
-            dur = int(float(request.form.get("dur", 0) or 0))
-            try:
-                j = oh.tg("sendVideoNote", chat_id=chat, duration=dur, length=384, _files={"video_note": ("round.mp4", data, mime)})
-                media = {"t": "video", "id": j["result"]["video_note"]["file_id"], "dur": dur, "round": 1}
-            except Exception:                           # не приняли как кружок — обычное видео
-                j = oh.tg("sendVideo", chat_id=chat, _files={"video": ("round.mp4", data, mime)})
-                media = {"t": "video", "id": j["result"]["video"]["file_id"], "dur": dur, "round": 1}
-        elif mime.startswith("image/") and len(data) <= 10 * 1024 * 1024 and mime != "image/gif":
-            j = oh.tg("sendPhoto", chat_id=chat, caption=caption, _files={"photo": (name, data, mime)})
-            photo = j["result"]["photo"][-1]["file_id"]
-        elif mime.startswith("video/") and len(data) <= 20 * 1024 * 1024:
-            j = oh.tg("sendVideo", chat_id=chat, caption=caption, _files={"video": (name, data, mime)})
-            media = {"t": "video", "id": j["result"]["video"]["file_id"], "dur": j["result"]["video"].get("duration", 0)}
+    media, photo = None, None
+    text = caption if kind != "voice" else ""
+    if str(chat).startswith("web:"):                    # чат сайта: файл храним у себя, сайт заберёт опросом
+        import webchat
+        fid = webchat.store(chat, data, mime, name)
+        if mime.startswith("image/") and kind != "voice":
+            photo = fid
         else:
-            j = oh.tg("sendDocument", chat_id=chat, caption=caption, _files={"document": (name, data, mime)})
-            media = {"t": "doc", "id": j["result"]["document"]["file_id"], "name": name, "size": len(data), "mime": mime}
-        inbox.save_msg(d, cid, "manager", caption if kind != "voice" else "", photo, media=media)
-        d.run("UPDATE conv SET status='manager' WHERE id=%s", (cid,))
-    return jsonify(ok=True)
+            media = {"t": "voice" if kind == "voice" else "video" if kind == "round" else "doc", "id": fid, "name": name, "size": len(data), "mime": mime}
+            if kind == "round":
+                media["round"] = 1
+        inbox.save_msg(d, cid, "manager", text, photo, media=media)
+        return
+    if wa.is_wa(chat) or ig.is_ig(chat):
+        media, photo = (_send_file_wa if wa.is_wa(chat) else _send_file_ig)(chat, data, name, mime, kind, caption, dur)
+        if kind == "round" and media:                   # кружков там нет — уходит обычным видео, в панели показываем кружком
+            media["round"] = 1
+        inbox.save_msg(d, cid, "manager", text, photo, media=media)
+        return
+    if kind == "voice":
+        dur = int(float(dur or 0))
+        if "mp4" in mime or "m4a" in mime or "aac" in mime:
+            voice, vname, vmime = data, "voice.m4a", "audio/mp4"
+        else:                                           # webm/ogg с Opus -> ogg для голосового Telegram
+            ogg = _convert(data, ["-vn", "-c:a", "libopus", "-b:a", "32k", ".ogg"], ".webm")
+            voice, vname, vmime = ogg or data, "voice.ogg" if ogg else name, "audio/ogg" if ogg else mime
+        try:
+            j = oh.tg("sendVoice", chat_id=chat, duration=dur, _files={"voice": (vname, voice, vmime)})
+            media = {"t": "voice", "id": j["result"]["voice"]["file_id"], "dur": dur}
+        except Exception:                               # не приняли как голосовое — отправим как файл
+            j = oh.tg("sendDocument", chat_id=chat, _files={"document": (vname, voice, vmime)})
+            media = {"t": "doc", "id": j["result"]["document"]["file_id"], "name": vname, "size": len(voice)}
+    elif kind == "round" and mime == "video/mp4":
+        dur = int(float(dur or 0))
+        try:
+            j = oh.tg("sendVideoNote", chat_id=chat, duration=dur, length=384, _files={"video_note": ("round.mp4", data, mime)})
+            media = {"t": "video", "id": j["result"]["video_note"]["file_id"], "dur": dur, "round": 1}
+        except Exception:                               # не приняли как кружок — обычное видео
+            j = oh.tg("sendVideo", chat_id=chat, _files={"video": ("round.mp4", data, mime)})
+            media = {"t": "video", "id": j["result"]["video"]["file_id"], "dur": dur, "round": 1}
+    elif mime.startswith("image/") and len(data) <= 10 * 1024 * 1024 and mime != "image/gif":
+        j = oh.tg("sendPhoto", chat_id=chat, caption=caption, _files={"photo": (name, data, mime)})
+        photo = j["result"]["photo"][-1]["file_id"]
+    elif mime.startswith("video/") and len(data) <= 20 * 1024 * 1024:
+        j = oh.tg("sendVideo", chat_id=chat, caption=caption, _files={"video": (name, data, mime)})
+        media = {"t": "video", "id": j["result"]["video"]["file_id"], "dur": j["result"]["video"].get("duration", 0)}
+    else:
+        j = oh.tg("sendDocument", chat_id=chat, caption=caption, _files={"document": (name, data, mime)})
+        media = {"t": "doc", "id": j["result"]["document"]["file_id"], "name": name, "size": len(data), "mime": mime}
+    inbox.save_msg(d, cid, "manager", text, photo, media=media)
 
 
 @bp.post("/admin/api/inbox/conv/<int:cid>/send-location")
