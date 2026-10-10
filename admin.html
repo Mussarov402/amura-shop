@@ -941,7 +941,9 @@ async inbox(openId){const st=await api("inbox/status");let cur=openId||null,flt=
    $("#rc").onclick=()=>finish(false);
    $("#rp").onclick=()=>{if(!mr)return;if(mr.state==="recording"){mr.pause();pausedAt=Date.now();$("#rp").innerHTML=PLAY}else if(mr.state==="paused"){mr.resume();pausedMs+=Date.now()-pausedAt;pausedAt=0;$("#rp").innerHTML=PAUSE}};
    const el=$("#ic2");let sx=0,sy=0,dx=0,sw=false;
-   el.ontouchstart=e=>{const t=e.touches[0];sw=t.clientX<=40;sx=t.clientX;sy=t.clientY;dx=0};
+   // свой жест «назад» — только не на iPhone/iPad: там у края работает системный «назад» (он вызывает history.back → чат закрывается), два жеста сразу дают двоение экрана
+   const IOS=/iP(hone|ad|od)/.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
+   el.ontouchstart=e=>{const t=e.touches[0];sw=!IOS&&t.clientX<=40;sx=t.clientX;sy=t.clientY;dx=0};
    el.ontouchmove=e=>{if(!sw)return;const t=e.touches[0];dx=t.clientX-sx;if(Math.abs(t.clientY-sy)>Math.abs(dx)&&dx<40){sw=false;el.style.transform="";return}if(dx>0)el.style.transform=`translateX(${dx}px)`};
    el.ontouchend=()=>{if(!sw)return;el.style.transition="transform .18s";if(dx>90){el.style.transform="translateX(100%)";setTimeout(()=>{closeChat();el.style.transform="";el.style.transition=""},170)}else{el.style.transform="";setTimeout(()=>el.style.transition="",200)}sw=false};
    paintMsgs(r,true)}else paintMsgs(r,false);
