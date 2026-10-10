@@ -1859,6 +1859,12 @@ def inbox_send_file(cid):
     caption = str(request.form.get("caption", "")).strip()[:900]
     kind, mime = request.form.get("kind", ""), (f.mimetype or "application/octet-stream")
     name = (f.filename or "file").replace("/", "_")[:80]
+    if kind == "round":                                 # видеокружок: квадрат 384×384, mp4 — как «кружок» Telegram
+        mp4 = _convert(data, ["-vf", "crop='min(iw,ih)':'min(iw,ih)',scale=384:384", "-c:v", "libx264", "-preset", "veryfast",
+                              "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "64k", "-movflags", "+faststart", ".mp4"],
+                       ".mp4" if "mp4" in mime else ".webm")
+        if mp4:
+            data, mime, name = mp4, "video/mp4", "round.mp4"
     with inbox.db() as d:
         c = d.run("SELECT chat_id FROM conv WHERE id=%s", (cid,), one=True)
         if not c:
@@ -1870,7 +1876,9 @@ def inbox_send_file(cid):
             if mime.startswith("image/") and kind != "voice":
                 photo = fid
             else:
-                media = {"t": "voice" if kind == "voice" else "doc", "id": fid, "name": name, "size": len(data), "mime": mime}
+                media = {"t": "voice" if kind == "voice" else "video" if kind == "round" else "doc", "id": fid, "name": name, "size": len(data), "mime": mime}
+                if kind == "round":
+                    media["round"] = 1
             inbox.save_msg(d, cid, "manager", caption if kind != "voice" else "", photo, media=media)
             d.run("UPDATE conv SET status='manager' WHERE id=%s", (cid,))
             return jsonify(ok=True)
@@ -1879,6 +1887,8 @@ def inbox_send_file(cid):
                 media, photo = (_send_file_wa if wa.is_wa(chat) else _send_file_ig)(chat, data, name, mime, kind, caption, request.form.get("dur", 0))
             except Exception as e:
                 return jsonify(ok=False, error=str(e)[:300]), 502
+            if kind == "round" and media:                # кружков там нет — уходит обычным видео, в панели показываем кружком
+                media["round"] = 1
             inbox.save_msg(d, cid, "manager", caption if kind != "voice" else "", photo, media=media)
             d.run("UPDATE conv SET status='manager' WHERE id=%s", (cid,))
             return jsonify(ok=True)
@@ -1896,6 +1906,14 @@ def inbox_send_file(cid):
             except Exception:                           # не приняли как голосовое — отправим как файл
                 j = oh.tg("sendDocument", chat_id=chat, _files={"document": (vname, voice, vmime)})
                 media = {"t": "doc", "id": j["result"]["document"]["file_id"], "name": vname, "size": len(voice)}
+        elif kind == "round" and mime == "video/mp4":
+            dur = int(float(request.form.get("dur", 0) or 0))
+            try:
+                j = oh.tg("sendVideoNote", chat_id=chat, duration=dur, length=384, _files={"video_note": ("round.mp4", data, mime)})
+                media = {"t": "video", "id": j["result"]["video_note"]["file_id"], "dur": dur, "round": 1}
+            except Exception:                           # не приняли как кружок — обычное видео
+                j = oh.tg("sendVideo", chat_id=chat, _files={"video": ("round.mp4", data, mime)})
+                media = {"t": "video", "id": j["result"]["video"]["file_id"], "dur": dur, "round": 1}
         elif mime.startswith("image/") and len(data) <= 10 * 1024 * 1024 and mime != "image/gif":
             j = oh.tg("sendPhoto", chat_id=chat, caption=caption, _files={"photo": (name, data, mime)})
             photo = j["result"]["photo"][-1]["file_id"]
@@ -1906,6 +1924,39 @@ def inbox_send_file(cid):
             j = oh.tg("sendDocument", chat_id=chat, caption=caption, _files={"document": (name, data, mime)})
             media = {"t": "doc", "id": j["result"]["document"]["file_id"], "name": name, "size": len(data), "mime": mime}
         inbox.save_msg(d, cid, "manager", caption if kind != "voice" else "", photo, media=media)
+        d.run("UPDATE conv SET status='manager' WHERE id=%s", (cid,))
+    return jsonify(ok=True)
+
+
+@bp.post("/admin/api/inbox/conv/<int:cid>/send-location")
+@need("inbox")
+def inbox_send_location(cid):
+    """Геопозиция менеджера: Telegram и WhatsApp — точкой на карте, Instagram и сайт — ссылкой на карту."""
+    b = request.get_json(silent=True) or {}
+    try:
+        lat, lon = float(b.get("lat")), float(b.get("lon"))
+    except (TypeError, ValueError):
+        return jsonify(ok=False, error="Нет координат"), 400
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return jsonify(ok=False, error="Неверные координаты"), 400
+    link = f"https://maps.google.com/?q={lat:.6f},{lon:.6f}"
+    text = "📍 Геопозиция\n" + link
+    with inbox.db() as d:
+        c = d.run("SELECT chat_id FROM conv WHERE id=%s", (cid,), one=True)
+        if not c:
+            return jsonify(ok=False, error="Диалог не найден"), 404
+        chat = c[0]
+        try:
+            if wa.is_wa(chat):
+                wa._call("POST", f"{wa.cfg()['phone_id']}/messages", json={"messaging_product": "whatsapp", "to": wa.number(chat),
+                                                                         "type": "location", "location": {"latitude": lat, "longitude": lon}})
+            elif inbox.channel(chat) == "tg":
+                oh.tg("sendLocation", chat_id=chat, latitude=lat, longitude=lon)
+            else:
+                inbox.send_text(chat, text)
+        except Exception as e:
+            return jsonify(ok=False, error=str(e)[:300]), 502
+        inbox.save_msg(d, cid, "manager", text)
         d.run("UPDATE conv SET status='manager' WHERE id=%s", (cid,))
     return jsonify(ok=True)
 
