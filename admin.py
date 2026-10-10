@@ -2422,3 +2422,53 @@ def warehouse_stock():
         off = 0
     return jsonify(ok=True, source=modules.source("warehouse"),
                    **mirror.warehouse_view(a.get("q", "")[:100], a.get("store", "")[:64], a.get("mode", "all"), 50, off))
+
+
+# ---------- Склад: приёмка и списание с двойной записью в МойСклад (флаг feat_wh_ops, см. whops.py) ----------
+import whops  # noqa: E402
+
+
+@bp.route("/admin/api/warehouse/ops", methods=["GET", "POST"])
+@guard
+def warehouse_ops():
+    if not modules.enabled("warehouse"):
+        return jsonify(ok=False, error="Модуль «Склад» выключен"), 404
+    if request.method == "POST":
+        if not whops.enabled():
+            return jsonify(ok=False, error="Приёмка и списание из панели выключены"), 403
+        b = request.get_json(silent=True) or {}
+        try:
+            op = whops.create(str(b.get("kind", "")), str(b.get("store", "")), b.get("lines") or [],
+                              str(b.get("agent", "")), str(b.get("descr", "")), _fin_who())
+        except ValueError as e:
+            return jsonify(ok=False, error=str(e)), 400
+        return jsonify(ok=True, op=op)
+    return jsonify(ok=True, enabled=whops.enabled(), ops=whops.recent())
+
+
+@bp.post("/admin/api/warehouse/ops/flag")
+@guard
+def warehouse_ops_flag():
+    if not modules.enabled("warehouse"):
+        return jsonify(ok=False, error="Модуль «Склад» выключен"), 404
+    whops.set_enabled(bool((request.get_json(silent=True) or {}).get("on")))
+    return jsonify(ok=True, enabled=whops.enabled())
+
+
+@bp.post("/admin/api/warehouse/ops/<op_id>/retry")
+@guard
+def warehouse_ops_retry(op_id):
+    if not whops.enabled():
+        return jsonify(ok=False, error="Приёмка и списание из панели выключены"), 403
+    op = whops.retry(op_id)
+    if not op:
+        return jsonify(ok=False, error="Операция не найдена"), 404
+    return jsonify(ok=True, op=op)
+
+
+@bp.get("/admin/api/warehouse/agents")
+@guard
+def warehouse_agents():
+    if not whops.enabled():
+        return jsonify(ok=False, error="Приёмка и списание из панели выключены"), 403
+    return jsonify(ok=True, agents=whops.agents(request.args.get("q", "")[:100]))
