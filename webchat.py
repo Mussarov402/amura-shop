@@ -169,19 +169,26 @@ def poll():
     import inbox
     with inbox.db() as d:
         cid = _conv(d, chat)
-        rows = d.run("SELECT id, role, text, photo, media, at FROM msg WHERE conv_id=%s AND id>%s ORDER BY id LIMIT 100",
+        rows = d.run("SELECT id, role, text, photo, media, at, edited FROM msg WHERE conv_id=%s AND id>%s ORDER BY id LIMIT 100",
                      (cid, after), many=True) if cid else []
     tok = request.args.get("token")
     out = []
-    for i, role, text, photo, media, at in rows or []:
+    for i, role, text, photo, media, at, edited in rows or []:
         m = json.loads(media) if media else None
-        item = {"id": i, "me": role == "client", "text": text or "", "at": at}
+        item = {"id": i, "me": role == "client", "text": text or "", "at": at, "ed": 1 if edited else 0}
         if photo and str(photo).startswith(PREFIX):
             item["photo"] = f"{oh.PUBLIC_URL}/chat/f/{photo}?token={tok}"
         if m and str(m.get("id", "")).startswith(PREFIX):
             item["file"] = {"url": f"{oh.PUBLIC_URL}/chat/f/{m['id']}?token={tok}", "name": m.get("name") or "файл", "t": m.get("t")}
         out.append(item)
-    return jsonify(ok=True, messages=out)
+    try:
+        ed = float(request.args.get("ed", 0))
+    except ValueError:
+        ed = 0
+    with inbox.db() as d:                          # исправленные менеджером сообщения (ed — последняя правка, что сайт уже видел)
+        edits = d.run("SELECT id, text, edited FROM msg WHERE conv_id=%s AND edited>%s ORDER BY edited LIMIT 100",
+                      (cid, ed), many=True) if cid else []
+    return jsonify(ok=True, messages=out, edits=[{"id": i, "text": t or "", "ed": e} for i, t, e in edits or []])
 
 
 @bp.get("/chat/f/<path:file_id>")

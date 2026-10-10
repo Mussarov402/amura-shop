@@ -1455,7 +1455,7 @@ boot();
   function draw(){
     const el = $c("cmsgs"), atEnd = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
     el.innerHTML = (msgs.length ? "" : '<div class="chint">Здравствуйте! Задайте вопрос о товаре, заказе или оптовых ценах — ответим в этом окне.</div>') +
-      msgs.map(m => `<div class="cm ${m.me ? "me" : ""}">${m.photo ? `<a href="${esc(m.photo)}" target="_blank" rel="noopener"><img src="${esc(m.photo)}" alt="Фото" loading="lazy"></a>` : ""}${m.file ? `<a href="${esc(m.file.url)}" target="_blank" rel="noopener">📄 ${esc(m.file.name)}</a>${m.text ? "\n" : ""}` : ""}${esc(m.text)}<small>${m.at ? tm(m.at) : "отправляется…"}</small></div>`).join("");
+      msgs.map(m => `<div class="cm ${m.me ? "me" : ""}">${m.photo ? `<a href="${esc(m.photo)}" target="_blank" rel="noopener"><img src="${esc(m.photo)}" alt="Фото" loading="lazy"></a>` : ""}${m.file ? `<a href="${esc(m.file.url)}" target="_blank" rel="noopener">📄 ${esc(m.file.name)}</a>${m.text ? "\n" : ""}` : ""}${esc(m.text)}<small>${m.ed ? "изменено · " : ""}${m.at ? tm(m.at) : "отправляется…"}</small></div>`).join("");
     if(atEnd || !el.dataset.seen){ el.scrollTop = el.scrollHeight; el.dataset.seen = 1; }
     $c("cme").hidden = !!st.sent;
   }
@@ -1466,14 +1466,19 @@ boot();
   async function poll(){
     if(!st.token) return;
     try{
-      const r = await fetch(`${API}/chat/poll?token=${encodeURIComponent(st.token)}&after=${msgs.length ? msgs[msgs.length - 1].id || 0 : 0}`);
+      const r = await fetch(`${API}/chat/poll?token=${encodeURIComponent(st.token)}&after=${msgs.length ? msgs[msgs.length - 1].id || 0 : 0}&ed=${st.ed || 0}`);
       if(r.status === 403){ delete st.token; keep(); return; }
       const j = await r.json();
       if(j.ok && j.messages.length){
         msgs = msgs.filter(m => m.id).concat(j.messages);
         if(open){ st.seen = msgs[msgs.length - 1].id; keep(); }
-        draw(); badge();
       }
+      for(const e of (j.ok && j.edits) || []){        // менеджер исправил отправленное сообщение
+        const m = msgs.find(x => x.id === e.id);
+        if(m){ m.text = e.text; m.ed = 1; }
+        st.ed = Math.max(st.ed || 0, e.ed); keep();
+      }
+      if(j.ok && (j.messages.length || (j.edits || []).length)){ draw(); badge(); }
     }catch{}
   }
   function schedule(){ clearTimeout(timer); timer = setTimeout(async () => { if(document.visibilityState === "visible") await poll(); schedule(); }, open ? 3000 : 25000); }

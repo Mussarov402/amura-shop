@@ -1706,7 +1706,7 @@ def _msg_json(m):
             media["url"] = f"/admin/api/inbox/file/{media['id']}?t={_sig('fl' + media['id'])}"
         except Exception:
             media = None
-    return {"id": m[0], "role": m[1], "text": m[2], "at": m[4], "media": media,
+    return {"id": m[0], "role": m[1], "text": m[2], "at": m[4], "media": media, "edited": (m[6] if len(m) > 6 else None) or 0,
             "photo": (f"/admin/api/inbox/photo/{m[3]}?t={_sig('ph' + m[3])}" if m[3] else "")}
 
 
@@ -1718,7 +1718,7 @@ def inbox_conv(cid):
         if not c:
             return jsonify(ok=False, error="Диалог не найден"), 404
         d.run("UPDATE conv SET unread=0 WHERE id=%s", (cid,))
-        ms_ = d.run("SELECT id, role, text, photo, at, media FROM msg WHERE conv_id=%s ORDER BY id DESC LIMIT 100", (cid,), many=True)[::-1]
+        ms_ = d.run("SELECT id, role, text, photo, at, media, edited FROM msg WHERE conv_id=%s ORDER BY id DESC LIMIT 100", (cid,), many=True)[::-1]
     lastc = max([m[4] for m in ms_ if m[1] == "client"] or [0])
     isw, ch = wa.is_wa(c[4]), inbox.channel(c[4])
     age = time.time() - lastc
@@ -1739,12 +1739,39 @@ def inbox_send(cid):
         if not c:
             return jsonify(ok=False, error="Диалог не найден"), 404
         try:
-            inbox.send_text(c[0], text)
+            ext = inbox.send_text(c[0], text)
         except Exception as e:
             return jsonify(ok=False, error=str(e)[:300]), 502
-        inbox.save_msg(d, cid, "manager", text)
+        inbox.save_msg(d, cid, "manager", text, ext=ext)
         d.run("UPDATE conv SET status='manager' WHERE id=%s", (cid,))     # менеджер ответил — ИИ молчит
     return jsonify(ok=True)
+
+
+@bp.post("/admin/api/inbox/conv/<int:cid>/msg/<int:mid>/edit")
+@need("inbox")
+def inbox_edit(cid, mid):
+    """Изменить отправленный текст (менеджера или ИИ). Telegram и чат сайта — правка на месте, WhatsApp и Instagram — «Исправление» отдельным сообщением."""
+    text = str((request.get_json(silent=True) or {}).get("text", "")).strip()[:3500]
+    if not text:
+        return jsonify(ok=False, error="Пустое сообщение"), 400
+    with inbox.db() as d:
+        c = d.run("SELECT chat_id FROM conv WHERE id=%s", (cid,), one=True)
+        m = d.run("SELECT role, text, photo, media, ext FROM msg WHERE id=%s AND conv_id=%s", (mid, cid), one=True)
+        if not c or not m:
+            return jsonify(ok=False, error="Сообщение не найдено"), 404
+        if m[0] not in ("manager", "ai") or m[2] or m[3]:
+            return jsonify(ok=False, error="Изменить можно только свой текст без вложений"), 400
+        if text == (m[1] or ""):
+            return jsonify(ok=True, inplace=True)
+        try:
+            inplace = inbox.edit_text(c[0], m[4], text)
+        except Exception as e:
+            return jsonify(ok=False, error=str(e)[:300]), 502
+        d.run("UPDATE msg SET text=%s, edited=%s WHERE id=%s", (text, time.time(), mid))
+        last = d.run("SELECT id FROM msg WHERE conv_id=%s ORDER BY id DESC LIMIT 1", (cid,), one=True)
+        if last and last[0] == mid:
+            d.run("UPDATE conv SET last_text=%s WHERE id=%s", (text[:120], cid))
+    return jsonify(ok=True, inplace=inplace)
 
 
 @bp.post("/admin/api/inbox/conv/<int:cid>/status")
