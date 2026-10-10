@@ -218,10 +218,36 @@ def video_info(pid):
             "url": f"/media/product/{pid}.mp4?v={int(at or 0)}" if st == "ready" else ""}
 
 
-def video_data(pid):
+VIDEO_CACHE = os.path.join(tempfile.gettempdir(), "amura-video")
+
+
+def video_path(pid):
+    """Путь к готовому видео на диске (кэш в /tmp по pid и времени загрузки). Из базы ролик читается один раз —
+    дальше отдаётся с диска, без загрузки всего файла в память на каждый просмотр."""
     with db() as d:
-        r = d.run("SELECT mime, data FROM product_video WHERE pid=%s AND status='ready'", (pid,), one=True)
-    return (r[0], bytes(r[1])) if r else None
+        r = d.run("SELECT mime, at FROM product_video WHERE pid=%s AND status='ready'", (pid,), one=True)
+    if not r:
+        return None
+    mime, at = r
+    os.makedirs(VIDEO_CACHE, exist_ok=True)
+    safe = "".join(ch for ch in pid if ch.isalnum() or ch == "-")[:64]
+    path = os.path.join(VIDEO_CACHE, f"{safe}-{int(at or 0)}.mp4")
+    if not os.path.exists(path):
+        with db() as d:
+            row = d.run("SELECT data FROM product_video WHERE pid=%s AND status='ready'", (pid,), one=True)
+        if not row:
+            return None
+        tmp = path + f".{uuid.uuid4().hex[:6]}"
+        with open(tmp, "wb") as f:
+            f.write(bytes(row[0]))
+        os.replace(tmp, path)                      # атомарно: параллельный запрос не увидит недописанный файл
+        for old in os.listdir(VIDEO_CACHE):        # старые версии этого ролика — удалить
+            if old.startswith(safe + "-") and os.path.join(VIDEO_CACHE, old) != path:
+                try:
+                    os.remove(os.path.join(VIDEO_CACHE, old))
+                except OSError:
+                    pass
+    return mime, path
 
 
 def _ffmpeg():
@@ -314,6 +340,14 @@ def set_video(pid, stream, name="", who="", sync=False):
 def delete_video(pid):
     with db() as d:
         d.run("DELETE FROM product_video WHERE pid=%s", (pid,))
+    safe = "".join(ch for ch in pid if ch.isalnum() or ch == "-")[:64]
+    if os.path.isdir(VIDEO_CACHE):
+        for old in os.listdir(VIDEO_CACHE):
+            if old.startswith(safe + "-"):
+                try:
+                    os.remove(os.path.join(VIDEO_CACHE, old))
+                except OSError:
+                    pass
 
 
 def _loop():

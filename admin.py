@@ -2622,10 +2622,9 @@ def card_video_file(pid):
     """Видео товара — открытая ссылка (товарный ролик, пригодится сайту), с перемоткой (Range)."""
     if not modules.enabled("cards"):
         return "", 404
-    v = cards.video_data(pid)
+    v = cards.video_path(pid)
     if not v:
         return "", 404
-    import io
     from flask import send_file
-    resp = send_file(io.BytesIO(v[1]), mimetype=v[0], conditional=True, max_age=86400)
+    resp = send_file(v[1], mimetype=v[0], conditional=True, max_age=86400)     # с диска, частями (Range), без чтения целиком в память
     return oh.cors(resp)
