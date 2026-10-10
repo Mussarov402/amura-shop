@@ -83,11 +83,14 @@ def db():
         ):
             d.run(s)
         d.c.commit()
-        try:                                              # вложения диалога (голос, файлы, видео)
-            d.run("ALTER TABLE msg ADD COLUMN media TEXT")
-            d.c.commit()
-        except Exception:
-            d.c.rollback()
+        for col in ("media TEXT",                         # вложения диалога (голос, файлы, видео)
+                    "ext TEXT",                           # id сообщения в мессенджере (Telegram) — чтобы его можно было изменить
+                    "edited DOUBLE PRECISION"):           # когда сообщение изменили
+            try:
+                d.run("ALTER TABLE msg ADD COLUMN " + col)
+                d.c.commit()
+            except Exception:
+                d.c.rollback()
         _ready[0] = True
     return d
 
@@ -317,13 +320,32 @@ def send_text(chat, text, human=True):
     """human=False — ответ ИИ: в Instagram вне 24-часового окна не отправляется.
     Чат сайта: ничего не отправляем — сообщение уже сохранено, сайт забирает его опросом."""
     if str(chat).startswith("web:"):
-        return
+        return None
     if wa.is_wa(chat):
         wa.send_text(chat, text)
     elif ig.is_ig(chat):
         ig.send_text(chat, text, human)
     else:
-        oh.tg("sendMessage", chat_id=chat, text=text)
+        j = oh.tg("sendMessage", chat_id=chat, text=text)
+        return str(((j or {}).get("result") or {}).get("message_id") or "") or None
+    return None
+
+
+def edit_text(chat, ext, text):
+    """Меняет уже отправленный текст у клиента. True — изменено на месте (Telegram, чат сайта).
+    WhatsApp и Instagram менять отправленное не дают — тогда клиенту уходит «Исправление» отдельным сообщением (False)."""
+    if str(chat).startswith("web:"):
+        return True                                    # сайт заберёт новый текст опросом
+    if channel(chat) == "tg" and ext:
+        try:
+            oh.tg("editMessageText", chat_id=chat, message_id=ext, text=text)
+            return True
+        except RuntimeError as e:
+            if "not modified" in str(e):
+                return True
+            print("Telegram: сообщение не изменено, отправляем исправление:", e, flush=True)
+    send_text(chat, "✏️ Исправление:\n" + text)
+    return False
 
 
 def send_pdf(chat, name, pdf, caption):
@@ -433,10 +455,10 @@ def ai_reply(d, history, text, photo=None, ctx=None):
 MEDIA_LABEL = {"voice": "🎤 Голосовое", "audio": "🎵 Аудио", "video": "🎥 Видео", "doc": "📎 Файл"}
 
 
-def save_msg(d, cid, role, text, photo=None, unread=0, media=None):
+def save_msg(d, cid, role, text, photo=None, unread=0, media=None, ext=None):
     now = time.time()
-    d.run("INSERT INTO msg (conv_id, role, text, photo, media, at) VALUES (%s,%s,%s,%s,%s,%s)",
-          (cid, role, text, photo, json.dumps(media, ensure_ascii=False) if media else None, now))
+    d.run("INSERT INTO msg (conv_id, role, text, photo, media, ext, at) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+          (cid, role, text, photo, json.dumps(media, ensure_ascii=False) if media else None, ext, now))
     last = text or (MEDIA_LABEL.get((media or {}).get("t"), "[фото]"))
     d.run("UPDATE conv SET last_at=%s, last_text=%s, unread=unread+%s WHERE id=%s", (now, last[:120], unread, cid))
 
@@ -608,9 +630,9 @@ def on_client_message(chat, user, text, photo=None, voice=None, pdf=None, media=
                 use_ai = ai_on(d, chat) and not voice_failed
         if status == "ai" and not use_ai:                  # ИИ выключен или нет ключа: диалог — менеджеру, клиенту короткий ответ
             ack = "Спасибо за сообщение! Передал менеджеру — он ответит в ближайшее время."
-            send_text(chat, ack, human=False)
+            ext = send_text(chat, ack, human=False)
             with _lock, db() as d:
-                save_msg(d, cid, "ai", ack)
+                save_msg(d, cid, "ai", ack, ext=ext)
                 d.run("UPDATE conv SET status='manager' WHERE id=%s", (cid,))
         if status == "manager" or not use_ai:
             if oh.notif_on("msg"):
@@ -624,9 +646,9 @@ def on_client_message(chat, user, text, photo=None, voice=None, pdf=None, media=
             oh.alert("ai", f"ИИ не ответил клиенту {name}: {str(e)[:200]}. Диалог передан менеджеру.", every=600)
             reply, hand = "Спасибо за сообщение! Передал менеджеру — он ответит в ближайшее время.", True
         reply = clean_reply(reply)
-        send_text(chat, reply, human=False)
+        ext = send_text(chat, reply, human=False)
         with _lock, db() as d:
-            save_msg(d, cid, "ai", reply)
+            save_msg(d, cid, "ai", reply, ext=ext)
             if hand:
                 d.run("UPDATE conv SET status='manager' WHERE id=%s", (cid,))
         if hand:                                       # в системе — всегда: push «ждёт менеджера»
