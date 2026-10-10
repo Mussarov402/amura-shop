@@ -768,6 +768,44 @@ def warehouse_view(q="", store="", mode="all", limit=50, offset=0):
                        "stores": sorted(by.get(pid, []), key=lambda x: x["store"])} for pid, code, name, bp, a, b in rows]}
 
 
+def _alm(moment):
+    """Время МойСклад (Москва) → строка по Алматы «ГГГГ-ММ-ДД ЧЧ:ММ»."""
+    if not moment:
+        return ""
+    return datetime.strptime(moment[:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=MS_TZ).astimezone(oh.ALMATY).strftime("%Y-%m-%d %H:%M")
+
+
+def wh_docs(kind, offset=0, limit=30):
+    """Документы склада одного вида из зеркала — новые сверху (окно DOC_DAYS)."""
+    with db() as d:
+        names = dict(d.run("SELECT id, name FROM ms_store", many=True) or [])
+        total = (d.run("SELECT COUNT(*) FROM ms_doc WHERE type=%s AND deleted=0", (kind,), one=True) or [0])[0]
+        rows = d.run("SELECT x.id, x.number, x.moment, x.store_id, x.store2_id, a.name, x.sum, x.applicable, x.descr,"
+                     " (SELECT COUNT(*) FROM ms_doc_line l WHERE l.doc_id=x.id), (SELECT COALESCE(SUM(l.qty), 0) FROM ms_doc_line l WHERE l.doc_id=x.id)"
+                     " FROM ms_doc x LEFT JOIN ms_agent a ON a.id=x.agent_id WHERE x.type=%s AND x.deleted=0"
+                     " ORDER BY x.moment DESC LIMIT %s OFFSET %s", (kind, limit, offset), many=True) or []
+    return {"total": total, "docs": [{"id": i, "number": n or "", "at": _alm(m), "store": names.get(s1, ""), "store2": names.get(s2, ""),
+                                      "agent": a or "", "sum": round(sm or 0), "applicable": bool(ap), "descr": ds or "",
+                                      "positions": pc or 0, "qty": q or 0}
+                                     for i, n, m, s1, s2, a, sm, ap, ds, pc, q in rows]}
+
+
+def wh_doc(doc_id):
+    with db() as d:
+        r = d.run("SELECT x.id, x.type, x.number, x.moment, x.store_id, x.store2_id, a.name, x.sum, x.applicable, x.descr"
+                  " FROM ms_doc x LEFT JOIN ms_agent a ON a.id=x.agent_id WHERE x.id=%s", (doc_id,), one=True)
+        if not r:
+            return None
+        names = dict(d.run("SELECT id, name FROM ms_store", many=True) or [])
+        lines = d.run("SELECT p.name, p.code, l.qty, l.price, l.sum FROM ms_doc_line l LEFT JOIN ms_product p ON p.id=l.product_id"
+                      " WHERE l.doc_id=%s ORDER BY p.name", (doc_id,), many=True) or []
+    i, t, n, m, s1, s2, a, sm, ap, ds = r
+    return {"id": i, "type": t, "number": n or "", "at": _alm(m), "store": names.get(s1, ""), "store2": names.get(s2, ""), "agent": a or "",
+            "sum": round(sm or 0), "applicable": bool(ap), "descr": ds or "",
+            "lines": [{"name": nm or "(товар удалён)", "code": c or "", "qty": q or 0, "price": round(pr or 0), "sum": round(su or 0)}
+                      for nm, c, q, pr, su in lines]}
+
+
 def finance_view(days=14, top=20):
     """Модуль «Финансы» (только просмотр, из зеркала): деньги по счетам, движение по дням (Алматы), взаиморасчёты."""
     today = datetime.now(oh.ALMATY).date()

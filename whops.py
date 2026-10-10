@@ -1,4 +1,4 @@
-"""Склад: приёмка и списание из панели с двойной записью в МойСклад (этап 3 дорожной карты, docs/MIGRATION.md).
+"""Склад: приёмка, списание, оприходование и перемещение из панели с двойной записью в МойСклад (этап 3 дорожной карты, docs/MIGRATION.md).
 
 Как устроено:
 - операция сначала сохраняется у нас (таблица wh_op, статус queued) — она не теряется, даже если МойСклад не ответил;
@@ -20,7 +20,8 @@ import modules
 import order_hook as oh
 
 FLAG = "feat_wh_ops"
-KINDS = {"supply": "Приёмка", "loss": "Списание"}
+KINDS = {"supply": "Приёмка", "loss": "Списание", "enter": "Оприходование", "move": "Перемещение"}
+PRICED = ("supply", "enter")   # цену вводит человек (закупка / себестоимость); у списания и перемещения — закупочная из карточки
 RETRY_EVERY = 60          # с, фоновый повтор очереди
 MAX_AUTO = 30             # после стольких неудачных попыток — только вручную
 _ready = [False]
@@ -34,6 +35,11 @@ def _schema(d):
           " lines TEXT, status TEXT, ms_id TEXT, ms_number TEXT, attempts INTEGER DEFAULT 0, error TEXT, who TEXT,"
           " created DOUBLE PRECISION, sent DOUBLE PRECISION, next_try DOUBLE PRECISION DEFAULT 0)")
     d.c.commit()
+    try:                                   # добавочная колонка: склад-получатель у перемещения
+        d.run("ALTER TABLE wh_op ADD COLUMN store2_id TEXT")
+        d.c.commit()
+    except Exception:
+        d.c.rollback()
     _ready[0] = True
 
 
@@ -56,13 +62,13 @@ def set_enabled(on):
 
 
 def _row(r):
-    i, kind, store, agent, descr, lines, status, ms_id, ms_num, att, err, who, created, sent = r[:14]
-    return {"id": i, "kind": kind, "title": KINDS.get(kind, kind), "store": store, "agent": agent, "descr": descr or "",
+    i, kind, store, agent, descr, lines, status, ms_id, ms_num, att, err, who, created, sent, store2 = r[:15]
+    return {"id": i, "kind": kind, "title": KINDS.get(kind, kind), "store": store, "store2": store2 or "", "agent": agent, "descr": descr or "",
             "lines": json.loads(lines or "[]"), "status": status, "msId": ms_id or "", "msNumber": ms_num or "",
             "attempts": att or 0, "error": err or "", "who": who or "", "created": created or 0, "sent": sent or 0}
 
 
-_OCOLS = "id, kind, store_id, agent_id, descr, lines, status, ms_id, ms_number, attempts, error, who, created, sent"
+_OCOLS = "id, kind, store_id, agent_id, descr, lines, status, ms_id, ms_number, attempts, error, who, created, sent, store2_id"
 
 
 def get(op_id):
@@ -82,13 +88,13 @@ def recent(limit=30):
     out = []
     for r in rows:
         o = _row(r)
-        o["storeName"], o["agentName"] = names.get(o["store"], ""), agents.get(o["agent"], "")
+        o["storeName"], o["agentName"], o["store2Name"] = names.get(o["store"], ""), agents.get(o["agent"], ""), names.get(o["store2"], "")
         o["sum"] = round(sum(x["qty"] * x["price"] for x in o["lines"]))
         out.append(o)
     return out
 
 
-def create(kind, store_id, lines, agent_id="", descr="", who=""):
+def create(kind, store_id, lines, agent_id="", descr="", who="", store2_id=""):
     """Проверяет и сохраняет операцию, затем сразу пробует отправить в МойСклад. Ошибка проверки — ValueError."""
     if kind not in KINDS:
         raise ValueError("Неизвестная операция")
@@ -98,6 +104,11 @@ def create(kind, store_id, lines, agent_id="", descr="", who=""):
             raise ValueError("Выберите склад")
         if kind == "supply" and not d.run("SELECT 1 FROM ms_agent WHERE id=%s AND deleted=0", (agent_id or "",), one=True):
             raise ValueError("Выберите поставщика")
+        if kind == "move":
+            if not store2_id or store2_id == store_id or not d.run("SELECT 1 FROM ms_store WHERE id=%s AND archived=0", (store2_id,), one=True):
+                raise ValueError("Выберите склад, куда перемещаете (другой)")
+        else:
+            store2_id = ""
         clean = []
         for x in lines or []:
             pid = str(x.get("id") or "")
@@ -111,12 +122,12 @@ def create(kind, store_id, lines, agent_id="", descr="", who=""):
             if not p:
                 raise ValueError("Товар не найден — обновите список")
             clean.append({"id": pid, "kind": p[0] or "product", "name": p[1], "qty": qty,
-                          "price": round(price if kind == "supply" else (p[2] or 0))})
+                          "price": round(price if kind in PRICED else (p[2] or 0))})
         if not clean:
             raise ValueError("Добавьте хотя бы один товар")
         op_id = str(uuid.uuid4())
-        d.run(f"INSERT INTO wh_op ({_OCOLS}, next_try) VALUES (%s, %s, %s, %s, %s, %s, 'queued', '', '', 0, '', %s, %s, 0, 0)",
-              (op_id, kind, store_id, agent_id if kind == "supply" else "", descr, json.dumps(clean, ensure_ascii=False), who, time.time()))
+        d.run(f"INSERT INTO wh_op ({_OCOLS}, next_try) VALUES (%s, %s, %s, %s, %s, %s, 'queued', '', '', 0, '', %s, %s, 0, %s, 0)",
+              (op_id, kind, store_id, agent_id if kind == "supply" else "", descr, json.dumps(clean, ensure_ascii=False), who, time.time(), store2_id))
     send(op_id)
     return get(op_id)
 
@@ -125,8 +136,12 @@ def _body(o):
     pos = [{"quantity": x["qty"], "price": round(x["price"] * 100), "assortment": oh.meta(x.get("kind") or "product", x["id"])}
            for x in o["lines"]]
     body = {"externalCode": o["id"], "organization": oh.meta("organization", oh.organization()),
-            "store": oh.meta("store", o["store"]), "positions": pos, "applicable": True,
+            "positions": pos, "applicable": True,
             "description": ("Из панели AMURA" + (f" ({o['who']})" if o["who"] else "") + (": " + o["descr"] if o["descr"] else ""))[:4000]}
+    if o["kind"] == "move":            # перемещение: склад-отправитель и склад-получатель
+        body["sourceStore"], body["targetStore"] = oh.meta("store", o["store"]), oh.meta("store", o["store2"])
+    else:
+        body["store"] = oh.meta("store", o["store"])
     if o["kind"] == "supply":
         body["agent"] = oh.meta("counterparty", o["agent"])
     return body
