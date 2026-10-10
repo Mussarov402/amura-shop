@@ -22,10 +22,14 @@ class ModulesTest(unittest.TestCase):
         with inbox.db() as d:
             d.run("DELETE FROM setting WHERE key LIKE %s", ("mod_%",))
 
-    def test_off_by_default_and_hidden(self):
-        self.assertFalse(modules.enabled("finance"))
-        self.assertEqual(self.c.get("/admin/api/modules/on", headers=self.h).get_json()["on"], {})
+    def test_on_by_default_and_switch_off_hides(self):
+        # решение владельца 10.10.2026: готовые разделы включены сразу, выключатель — для отката
+        self.assertTrue(modules.enabled("finance"))
+        self.assertEqual(self.c.get("/admin/api/modules/on", headers=self.h).get_json()["on"], {"finance": True, "warehouse": True})
+        self.c.put("/admin/api/modules", headers=self.h, json={"id": "finance", "on": False})
+        self.assertFalse(modules.enabled("finance"))                               # выключили вручную — так и остаётся
         self.assertEqual(self.c.get("/admin/api/finance", headers=self.h).status_code, 404)
+        self.assertEqual(self.c.get("/admin/api/modules/on", headers=self.h).get_json()["on"], {"warehouse": True})
         self.assertEqual(self.c.get("/admin/api/modules").status_code, 401)        # без входа — нельзя
 
     def test_toggle_and_view(self):
@@ -76,9 +80,10 @@ class ModulesTest(unittest.TestCase):
 
 
     def test_warehouse(self):
+        self.c.put("/admin/api/modules", headers=self.h, json={"id": "warehouse", "on": False})
         self.assertEqual(self.c.get("/admin/api/warehouse", headers=self.h).status_code, 404)   # выключен — не виден
         self.c.put("/admin/api/modules", headers=self.h, json={"id": "warehouse", "on": True})
-        self.assertEqual(self.c.get("/admin/api/modules/on", headers=self.h).get_json()["on"], {"warehouse": True})
+        self.assertTrue(self.c.get("/admin/api/modules/on", headers=self.h).get_json()["on"]["warehouse"])
         with mirror.db() as d:
             for t in ("ms_store", "ms_stock", "ms_product"):
                 d.run(f"DELETE FROM {t}")
