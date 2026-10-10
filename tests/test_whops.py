@@ -200,5 +200,11 @@ class WhOpsTest(unittest.TestCase):
         self.assertEqual([(l["name"], l["qty"]) for l in doc["lines"]], [("Крем", 4)])
         self.assertEqual(self.c.get("/admin/api/warehouse/docs/nope", headers=self.h).status_code, 404)
 
+    def test_scanner_lib_served(self):
+        r = self.c.get("/admin/vendor/zxing.min.js")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn(b"BrowserMultiFormatReader", r.data)
+        self.assertEqual(self.c.get("/admin/vendor/other.js").status_code, 404)
+
 if __name__ == "__main__":
     unittest.main()

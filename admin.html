@@ -134,6 +134,12 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 
 /* компьютер: боковое меню закреплено — при прокрутке любого раздела стоит на месте */
 @media(min-width:801px){aside{position:sticky!important;top:0;align-self:flex-start;height:100vh;height:100dvh;box-sizing:border-box;overflow-y:auto;overscroll-behavior:contain}}
+.scn{position:fixed;inset:0;z-index:10000;background:#000;display:flex;align-items:center;justify-content:center}.scn video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.scf{position:relative;width:min(78vw,420px);height:min(40vw,200px);border:3px solid rgba(255,255,255,.9);border-radius:16px;box-shadow:0 0 0 100vmax rgba(0,0,0,.45);transition:border-color .15s}.scn.ok .scf{border-color:#3DDC84}
+.scm{position:absolute;left:16px;right:16px;bottom:calc(96px + env(safe-area-inset-bottom));color:#fff;text-align:center;font-weight:700;font-size:16px;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+.scx{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(28px + env(safe-area-inset-bottom));min-width:160px}
+.scb{flex:none;width:44px;height:44px;border:1px solid #D9E0DB;border-radius:10px;background:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer}.scb svg{width:22px;height:22px;fill:none;stroke:#16201B;stroke-width:2;stroke-linecap:round}
+.srow{display:flex;gap:8px;align-items:center}.srow>input{flex:1;min-width:0}
 </style><style id="eocss">.eo{background:#fff;width:100%;max-width:560px;max-height:92vh;overflow:auto;border-radius:18px 18px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom))}
 @media(min-width:801px){.eo{border-radius:0;margin:0;width:100%;max-width:none;height:100%;max-height:none;box-sizing:border-box;padding:28px max(28px,calc((100vw - 1000px)/2)) 40px}.eo .voa{max-width:none;display:flex;flex-wrap:wrap}.eo .voa button{flex:0 1 128px;min-width:96px}}   /* компьютер: заказ на весь экран, содержимое по центру; кнопки заказа — в одну строку */
 .eor{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid #EEF1EE}.eor:first-child{border-top:0}.eon{flex:1;min-width:0;font-size:14px}
@@ -303,6 +309,25 @@ const whOpsCard=(ops,o_stores=2)=>{if(!ops)return "";const st=x=>x.status==="sen
  ${ops.ops.slice(0,10).map(x=>`<div class="row" style="display:block"><div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><b>${esc(x.title)} · ${esc(x.storeName||"склад")}${x.store2Name?" → "+esc(x.store2Name):""}${x.agentName?" · "+esc(x.agentName):""}</b>${st(x)}</div>
  <div class="mut">${new Date(x.created*1000).toLocaleString("ru-RU",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})} · ${x.lines.length} поз. · ${fmt(x.lines.reduce((a,l)=>a+l.qty,0))} шт.${x.kind==="supply"||x.kind==="enter"?" · "+fmt(x.sum)+" ₸":""}${x.who?" · "+esc(x.who):""}</div>
  ${x.status!=="sent"&&x.error?`<div class="mut" style="color:var(--bad)">${esc(x.error)}</div>`:""}${x.status!=="sent"&&ops.enabled?`<button class="btn ghost" style="margin-top:6px" data-whr="${x.id}">Повторить</button>`:""}</div>`).join("")}</div>`};
+/* Сканер штрихкодов камерой. Android/Chrome — встроенный BarcodeDetector; iPhone — своя копия ZXing (/admin/vendor/zxing.min.js,
+   грузится только при первом открытии). onCode(code) вызывается на каждый новый код; вернёт строку — она покажется под рамкой;
+   once=true — закрыть после первого кода. */
+const scanCodes=(onCode,once)=>new Promise(done=>{let stream=null,stop=false,last="",lastAt=0,zx=null,timer=null;
+ const box=document.createElement("div");box.className="scn";box.innerHTML=`<video playsinline muted autoplay></video><div class="scf"></div><div class="scm">Наведите камеру на штрихкод</div><button class="btn scx">Готово</button>`;document.body.appendChild(box);
+ const v=box.querySelector("video"),msg=box.querySelector(".scm");
+ const end=()=>{if(stop)return;stop=true;clearTimeout(timer);try{zx&&zx.reset()}catch(e){}if(stream)stream.getTracks().forEach(t=>t.stop());box.remove();done()};
+ box.querySelector(".scx").onclick=end;
+ const hit=async code=>{const t=Date.now();if(!code)return;if(code===last&&t-lastAt<1500){lastAt=t;return}last=code;lastAt=t;   /* тот же код считается снова, только если штрихкод уходил из кадра */try{navigator.vibrate&&navigator.vibrate(60)}catch(e){}
+  box.classList.add("ok");setTimeout(()=>box.classList.remove("ok"),250);if(once){end();onCode(code);return}msg.textContent="Ищу "+code+"…";try{msg.textContent=(await onCode(code))||code}catch(e){msg.textContent=e.message}};
+ const fail=e=>{msg.textContent=/Permission|NotAllowed/i.test(e&&e.name||e)?"Нет доступа к камере — разрешите в настройках браузера":"Камера недоступна: "+((e&&e.message)||e)};
+ (async()=>{try{
+  if("BarcodeDetector" in window){const det=new BarcodeDetector({formats:["ean_13","ean_8","code_128","upc_a","upc_e","code_39","itf"]});
+   stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",width:{ideal:1280}}});v.srcObject=stream;await v.play();
+   const loop=async()=>{if(stop)return;try{const r=await det.detect(v);if(r[0])await hit(r[0].rawValue)}catch(e){}if(!stop)timer=setTimeout(loop,150)};loop();return}
+  if(!window.ZXing)await new Promise((ok,no)=>{const sc=document.createElement("script");sc.src="/admin/vendor/zxing.min.js";sc.onload=ok;sc.onerror=()=>no(Error("не загрузился сканер"));document.head.appendChild(sc)});
+  if(stop)return;zx=new ZXing.BrowserMultiFormatReader();
+  await zx.decodeFromConstraints({video:{facingMode:"environment"}},v,(r)=>{if(r&&!stop)hit(r.getText())});stream=v.srcObject}catch(e){fail(e)}})()});
+const scanBtn=id=>`<button class="scb" data-scan="${id}" aria-label="Сканировать штрихкод" title="Сканировать штрихкод"><svg viewBox="0 0 24 24"><path d="M3 7V4h3M21 7V4h-3M3 17v3h3M21 17v3h-3M7 8v8M10 8v8M13 8v8M17 8v8"/></svg></button>`;
 /* Склад: вкладки «Остатки» и документы по видам (как в МойСклад: приёмки, списания, оприходования, перемещения, инвентаризации) */
 let WHT=(()=>{try{return localStorage.getItem("amura_wht")||"stock"}catch(e){return "stock"}})();
 const WHD=[["stock","Остатки"],["supply","Приёмки"],["loss","Списания"],["enter","Оприходования"],["move","Перемещения"],["inventory","Инвентаризации"]];
@@ -333,12 +358,13 @@ const WHK={supply:{t:"Приёмка товара",b:"Провести приё�
 const whOp=(kind,stores,store0,done)=>{const K=WHK[kind],pr=!!K.pr;const ov=document.createElement("div");ov.className="ovx";ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:flex-end;justify-content:center";document.body.appendChild(ov);
  const s0=store0||(stores[0]||{}).id||"";let S={store:s0,store2:K.to?((stores.find(x=>x.id!==s0)||{}).id||""):"",agent:null,descr:""},L=[];const close=()=>ov.remove();ov.onclick=e=>{if(e.target===ov)close()};ov.innerHTML='<div class="eo"></div>';
  const keep=()=>{S.descr=$("#wod").value;S.store=$("#wos").value;if($("#wos2"))S.store2=$("#wos2").value};
+ const add=it=>{const ex=L.find(z=>z.id===it.id);if(ex){ex.qty+=1;return ex.qty}L.push({id:it.id,name:it.name,qty:1,price:it.buy||0,have:it.stock});return 1};
  const sel=(id,v)=>`<select id="${id}" style="width:100%;padding:10px 12px;border:1px solid #D9E0DB;border-radius:10px;font:inherit;margin-bottom:10px">${stores.map(s=>`<option value="${esc(s.id)}" ${s.id===v?"selected":""}>${esc(s.name)}</option>`).join("")}</select>`;
  const draw=()=>{const tot=L.reduce((a,x)=>a+x.qty*x.price,0);ov.querySelector(".eo").innerHTML=`<div style="font-weight:800;font-size:17px;margin-bottom:10px">${K.t}</div>
   <label class="mut" style="display:block;margin-bottom:4px">${K.to?"Откуда":"Склад"}</label>${sel("wos",S.store)}${K.to?`<label class="mut" style="display:block;margin-bottom:4px">Куда</label>${sel("wos2",S.store2)}`:""}
   ${K.ag?`<label class="mut" style="display:block;margin-bottom:4px">Поставщик</label>${S.agent?`<div class="row" style="padding:6px 0"><div class="grow"><b>${esc(S.agent.name)}</b></div><button class="btn ghost" id="woa0">Изменить</button></div>`:`<div class="eos"><input id="woa" placeholder="Название или телефон поставщика" autocomplete="off"><div id="woar"></div></div>`}`:""}
   <div class="eol" style="margin-top:10px">${L.map((x,i)=>`<div class="eor"><div class="eon">${esc(x.name)}${K.chk?`<div class="mut">в наличии ${fmt(x.have)}</div>`:""}</div><input type="number" inputmode="decimal" min="0" step="any" value="${x.qty}" data-i="${i}" data-f="qty" aria-label="Количество" style="width:72px">${pr?`<span class="mut">×</span><input type="number" inputmode="numeric" min="0" value="${x.price}" data-i="${i}" data-f="price" aria-label="${K.pr}" style="width:90px">`:""}<button class="eox" data-x="${i}" aria-label="Убрать">✕</button></div>`).join("")}</div>
-  <div class="eos"><input id="eoq" placeholder="＋ Товар: название, код или штрихкод" autocomplete="off"><div id="eor"></div></div>
+  <div class="eos"><div class="srow"><input id="eoq" placeholder="＋ Товар: название, код или штрихкод" autocomplete="off">${scanBtn("op")}</div><div id="eor"></div></div>
   <label class="mut" style="display:block;margin:10px 0 4px">${K.n}</label><textarea id="wod" rows="2" style="min-height:0;height:68px">${esc(S.descr)}</textarea>
   <div class="eot"><span>${L.length} поз. · ${fmt(L.reduce((a,x)=>a+x.qty,0))} шт.</span>${pr?`<b>Сумма: ${fmt(tot)} ₸</b>`:""}</div>
   <div class="mut" id="eom"></div><div style="display:flex;gap:8px"><button class="btn" id="wog">${K.b}</button><button class="btn ghost" id="eoc">Отмена</button></div>`;
@@ -346,7 +372,14 @@ const whOp=(kind,stores,store0,done)=>{const K=WHK[kind],pr=!!K.pr;const ov=docu
   ov.querySelectorAll("[data-x]").forEach(b=>b.onclick=()=>{keep();L.splice(+b.dataset.x,1);draw()});
   $("#wos").onchange=()=>{keep();L=[];draw()};   /* другой склад — остатки в строках другие */
   let tm;$("#eoq").oninput=e=>{clearTimeout(tm);const q=e.target.value.trim();tm=setTimeout(async()=>{if(q.length<2)return $("#eor").innerHTML="";try{keep();const r=await api("warehouse?q="+encodeURIComponent(q)+"&store="+encodeURIComponent(S.store));$("#eor").innerHTML=r.items.map((x,i)=>`<button data-a="${i}"><span class="srn">${esc(x.name)}</span><span class="mut">${x.code?esc(x.code)+" · ":""}ост. ${fmt(x.stock)}</span></button>`).join("")||'<div class="mut">Ничего не найдено</div>';
-   $("#eor").querySelectorAll("[data-a]").forEach(b=>b.onclick=()=>{keep();const it=r.items[+b.dataset.a],ex=L.find(z=>z.id===it.id);if(ex)ex.qty+=1;else L.push({id:it.id,name:it.name,qty:1,price:it.buy||0,have:it.stock});draw();$("#eoq").focus()})}catch(x){$("#eor").innerHTML='<div class="mut">'+esc(x.message)+'</div>'}},350)};
+   $("#eor").querySelectorAll("[data-a]").forEach(b=>b.onclick=()=>{keep();add(r.items[+b.dataset.a]);draw();$("#eoq").focus()})}catch(x){$("#eor").innerHTML='<div class="mut">'+esc(x.message)+'</div>'}},350)};
+  /* ручной сканер (USB/Bluetooth) печатает код и Enter — товар сразу в документ */
+  $("#eoq").onkeydown=async e=>{if(e.key!=="Enter")return;e.preventDefault();const q=e.target.value.trim();if(!q)return;clearTimeout(tm);
+   try{keep();const r=await api("warehouse?q="+encodeURIComponent(q)+"&store="+encodeURIComponent(S.store));const it=r.items.find(x=>x.code===q)||(r.items.length===1?r.items[0]:null);
+    if(!it){$("#eoq").dispatchEvent(new Event("input"));return}add(it);draw();$("#eoq").focus()}catch(x){$("#eor").innerHTML='<div class="mut">'+esc(x.message)+'</div>'}};
+  /* сканер: каждый штрихкод — +1 к товару; камера остаётся открытой, пока не нажмут «Готово» */
+  ov.querySelector('[data-scan="op"]').onclick=()=>{keep();scanCodes(async code=>{const r=await api("warehouse?q="+encodeURIComponent(code)+"&store="+encodeURIComponent(S.store));
+   if(!r.items.length)return "Не найден товар со штрихкодом "+code;const it=r.items.find(x=>x.code===code)||r.items[0];const n=add(it);draw();return it.name+" — "+fmt(n)+" шт."})};
   if($("#woa")){let ta;$("#woa").oninput=e=>{clearTimeout(ta);const q=e.target.value.trim();ta=setTimeout(async()=>{if(q.length<2)return $("#woar").innerHTML="";try{const r=await api("warehouse/agents?q="+encodeURIComponent(q));$("#woar").innerHTML=r.agents.map((a,i)=>`<button data-g="${i}"><span class="srn">${esc(a.name)}</span><span class="mut">${esc(a.phone)}</span></button>`).join("")||'<div class="mut">Не найден — создайте поставщика в МойСклад</div>';
    $("#woar").querySelectorAll("[data-g]").forEach(b=>b.onclick=()=>{keep();S.agent=r.agents[+b.dataset.g];draw()})}catch(x){$("#woar").innerHTML='<div class="mut">'+esc(x.message)+'</div>'}},350)}}
   if($("#woa0"))$("#woa0").onclick=()=>{keep();S.agent=null;draw()};
@@ -572,7 +605,7 @@ async wh(q="",store="",mode="all",page=0,foc=false){if(WHT!=="stock")return whDo
  $("#main").innerHTML=head("Склад","Модуль «Склад» · только просмотр · остатки МойСклад в нашей базе"+(o.synced?", снимок "+new Date(o.synced*1000).toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"}):""))+seg("wh")+whOpsCard(ops,o.stores.length)+whTabs()+`
 <div class="cards">${o.stores.map(s=>`<div class="card clk" data-st="${esc(s.id)}" style="cursor:pointer;${s.id===store?"box-shadow:inset 0 0 0 2px var(--g)":""}"><div class="l">${esc(s.name)}</div><div class="v">${fmt(s.units)} шт.</div><div class="s">${fmt(s.skus)} поз. · ${fmt(s.value)} ₸ по закупке${s.reserve?" · резерв "+fmt(s.reserve):""}</div></div>`).join("")||'<div class="card"><div class="mut">Складов нет — включите загрузку в «Своей базе».</div></div>'}</div>
 <div class="chips cn" style="margin:4px 0 10px;flex-wrap:wrap">${[["all","Все товары"],["in","Есть в наличии"],["out","Нет в наличии"]].map(([k,t])=>`<button class="st ${k===mode?"on":""}" data-wm="${k}">${t}</button>`).join("")}${store?`<span class="sp"></span><button class="on" data-st="">${esc((o.stores.find(s=>s.id===store)||{}).name||"Склад")} ✕</button>`:""}</div>
-<input id="whq" placeholder="Название, код, артикул или штрихкод" value="${esc(q)}" style="width:100%;margin-bottom:12px" enterkeyhint="search">
+<div class="srow" style="margin-bottom:12px"><input id="whq" placeholder="Название, код, артикул или штрихкод" value="${esc(q)}" enterkeyhint="search">${scanBtn("wh")}</div>
 <div class="card"><div class="mut" style="margin-bottom:4px">Найдено: ${fmt(o.total)}</div>${o.items.length?o.items.map(x=>`<div class="row" style="display:block"><div style="display:flex;justify-content:space-between;gap:10px"><b>${esc(x.name)}</b><span class="vos" style="white-space:nowrap">${n(x.stock)} шт.</span></div>
 <div class="mut">${x.code?"код "+esc(x.code)+" · ":""}${x.buy?"закупка "+fmt(x.buy)+" ₸":"без закупочной цены"}${x.reserve?" · резерв "+n(x.reserve):""}</div>${x.stores.length&&!(store&&x.stores.length===1)?`<div class="mut">${x.stores.map(s=>`${esc(s.store)}: <b>${n(s.stock)}</b>${s.reserve?" (резерв "+n(s.reserve)+")":""}`).join(" · ")}</div>`:""}</div>`).join(""):'<div class="mut" style="padding:16px;text-align:center">Ничего не нашлось</div>'}</div>
 ${page||o.total>(page+1)*50?`<div style="display:flex;gap:10px;justify-content:center;margin-top:12px">${page?'<button class="btn ghost" id="whp">← Назад</button>':""}${o.total>(page+1)*50?'<button class="btn ghost" id="whn">Ещё →</button>':""}</div>`:""}`;
@@ -582,7 +615,8 @@ ${page||o.total>(page+1)*50?`<div style="display:flex;gap:10px;justify-content:c
  let t;const qi=$("#whq");qi.oninput=()=>{clearTimeout(t);t=setTimeout(()=>go({q:qi.value.trim(),foc:true}),500)};
  if(foc){qi.focus();qi.setSelectionRange(qi.value.length,qi.value.length)}
  if($("#whp"))$("#whp").onclick=()=>{go({page:page-1});scrollTo(0,0)};if($("#whn"))$("#whn").onclick=()=>{go({page:page+1});scrollTo(0,0)}
- const re=()=>views.wh(q,store,mode,page);bindWhTabs();bindWhOps(o.stores,store,re)},
+ const re=()=>views.wh(q,store,mode,page);bindWhTabs();bindWhOps(o.stores,store,re);
+ $('[data-scan="wh"]').onclick=()=>scanCodes(code=>go({q:code}),true)},
 async mirror(){const o=await api("mirror");const n=nav;
  const ago=t=>{if(!t)return "—";const m=Math.round((Date.now()/1000-t)/60);return m<1?"только что":m<60?m+" мин назад":m<1440?Math.round(m/60)+" ч назад":new Date(t*1000).toLocaleString("ru-RU",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})};
  const E={store:"Склады",product:"Товары",variant:"Модификации",counterparty:"Контрагенты",customerorder:"Заказы покупателей",demand:"Отгрузки",retaildemand:"Чеки кассы",salesreturn:"Возвраты покупателей",retailsalesreturn:"Возвраты по кассе",supply:"Приёмки",loss:"Списания",enter:"Оприходования",move:"Перемещения",inventory:"Инвентаризации",paymentin:"Входящие платежи",paymentout:"Исходящие платежи",cashin:"Приходные ордера",cashout:"Расходные ордера",money:"Деньги и взаиморасчёты",stock:"Остатки по складам",recon:"Сверка"};const e=o.entities||{};const r=o.recon;
