@@ -74,6 +74,19 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 .snd.mic{background:var(--g)}.snd .mic{width:23px;height:23px;fill:none;stroke:#fff;stroke-width:1.9;stroke-linecap:round;margin:0}.snd .mic rect{fill:#fff}
 .pend{display:flex;align-items:center;gap:10px;padding:8px 14px;background:#F7F8F7;border-top:1px solid var(--line)}.pend[hidden],.rec[hidden],.cmp[hidden]{display:none}.pend img{width:44px;height:44px;border-radius:8px;object-fit:cover}.pend .fi{font-size:30px}.pend b{display:block;max-width:60vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pend .x{border:0;background:#E7EAE8;border-radius:50%;width:30px;height:30px;cursor:pointer}
 .rec{display:flex;align-items:center;gap:10px;padding:8px 12px calc(8px + env(safe-area-inset-bottom,0px));background:#fff;border-top:1px solid var(--line)}.dot{width:12px;height:12px;border-radius:50%;background:#D93025;animation:bl 1s infinite}@keyframes bl{50%{opacity:.25}}.rec b{font-variant-numeric:tabular-nums;font-size:17px}
+/* группы и рассылки */
+.gtop{display:flex;gap:8px;margin:0 0 10px}.ghint{font-size:13px;color:#5B6B63;background:#F1F6F3;border:1px solid #DCE5DF;border-radius:12px;padding:10px 12px;margin-bottom:12px;line-height:1.4}
+.glist{display:flex;flex-direction:column;gap:8px;max-width:760px}.gcard{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid #E1E6E2;border-radius:14px;padding:12px 14px;cursor:pointer}.gcard:hover{border-color:#B9CCC1}.gcard b{font-size:15.5px}
+.gch{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:4px 0 2px}.gch small{font-size:12px;color:#5B6B63}.gsm{font-size:12.5px;line-height:1.35}.gok{color:#128C4A}.gerr{color:#B3261E}.gar{font-size:22px;color:#9AA8A0}
+.gsh{display:flex;flex-direction:column;gap:0}.gname{font-size:18px;font-weight:800;border:1px solid transparent;border-radius:10px;padding:6px 8px;margin-left:-8px;flex:1;min-width:0;background:transparent}.gname:focus{border-color:#B9CCC1;background:#fff;outline:0}
+.gsec{border-top:1px solid #EEF1EE;padding:12px 0}.gsec:first-of-type{border-top:0}.gst{display:flex;align-items:center;justify-content:space-between;font-weight:800;font-size:14.5px;margin-bottom:8px}
+.gsec textarea{width:100%;box-sizing:border-box;border-radius:12px;min-height:96px}.grow2{display:flex;align-items:center;gap:8px;margin:8px 0 6px}.gfile{display:flex;align-items:center;gap:10px}.gfile:not(:empty){margin-top:8px}.gfile img{width:48px;height:48px;border-radius:8px;object-fit:cover}.gfile .fi{font-size:26px}
+.gfile .x,.gmr .x{border:0;background:#EEF1EE;border-radius:50%;width:30px;height:30px;cursor:pointer;flex:none}
+.gbc{display:flex;align-items:center;gap:8px;padding:9px 0;border-top:1px solid #F2F4F2;cursor:pointer}.gbc:first-of-type{border-top:0}.gbt{font-size:14px;overflow:hidden;text-overflow:ellipsis}.grun{color:#8A4B08}
+.gmr{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid #F2F4F2}.gmr b{font-size:14.5px}.gdel{align-self:flex-start;margin-top:6px;color:#B3261E}
+.prow{display:flex;align-items:center;gap:10px;margin:10px 0 4px}.plist{flex:1;overflow:auto;min-height:120px}.pit2{display:flex;gap:10px;align-items:flex-start;padding:9px 2px;border-top:1px solid #F2F4F2;cursor:pointer}.pit2 input{width:20px;height:20px;margin-top:2px;flex:none;accent-color:#0E3B2C}.pit2.in{opacity:.55}
+.pbar{position:sticky;bottom:0;background:#fff;padding:10px 0 2px}
+@media(min-width:801px){.gsh{max-width:none}.gsh>*{max-width:720px;width:100%;margin-left:auto;margin-right:auto;box-sizing:border-box}}
 /* чат: вложения пачкой, меню скрепки, смайлы, запись с удержанием (влево — отмена, вверх — замок), видеокружок */
 .pend{flex-direction:column;align-items:stretch;gap:6px}.pst{display:flex;gap:8px;overflow-x:auto;padding-top:2px}.pit{position:relative;flex:none;width:64px;height:64px;border-radius:10px;background:#E7EAE8;display:grid;place-items:center}.pit img{width:64px;height:64px;border-radius:10px;object-fit:cover}.pit .fi{font-size:28px}.pit .x{position:absolute;top:-6px;right:-6px;width:22px;height:22px;font-size:11px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25)}.pnm{font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .amenu{display:flex;gap:8px;padding:10px 12px;background:#fff;border-top:1px solid #E1E6E2}.amenu button{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;border:1px solid #DCE5DF;background:#F1F6F3;border-radius:14px;padding:10px 4px;font:inherit;font-size:12.5px;font-weight:700;color:#0E3B2C;cursor:pointer}.amenu span{font-size:24px;line-height:1}
@@ -197,7 +210,7 @@ aside{position:relative}.sbo{display:none}
 <div id="l2" hidden><p class="mut">Код отправлен вам в Telegram (бот AMURA Orders). Введите его здесь.</p><input id="lc" inputmode="numeric" maxlength="6" placeholder="Код из 6 цифр" autocomplete="one-time-code" style="margin-bottom:12px;text-align:center;font-size:22px;letter-spacing:.3em"><button class="btn" id="vf">Войти</button><p><a href="#" id="lb" class="mut">Ввести другой @username</a></p></div>
 <p class="mut" id="lmsg"></p></div>
 <div class="app" id="app" hidden><aside><div class="logo">AMURA</div>
-<button class="sbt" id="sbt" title="Скрыть панель" aria-label="Скрыть боковую панель">‹</button><button class="nav on" data-p="overview">Обзор</button><div class="subs" data-for="overview"></div><button class="nav" data-p="products">Товары на сайте</button><div class="subs" data-for="products"></div><button class="nav" data-p="orders">Заказы</button><div class="subs" data-for="orders"></div><button class="nav" data-p="inbox">Сообщения</button><button class="nav" data-p="ai">Ассистент</button><div class="subs" data-for="ai"></div>
+<button class="sbt" id="sbt" title="Скрыть панель" aria-label="Скрыть боковую панель">‹</button><button class="nav on" data-p="overview">Обзор</button><div class="subs" data-for="overview"></div><button class="nav" data-p="products">Товары на сайте</button><div class="subs" data-for="products"></div><button class="nav" data-p="orders">Заказы</button><div class="subs" data-for="orders"></div><button class="nav" data-p="inbox">Сообщения</button><div class="subs" data-for="inbox"></div><button class="nav" data-p="ai">Ассистент</button><div class="subs" data-for="ai"></div>
 <div class="note">Склад и цены ведутся в МойСклад. Панель показывает, что видит сайт, и управляет настройками.</div><button class="accrow" id="acd" aria-label="Аккаунт"></button></aside>
 <div class="mtop"><span>AMURA</span><button class="acc" id="acm" aria-label="Аккаунт"></button></div><div class="accmenu" id="accmenu" hidden></div><button class="sbo" id="sbo" title="Показать панель" aria-label="Показать боковую панель">☰</button><main id="main"></main><nav class="tabbar" aria-label="Разделы"><button data-p="overview" class="on"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Обзор</button><button data-p="products"><svg viewBox="0 0 24 24"><path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>Товары</button><button data-p="orders"><svg viewBox="0 0 24 24"><path d="M6 3h12l2 4v13a1 1 0 01-1 1H5a1 1 0 01-1-1V7z"/><path d="M4 7h16M9 11a3 3 0 006 0"/></svg>Заказы</button><button data-p="inbox"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.96 16.38A8.5 8.5 0 1 0 13.48 19.87L20.6 21z"/><circle cx="8" cy="11.5" r="1.3" fill="currentColor" stroke="none"/><circle cx="12" cy="11.5" r="1.3" fill="currentColor" stroke="none"/><circle cx="16" cy="11.5" r="1.3" fill="currentColor" stroke="none"/></svg>Сообщения</button><button data-p="ai"><svg viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="12" rx="3"/><path d="M12 7V4M9 12v1.5M15 12v1.5"/></svg>Ассистент</button></nav></div>
 <script>
@@ -209,7 +222,7 @@ let nav=0;   // номер перехода между разделами: от�
 let gotStale=false;
 async function api(p,o={}){const n=nav;const r=await fetch("/admin/api/"+p,{...o,headers:{"Content-Type":"application/json",Authorization:"Bearer "+tok}});if(!o.method&&r.headers.get("X-Stale"))gotStale=true;
  if(r.status===401){localStorage.removeItem(T);tok="";boot();throw Error("401")}const j=await r.json();if(!o.method&&n!==nav)throw Error("stale");if(!j.ok)throw Error(j.error||"Ошибка");return j}
-const ALLOW={money:"owner",mirror:"owner",notif:"owner",overview:"owner",pay:"owner",delivery:"owner",accounts:"owner",banners:"owner",reviews:"products",ai:"owner",team:"owner",channels:"owner",products:"products",orders:"orders",retail:"orders",courier:"orders",express:"orders",clients:"orders",inbox:"inbox"};
+const ALLOW={money:"owner",mirror:"owner",notif:"owner",overview:"owner",pay:"owner",delivery:"owner",accounts:"owner",banners:"owner",reviews:"products",ai:"owner",team:"owner",channels:"owner",products:"products",orders:"orders",retail:"orders",courier:"orders",express:"orders",clients:"orders",inbox:"inbox",groups:"inbox"};
 let ME=null,MODS={};const MODV={money:"finance"};   /* разделы подключаемых модулей: выключен модуль — раздела нет */
 const can=p=>!!ME&&!(MODV[p]&&!MODS[MODV[p]])&&(ME.role==="owner"||(ALLOW[p]!=="owner"&&ME.perms.includes(ALLOW[p])));
 async function boot(){const a=!!tok;$("#login").hidden=a;$("#app").hidden=!a;if(!a){ME=null;return}
@@ -253,8 +266,8 @@ $("#acm").onclick=e=>accToggle(e,"top");$("#acd").onclick=e=>accToggle(e,"side")
 document.addEventListener("click",e=>{const m=$("#accmenu");if(!m.hidden&&!m.contains(e.target))m.hidden=true});
 let lastArg,cur=localStorage.getItem("amura_view")||"overview",restoreY=0;try{const sp=JSON.parse(sessionStorage.getItem("amura_pos")||"null");if(sp&&sp.v===cur)restoreY=sp.y||0}catch(e){}
 const savePos=()=>{try{sessionStorage.setItem("amura_pos",JSON.stringify({v:cur,y:scrollY}))}catch(e){}};addEventListener("pagehide",savePos);document.addEventListener("visibilitychange",()=>{if(document.hidden)savePos()});document.querySelectorAll(".nav,.tabbar button").forEach(b=>b.onclick=()=>{document.querySelectorAll(".nav,.tabbar button").forEach(x=>x.classList.toggle("on",x.dataset.p===b.dataset.p));scrollTo(0,0);show(b.dataset.p)});
-const SEG={orders:[["orders","Заказы"],["retail","Розница"],["courier","Курьер"],["express","Express"],["clients","Клиенты"]],products:[["products","Товары"],["reviews","Отзывы"],["banners","Баннеры на главной"]],overview:[["overview","Состояние"],["money","Деньги"],["pay","Оплата"],["accounts","Счета"],["delivery","Доставка"],["notif","Уведомления"]],ai:[["ai","Чат-проверка"],["rules","Правила"],["kb","База знаний"],["channels","Каналы"],["team","Команда"]]};
-const grp=a=>({money:"overview",courier:"orders",express:"orders",notif:"overview",delivery:"overview",accounts:"overview",clients:"orders",retail:"orders",banners:"products",reviews:"products",pay:"overview",team:"ai",rules:"ai",kb:"ai",channels:"ai"}[a]||a);
+const SEG={inbox:[["inbox","Чаты"],["groups","Группы и рассылки"]],orders:[["orders","Заказы"],["retail","Розница"],["courier","Курьер"],["express","Express"],["clients","Клиенты"]],products:[["products","Товары"],["reviews","Отзывы"],["banners","Баннеры на главной"]],overview:[["overview","Состояние"],["money","Деньги"],["pay","Оплата"],["accounts","Счета"],["delivery","Доставка"],["notif","Уведомления"]],ai:[["ai","Чат-проверка"],["rules","Правила"],["kb","База знаний"],["channels","Каналы"],["team","Команда"]]};
+const grp=a=>({groups:"inbox",money:"overview",courier:"orders",express:"orders",notif:"overview",delivery:"overview",accounts:"overview",clients:"orders",retail:"orders",banners:"products",reviews:"products",pay:"overview",team:"ai",rules:"ai",kb:"ai",channels:"ai"}[a]||a);
 const seg=a=>{const g=SEG[grp(a)].filter(([k])=>can(k));if(g.length<2)return "";return `<div class="seg" data-g="${grp(a)}">${g.map(([k,t])=>`<button class="${k===a?"on":""}" data-go="${k}">${t}</button>`).join("")}</div>`};
 const bindSeg=()=>document.querySelectorAll("[data-go]").forEach(b=>b.onclick=()=>show(b.dataset.go));
 const renderSubs=()=>{const g=grp(cur);document.querySelectorAll(".subs").forEach(d=>{const k=d.dataset.for,l=(SEG[k]||[]).filter(([x])=>can(x));d.classList.toggle("open",k===g&&l.length>1);d.innerHTML=l.map(([x,t])=>`<button data-k="${x}" class="${x===cur?"on":""}">${t}</button>`).join("");d.querySelectorAll("button").forEach(b=>b.onclick=()=>{scrollTo(0,0);show(b.dataset.k)})});document.querySelectorAll(".nav").forEach(x=>x.classList.toggle("on",x.dataset.p===g))};
@@ -818,8 +831,8 @@ async inbox(openId){const st=await api("inbox/status");let cur=openId||null,flt=
  const unOf=c=>c.channel==="wa"?`<span class="un">+${esc(c.phone)}</span>`:(c.username?`<span class="un">@${esc(c.username)}</span>`:"");
  const ST={ai:["ИИ","ai"],manager:["Менеджер","mg"],closed:["Закрыт","cl"]},stb=s=>`<span class="stt ${(ST[s]||ST.ai)[1]}">${(ST[s]||ST.ai)[0]}</span>`;
  const warn=st.persistent?"":'<div class="b x" style="display:block;margin-bottom:10px;border-radius:10px;padding:10px 14px;white-space:normal">База данных не подключена: диалоги пропадут при перезапуске сервера.</div>';
- $("#main").innerHTML=`<div class="ibx2" id="ibx"><section class="il2"><div class="ih"><h1>Сообщения</h1><div class="chips cn" id="fl"></div></div>${warn}<div id="lst"></div></section><section class="ic2" id="ic2"></section></div>`;
- const box=$("#ibx");
+ $("#main").innerHTML=seg("inbox")+`<div class="ibx2" id="ibx"><section class="il2"><div class="ih"><h1>Сообщения</h1><div class="chips cn" id="fl"></div></div>${warn}<div id="lst"></div></section><section class="ic2" id="ic2"></section></div>`;
+ bindSeg();const box=$("#ibx");
  const CH=[["all","Все чаты"],["wa","WhatsApp"],["ig","Instagram"],["web","Сайт"],["tg","Telegram"]],inCh=c=>chan==="all"||c.channel===chan;
  const drawList=()=>{const nc=k=>convs.filter(c=>c.status!=="closed"&&(k==="all"||c.channel===k)),n=k=>convs.filter(c=>inCh(c)&&(k==="all"?c.status!=="closed":c.status===k)).length;
   $("#fl").innerHTML=CH.map(([k,t])=>{const u=nc(k).reduce((a,c)=>a+(c.unread||0),0);return `<button class="${chan===k?"on":""} ${k}" data-c="${k}">${t}${nc(k).length?` <i>${nc(k).length}</i>`:""}${u?`<b class="ud"></b>`:""}</button>`}).join("")+'<span class="sp"></span>'+
@@ -1076,6 +1089,83 @@ async channels(){const c=await api("channels");const w=c.wa,g=c.ig||{};
 async pay(){const p=await api("pay");$("#main").innerHTML=head("Оплата и реквизиты","Это сообщение бот отправляет клиенту сразу после накладной")+seg("pay")+`<div class="card" style="max-width:640px"><textarea id="t">${esc(p.text)}</textarea><div style="display:flex;gap:10px;align-items:center;margin-top:14px"><button class="btn" id="s">Сохранить и опубликовать</button><span class="mut" id="m">${p.at?"Изменено "+esc(p.at):""}</span></div></div>`;
  bindSeg();$("#s").onclick=async()=>{try{await api("pay",{method:"PUT",body:JSON.stringify({text:$("#t").value})});$("#m").textContent="Сохранено ✅"}catch(e){$("#m").textContent=e.message}}}};
 boot();
+/* Группы и рассылки («Сообщения» → «Группы и рассылки»): контакты из любых мессенджеров, рассылка с {имя}, фото/файл, отчёт */
+const CHN={tg:"Telegram",wa:"WhatsApp",ig:"Instagram",web:"Сайт"};
+const chb=ch=>`<span class="src ${ch==="tg"?"":ch}">${CHN[ch]||ch}</span>`;
+const gWhen=t=>new Date(t*1000).toLocaleString("ru-RU",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+const gSheet=html=>{const ov=document.createElement("div");ov.className="ovx";ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:flex-end;justify-content:center";
+ ov.innerHTML=`<div class="eo vo gsh">${html}</div>`;ov.onclick=e=>{if(e.target===ov)ov.remove()};document.body.appendChild(ov);return ov};
+views.groups=async()=>{const r=await api("inbox/groups");
+ const card=g=>`<div class="gcard" data-g="${g.id}"><div class="grow"><b>${esc(g.name)}</b><div class="gch">${Object.entries(g.chans).map(([k,n])=>`${chb(k)}<small>${n}</small>`).join("")||'<span class="mut">пусто</span>'}</div>
+  <div class="mut gsm">${g.count} контакт${g.count%10===1&&g.count%100!==11?"":g.count%10>=2&&g.count%10<=4&&(g.count%100<12||g.count%100>14)?"а":"ов"} · сейчас можно написать ${g.open}${g.last?` · рассылка ${gWhen(g.last.at)}: ${g.last.state==="run"?"идёт…":"ушло "+g.last.sent+" из "+g.last.total}`:""}</div></div><span class="gar">›</span></div>`;
+ $("#main").innerHTML=seg("groups")+`<h1>Группы и рассылки</h1><div class="gtop"><button class="btn" id="gnew">+ Новая группа</button></div>
+  <div class="ghint">В группу можно добавить любой чат — Telegram, WhatsApp, Instagram, сайт. WhatsApp и Instagram разрешают писать первым только в течение 24 часов после последнего сообщения клиента: остальным рассылка не уйдёт, они будут в отчёте.</div>
+  <div class="glist">${r.groups.length?r.groups.map(card).join(""):'<div class="mut" style="padding:20px 4px">Групп пока нет. Создайте первую — например «Оптовики Алматы».</div>'}</div>`;
+ bindSeg();
+ $("#gnew").onclick=()=>{const ov=gSheet(`<div class="voh"><div style="font-weight:800;font-size:18px">Новая группа</div><button class="vox">✕</button></div>
+   <input id="gnm" placeholder="Название, например «Оптовики Алматы»" maxlength="80" style="margin:14px 0 10px"><button class="btn" id="gok" style="width:100%">Создать и добавить контакты</button>`);
+  ov.querySelector(".vox").onclick=()=>ov.remove();const i=ov.querySelector("#gnm");i.focus();
+  const ok=async()=>{const n=i.value.trim();if(!n)return i.focus();const j=await api("inbox/groups",{method:"POST",body:JSON.stringify({name:n})});ov.remove();await views.groups();groupOpen(j.id,true)};
+  ov.querySelector("#gok").onclick=ok;i.onkeydown=e=>{if(e.key==="Enter")ok()}};
+ document.querySelectorAll(".gcard").forEach(c=>c.onclick=()=>groupOpen(+c.dataset.g))};
+async function groupOpen(gid,pick){
+ const ov=gSheet('<div class="mut">Загружаю…</div>'),box=ov.querySelector(".eo");let file=null,poll=0,sending=false;
+ const close=()=>{clearTimeout(poll);ov.remove();if(cur==="groups")views.groups().catch(()=>{})};ov.onclick=e=>{if(e.target===ov)close()};
+ const draw=async()=>{const r=await api("inbox/groups/"+gid);if(!document.body.contains(ov))return;const m=r.members,open=m.filter(x=>x.open).length,run=r.broadcasts.some(b=>b.state==="run");
+  const keep=box.querySelector("#gtx")?box.querySelector("#gtx").value:"";
+  box.innerHTML=`<div class="voh"><input id="gname" class="gname" value="${esc(r.group.name)}" maxlength="80" aria-label="Название группы"><button class="vox" id="gx">✕</button></div>
+   <div class="gsec"><div class="gst">Рассылка</div>
+    <textarea id="gtx" rows="4" placeholder="Текст рассылки. {имя} — подставится имя клиента">${esc(keep)}</textarea>
+    <div class="gfile" id="gfl"></div>
+    <div class="grow2"><button class="btn ghost sm" id="gat">📎 Фото или файл</button><input type="file" id="gfi" hidden><span class="grow"></span><button class="btn" id="gsd" ${open&&!sending?"":"disabled"}>Отправить ${open}</button></div>
+    <div class="mut gsm">${m.length?`Получат ${open} из ${m.length}${m.length-open?` · ${m.length-open} — окно WhatsApp/Instagram закрыто`:""}`:"Добавьте контакты в группу"}</div></div>
+   ${r.broadcasts.length?`<div class="gsec"><div class="gst">История рассылок</div>${r.broadcasts.map(b=>`<div class="gbc" data-b="${b.id}"><div class="grow"><div class="gbt">${esc((b.text||"").slice(0,120))||"📎 "+esc(b.file||"файл")}</div>
+     <div class="mut gsm">${gWhen(b.at)}${b.by?" · "+esc(b.by):""} · ${b.state==="run"?`<b class="grun">идёт ${b.sent+b.failed} из ${b.total-b.skipped}</b>`:`ушло ${b.sent} из ${b.total}`}${b.skipped?` · пропущено ${b.skipped}`:""}${b.failed?` · <b style="color:#B3261E">ошибок ${b.failed}</b>`:""}</div></div><span class="gar">›</span></div>`).join("")}</div>`:""}
+   <div class="gsec"><div class="gst">Контакты (${m.length})<button class="btn ghost sm" id="gadd">+ Добавить</button></div>
+    ${m.map(x=>`<div class="gmr"><div class="grow"><b>${esc(x.name)}</b><div class="gch">${chb(x.channel)}${x.phone?`<small>+${esc(x.phone)}</small>`:x.username?`<small>@${esc(x.username)}</small>`:""}</div>
+     <div class="gsm ${x.open?"gok":"mut"}">${x.open?"можно написать":esc(x.why)}</div></div><button class="x" data-rm="${x.id}" aria-label="Убрать из группы">✕</button></div>`).join("")||'<div class="mut gsm">Пока никого. Нажмите «+ Добавить».</div>'}</div>
+   <button class="btn ghost sm gdel" id="gdl">Удалить группу</button>`;
+  const $b=s=>box.querySelector(s);
+  $b("#gx").onclick=close;
+  $b("#gname").onchange=async e=>{const n=e.target.value.trim();if(n)await api("inbox/groups/"+gid,{method:"PUT",body:JSON.stringify({name:n})})};
+  const drawFile=()=>{$b("#gfl").innerHTML=file?`${file.type.startsWith("image/")?`<img src="${URL.createObjectURL(file)}">`:'<span class="fi">📎</span>'}<span class="grow">${esc(file.name)}</span><button class="x" id="gfx">✕</button>`:"";if(file)$b("#gfx").onclick=()=>{file=null;drawFile()}};drawFile();
+  $b("#gat").onclick=()=>$b("#gfi").click();$b("#gfi").onchange=e=>{const f=e.target.files[0];e.target.value="";if(!f)return;if(f.size>20*1024*1024)return alert("Файл больше 20 МБ");file=f;drawFile()};
+  $b("#gsd").onclick=async()=>{const t=$b("#gtx").value.trim();if(!t&&!file)return $b("#gtx").focus();
+   if(!confirm(`Отправить рассылку ${open} получателям?${m.length-open?`\n${m.length-open} не получат: в WhatsApp/Instagram прошло больше 24 часов с их последнего сообщения.`:""}`))return;
+   sending=true;$b("#gsd").disabled=true;const fd=new FormData();fd.append("text",t);if(file)fd.append("file",file,file.name);
+   try{const q=await fetch(`/admin/api/inbox/groups/${gid}/send`,{method:"POST",headers:{Authorization:"Bearer "+tok},body:fd});if(q.status===401){localStorage.removeItem(T);tok="";boot();return}
+    const j=await q.json().catch(()=>({}));if(!j.ok)throw Error(j.error||"Не отправилось");toast("Рассылка запущена");$b("#gtx").value="";file=null}catch(er){alert(er.message)}sending=false;draw()};
+  box.querySelectorAll("[data-rm]").forEach(b=>b.onclick=async()=>{await api("inbox/groups/"+gid,{method:"PUT",body:JSON.stringify({remove:[+b.dataset.rm]})});draw()});
+  box.querySelectorAll("[data-b]").forEach(b=>b.onclick=()=>bcastReport(+b.dataset.b));
+  $b("#gadd").onclick=()=>pickContacts(gid,m.map(x=>x.id),draw);
+  $b("#gdl").onclick=async()=>{if(!confirm(`Удалить группу «${r.group.name}»? Чаты с клиентами останутся.`))return;await api("inbox/groups/"+gid,{method:"DELETE"});close()};
+  clearTimeout(poll);if(run)poll=setTimeout(()=>draw().catch(()=>{}),2500)};
+ await draw();if(pick)pickContacts(gid,[],draw)}
+async function bcastReport(bid){const r=await api("inbox/broadcasts/"+bid),b=r.broadcast;const ST={sent:["ушло","gok"],skip:["пропущено","mut"],fail:["ошибка","gerr"],wait:["в очереди","mut"]};
+ const order={fail:0,skip:1,wait:2,sent:3},it=r.items.sort((a,c)=>order[a.state]-order[c.state]);
+ const ov=gSheet(`<div class="voh"><div style="font-weight:800;font-size:18px">Рассылка ${gWhen(b.at)}</div><button class="vox">✕</button></div>
+  <div class="gbt" style="margin:10px 0;white-space:pre-wrap">${esc(b.text||"")}${b.file?`\n📎 ${esc(b.file)}`:""}</div>
+  <div class="mut gsm" style="margin-bottom:8px">Ушло ${b.sent} · пропущено ${b.skipped} · ошибок ${b.failed} · всего ${b.total}</div>
+  ${it.map(x=>`<div class="gmr"><div class="grow"><b>${esc(x.name||"Без имени")}</b><div class="gch">${chb(x.channel)}</div>${x.error?`<div class="gsm mut">${esc(x.error)}</div>`:""}</div><span class="gsm ${ST[x.state][1]}">${ST[x.state][0]}</span></div>`).join("")}`);
+ ov.querySelector(".vox").onclick=()=>ov.remove()}
+async function pickContacts(gid,have,done){let ch="",q="",sel=new Set(),list=[];const inG=new Set(have);
+ const ov=gSheet(`<div class="voh"><div style="font-weight:800;font-size:18px">Добавить в группу</div><button class="vox">✕</button></div>
+  <input id="pq" placeholder="Имя, @ник или номер" style="margin:12px 0 8px"><div class="chips" id="pch"></div>
+  <div class="prow"><button class="btn ghost sm" id="pall">Выбрать всех найденных</button><span class="mut gsm" id="pn"></span></div>
+  <div id="pl" class="plist"></div><div class="pbar"><button class="btn" id="pok" style="width:100%" disabled>Добавить</button></div>`);
+ const $p=s=>ov.querySelector(s);$p(".vox").onclick=()=>ov.remove();
+ const chips=()=>{$p("#pch").innerHTML=[["","Все"],["tg","Telegram"],["wa","WhatsApp"],["ig","Instagram"],["web","Сайт"]].map(([k,t])=>`<button class="${ch===k?"on":""}" data-c="${k}">${t}</button>`).join("");
+  $p("#pch").querySelectorAll("button").forEach(b=>b.onclick=()=>{ch=b.dataset.c;chips();load()})};
+ const drawL=()=>{$p("#pl").innerHTML=list.map(x=>`<label class="pit2 ${inG.has(x.id)?"in":""}"><input type="checkbox" data-id="${x.id}" ${inG.has(x.id)||sel.has(x.id)?"checked":""} ${inG.has(x.id)?"disabled":""}>
+   <div class="grow"><b>${esc(x.name)}</b><div class="gch">${chb(x.channel)}${x.phone?`<small>+${esc(x.phone)}</small>`:x.username?`<small>@${esc(x.username)}</small>`:""}${inG.has(x.id)?'<small>уже в группе</small>':""}</div>
+   <div class="gsm ${x.open?"gok":"mut"}">${x.open?"можно написать":esc(x.why)}</div></div></label>`).join("")||'<div class="mut gsm" style="padding:14px 2px">Никого не нашлось</div>';
+  $p("#pl").querySelectorAll("input[data-id]").forEach(i=>i.onchange=()=>{const id=+i.dataset.id;i.checked?sel.add(id):sel.delete(id);cnt()});cnt()};
+ const cnt=()=>{$p("#pok").disabled=!sel.size;$p("#pok").textContent=sel.size?`Добавить (${sel.size})`:"Добавить";$p("#pn").textContent=list.length?`найдено ${list.length}`:""};
+ const load=async()=>{const r=await api(`inbox/contacts?ch=${ch}&q=${encodeURIComponent(q)}`);list=r.contacts;drawL()};
+ let t;$p("#pq").oninput=e=>{clearTimeout(t);t=setTimeout(()=>{q=e.target.value.trim();load()},300)};
+ $p("#pall").onclick=()=>{list.forEach(x=>{if(!inG.has(x.id))sel.add(x.id)});drawL()};
+ $p("#pok").onclick=async()=>{$p("#pok").disabled=true;await api("inbox/groups/"+gid,{method:"PUT",body:JSON.stringify({add:[...sel]})});ov.remove();toast("Добавлено: "+sel.size);done()};
+ chips();await load();$p("#pq").focus()}
 </script><script>
 /* Потянуть вниз — обновить (только когда сайт добавлен на экран телефона). Индикатор: Человек-паук на нити, гнётся в двух местах, пружинная инерция. */
 (function(){
