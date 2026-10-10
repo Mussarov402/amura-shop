@@ -130,6 +130,9 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 /* заголовок и пояснение раздела убраны: на телефоне вкладки сразу под зелёной шапкой, на компьютере — без поясняющей строки */
 #main > .sub{display:none}#main > h1{margin-bottom:14px}
 @media(max-width:800px){#main > h1{display:none}main#main{padding-top:10px}}
+
+/* компьютер: боковое меню закреплено — при прокрутке любого раздела стоит на месте */
+@media(min-width:801px){aside{position:sticky!important;top:0;align-self:flex-start;height:100vh;height:100dvh;box-sizing:border-box;overflow-y:auto;overscroll-behavior:contain}}
 </style><style id="eocss">.eo{background:#fff;width:100%;max-width:560px;max-height:92vh;overflow:auto;border-radius:18px 18px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom))}
 @media(min-width:801px){.eo{border-radius:0;margin:0;width:100%;max-width:none;height:100%;max-height:none;box-sizing:border-box;padding:28px max(28px,calc((100vw - 1000px)/2)) 40px}.eo .voa{max-width:none;display:flex;flex-wrap:wrap}.eo .voa button{flex:0 1 128px;min-width:96px}}   /* компьютер: заказ на весь экран, содержимое по центру; кнопки заказа — в одну строку */
 .eor{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid #EEF1EE}.eor:first-child{border-top:0}.eon{flex:1;min-width:0;font-size:14px}
