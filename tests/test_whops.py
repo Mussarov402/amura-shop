@@ -65,9 +65,12 @@ class WhOpsTest(unittest.TestCase):
     def post(self, **b):
         return self.c.post("/admin/api/warehouse/ops", headers=self.h, json=b)
 
-    def test_off_by_default(self):
-        self.assertEqual(self.c.get("/admin/api/warehouse/ops", headers=self.h).status_code, 404)    # модуль выключен
+    def test_switches(self):
+        self.assertTrue(self.c.get("/admin/api/warehouse/ops", headers=self.h).get_json()["enabled"])    # решение владельца: включено сразу
+        self.c.put("/admin/api/modules", headers=self.h, json={"id": "warehouse", "on": False})
+        self.assertEqual(self.c.get("/admin/api/warehouse/ops", headers=self.h).status_code, 404)       # модуль выключен — раздела нет
         self.c.put("/admin/api/modules", headers=self.h, json={"id": "warehouse", "on": True})
+        self.c.post("/admin/api/warehouse/ops/flag", headers=self.h, json={"on": False})
         self.assertFalse(self.c.get("/admin/api/warehouse/ops", headers=self.h).get_json()["enabled"])
         self.assertEqual(self.post(kind="loss", store="sA", lines=[{"id": "p1", "qty": 1}]).status_code, 403)
         self.assertEqual(self.ms.calls, [])                                                            # в МойСклад ничего

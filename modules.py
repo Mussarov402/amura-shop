@@ -9,12 +9,14 @@ REGISTRY = {
         "title": "Финансы",
         "about": "Деньги на счетах и в кассах, поступления и выплаты по дням, взаиморасчёты с контрагентами. Только просмотр.",
         "views": ["money"],
+        "default": True,      # решение владельца 10.10.2026: готовые разделы включены сразу; выключатель в «Модулях» — для отката
         "sources": {"own": "Наша база (копия МойСклад, обновляется каждые 10 минут)"},
     },
     "warehouse": {
         "title": "Склад",
         "about": "Остатки по складам: итоги по каждому складу и поиск товара с остатком и резервом на каждом складе. Только просмотр.",
         "views": ["wh"],
+        "default": True,
         "sources": {"own": "Наша база (копия МойСклад, обновляется каждые 10 минут)"},
     },
 }
@@ -24,12 +26,17 @@ def _key(mid, suffix=""):
     return f"mod_{mid}{suffix}"
 
 
+def _dflt(mid):
+    """Состояние, пока владелец не переключал модуль сам: «1» для готовых разделов (REGISTRY[...]["default"])."""
+    return "1" if REGISTRY[mid].get("default") else "0"
+
+
 def enabled(mid):
     if mid not in REGISTRY:
         return False
     try:
         with inbox.db() as d:
-            return inbox.get_setting(d, _key(mid), "0") == "1"
+            return inbox.get_setting(d, _key(mid), _dflt(mid)) == "1"
     except Exception:
         return False
 
@@ -44,7 +51,7 @@ def source(mid):
 def on_map():
     """Какие модули включены: {id: True}. Для меню панели (ничего секретного)."""
     with inbox.db() as d:
-        return {mid: True for mid in REGISTRY if inbox.get_setting(d, _key(mid), "0") == "1"}
+        return {mid: True for mid in REGISTRY if inbox.get_setting(d, _key(mid), _dflt(mid)) == "1"}
 
 
 def listing():
