@@ -374,6 +374,14 @@ class MirrorTest(unittest.TestCase):
         self.assertEqual(self.count("SELECT COUNT(*) FROM ms_payment_link WHERE payment_id='pi1'"), 1)
         self.assertEqual(self.count("SELECT sum FROM ms_payment_link WHERE payment_id='pi1'"), 7000)
 
+    def test_paid_sum_saved(self):
+        from datetime import datetime
+        now = datetime.now(mirror.MS_TZ).strftime("%Y-%m-%d %H:%M:%S.000")
+        self.ms.docs["demand"] = [{"id": "dp", "name": "7", "moment": now, "updated": now, "sum": 9000 * 100,
+                                   "payedSum": 4000 * 100, "applicable": True, "positions": {"meta": {"size": 0}, "rows": []}}]
+        mirror.sync_entity("demand", pause=0)
+        self.assertEqual(self.count("SELECT paid FROM ms_doc WHERE id='dp'"), 4000)
+
     def test_links_reload_once(self):
         with mirror.db() as d:
             d.run("DELETE FROM setting WHERE key='mirror_links_v'")
