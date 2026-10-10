@@ -56,6 +56,9 @@ def _schema(d):
         "CREATE TABLE IF NOT EXISTS ms_doc_line (doc_id TEXT, pos_id TEXT, product_id TEXT, qty DOUBLE PRECISION, price DOUBLE PRECISION,"
         " discount DOUBLE PRECISION, sum DOUBLE PRECISION, PRIMARY KEY (doc_id, pos_id))",
         # снимки отчётов (заменяются целиком каждый проход): деньги на счетах и в кассах, взаиморасчёты с контрагентами (₸)
+        # связи платежей с документами (operations у платежа): какой документ оплачен и на какую сумму, ₸
+        "CREATE TABLE IF NOT EXISTS ms_payment_link (payment_id TEXT, doc_id TEXT, doc_type TEXT, sum DOUBLE PRECISION,"
+        " PRIMARY KEY (payment_id, doc_id))",
         "CREATE TABLE IF NOT EXISTS ms_money (account_id TEXT PRIMARY KEY, name TEXT, balance DOUBLE PRECISION, synced DOUBLE PRECISION)",
         "CREATE TABLE IF NOT EXISTS ms_agent_balance (agent_id TEXT PRIMARY KEY, name TEXT, balance DOUBLE PRECISION, synced DOUBLE PRECISION)",
         "CREATE TABLE IF NOT EXISTS ms_store (id TEXT PRIMARY KEY, name TEXT, archived INTEGER DEFAULT 0, updated TEXT, seen DOUBLE PRECISION)",
@@ -182,6 +185,33 @@ def _save_lines(d, lines_by_doc):
             d.run("INSERT INTO ms_doc_line (doc_id, pos_id, product_id, qty, price, discount, sum) VALUES (%s, %s, %s, %s, %s, %s, %s)", ln)
 
 
+def _save_links(d, rows):
+    """operations платежа → ms_payment_link (заменяем целиком для каждого загруженного платежа)."""
+    for r in rows:
+        pid = _id(r)
+        d.run("DELETE FROM ms_payment_link WHERE payment_id=%s", (pid,))
+        for op in r.get("operations") or []:
+            href = (op.get("meta") or {}).get("href", "")
+            if not href:
+                continue
+            doc_type = href.split("/entity/")[-1].split("/")[0] if "/entity/" in href else ""
+            d.run("INSERT INTO ms_payment_link (payment_id, doc_id, doc_type, sum) VALUES (%s, %s, %s, %s) ON CONFLICT (payment_id, doc_id) DO NOTHING",
+                  (pid, _href_id(op), doc_type, (op.get("linkedSum") or 0) / 100))
+
+
+LINKS_V = "1"   # версия загрузки связей платежей: смена версии один раз перечитывает платежи в окне DOC_DAYS
+
+
+def _links_reload():
+    with db() as d:
+        if inbox.get_setting(d, "mirror_links_v", "") == LINKS_V:
+            return
+        for t in MONEY_DOCS:
+            d.run("UPDATE ms_sync SET cursor='', skip=0, full_from=0, full_done=0 WHERE entity=%s", (t,))
+        inbox.set_setting(d, "mirror_links_v", LINKS_V)
+    print("Зеркало МойСклад: платежи будут перечитаны вместе со связями с документами", flush=True)
+
+
 def _lines_reload():
     """Один раз на версию LINES_V: документы, загруженные без позиций, перечитываем полным проходом (окно DOC_DAYS)."""
     with db() as d:
@@ -273,6 +303,8 @@ def sync_entity(entity, max_pages=MAX_PAGES, pause=PAUSE):
         with db() as d:
             _upsert(d, table, cols, "id", [parse(r, t) for r in rows])
             _save_lines(d, lines)
+            if entity in MONEY_DOCS:
+                _save_links(d, rows)
             seen_before = max(0, st["skip"] - off) if st["cursor"] else 0   # строки перекрытия — уже загружены раньше
             top = max(((r.get("updated") or "")[:19] for r in rows), default=st["cursor"])
             if top > st["cursor"]:                                    # группа нового курсора начинается на этой странице
@@ -387,6 +419,7 @@ def tick():
         return False
     try:
         _lines_reload()
+        _links_reload()
         caught_all, parts, t0 = True, [], time.time()
         for name, fn in (("store", sync_stores), *((e, (lambda e=e: sync_entity(e))) for e in ENTITIES), ("stock", sync_stock), ("money", sync_money)):
             try:

@@ -95,7 +95,7 @@ class MirrorTest(unittest.TestCase):
     def setUp(self):
         with mirror.db() as d:
             for t in ("ms_product", "ms_agent", "ms_doc", "ms_doc_line", "ms_store", "ms_stock", "ms_sync", "ms_recon",
-                      "ms_money", "ms_agent_balance"):
+                      "ms_money", "ms_agent_balance", "ms_payment_link"):
                 d.run(f"DELETE FROM {t}")
             inbox.set_setting(d, mirror.FLAG, "0")
         self.ms = FakeMS()
@@ -356,6 +356,34 @@ class MirrorTest(unittest.TestCase):
         self.assertEqual(by["Взаиморасчёты с контрагентами, итог"]["ours"], -4500)
         self.ms.money[0]["balance"] = 125000 * 100                     # в МойСклад пришли деньги после снимка — сверка это видит
         self.assertFalse({c["name"]: c for c in mirror._money_checks()}["Деньги на счетах и в кассах, всего"]["ok"])
+
+    def test_payment_links(self):
+        from datetime import datetime, timedelta
+        now_ms = datetime.now(mirror.MS_TZ)
+        ms = lambda dt: dt.strftime("%Y-%m-%d %H:%M:%S.000")
+        op = lambda kind, did, s: {"meta": {"href": f"https://x/api/remap/1.2/entity/{kind}/{did}"}, "linkedSum": s * 100}
+        p = {"id": "pi1", "name": "1", "moment": ms(now_ms), "updated": ms(now_ms), "sum": 7000 * 100, "applicable": True,
+             "operations": [op("customerorder", "o1", 5000), op("demand", "d9", 2000)]}
+        self.ms.docs["paymentin"] = [p]
+        mirror.sync_entity("paymentin", pause=0)
+        with mirror.db() as d:
+            rows = sorted(tuple(x) for x in d.run("SELECT doc_id, doc_type, sum FROM ms_payment_link WHERE payment_id='pi1'", many=True))
+        self.assertEqual(rows, [("d9", "demand", 2000), ("o1", "customerorder", 5000)])
+        p["operations"], p["updated"] = [op("customerorder", "o1", 7000)], ms(now_ms + timedelta(seconds=5))   # привязку изменили
+        mirror.sync_entity("paymentin", pause=0)
+        self.assertEqual(self.count("SELECT COUNT(*) FROM ms_payment_link WHERE payment_id='pi1'"), 1)
+        self.assertEqual(self.count("SELECT sum FROM ms_payment_link WHERE payment_id='pi1'"), 7000)
+
+    def test_links_reload_once(self):
+        with mirror.db() as d:
+            d.run("DELETE FROM setting WHERE key='mirror_links_v'")
+            d.run("INSERT INTO ms_sync (entity, cursor, skip, full_from, full_done, rows) VALUES ('paymentin', '2026-10-08 10:00:00', 3, 0, 5, 0)")
+        mirror._links_reload()
+        self.assertEqual(self.count("SELECT full_done FROM ms_sync WHERE entity='paymentin'"), 0)
+        with mirror.db() as d:
+            d.run("UPDATE ms_sync SET full_done=5 WHERE entity='paymentin'")
+        mirror._links_reload()
+        self.assertEqual(self.count("SELECT full_done FROM ms_sync WHERE entity='paymentin'"), 5)
 
     def test_lines_reload_once(self):
         with mirror.db() as d:
