@@ -2408,3 +2408,17 @@ def finance_money():
         return jsonify(ok=False, error="Модуль «Финансы» выключен"), 404
     return jsonify(ok=True, source=modules.source("finance"), **mirror.finance_view())
 
+
+
+@bp.get("/admin/api/warehouse")
+@guard
+def warehouse_stock():
+    if not modules.enabled("warehouse"):
+        return jsonify(ok=False, error="Модуль «Склад» выключен"), 404
+    a = request.args
+    try:
+        off = max(0, int(a.get("offset") or 0))
+    except ValueError:
+        off = 0
+    return jsonify(ok=True, source=modules.source("warehouse"),
+                   **mirror.warehouse_view(a.get("q", "")[:100], a.get("store", "")[:64], a.get("mode", "all"), 50, off))
