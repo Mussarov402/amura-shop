@@ -714,6 +714,43 @@ def stock_of(q, limit=30):
     return out
 
 
+def warehouse_view(q="", store="", mode="all", limit=50, offset=0):
+    """Модуль «Склад» (только просмотр, из зеркала): итоги по складам и товары с остатками по складам.
+    mode: all — все неархивные товары, in — есть на складе, out — нет (остаток ≤ 0); store — только этот склад."""
+    q = (q or "").strip()
+    with db() as d:
+        stores = d.run("SELECT s.id, s.name, COALESCE(SUM(CASE WHEN k.stock>0 THEN k.stock ELSE 0 END), 0),"
+                       " COUNT(CASE WHEN k.stock>0 THEN 1 END), COALESCE(SUM(CASE WHEN k.stock>0 THEN k.stock * COALESCE(p.buy_price, 0) ELSE 0 END), 0),"
+                       " COALESCE(SUM(k.reserve), 0)"
+                       " FROM ms_store s LEFT JOIN ms_stock k ON k.store_id=s.id LEFT JOIN ms_product p ON p.id=k.product_id AND p.deleted=0"
+                       " WHERE s.archived=0 GROUP BY s.id, s.name ORDER BY s.name", many=True) or []
+        names = dict(d.run("SELECT id, name FROM ms_store", many=True) or [])
+        synced = (d.run("SELECT MAX(synced) FROM ms_stock", one=True) or [0])[0] or 0
+        cond, args = ["p.deleted=0", "p.archived=0"], []
+        if q:
+            cond.append("(LOWER(p.name) LIKE %s OR p.name LIKE %s OR p.code LIKE %s OR p.article LIKE %s OR p.barcodes LIKE %s)")
+            args += [f"%{q.lower()}%", f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%"]
+        join = "LEFT JOIN ms_stock k ON k.product_id=p.id" + (" AND k.store_id=%s" if store else "")
+        jargs = [store] if store else []
+        having = {"in": " HAVING COALESCE(SUM(k.stock), 0)>0", "out": " HAVING COALESCE(SUM(k.stock), 0)<=0"}.get(mode, "")
+        base = (f"SELECT p.id, p.code, p.name, p.buy_price, COALESCE(SUM(k.stock), 0), COALESCE(SUM(k.reserve), 0) FROM ms_product p {join}"
+                f" WHERE {' AND '.join(cond)} GROUP BY p.id, p.code, p.name, p.buy_price{having}")
+        total = (d.run(f"SELECT COUNT(*) FROM ({base}) t", (*jargs, *args), one=True) or [0])[0]
+        rows = d.run(base + " ORDER BY p.name LIMIT %s OFFSET %s", (*jargs, *args, limit, offset), many=True) or []
+        by = {}
+        ids = [r[0] for r in rows]
+        if ids:
+            for pid, sid, a, b in d.run("SELECT product_id, store_id, stock, reserve FROM ms_stock WHERE product_id IN ("
+                                        + ", ".join(["%s"] * len(ids)) + ")", ids, many=True) or []:
+                if a or b:
+                    by.setdefault(pid, []).append({"store": names.get(sid, sid), "id": sid, "stock": a or 0, "reserve": b or 0})
+    return {"synced": synced, "total": total,
+            "stores": [{"id": i, "name": n or i, "units": round(u), "skus": c, "value": round(v), "reserve": round(r)}
+                       for i, n, u, c, v, r in stores],
+            "items": [{"id": pid, "code": code, "name": name, "buy": round(bp or 0), "stock": a, "reserve": b,
+                       "stores": sorted(by.get(pid, []), key=lambda x: x["store"])} for pid, code, name, bp, a, b in rows]}
+
+
 def finance_view(days=14, top=20):
     """Модуль «Финансы» (только просмотр, из зеркала): деньги по счетам, движение по дням (Алматы), взаиморасчёты."""
     today = datetime.now(oh.ALMATY).date()

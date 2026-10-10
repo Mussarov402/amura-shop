@@ -75,5 +75,34 @@ class ModulesTest(unittest.TestCase):
         self.assertEqual(self.c.get("/admin/api/finance", headers=self.h).status_code, 404)
 
 
+    def test_warehouse(self):
+        self.assertEqual(self.c.get("/admin/api/warehouse", headers=self.h).status_code, 404)   # выключен — не виден
+        self.c.put("/admin/api/modules", headers=self.h, json={"id": "warehouse", "on": True})
+        self.assertEqual(self.c.get("/admin/api/modules/on", headers=self.h).get_json()["on"], {"warehouse": True})
+        with mirror.db() as d:
+            for t in ("ms_store", "ms_stock", "ms_product"):
+                d.run(f"DELETE FROM {t}")
+            for sid, name, arch in (("sA", "Основной", 0), ("sB", "Магазин", 0), ("sZ", "Старый", 1)):
+                d.run("INSERT INTO ms_store (id, name, archived) VALUES (%s, %s, %s)", (sid, name, arch))
+            for pid, name, code, bp, arch in (("p1", "Крем дневной", "101", 1000, 0), ("p2", "Крем ночной", "102", 2000, 0),
+                                              ("p3", "Сыворотка", "103", 0, 0), ("p4", "Крем старый", "104", 0, 1)):
+                d.run("INSERT INTO ms_product (id, kind, code, name, buy_price, archived, deleted, barcodes) VALUES (%s, 'product', %s, %s, %s, %s, 0, %s)",
+                      (pid, code, name, bp, arch, f'["460{code}"]'))
+            for pid, sid, st, rs in (("p1", "sA", 5, 1), ("p1", "sB", 2, 0), ("p2", "sA", 3, 0), ("p3", "sB", -1, 0)):
+                d.run("INSERT INTO ms_stock (product_id, store_id, stock, reserve, synced) VALUES (%s, %s, %s, %s, 1)", (pid, sid, st, rs))
+        g = lambda qs="": self.c.get("/admin/api/warehouse" + qs, headers=self.h).get_json()
+        j = g()
+        self.assertEqual([(s["name"], s["units"], s["skus"], s["value"], s["reserve"]) for s in j["stores"]],
+                         [("Магазин", 2, 1, 2000, 0), ("Основной", 8, 2, 11000, 1)])          # архивный склад скрыт
+        self.assertEqual([(x["name"], x["stock"]) for x in j["items"]], [("Крем дневной", 7), ("Крем ночной", 3), ("Сыворотка", -1)])
+        self.assertEqual([(s["store"], s["stock"], s["reserve"]) for s in j["items"][0]["stores"]], [("Магазин", 2, 0), ("Основной", 5, 1)])
+        self.assertEqual([x["name"] for x in g("?q=Крем")["items"]], ["Крем дневной", "Крем ночной"])   # архивный товар не виден
+        self.assertEqual([x["name"] for x in g("?q=460103")["items"]], ["Сыворотка"])                   # по штрихкоду
+        self.assertEqual([x["name"] for x in g("?mode=out")["items"]], ["Сыворотка"])
+        self.assertEqual([(x["name"], x["stock"]) for x in g("?store=sB&mode=in")["items"]], [("Крем дневной", 2)])
+        self.assertEqual(g("?mode=in")["total"], 2)
+        self.c.put("/admin/api/modules", headers=self.h, json={"id": "warehouse", "on": False})
+        self.assertEqual(self.c.get("/admin/api/warehouse", headers=self.h).status_code, 404)
+
 if __name__ == "__main__":
     unittest.main()
