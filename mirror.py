@@ -74,7 +74,8 @@ def _schema(d):
     d.c.commit()
     # добавочные колонки (миграции только добавляющие): store2_id — склад-получатель у перемещения
     for col in ("ALTER TABLE ms_doc ADD COLUMN store2_id TEXT",
-                "ALTER TABLE ms_doc ADD COLUMN account_id TEXT"):      # счёт организации у платежа
+                "ALTER TABLE ms_doc ADD COLUMN account_id TEXT",       # счёт организации у платежа
+                "ALTER TABLE ms_doc ADD COLUMN paid DOUBLE PRECISION"):  # оплачено по документу (payedSum МойСклад), ₸
         try:
             d.run(col)
             d.c.commit()
@@ -143,7 +144,7 @@ def _parse_agent(row, now):
             1 if row.get("archived") else 0, (row.get("updated") or "")[:23], 0, now)
 
 
-_DCOLS = "id, type, number, moment, agent_id, store_id, store2_id, account_id, state_id, sum, applicable, descr, updated, deleted, seen"
+_DCOLS = "id, type, number, moment, agent_id, store_id, store2_id, account_id, state_id, sum, applicable, descr, updated, deleted, seen, paid"
 
 
 def _doc_parser(kind):
@@ -153,7 +154,7 @@ def _doc_parser(kind):
                 _href_id(row.get("organizationAccount")), _href_id(row.get("state")), (row.get("sum") or 0) / 100,
                 1 if row.get("applicable") else 0,
                 (row.get("description") or row.get("paymentPurpose") or "").split("\n")[0][:200],
-                (row.get("updated") or "")[:23], 0, now)
+                (row.get("updated") or "")[:23], 0, now, (row.get("payedSum") or 0) / 100)
     return parse
 
 
@@ -738,6 +739,28 @@ def finance_view(days=14, top=20):
         owed_us, we_owe = rows("balance<0", "ASC"), rows("balance>0", "DESC")
         total = d.run("SELECT COALESCE(SUM(CASE WHEN balance>0 THEN balance ELSE 0 END), 0),"
                       " COALESCE(SUM(CASE WHEN balance<0 THEN balance ELSE 0 END), 0) FROM ms_agent_balance", one=True)
+        unpaid = {k: _unpaid(d, k, top) for k in UNPAID_DOCS}
     return {"money": money, "moneyTotal": sum(m["balance"] for m in money), "synced": synced, "flow": flow,
-            "owedUs": owed_us, "weOwe": we_owe, "owedUsTotal": round(abs(total[1] or 0)), "weOweTotal": round(total[0] or 0)}
+            "owedUs": owed_us, "weOwe": we_owe, "owedUsTotal": round(abs(total[1] or 0)), "weOweTotal": round(total[0] or 0),
+            "unpaid": unpaid}
+
+
+UNPAID_DOCS = ("demand", "supply")   # отгрузки — не оплатил покупатель, приёмки — не оплатили мы
+
+
+def _unpaid(d, kind, top):
+    """Неоплаченные проведённые документы в окне зеркала (DOC_DAYS). Оплачено — большее из payedSum МойСклад
+    (обновляется полным проходом) и суммы связанных платежей из ms_payment_link (обновляется с каждым платежом)."""
+    rows = d.run("SELECT x.id, x.number, x.moment, x.sum, COALESCE(x.paid, 0), COALESCE(l.s, 0), a.name FROM ms_doc x"
+                 " LEFT JOIN (SELECT doc_id, SUM(sum) AS s FROM ms_payment_link GROUP BY doc_id) l ON l.doc_id=x.id"
+                 " LEFT JOIN ms_agent a ON a.id=x.agent_id"
+                 " WHERE x.type=%s AND x.deleted=0 AND x.applicable=1 ORDER BY x.moment DESC", (kind,), many=True) or []
+    out = []
+    for i, num, moment, s, paid, linked, name in rows:
+        due = round((s or 0) - max(paid, linked))
+        if due >= 1:
+            day = datetime.strptime(moment[:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=MS_TZ).astimezone(oh.ALMATY).date() if moment else None
+            out.append({"id": i, "number": num, "day": str(day or ""), "agent": name or "", "sum": round(s or 0),
+                        "paid": round(max(paid, linked)), "due": due})
+    return {"total": sum(r["due"] for r in out), "count": len(out), "rows": out[:top]}
 

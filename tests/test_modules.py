@@ -50,6 +50,30 @@ class ModulesTest(unittest.TestCase):
         self.c.put("/admin/api/modules", headers=self.h, json={"id": "finance", "on": False})
         self.assertEqual(self.c.get("/admin/api/finance", headers=self.h).status_code, 404)
 
+    def test_unpaid(self):
+        self.c.put("/admin/api/modules", headers=self.h, json={"id": "finance", "on": True})
+        with mirror.db() as d:
+            for t in ("ms_doc", "ms_payment_link", "ms_agent"):
+                d.run(f"DELETE FROM {t}")
+            d.run("INSERT INTO ms_agent (id, name, deleted) VALUES ('c1', 'ИП Клиент', 0)")
+            docs = (("u1", "demand", 9000, 0, 1),     # не оплачена
+                    ("u2", "demand", 5000, 5000, 1),  # оплачена по payedSum
+                    ("u3", "demand", 6000, 0, 1),     # оплачена связью платежа (payedSum ещё не обновился)
+                    ("u4", "demand", 8000, 3000, 1),  # частично
+                    ("u5", "demand", 7000, 0, 0),     # не проведена — не считаем
+                    ("s1", "supply", 50000, None, 1))  # приёмка до первого полного прохода (paid пусто)
+            for i, (did, t, s, paid, ap) in enumerate(docs):
+                d.run("INSERT INTO ms_doc (id, type, number, moment, agent_id, sum, paid, applicable, deleted) VALUES (%s, %s, %s, %s, 'c1', %s, %s, %s, 0)",
+                      (did, t, did, f"2026-10-0{i + 1} 10:00:00.000", s, paid, ap))
+            d.run("INSERT INTO ms_payment_link (payment_id, doc_id, doc_type, sum) VALUES ('p1', 'u3', 'demand', 6000)")
+        u = self.c.get("/admin/api/finance", headers=self.h).get_json()["unpaid"]
+        self.assertEqual((u["demand"]["total"], u["demand"]["count"]), (14000, 2))
+        self.assertEqual([(r["number"], r["due"], r["paid"], r["agent"]) for r in u["demand"]["rows"]],
+                         [("u4", 5000, 3000, "ИП Клиент"), ("u1", 9000, 0, "ИП Клиент")])   # свежие сверху
+        self.assertEqual((u["supply"]["total"], u["supply"]["rows"][0]["day"]), (50000, "2026-10-06"))
+        self.c.put("/admin/api/modules", headers=self.h, json={"id": "finance", "on": False})
+        self.assertEqual(self.c.get("/admin/api/finance", headers=self.h).status_code, 404)
+
 
 if __name__ == "__main__":
     unittest.main()
