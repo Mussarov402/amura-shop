@@ -17,7 +17,7 @@ import whops  # noqa: E402
 class FakeMSW:
     """МойСклад для записи: POST создаёт документ; fail — список исключений для очередных POST."""
     def __init__(self):
-        self.docs, self.calls, self.fail = {"supply": [], "loss": []}, [], []
+        self.docs, self.calls, self.fail = {"supply": [], "loss": [], "enter": [], "move": []}, [], []
 
     def __call__(self, method, path, params=None, json=None, **kw):
         self.calls.append((method, path, params, json))
@@ -52,6 +52,7 @@ class WhOpsTest(unittest.TestCase):
                 d.run(f"DELETE FROM {t}")
             d.run("DELETE FROM setting WHERE key IN ('mod_warehouse', 'feat_wh_ops')")
             d.run("INSERT INTO ms_store (id, name, archived) VALUES ('sA', 'Основной', 0)")
+            d.run("INSERT INTO ms_store (id, name, archived) VALUES ('sB', 'Точка', 0)")
             d.run("INSERT INTO ms_agent (id, name, archived, deleted) VALUES ('k1', 'KorShop', 0, 0)")
             d.run("INSERT INTO ms_product (id, kind, code, name, buy_price, archived, deleted) VALUES ('p1', 'product', '1', 'Крем', 1200, 0, 0)")
             d.run("INSERT INTO ms_product (id, kind, code, name, buy_price, archived, deleted) VALUES ('v1', 'variant', '2', 'Крем 50 мл', 900, 0, 0)")
@@ -160,6 +161,44 @@ class WhOpsTest(unittest.TestCase):
         finally:
             admin.who = old
         self.assertTrue(whops.enabled())
+
+    def test_enter_and_move(self):
+        self.on()
+        op = self.post(kind="enter", store="sA", descr="излишки", lines=[{"id": "p1", "qty": 2, "price": 700}]).get_json()["op"]
+        self.assertEqual(op["status"], "sent")
+        b = self.ms.docs["enter"][0]
+        self.assertEqual((b["store"]["meta"]["href"].rsplit("/", 1)[-1], b["positions"][0]["price"]), ("sA", 70000))   # себестоимость — введённая
+        self.assertNotIn("agent", b)
+        self.assertEqual(self.post(kind="move", store="sA", store2="sA", lines=[{"id": "p1", "qty": 1}]).status_code, 400)   # тот же склад
+        self.assertEqual(self.post(kind="move", store="sA", lines=[{"id": "p1", "qty": 1}]).status_code, 400)                # без «куда»
+        op = self.post(kind="move", store="sA", store2="sB", lines=[{"id": "p1", "qty": 3, "price": 1}]).get_json()["op"]
+        self.assertEqual((op["status"], op["store2"]), ("sent", "sB"))
+        m = self.ms.docs["move"][0]
+        self.assertEqual((m["sourceStore"]["meta"]["href"].rsplit("/", 1)[-1], m["targetStore"]["meta"]["href"].rsplit("/", 1)[-1]), ("sA", "sB"))
+        self.assertNotIn("store", m)
+        self.assertEqual(m["positions"][0]["price"], 120000)                                   # перемещение — по закупочной
+        ops = self.c.get("/admin/api/warehouse/ops", headers=self.h).get_json()["ops"]
+        self.assertEqual((ops[0]["title"], ops[0]["storeName"], ops[0]["store2Name"]), ("Перемещение", "Основной", "Точка"))
+
+    def test_docs_lists(self):
+        self.on()
+        with mirror.db() as d:
+            for t in ("ms_doc", "ms_doc_line"):
+                d.run(f"DELETE FROM {t}")
+            d.run("INSERT INTO ms_doc (id, type, number, moment, store_id, store2_id, agent_id, sum, applicable, deleted) VALUES"
+                  " ('m1', 'move', '00007', '2026-10-10 10:00:00.000', 'sA', 'sB', '', 0, 1, 0)")
+            d.run("INSERT INTO ms_doc (id, type, number, moment, store_id, agent_id, sum, applicable, deleted) VALUES"
+                  " ('s1', 'supply', '00042', '2026-10-09 09:00:00.000', 'sA', 'k1', 5000, 1, 0)")
+            d.run("INSERT INTO ms_doc_line (doc_id, pos_id, product_id, qty, price, discount, sum) VALUES ('m1', 'x1', 'p1', 4, 0, 0, 0)")
+        j = self.c.get("/admin/api/warehouse/docs?type=move", headers=self.h).get_json()
+        self.assertEqual(j["total"], 1)
+        self.assertEqual({k: j["docs"][0][k] for k in ("number", "store", "store2", "positions", "qty", "at")},
+                         {"number": "00007", "store": "Основной", "store2": "Точка", "positions": 1, "qty": 4, "at": "2026-10-10 12:00"})
+        self.assertEqual(self.c.get("/admin/api/warehouse/docs?type=supply", headers=self.h).get_json()["docs"][0]["agent"], "KorShop")
+        self.assertEqual(self.c.get("/admin/api/warehouse/docs?type=demand", headers=self.h).status_code, 400)
+        doc = self.c.get("/admin/api/warehouse/docs/m1", headers=self.h).get_json()["doc"]
+        self.assertEqual([(l["name"], l["qty"]) for l in doc["lines"]], [("Крем", 4)])
+        self.assertEqual(self.c.get("/admin/api/warehouse/docs/nope", headers=self.h).status_code, 404)
 
 if __name__ == "__main__":
     unittest.main()

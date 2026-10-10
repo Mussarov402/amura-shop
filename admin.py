@@ -2439,7 +2439,7 @@ def warehouse_ops():
         b = request.get_json(silent=True) or {}
         try:
             op = whops.create(str(b.get("kind", "")), str(b.get("store", "")), b.get("lines") or [],
-                              str(b.get("agent", "")), str(b.get("descr", "")), _fin_who())
+                              str(b.get("agent", "")), str(b.get("descr", "")), _fin_who(), str(b.get("store2", "")))
         except ValueError as e:
             return jsonify(ok=False, error=str(e)), 400
         return jsonify(ok=True, op=op)
@@ -2472,3 +2472,30 @@ def warehouse_agents():
     if not whops.enabled():
         return jsonify(ok=False, error="Приёмка и списание из панели выключены"), 403
     return jsonify(ok=True, agents=whops.agents(request.args.get("q", "")[:100]))
+
+
+@bp.get("/admin/api/warehouse/docs")
+@need("warehouse")
+def warehouse_docs():
+    """Документы склада из зеркала (только просмотр): приёмки, списания, оприходования, перемещения, инвентаризации."""
+    if not modules.enabled("warehouse"):
+        return jsonify(ok=False, error="Модуль «Склад» выключен"), 404
+    try:
+        off = max(0, int(request.args.get("offset") or 0))
+    except ValueError:
+        off = 0
+    t = request.args.get("type", "supply")
+    if t not in mirror.STOCK_DOCS:
+        return jsonify(ok=False, error="Неизвестный вид документа"), 400
+    return jsonify(ok=True, **mirror.wh_docs(t, off))
+
+
+@bp.get("/admin/api/warehouse/docs/<doc_id>")
+@need("warehouse")
+def warehouse_doc(doc_id):
+    if not modules.enabled("warehouse"):
+        return jsonify(ok=False, error="Модуль «Склад» выключен"), 404
+    d = mirror.wh_doc(doc_id)
+    if not d:
+        return jsonify(ok=False, error="Документ не найден"), 404
+    return jsonify(ok=True, doc=d)
