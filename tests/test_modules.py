@@ -25,11 +25,11 @@ class ModulesTest(unittest.TestCase):
     def test_on_by_default_and_switch_off_hides(self):
         # решение владельца 10.10.2026: готовые разделы включены сразу, выключатель — для отката
         self.assertTrue(modules.enabled("finance"))
-        self.assertEqual(self.c.get("/admin/api/modules/on", headers=self.h).get_json()["on"], {"finance": True, "warehouse": True})
+        self.assertEqual(self.c.get("/admin/api/modules/on", headers=self.h).get_json()["on"], {"finance": True, "warehouse": True, "cards": True})
         self.c.put("/admin/api/modules", headers=self.h, json={"id": "finance", "on": False})
         self.assertFalse(modules.enabled("finance"))                               # выключили вручную — так и остаётся
         self.assertEqual(self.c.get("/admin/api/finance", headers=self.h).status_code, 404)
-        self.assertEqual(self.c.get("/admin/api/modules/on", headers=self.h).get_json()["on"], {"warehouse": True})
+        self.assertEqual(self.c.get("/admin/api/modules/on", headers=self.h).get_json()["on"], {"warehouse": True, "cards": True})
         self.assertEqual(self.c.get("/admin/api/modules").status_code, 401)        # без входа — нельзя
 
     def test_toggle_and_view(self):
