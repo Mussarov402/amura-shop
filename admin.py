@@ -2499,3 +2499,133 @@ def warehouse_doc(doc_id):
     if not d:
         return jsonify(ok=False, error="Документ не найден"), 404
     return jsonify(ok=True, doc=d)
+
+
+# ---------- карточки товаров: фото (в МойСклад, с очередью) и одно видео (у нас), см. cards.py ----------
+import cards  # noqa: E402
+
+
+def _cards_on():
+    return None if modules.enabled("cards") else (jsonify(ok=False, error="Модуль «Карточки товаров» выключен"), 404)
+
+
+def _photo_url(pid, iid, size):
+    return f"/admin/api/cards/img/{pid}/{iid}/{size}?t={_sig('ci' + pid + iid + size)}"
+
+
+@bp.get("/admin/api/cards/<pid>")
+@need("products")
+def card_get(pid):
+    off = _cards_on()
+    if off:
+        return off
+    c = cards.card(pid)
+    if not c:
+        return jsonify(ok=False, error="Товар не найден"), 404
+    return jsonify(ok=True, card=c)
+
+
+@bp.get("/admin/api/cards/<pid>/photos")
+@need("products")
+def card_photos(pid):
+    off = _cards_on()
+    if off:
+        return off
+    try:
+        ph = cards.photos(pid)
+    except Exception as e:
+        return jsonify(ok=False, error=f"МойСклад не отдал фото: {str(e)[:120]}"), 502
+    return jsonify(ok=True, photos=[{**x, "mini": _photo_url(pid, x["id"], "mini"), "full": _photo_url(pid, x["id"], "full")} for x in ph],
+                   pending=cards.pending(pid), max=cards.MS_PHOTOS_MAX)
+
+
+@bp.get("/admin/api/cards/img/<pid>/<iid>/<size>")
+def card_img(pid, iid, size):
+    """Фото товара из МойСклад для показа в системе (ссылка подписана — <img> не умеет передавать вход)."""
+    if size not in ("mini", "full") or not oh.ORDER_SECRET or not oh.hmac.compare_digest(request.args.get("t", ""), _sig("ci" + pid + iid + size)):
+        return "", 403
+    try:
+        r = cards.photo_bytes(pid, iid, size)
+    except Exception as e:
+        return str(e)[:200], 502
+    if not r:
+        return "", 404
+    resp = oh.Response(r[1], mimetype=r[0])
+    resp.headers["Cache-Control"] = "private, max-age=86400"
+    return resp
+
+
+@bp.post("/admin/api/cards/<pid>/photos")
+@need("products")
+def card_photo_add(pid):
+    off = _cards_on()
+    if off:
+        return off
+    f = request.files.get("file")
+    if not f:
+        return jsonify(ok=False, error="Файл не выбран"), 400
+    try:
+        st = cards.add_photo(pid, f.read(cards.PHOTO_MAX + 1), f.mimetype, _fin_who())
+    except ValueError as e:
+        return jsonify(ok=False, error=str(e)), 400
+    return jsonify(ok=True, photo=st)
+
+
+@bp.post("/admin/api/cards/photo-q/<op>/retry")
+@need("products")
+def card_photo_retry(op):
+    off = _cards_on()
+    if off:
+        return off
+    st = cards.retry_photo(op)
+    if not st:
+        return jsonify(ok=False, error="Не найдено"), 404
+    return jsonify(ok=True, photo=st)
+
+
+@bp.delete("/admin/api/cards/<pid>/photos/<iid>")
+@need("products")
+def card_photo_del(pid, iid):
+    off = _cards_on()
+    if off:
+        return off
+    try:
+        cards.delete_photo(pid, iid)
+    except Exception as e:
+        return jsonify(ok=False, error=str(e)[:200]), 502
+    return jsonify(ok=True)
+
+
+@bp.route("/admin/api/cards/<pid>/video", methods=["POST", "DELETE"])
+@need("products")
+def card_video(pid):
+    off = _cards_on()
+    if off:
+        return off
+    if request.method == "DELETE":
+        cards.delete_video(pid)
+        return jsonify(ok=True, video=None)
+    f = request.files.get("file")
+    if not f:
+        return jsonify(ok=False, error="Файл не выбран"), 400
+    if not (f.mimetype or "").startswith("video/"):
+        return jsonify(ok=False, error="Нужен видеофайл"), 400
+    try:
+        v = cards.set_video(pid, f.stream, f.filename or "", _fin_who())
+    except ValueError as e:
+        return jsonify(ok=False, error=str(e)), 400
+    return jsonify(ok=True, video=v)
+
+
+@bp.get("/media/product/<pid>.mp4")
+def card_video_file(pid):
+    """Видео товара — открытая ссылка (товарный ролик, пригодится сайту), с перемоткой (Range)."""
+    if not modules.enabled("cards"):
+        return "", 404
+    v = cards.video_data(pid)
+    if not v:
+        return "", 404
+    import io
+    from flask import send_file
+    resp = send_file(io.BytesIO(v[1]), mimetype=v[0], conditional=True, max_age=86400)
+    return oh.cors(resp)
