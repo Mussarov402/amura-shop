@@ -294,8 +294,8 @@ def panel_manifest():
 
 @bp.get("/admin/vendor/<name>")
 def panel_vendor(name):
-    """pdf.js для просмотра PDF внутри панели (своя копия: не зависим от внешних CDN)."""
-    if name not in ("pdf.min.js", "pdf.worker.min.js"):
+    """pdf.js для просмотра PDF и ZXing для сканера штрихкодов (свои копии: не зависим от внешних CDN)."""
+    if name not in ("pdf.min.js", "pdf.worker.min.js", "zxing.min.js"):
         return "", 404
     return send_from_directory(os.path.join(HERE, "vendor"), name, max_age=30 * 86400, mimetype="application/javascript")
 
