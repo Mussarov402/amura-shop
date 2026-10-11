@@ -543,6 +543,12 @@ input,select,textarea{font-size:16px!important}
   header.top .wrap{position:relative}
   .rtopc{position:absolute;top:12px;right:var(--rtopc-r,16px);height:var(--rtopc-h,32px);align-items:center;padding:0;max-width:55%}
 }
+/* «Ваш город — …? Да, верно / Нет, другой» и «Определить автоматически» */
+#rGeoAsk .rgq{font-size:22px;font-weight:800;margin:2px 0 14px}
+#rGeoAsk .rgb{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+#rGeoAsk .btn.ghost{background:transparent;color:var(--ink,#16201B);border:1px solid var(--line)}
+#rCitySheet .rgeo{display:flex;align-items:center;gap:8px;border:0;background:none;padding:10px 2px;font:inherit;font-weight:600;color:#1E7A4C;cursor:pointer}
+#rCitySheet .rgeo svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8}
 /* Розничный сайт: отзывы */
 .rpc-rate{font-size:13px;font-weight:700;display:flex;align-items:center;gap:3px}
 .rpc-rate b{color:#E8A317;font-size:14px}.rpc-rate span{color:var(--muted);font-weight:500}
@@ -2467,6 +2473,8 @@ function openCityPick(){
     el.addEventListener("click", e => {
       if(e.target === el || e.target.closest("[data-rcclose]")) return closeCityPick();
       const pc = e.target.closest("[data-tcity]"); if(pc) return setTopCity(pc.dataset.tcity);
+      if(e.target.closest("#rcGeo")){ const g = $("#rcGeo"); g.disabled = true; g.lastChild.textContent = "Определяем…";
+        return geoCity().then(c => { if(c) setTopCity(c); else { g.disabled = false; g.lastChild.textContent = "Не получилось — выберите из списка"; } }); }
       if(e.target.id === "rcOk"){ const v = $("#rcQ").value.trim(); if(v) setTopCity(v); else $("#rcQ").focus(); }
     });
     el.addEventListener("input", e => { if(e.target.id === "rcQ") drawTopCities(e.target.value); });
@@ -2476,6 +2484,7 @@ function openCityPick(){
     <div class="rsh"><b>Ваш город</b><button type="button" class="rx" data-rcclose aria-label="Закрыть">×</button></div>
     <div class="kv">Покажем способы и сроки доставки для вашего города</div>
     <input id="rcQ" autocomplete="off" placeholder="Начните вводить: Алматы, Астана…" aria-label="Город">
+    ${navigator.geolocation ? `<button type="button" class="rgeo" id="rcGeo">${PIN_S}<span>Определить автоматически</span></button>` : ""}
     <div class="rcl" id="rcList"></div>
     <button type="button" class="btn" id="rcOk">Готово</button></div>`;
   el.hidden = false; document.body.classList.add("rsheet-open");
@@ -2497,7 +2506,47 @@ function setTopCity(city){
 }
 const _saveForm = saveForm;
 saveForm = function(patch){ const f = _saveForm(patch); if(patch && "city" in patch) topCity(); return f; };
+/* как в Золотом Яблоке: при первом заходе определяем город по геопозиции и спрашиваем «Ваш город — …? Да, верно / Нет, другой».
+   Отказ в доступе или ошибка — предлагаем Алматы. Спрашиваем один раз; потом город меняют в шапке. */
+function geoPos(){
+  return new Promise(ok => {
+    if(!navigator.geolocation) return ok(null);
+    try{ navigator.geolocation.getCurrentPosition(p => ok(p.coords), () => ok(null), { timeout: 10000, maximumAge: 3600000 }); }catch{ ok(null); }
+  });
+}
+async function geoCity(){
+  const c = await geoPos(); if(!c) return "";
+  try{
+    const j = await getJSON(`${CONFIG.apiUrl}/geo/city?lat=${c.latitude.toFixed(4)}&lon=${c.longitude.toFixed(4)}`, 12000);
+    const n = String((j && j.city) || "").trim(); if(!n) return "";
+    return KZ_CITIES.find(x => cityKey(x) === cityKey(n)) || n;
+  }catch{ return ""; }
+}
+function askCity(city, found){
+  let el = $("#rGeoAsk");
+  if(!el){ el = document.createElement("div"); el.id = "rGeoAsk"; el.className = "rsheet"; document.body.appendChild(el);
+    el.addEventListener("click", e => {
+      if(e.target.closest("[data-gyes]")){ closeAsk(); setTopCity(el.dataset.city); }
+      else if(e.target.closest("[data-gno]") || e.target === el){ closeAsk(); openCityPick(); }
+    });
+  }
+  el.dataset.city = city;
+  el.innerHTML = `<div class="rsbox" role="dialog" aria-modal="true" aria-label="Ваш город">
+    <div class="kv">${found ? "Ваш город" : "Доставляем по всему Казахстану. Ваш город"}</div>
+    <div class="rgq">${esc(city)}?</div>
+    <div class="rgb"><button type="button" class="btn" data-gyes>Да, верно</button><button type="button" class="btn ghost" data-gno>Нет, другой</button></div></div>`;
+  el.hidden = false; document.body.classList.add("rsheet-open");
+}
+function closeAsk(){ const el = $("#rGeoAsk"); if(el) el.hidden = true; if(!($("#rSheet") && !$("#rSheet").hidden)) document.body.classList.remove("rsheet-open"); }
+async function geoFirst(){
+  if(form().city || load("geoAsked", 0)) return;
+  save("geoAsked", 1);
+  const c = await geoCity();
+  if(form().city) return;                       // пока ждали — человек уже выбрал сам
+  askCity(c || "Алматы", !!c);
+}
 topCity();
+setTimeout(geoFirst, 1200);
 markRetail();
 if(VIEW === "cart") renderCart();
 if(VIEW === "me" && !AUTH.token) renderAuth();

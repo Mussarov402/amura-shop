@@ -161,3 +161,9 @@ input,select,textarea{font-size:16px!important}
   header.top .wrap{position:relative}
   .rtopc{position:absolute;top:12px;right:var(--rtopc-r,16px);height:var(--rtopc-h,32px);align-items:center;padding:0;max-width:55%}
 }
+/* «Ваш город — …? Да, верно / Нет, другой» и «Определить автоматически» */
+#rGeoAsk .rgq{font-size:22px;font-weight:800;margin:2px 0 14px}
+#rGeoAsk .rgb{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+#rGeoAsk .btn.ghost{background:transparent;color:var(--ink,#16201B);border:1px solid var(--line)}
+#rCitySheet .rgeo{display:flex;align-items:center;gap:8px;border:0;background:none;padding:10px 2px;font:inherit;font-weight:600;color:#1E7A4C;cursor:pointer}
+#rCitySheet .rgeo svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8}
