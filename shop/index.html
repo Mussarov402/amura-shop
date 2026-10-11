@@ -537,6 +537,12 @@ input,select,textarea{font-size:16px!important}
 #rCitySheet #rcQ{width:100%;border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:11px 12px;margin:0;font:inherit;font-size:16px}
 #rCitySheet .rcl{max-height:50vh;margin-top:0}
 #rCitySheet .rcl button.on{font-weight:700;color:var(--green-3, #0F3D2E)}
+/* город справа: на компьютере — верхняя строка у правого края, на телефоне — в строке логотипа */
+.rtopc{justify-content:flex-end}
+@media (max-width:760px), (pointer:coarse) and (max-height:500px){
+  header.top .wrap{position:relative}
+  .rtopc{position:absolute;top:12px;right:var(--rtopc-r,16px);height:var(--rtopc-h,32px);align-items:center;padding:0;max-width:55%}
+}
 /* Розничный сайт: отзывы */
 .rpc-rate{font-size:13px;font-weight:700;display:flex;align-items:center;gap:3px}
 .rpc-rate b{color:#E8A317;font-size:14px}.rpc-rate span{color:var(--muted);font-weight:500}
