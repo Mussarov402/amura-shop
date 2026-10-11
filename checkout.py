@@ -196,6 +196,40 @@ def pvz_route():
     return jsonify(ok=True, points=pts)
 
 
+def geo_city(lat, lon):
+    """Координаты покупателя → название города по OpenStreetMap (для подсказки «Ваш город — …?» на сайте).
+    Кэш по округлённым координатам (~1 км), чтобы не дёргать OSM на каждый заход."""
+    key = f"geocity:{lat:.2f},{lon:.2f}"
+
+    def find():
+        r = oh.requests.get("https://nominatim.openstreetmap.org/reverse", timeout=8,
+                            params={"lat": f"{lat:.4f}", "lon": f"{lon:.4f}", "format": "json", "zoom": 10, "addressdetails": 1},
+                            headers={"User-Agent": "amura.kz shop (admin@amura.kz)", "Accept-Language": "ru"})
+        r.raise_for_status()
+        a = (r.json() or {}).get("address") or {}
+        if a.get("country_code") not in (None, "kz"):
+            return ""
+        name = a.get("city") or a.get("town") or a.get("village") or a.get("municipality") or ""
+        return re.sub(r"^(город|г\.|посёлок|поселок|село|аул)\s+", "", str(name), flags=re.I).strip()
+
+    return oh.cached(key, 86400 * 30, find)
+
+
+@bp.get("/geo/city")
+def geo_city_route():
+    try:
+        lat, lon = float(request.args.get("lat", "")), float(request.args.get("lon", ""))
+    except ValueError:
+        return jsonify(ok=False, city=""), 400
+    if not (40 <= lat <= 56 and 46 <= lon <= 88):   # вне Казахстана — не спрашиваем OSM
+        return jsonify(ok=True, city="")
+    try:
+        return jsonify(ok=True, city=geo_city(lat, lon))
+    except Exception as e:
+        print("Сайт: город по геопозиции:", str(e)[:200], flush=True)
+        return jsonify(ok=False, city="")
+
+
 @bp.route("/me/retail", methods=["POST", "OPTIONS"])
 def me_retail():
     """Клиент вошёл на розничном сайте — метка «розница» в МойСклад (видна в панели → Клиенты)."""
