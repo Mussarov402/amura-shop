@@ -2430,6 +2430,101 @@ def finance_money():
     return jsonify(ok=True, source=modules.source("finance"), **mirror.finance_view())
 
 
+import payments  # noqa: E402
+
+
+def _pay_off(need_flag=True):
+    if not modules.enabled("finance"):
+        return jsonify(ok=False, error="Модуль «Финансы» выключен"), 404
+    if need_flag and not payments.enabled():
+        return jsonify(ok=False, error="Платежи из системы выключены"), 403
+    return None
+
+
+@bp.route("/admin/api/money/ops", methods=["GET", "POST"])
+@guard
+def money_ops():
+    off = _pay_off(request.method == "POST")
+    if off:
+        return off
+    if request.method == "POST":
+        b = request.get_json(silent=True) or {}
+        try:
+            op = payments.create(str(b.get("dir", "")), str(b.get("agent", "")), b.get("sum"), str(b.get("account", "")),
+                                 str(b.get("expense", "")), str(b.get("day", "")), str(b.get("descr", "")), _fin_who())
+        except ValueError as e:
+            return jsonify(ok=False, error=str(e)), 400
+        except Exception as e:
+            return jsonify(ok=False, error="МойСклад не ответил: " + str(e)[:200]), 502
+        return jsonify(ok=True, op=op)
+    return jsonify(ok=True, enabled=payments.enabled(), ops=payments.recent())
+
+
+@bp.post("/admin/api/money/ops/flag")
+@guard
+def money_ops_flag():
+    off = _pay_off(False)
+    if off:
+        return off
+    payments.set_enabled(bool((request.get_json(silent=True) or {}).get("on")))
+    return jsonify(ok=True, enabled=payments.enabled())
+
+
+@bp.post("/admin/api/money/ops/<op_id>/retry")
+@guard
+def money_ops_retry(op_id):
+    off = _pay_off()
+    if off:
+        return off
+    op = payments.retry(op_id)
+    return jsonify(ok=True, op=op) if op else (jsonify(ok=False, error="Операция не найдена"), 404)
+
+
+@bp.get("/admin/api/money/meta")
+@guard
+def money_meta():
+    off = _pay_off()
+    if off:
+        return off
+    try:
+        return jsonify(ok=True, **payments.meta())
+    except Exception as e:
+        return jsonify(ok=False, error="МойСклад не ответил: " + str(e)[:200]), 502
+
+
+@bp.get("/admin/api/money/agents")
+@guard
+def money_agents():
+    off = _pay_off(False)
+    if off:
+        return off
+    return jsonify(ok=True, agents=payments.agents(request.args.get("q", "")[:100]))
+
+
+@bp.get("/admin/api/money/agents/<agent_id>")
+@guard
+def money_agent_card(agent_id):
+    off = _pay_off(False)
+    if off:
+        return off
+    c = payments.card(agent_id)
+    return jsonify(ok=True, agent=c, enabled=payments.enabled()) if c else (jsonify(ok=False, error="Контрагент не найден"), 404)
+
+
+@bp.get("/admin/api/money/debts")
+@guard
+def money_debts():
+    off = _pay_off(False)
+    if off:
+        return off
+    a = request.args
+    try:
+        off_n = max(0, int(a.get("offset", 0)))
+    except ValueError:
+        off_n = 0
+    return jsonify(ok=True, **payments.debts("us" if a.get("side") == "us" else "we", a.get("q", "")[:100], 50, off_n))
+
+
 
 @bp.get("/admin/api/warehouse")
 @need("warehouse")
