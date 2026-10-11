@@ -827,6 +827,7 @@ async function refreshLive(){
   try{
     const data = await getJSON(CONFIG.liveUrl, 60000, AUTH.token ? { Authorization: "Bearer " + AUTH.token } : undefined);   // сервер может «просыпаться» до минуты
     lastLive = Date.now();
+    siteClosed(data.closed);
     const typing = document.activeElement && document.activeElement.matches("#grid input, #sheet input");
     applyData(data); cacheSave();
     if(!typing) render();
@@ -834,6 +835,14 @@ async function refreshLive(){
     if(VIEW === "cart" && !document.querySelector(".done") && !document.activeElement?.matches("#drawerBody input")) renderCart();
     return true;
   }catch{ setTimeout(refreshLive, 15000); return false; }   // сервер не ответил — пробуем снова через 15 с, не ждём 3 минуты
+}
+/* сайт выключен владельцем в системе AMURA: закрываем витрину заставкой, заказы сервер тоже не примет */
+function siteClosed(msg){
+  let el = document.getElementById("siteOff");
+  if(!msg){ if(el) el.remove(); return; }
+  if(!el){ el = document.createElement("div"); el.id = "siteOff"; document.body.appendChild(el); }
+  el.style.cssText = "position:fixed;inset:0;z-index:9999;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px;text-align:center;font-family:inherit";
+  el.innerHTML = `<div style="font-size:44px">🌙</div><div style="font-size:22px;font-weight:800;color:#0E3B2C">Магазин временно закрыт</div><div style="font-size:15px;color:#5C6B63;max-width:360px">${esc(msg)}</div>`;
 }
 function filtered(){
   const q = st.q.toLowerCase();
