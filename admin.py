@@ -2388,6 +2388,17 @@ def reviews_update(rid):
     return jsonify(ok=True)
 
 
+# ---------- сайты: выключатели оптового и розничного (только владелец) ----------
+@bp.route("/admin/api/sites", methods=["GET", "PUT"])
+@guard
+def sites_admin():
+    if request.method == "PUT":
+        b = request.get_json(silent=True) or {}
+        if b.get("id") in oh.SITES and "on" in b:
+            oh.set_site(b["id"], bool(b["on"]))
+    return jsonify(ok=True, sites=[{"id": k, "title": t, "on": oh.site_on(k)} for k, t in oh.SITES.items()])
+
+
 # ---------- подключаемые модули (по умолчанию выключены; см. modules.py) ----------
 import modules  # noqa: E402
 

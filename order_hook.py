@@ -543,6 +543,29 @@ def view_items(items, wholesale):
             for i in items if i.get("rtl", 0) > 0]
 
 
+SITES = {"opt": "Оптовый сайт", "rtl": "Розничный сайт"}
+SITE_CLOSED = "Магазин временно не принимает заказы. Напишите нам в WhatsApp — поможем."
+
+
+def site_on(kind):
+    """Включён ли сайт: kind = «opt» (оптовый amura.kz) или «rtl» (розничный amura.kz/shop). Выключатели — в «Обзоре» (кэш 15 с)."""
+    def get():
+        import inbox
+        with inbox.db() as d:
+            return inbox.get_setting(d, "site_off_" + kind, "") != "1"
+    try:
+        return cached("siteon:" + kind, 15, get)
+    except Exception:
+        return True
+
+
+def set_site(kind, on):
+    import inbox
+    with inbox.db() as d:
+        inbox.set_setting(d, "site_off_" + kind, "" if on else "1")
+    _cache.pop("siteon:" + kind, None)
+
+
 @bp.route("/catalog")
 def catalog_route():
     try:
@@ -554,12 +577,13 @@ def catalog_route():
             return jsonify(error=str(e)[:200]), 502
         data = v[1]                        # МойСклад не ответил — отдаём последние данные
     ws = False if request.args.get("mode") == "retail" else is_wholesale(session_cid())   # розничный сайт — всегда розница
-    ck = ("catjson", ws)                     # JSON и gzip собираются раз на обновление каталога, а не на каждого посетителя
+    closed = not site_on("rtl" if request.args.get("mode") == "retail" else "opt")
+    ck = ("catjson", ws, closed)             # JSON и gzip собираются раз на обновление каталога, а не на каждого посетителя
     hit = _cache.get(ck)
     if hit and hit[0] is data:
         body = hit[1]
     else:
-        raw = json.dumps({"updated": data["updated"], "wholesale": ws, "items": view_items(data["items"], ws)},
+        raw = json.dumps({"updated": data["updated"], "wholesale": ws, "items": view_items(data["items"], ws)} | ({"closed": SITE_CLOSED} if closed else {}),
                          ensure_ascii=False, separators=(",", ":")).encode()
         body = (raw, gzip.compress(raw, 6))
         _cache[ck] = (data, body)
@@ -766,6 +790,8 @@ def _post_order(body):
 
 
 def _create_order_impl(key):
+    if not site_on("rtl" if (request.get_json(silent=True) or {}).get("mode") == "retail" else "opt"):
+        return jsonify(ok=False, error=SITE_CLOSED), 503
     ip = request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip()
     payload, status = order_core(request.get_json(silent=True) or {}, key, ip, session_cid())
     payload.pop("_data", None)
