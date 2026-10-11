@@ -94,8 +94,11 @@ def recent(limit=30):
     return out
 
 
-def create(kind, store_id, lines, agent_id="", descr="", who="", store2_id=""):
-    """Проверяет и сохраняет операцию, затем сразу пробует отправить в МойСклад. Ошибка проверки — ValueError."""
+def create(kind, store_id, lines, agent_id="", descr="", who="", store2_id="", op_id=""):
+    """Проверяет и сохраняет операцию, затем сразу пробует отправить в МойСклад. Ошибка проверки — ValueError.
+    op_id — свой id операции (инвентаризация): если такая операция уже есть, вторая не создаётся."""
+    if op_id and get(op_id):
+        return send(op_id)
     if kind not in KINDS:
         raise ValueError("Неизвестная операция")
     descr = (descr or "").strip()[:500]
@@ -125,7 +128,7 @@ def create(kind, store_id, lines, agent_id="", descr="", who="", store2_id=""):
                           "price": round(price if kind in PRICED else (p[2] or 0))})
         if not clean:
             raise ValueError("Добавьте хотя бы один товар")
-        op_id = str(uuid.uuid4())
+        op_id = op_id or str(uuid.uuid4())
         d.run(f"INSERT INTO wh_op ({_OCOLS}, next_try) VALUES (%s, %s, %s, %s, %s, %s, 'queued', '', '', 0, '', %s, %s, 0, %s, 0)",
               (op_id, kind, store_id, agent_id if kind == "supply" else "", descr, json.dumps(clean, ensure_ascii=False), who, time.time(), store2_id))
     send(op_id)
