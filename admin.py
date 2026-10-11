@@ -2464,7 +2464,7 @@ def warehouse_ops():
         except ValueError as e:
             return jsonify(ok=False, error=str(e)), 400
         return jsonify(ok=True, op=op)
-    return jsonify(ok=True, enabled=whops.enabled(), ops=whops.recent())
+    return jsonify(ok=True, enabled=whops.enabled(), ops=whops.recent(), inv=inventory.recent() if whops.enabled() else [])
 
 
 @bp.post("/admin/api/warehouse/ops/flag")
@@ -2485,6 +2485,64 @@ def warehouse_ops_retry(op_id):
     if not op:
         return jsonify(ok=False, error="Операция не найдена"), 404
     return jsonify(ok=True, op=op)
+
+
+import inventory  # noqa: E402
+
+
+def _inv_off():
+    if not whops.enabled():
+        return jsonify(ok=False, error="Складские операции из системы выключены"), 403
+    return None
+
+
+@bp.route("/admin/api/warehouse/inventory", methods=["GET", "POST"])
+@need("warehouse")
+def warehouse_inventory():
+    off = _inv_off()
+    if off:
+        return off
+    if request.method == "POST":
+        try:
+            return jsonify(ok=True, inv=inventory.start(str((request.get_json(silent=True) or {}).get("store", "")), _fin_who()))
+        except ValueError as e:
+            return jsonify(ok=False, error=str(e)), 400
+    return jsonify(ok=True, inv=inventory.recent())
+
+
+@bp.route("/admin/api/warehouse/inventory/<inv_id>", methods=["GET", "PUT", "DELETE"])
+@need("warehouse")
+def warehouse_inventory_one(inv_id):
+    off = _inv_off()
+    if off:
+        return off
+    try:
+        if request.method == "PUT":
+            b = request.get_json(silent=True) or {}
+            return jsonify(ok=True, inv=inventory.save(inv_id, b.get("lines") or [], str(b.get("descr", ""))))
+        if request.method == "DELETE":
+            inventory.delete(inv_id)
+            return jsonify(ok=True)
+    except LookupError as e:
+        return jsonify(ok=False, error=str(e)), 404
+    except ValueError as e:
+        return jsonify(ok=False, error=str(e)), 400
+    o = inventory.get(inv_id)
+    return jsonify(ok=True, inv=o) if o else (jsonify(ok=False, error="Инвентаризация не найдена"), 404)
+
+
+@bp.post("/admin/api/warehouse/inventory/<inv_id>/conduct")
+@need("warehouse")
+def warehouse_inventory_conduct(inv_id):
+    off = _inv_off()
+    if off:
+        return off
+    try:
+        return jsonify(ok=True, inv=inventory.conduct(inv_id, _fin_who()))
+    except LookupError as e:
+        return jsonify(ok=False, error=str(e)), 404
+    except ValueError as e:
+        return jsonify(ok=False, error=str(e)), 400
 
 
 @bp.get("/admin/api/warehouse/agents")
