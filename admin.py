@@ -1130,15 +1130,18 @@ def labels_get(tok):
 RESERVABLE = ("product", "variant", "bundle")       # резервируются товары, модификации и комплекты (не услуги)
 
 
-def _stock_by(kind, store):
-    """Остатки МойСклад одного вида (stock / reserve) по товарам — на складе заказа или по всем складам."""
-    if not store:
-        data = oh.ms("GET", "/report/stock/all/current", params={"stockType": kind}, timeout=20)
-        rows = data if isinstance(data, list) else data.get("rows", [])
-        return {r["assortmentId"]: r.get(kind) or 0 for r in rows}
-    data = oh.ms("GET", "/report/stock/bystore/current", params={"stockType": kind}, timeout=20)
-    rows = data if isinstance(data, list) else data.get("rows", [])
-    return {r["assortmentId"]: r.get(kind) or 0 for r in rows if r.get("storeId") == store}
+def _stock_of(ids, store):
+    """Остаток, резерв и доступно по позициям — из ассортимента МойСклад, те же цифры, что в его карточке товара
+    (отчёт «текущие остатки» отдавал остаток 0 при товаре на складе). Со складом заказа — по этому складу."""
+    flt = f"stockStore={oh.API}/entity/store/{store};" if store else ""
+    out = {}
+    for k in range(0, len(ids), 50):
+        part = ids[k:k + 50]
+        data = oh.ms("GET", "/entity/assortment", params={"filter": flt + ";".join("id=" + i for i in part), "limit": 100}, timeout=20)
+        for r in data.get("rows", []):
+            st, rs = r.get("stock") or 0, r.get("reserve") or 0
+            out[r.get("id")] = {"stock": st, "reserve": rs, "free": st - rs}
+    return out
 
 
 @bp.get("/admin/api/orders/<number>/stock")
@@ -1147,13 +1150,13 @@ def order_stock(number):
     """Остаток, резерв и доступно по позициям заказа — как колонки в МойСклад (на складе заказа)."""
     store = str(request.args.get("store", ""))
     store = store if oh.re.fullmatch(r"[0-9a-f-]{36}", store) else ""
-    ids = [i for i in str(request.args.get("ids", "")).split(",") if oh.re.fullmatch(r"[0-9a-f-]{36}", i)][:1000]
+    ids = sorted({i for i in str(request.args.get("ids", "")).split(",") if oh.re.fullmatch(r"[0-9a-f-]{36}", i)})[:300]
     try:
-        st = oh.cached(f"ostk:{store}:stock", 60, lambda: _stock_by("stock", store))
-        rs = oh.cached(f"ostk:{store}:reserve", 60, lambda: _stock_by("reserve", store))
+        v = oh.cached(f"ostk:{store}:{hash(tuple(ids))}", 60, lambda: _stock_of(ids, store))
     except Exception as e:
         return jsonify(ok=False, error="МойСклад не ответил: " + str(e)[:150]), 502
-    return jsonify(ok=True, items={i: {"stock": st.get(i, 0), "reserve": rs.get(i, 0), "free": st.get(i, 0) - rs.get(i, 0)} for i in ids})
+    zero = {"stock": 0, "reserve": 0, "free": 0}
+    return jsonify(ok=True, items={i: v.get(i, zero) for i in ids})
 
 
 @bp.post("/admin/api/orders/<number>/reserve")
