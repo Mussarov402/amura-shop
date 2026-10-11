@@ -325,6 +325,13 @@ class MirrorTest(unittest.TestCase):
         self.assertEqual((by["Приёмки за 7 дней"]["ours"], by["Приёмки за 7 дней"]["ok"]), (1, True))   # s2 старше 7 дней
         self.assertTrue(by["Инвентаризации за 7 дней"]["ok"])
 
+    def test_counterparty_report_small_pages(self):
+        self.ms.balances = [{"counterparty": {"meta": {"href": f"https://x/c/a{i}"}, "name": f"К{i}"}, "balance": 100} for i in range(250)]
+        mirror.sync_money()
+        calls = [c[1] for c in self.ms.calls if c[0] == "/report/counterparty"]
+        self.assertEqual([(c["limit"], c["offset"]) for c in calls], [(100, 0), (100, 100), (100, 200)])   # мелкие страницы
+        self.assertEqual(self.count("SELECT COUNT(*) FROM ms_agent_balance"), 250)
+
     def test_money(self):
         from datetime import datetime, timedelta
         now_ms = datetime.now(mirror.MS_TZ)
