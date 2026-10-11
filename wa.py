@@ -1,6 +1,8 @@
 """WhatsApp Business (официальный Cloud API от Meta): приём и отправка сообщений для инбокса.
 Настройки (Phone number ID, токен, App Secret) вводятся в панели «Обзор → Каналы» и хранятся в базе; можно и через env WA_PHONE_ID / WA_TOKEN / WA_APP_SECRET.
-Чат в инбоксе имеет chat_id вида «wa:77001234567»."""
+Чат в инбоксе имеет chat_id вида «wa:77001234567».
+Номеров может быть несколько: основной (wa_phone_id/wa_token) и дополнительные (wa_lines — список JSON). Клиенту отвечаем с того номера,
+на который он написал последним (setting «wa_cl:<chat>»; пусто — основной номер)."""
 import hashlib
 import hmac
 import json
@@ -43,6 +45,96 @@ def cfg():
 
 def reset_cache():
     _cfg["t"] = 0.0
+    _lines["t"] = 0.0
+
+
+_lines = {"t": 0.0, "v": []}
+_chatline = {}                               # chat -> phone_id дополнительного номера ("" — основной)
+
+
+def extra_lines():
+    """Дополнительные номера: [{phone_id, token, waba, name, phone}] (кэш 30 с)."""
+    if time.time() - _lines["t"] < 30:
+        return _lines["v"]
+    v = []
+    try:
+        import inbox
+        with inbox.db() as d:
+            v = [x for x in json.loads(inbox.get_setting(d, "wa_lines", "") or "[]") if x.get("phone_id") and x.get("token")]
+    except Exception as e:
+        print("WA: дополнительные номера не загружены:", e, flush=True)
+        return _lines["v"]
+    _lines.update(t=time.time(), v=v)
+    return v
+
+
+def save_lines(d, v):
+    import inbox
+    inbox.set_setting(d, "wa_lines", json.dumps(v, ensure_ascii=False))
+    _lines["t"] = 0.0
+
+
+def primary_name():
+    try:
+        import inbox
+        with inbox.db() as d:
+            return inbox.get_setting(d, "wa_name", "")
+    except Exception:
+        return ""
+
+
+def line(phone_id=""):
+    """Номер по phone_id: {phone_id, token, name}. Пустой или неизвестный — основной."""
+    if phone_id:
+        for x in extra_lines():
+            if x["phone_id"] == phone_id:
+                return x
+    c = cfg()
+    return {"phone_id": c.get("phone_id", ""), "token": c.get("token", ""), "name": ""}
+
+
+def chat_line(chat):
+    """С какого номера отвечать этому клиенту."""
+    if not extra_lines():
+        return line()
+    chat = str(chat)
+    if chat not in _chatline:
+        try:
+            import inbox
+            with inbox.db() as d:
+                _chatline[chat] = inbox.get_setting(d, "wa_cl:" + chat, "")
+        except Exception:
+            return line()
+    return line(_chatline[chat])
+
+
+def remember_line(chat, phone_id):
+    """Клиент написал на номер phone_id: дальше отвечаем с него. Пишем в базу только когда номер сменился."""
+    if not phone_id:
+        return
+    pid = "" if phone_id == cfg().get("phone_id") or not any(x["phone_id"] == phone_id for x in extra_lines()) else phone_id
+    chat = str(chat)
+    if chat not in _chatline:
+        if not pid and not extra_lines():
+            return
+        chat_line(chat)
+    if _chatline.get(chat, "") == pid:
+        return
+    try:
+        import inbox
+        with inbox.db() as d:
+            inbox.set_setting(d, "wa_cl:" + chat, pid)
+        _chatline[chat] = pid
+    except Exception as e:
+        print("WA: номер диалога не сохранён:", e, flush=True)
+
+
+def line_name(chat):
+    """Подпись номера в диалоге — только когда номеров больше одного."""
+    if not extra_lines():
+        return ""
+    ln = chat_line(chat)
+    return ln.get("name") or ln.get("phone") or primary_name() or "Основной номер"
 
 
 def configured():
@@ -58,11 +150,11 @@ def number(chat_id):
     return str(chat_id)[3:]
 
 
-def _call(method, path, **kw):
-    c = cfg()
-    if not configured():
+def _call(method, path, ln=None, **kw):
+    if not configured() and not ln:
         raise RuntimeError("WhatsApp не подключён")
-    r = requests.request(method, f"{GRAPH}/{path}", headers={"Authorization": "Bearer " + c["token"]}, timeout=40, **kw)
+    tok = (ln or line())["token"]
+    r = requests.request(method, f"{GRAPH}/{path}", headers={"Authorization": "Bearer " + tok}, timeout=40, **kw)
     try:
         j = r.json()
     except Exception:
@@ -78,63 +170,77 @@ def _call(method, path, **kw):
 
 
 def send_text(chat, text):
-    c = cfg()
-    return _call("POST", f"{c['phone_id']}/messages", json={"messaging_product": "whatsapp", "to": number(chat), "type": "text",
+    ln = chat_line(chat)
+    return _call("POST", f"{ln['phone_id']}/messages", ln=ln, json={"messaging_product": "whatsapp", "to": number(chat), "type": "text",
                                                            "text": {"body": text[:4000], "preview_url": True}})
 
 
 def send_template(chat, name, lang="ru", params=()):
     """Одобренный в Meta шаблон — единственный способ написать первым, если клиент не писал 24 часа. params — значения {{1}}, {{2}}… в тексте шаблона."""
-    c = cfg()
+    ln = chat_line(chat)
     tpl = {"name": name, "language": {"code": lang or "ru"}}
     if params:
         tpl["components"] = [{"type": "body", "parameters": [{"type": "text", "text": str(p)[:200] or "-"} for p in params]}]
-    return _call("POST", f"{c['phone_id']}/messages", json={"messaging_product": "whatsapp", "to": number(chat), "type": "template", "template": tpl})
+    return _call("POST", f"{ln['phone_id']}/messages", ln=ln, json={"messaging_product": "whatsapp", "to": number(chat), "type": "template", "template": tpl})
 
 
-def upload(data, name, mime):
-    c = cfg()
-    j = _call("POST", f"{c['phone_id']}/media", data={"messaging_product": "whatsapp", "type": mime}, files={"file": (name, data, mime)})
+def send_location(chat, lat, lon):
+    ln = chat_line(chat)
+    return _call("POST", f"{ln['phone_id']}/messages", ln=ln, json={"messaging_product": "whatsapp", "to": number(chat),
+                                                                "type": "location", "location": {"latitude": lat, "longitude": lon}})
+
+
+def upload(data, name, mime, ln=None):
+    ln = ln or line()
+    j = _call("POST", f"{ln['phone_id']}/media", ln=ln, data={"messaging_product": "whatsapp", "type": mime}, files={"file": (name, data, mime)})
     return j["id"]
 
 
 def send_media(chat, kind, data, name, mime, caption=""):
     """kind: image | document | audio | video. Возвращает id медиа (для показа в панели)."""
-    c = cfg()
-    mid = upload(data, name, mime)
+    ln = chat_line(chat)
+    mid = upload(data, name, mime, ln)
     body = {"id": mid}
     if kind in ("image", "video", "document") and caption:
         body["caption"] = caption[:1000]
     if kind == "document":
         body["filename"] = name[:200]
-    _call("POST", f"{c['phone_id']}/messages", json={"messaging_product": "whatsapp", "to": number(chat), "type": kind, kind: body})
+    _call("POST", f"{ln['phone_id']}/messages", ln=ln, json={"messaging_product": "whatsapp", "to": number(chat), "type": kind, kind: body})
     return mid
 
 
 def download(media_id):
     """Файл из WhatsApp по id -> (байты, mime)."""
-    info = _call("GET", media_id.replace("wa:", "", 1))
-    r = requests.get(info["url"], headers={"Authorization": "Bearer " + cfg()["token"]}, timeout=60)
+    err = None
+    for ln in [line()] + extra_lines():                     # медиа доступно токену того номера, на который пришло
+        try:
+            info = _call("GET", media_id.replace("wa:", "", 1), ln=ln)
+            break
+        except RuntimeError as e:
+            err = e
+    else:
+        raise err or RuntimeError("WhatsApp: файл не найден")
+    r = requests.get(info["url"], headers={"Authorization": "Bearer " + ln["token"]}, timeout=60)
     r.raise_for_status()
     return r.content, info.get("mime_type", "application/octet-stream")
 
 
-def mark_read(msg_id):
+def mark_read(msg_id, phone_id=""):
     try:
-        c = cfg()
-        _call("POST", f"{c['phone_id']}/messages", json={"messaging_product": "whatsapp", "status": "read", "message_id": msg_id})
+        ln = line(phone_id)
+        _call("POST", f"{ln['phone_id']}/messages", ln=ln, json={"messaging_product": "whatsapp", "status": "read", "message_id": msg_id})
     except Exception:
         pass
 
 
-def check():
+def check(phone_id=""):
     """Проверка настроек: имя и номер из кабинета Meta."""
-    c = cfg()
-    return _call("GET", f"{c['phone_id']}", params={"fields": "display_phone_number,verified_name,quality_rating"})
+    ln = line(phone_id)
+    return _call("GET", f"{ln['phone_id']}", ln=ln, params={"fields": "display_phone_number,verified_name,quality_rating"})
 
 
 # ---------- подключение «одной кнопкой» (Embedded Signup) ----------
-def connect(code, phone_id, waba_id, webhook_url, verify_token, coex=False, redirect_uris=None):
+def connect(code, phone_id, waba_id, webhook_url, verify_token, coex=False, redirect_uris=None, add=False, name=""):
     """Окно Facebook вернуло code и id аккаунта (и номера): меняем code на токен, подписываем вебхук, регистрируем номер, сохраняем настройки.
     coex=True — номер остаётся в приложении WhatsApp Business на телефоне и одновременно работает через API (сосуществование)."""
     import inbox
@@ -160,18 +266,18 @@ def connect(code, phone_id, waba_id, webhook_url, verify_token, coex=False, redi
             from urllib.parse import urlparse
             hint = f" Добавьте {urlparse(webhook_url).netloc} в поле «Домены приложения» (Настройки приложения → Основные), нажмите «Сохранить изменения» и повторите."
         raise RuntimeError("Meta не выдала токен: " + " | ".join(errs)[:700] + hint)
-    return finish(token, phone_id, waba_id, webhook_url, verify_token, coex)
+    return finish(token, phone_id, waba_id, webhook_url, verify_token, coex, add=add, name=name)
 
 
-def connect_token(token, phone_id, webhook_url, verify_token, waba_id=""):
+def connect_token(token, phone_id, webhook_url, verify_token, waba_id="", add=False, name=""):
     """Запасной путь без кода из окна Facebook: токен системного пользователя (создаётся в Business Settings)."""
     c = cfg()
     if not (c["app_id"] and c["secret"]):
         raise RuntimeError("Сначала сохраните App ID и App Secret приложения Meta")
-    return finish(token.strip(), phone_id.strip(), waba_id.strip(), webhook_url, verify_token, coex=True)
+    return finish(token.strip(), phone_id.strip(), waba_id.strip(), webhook_url, verify_token, coex=True, add=add, name=name)
 
 
-def finish(token, phone_id, waba_id, webhook_url, verify_token, coex):
+def finish(token, phone_id, waba_id, webhook_url, verify_token, coex, add=False, name=""):
     import inbox
     c = cfg()
     h = {"Authorization": "Bearer " + token}
@@ -222,6 +328,9 @@ def finish(token, phone_id, waba_id, webhook_url, verify_token, coex):
         if not found:
             raise RuntimeError("В аккаунте WhatsApp не найден номер. Дойдите в окне Facebook до конца и повторите.")
         real = [x for x in found if not x[2].replace(" ", "").replace("-", "").startswith("+1555")]
+        if add:                                             # второй номер: не тот, что уже подключён
+            busy = {cfg()["phone_id"]} | {x["phone_id"] for x in extra_lines()}
+            real = [x for x in (real or found) if x[1] not in busy] or real
         waba_id, phone_id, _ = (real or found)[0]
     elif not waba_id:
         waba_id = wabas[0]
@@ -242,6 +351,15 @@ def finish(token, phone_id, waba_id, webhook_url, verify_token, coex):
                           json={"messaging_product": "whatsapp", "pin": f"{int.from_bytes(os.urandom(3), 'big') % 900000 + 100000}"})
         except Exception as e:
             print("WA: регистрация номера:", e, flush=True)
+    if add and phone_id != cfg()["phone_id"]:
+        info = _call("GET", phone_id, ln={"phone_id": phone_id, "token": token}, params={"fields": "display_phone_number,verified_name,quality_rating"})
+        with inbox.db() as d:
+            v = [x for x in extra_lines() if x["phone_id"] != phone_id]
+            v.append({"phone_id": phone_id, "token": token, "waba": waba_id, "name": (name or "").strip()[:40],
+                      "phone": info.get("display_phone_number", "")})
+            save_lines(d, v)
+        reset_cache()
+        return info
     with inbox.db() as d:
         inbox.set_setting(d, "wa_token", token)
         inbox.set_setting(d, "wa_phone_id", phone_id)
@@ -275,14 +393,15 @@ def parse(payload):
     for e in payload.get("entry", []):
         for ch in e.get("changes", []):
             v = ch.get("value", {})
+            pid = (v.get("metadata") or {}).get("phone_number_id", "")
             names = {c.get("wa_id"): (c.get("profile") or {}).get("name", "") for c in v.get("contacts", [])}
             for m in v.get("message_echoes", []):                      # менеджер написал клиенту с телефона (сосуществование)
                 t = m.get("type")
                 body = (m.get("text") or {}).get("body", "") if t == "text" else (f"[{t}]" if t else "")
-                out.append({"echo": True, "id": m.get("id"), "phone": m.get("to", ""), "name": "", "type": t, "text": body, "media": None})
+                out.append({"echo": True, "id": m.get("id"), "phone": m.get("to", ""), "name": "", "type": t, "text": body, "media": None, "line": pid})
             for m in v.get("messages", []):
                 t = m.get("type")
-                x = {"id": m.get("id"), "phone": m.get("from", ""), "name": names.get(m.get("from"), ""), "type": t, "text": "", "media": None}
+                x = {"id": m.get("id"), "phone": m.get("from", ""), "name": names.get(m.get("from"), ""), "type": t, "text": "", "media": None, "line": pid}
                 if t == "text":
                     x["text"] = (m.get("text") or {}).get("body", "")
                 elif t in ("image", "audio", "video", "document", "sticker"):
@@ -308,6 +427,7 @@ def parse(payload):
 def handle(m):
     """Одно входящее сообщение -> инбокс (так же, как из Telegram)."""
     import inbox
+    remember_line("wa:" + m["phone"], m.get("line", ""))
     if m.get("echo"):
         return inbox.on_manager_echo("wa:" + m["phone"], m["text"])
     chat, med, text, photo, voice, pdf, att = "wa:" + m["phone"], m["media"], m["text"], None, None, None, None
@@ -350,7 +470,7 @@ def webhook(secret):
         if not m["id"] or m["id"] in _seen:
             continue
         _seen[m["id"]] = now
-        threading.Thread(target=lambda m=m: ((mark_read(m["id"]) if not m.get("echo") else None), handle(m)), daemon=True).start()
+        threading.Thread(target=lambda m=m: ((mark_read(m["id"], m.get("line", "")) if not m.get("echo") else None), handle(m)), daemon=True).start()
     return "", 200
 
 

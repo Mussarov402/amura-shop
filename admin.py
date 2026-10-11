@@ -1695,7 +1695,8 @@ def inbox_convs():
     with inbox.db() as d:
         rows = d.run("SELECT id, name, username, status, unread, last_at, last_text, chat_id FROM conv WHERE last_at IS NULL OR last_at>0 ORDER BY last_at DESC LIMIT 100", many=True)   # пустые диалоги (клиенты, добавленные в группу) — не показываем
     return jsonify(ok=True, convs=[{"id": r[0], "name": r[1], "username": r[2], "status": r[3], "unread": r[4], "at": r[5], "text": r[6],
-                                    "channel": inbox.channel(r[7]), "phone": wa.number(r[7]) if wa.is_wa(r[7]) else ""} for r in rows])
+                                    "channel": inbox.channel(r[7]), "phone": wa.number(r[7]) if wa.is_wa(r[7]) else "",
+                                    "line": wa.line_name(r[7]) if wa.is_wa(r[7]) else ""} for r in rows])
 
 
 def _msg_json(m):
@@ -1724,7 +1725,8 @@ def inbox_conv(cid):
     age = time.time() - lastc
     opn = age < 86400 - 60 if isw else age < 7 * 86400 - 60 if ch == "ig" else True      # WhatsApp — 24 ч, Instagram — 7 дней (после 24 ч с меткой «ответ менеджера»)
     return jsonify(ok=True, conv={"id": c[0], "name": c[1], "username": c[2], "status": c[3], "channel": ch,
-                                  "phone": wa.number(c[4]) if isw else "", "open": opn, "late": ch == "ig" and age >= 86400 - 60},
+                                  "phone": wa.number(c[4]) if isw else "", "line": wa.line_name(c[4]) if isw else "",
+                                  "open": opn, "late": ch == "ig" and age >= 86400 - 60},
                    messages=[_msg_json(m) for m in ms_])
 
 
@@ -1951,8 +1953,7 @@ def inbox_send_location(cid):
         chat = c[0]
         try:
             if wa.is_wa(chat):
-                wa._call("POST", f"{wa.cfg()['phone_id']}/messages", json={"messaging_product": "whatsapp", "to": wa.number(chat),
-                                                                         "type": "location", "location": {"latitude": lat, "longitude": lon}})
+                wa.send_location(chat, lat, lon)
             elif inbox.channel(chat) == "tg":
                 oh.tg("sendLocation", chat_id=chat, latitude=lat, longitude=lon)
             else:
@@ -2138,6 +2139,11 @@ def channels():
                     inbox.set_setting(d, "wa_" + k, v)
                 elif k in b and not v:
                     inbox.set_setting(d, "wa_" + k, "")
+            if "name" in b:                             # подпись основного номера в чатах
+                inbox.set_setting(d, "wa_name", str(b.get("name", "")).strip()[:40])
+            if isinstance(b.get("lines"), list):        # переименование / отключение дополнительных номеров
+                keep = {str(x.get("phone_id")): str(x.get("name", "")).strip()[:40] for x in b["lines"] if isinstance(x, dict)}
+                wa.save_lines(d, [dict(x, name=keep[x["phone_id"]]) for x in wa.extra_lines() if x["phone_id"] in keep])
         wa.reset_cache()                                # читаем только после записи (коммит при выходе из with)
     c = wa.cfg()
     base = (oh.PUBLIC_URL or request.url_root).rstrip("/")
@@ -2145,7 +2151,8 @@ def channels():
                    wa={"ok": wa.configured(), "phone_id": c["phone_id"], "token": _mask(c["token"]), "secret": _mask(c["secret"]),
                        "app_id": c["app_id"], "config_id": c["config_id"], "config_coex": c["config_coex"],
                        "ready": bool(c["app_id"] and c["config_id"] and c["secret"]), "readyCoex": bool(c["app_id"] and (c["config_coex"] or c["config_id"]) and c["secret"]),
-                       "url": f"{base}/wa/{oh.HOOK_SECRET}", "verify": oh.HOOK_SECRET},
+                       "url": f"{base}/wa/{oh.HOOK_SECRET}", "verify": oh.HOOK_SECRET, "name": wa.primary_name(),
+                       "lines": [{"phone_id": x["phone_id"], "name": x.get("name", ""), "phone": x.get("phone", "")} for x in wa.extra_lines()]},
                    ig=_ig_info(base))
 
 
@@ -2176,7 +2183,7 @@ def ig_connect():
 @guard
 def wa_test():
     try:
-        j = wa.check()
+        j = wa.check(str((request.get_json(silent=True) or {}).get("phone_id", "")))
         return jsonify(ok=True, name=j.get("verified_name", ""), phone=j.get("display_phone_number", ""), quality=j.get("quality_rating", ""))
     except Exception as e:
         return jsonify(ok=False, error=str(e)[:300]), 400
@@ -2199,7 +2206,7 @@ def wa_connect():
         for ru in ("", None, page, origin, origin + "/", origin + "/admin", "https://www.facebook.com/connect/login_success.html"):      # None — параметр не передавать
             if ru not in reds and (ru is None or ru == "" or ru.startswith("http")):
                 reds.append(ru)
-        j = wa.connect(code, pid, wid, f"{base}/wa/{oh.HOOK_SECRET}", oh.HOOK_SECRET, coex, reds)
+        j = wa.connect(code, pid, wid, f"{base}/wa/{oh.HOOK_SECRET}", oh.HOOK_SECRET, coex, reds, add=bool(b.get("add")), name=str(b.get("name", "")))
     except oh.requests.exceptions.RequestException:
         return jsonify(ok=False, error="Не удалось связаться с Meta. Повторите через минуту."), 502
     except Exception as e:
@@ -2217,7 +2224,7 @@ def wa_token():
         return jsonify(ok=False, error="Вставьте токен целиком"), 400
     base = (oh.PUBLIC_URL or request.url_root).rstrip("/")
     try:
-        j = wa.connect_token(tok_, pid, f"{base}/wa/{oh.HOOK_SECRET}", oh.HOOK_SECRET, wid)
+        j = wa.connect_token(tok_, pid, f"{base}/wa/{oh.HOOK_SECRET}", oh.HOOK_SECRET, wid, add=bool(b.get("add")), name=str(b.get("name", "")))
     except oh.requests.exceptions.RequestException:
         return jsonify(ok=False, error="Не удалось связаться с Meta. Повторите через минуту."), 502
     except Exception as e:
