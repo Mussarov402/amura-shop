@@ -42,6 +42,9 @@ def _schema(d):
     d.run("CREATE TABLE IF NOT EXISTS card_photo_q (id TEXT PRIMARY KEY, pid TEXT, filename TEXT, mime TEXT, data " + blob + ","
           " status TEXT, attempts INTEGER DEFAULT 0, error TEXT, who TEXT, created DOUBLE PRECISION, sent DOUBLE PRECISION,"
           " next_try DOUBLE PRECISION DEFAULT 0)")
+    # правка карточки: изменённые поля (JSON) — очередь в МойСклад, как у фото
+    d.run("CREATE TABLE IF NOT EXISTS card_edit_q (id TEXT PRIMARY KEY, pid TEXT, changes TEXT, status TEXT, attempts INTEGER DEFAULT 0,"
+          " error TEXT, who TEXT, created DOUBLE PRECISION, sent DOUBLE PRECISION, next_try DOUBLE PRECISION DEFAULT 0)")
     d.run("CREATE TABLE IF NOT EXISTS product_video (pid TEXT PRIMARY KEY, mime TEXT, data " + blob + ", size INTEGER,"
           " status TEXT, error TEXT, name TEXT, who TEXT, at DOUBLE PRECISION)")
     d.c.commit()
@@ -73,7 +76,7 @@ def card(pid):
             "prices": json.loads(prices or "{}"), "buy": round(buy or 0), "barcodes": json.loads(bcs or "[]"), "archived": bool(arch),
             "stock": sorted([{"store": names.get(s, s), "stock": a or 0, "reserve": b or 0} for s, a, b in stock if a or b], key=lambda x: x["store"]),
             "site": f"{oh.SITE_URL.rstrip('/')}/img/{i}.webp" if getattr(oh, "SITE_URL", "") else "",
-            "video": video_info(i), "pending": pending(i)}
+            "video": video_info(i), "pending": pending(i), "edits": edits_pending(i)}
 
 
 # ---------- фото ----------
@@ -350,12 +353,178 @@ def delete_video(pid):
                     pass
 
 
+# ---------- правка карточки (название, артикул, цены, закупка, штрихкоды) — в МойСклад ----------
+def _bc_type(v):
+    return "ean13" if v.isdigit() and len(v) == 13 else "ean8" if v.isdigit() and len(v) == 8 else "code128"
+
+
+def edit(pid, data, who=""):
+    """Проверяет изменения, сохраняет их у нас и сразу отправляет в МойСклад. В МойСклад уходят только изменённые поля;
+    повтор безопасен — PUT с теми же значениями ничего не задваивает. Ошибка проверки — ValueError."""
+    c = card(pid)
+    if not c:
+        raise ValueError("Товар не найден")
+    ch = {}
+    if "name" in data:
+        name = str(data["name"] or "").strip()
+        if not name or len(name) > 255:
+            raise ValueError("Название — от 1 до 255 символов")
+        if name != c["name"]:
+            ch["name"] = name
+    if "article" in data:
+        art = str(data["article"] or "").strip()[:255]
+        if art != c["article"]:
+            ch["article"] = art
+    if "buy" in data:
+        try:
+            buy = round(float(data["buy"]))
+        except (TypeError, ValueError):
+            raise ValueError("Закупочная цена — число")
+        if buy < 0:
+            raise ValueError("Цена не может быть меньше нуля")
+        if buy != c["buy"]:
+            ch["buy"] = buy
+    if "prices" in data:
+        pr = {}
+        for k, v in (data["prices"] or {}).items():
+            if k not in c["prices"]:
+                raise ValueError(f"Нет такого вида цены: {k}")
+            try:
+                v = round(float(v))
+            except (TypeError, ValueError):
+                raise ValueError("Цены — числа")
+            if v < 0:
+                raise ValueError("Цена не может быть меньше нуля")
+            if v != c["prices"][k]:
+                pr[k] = v
+        if pr:
+            ch["prices"] = pr
+    if "barcodes" in data:
+        bcs = []
+        for b in data["barcodes"] or []:
+            b = str(b or "").strip()
+            if not b:
+                continue
+            if len(b) > 64 or not all(ch.isascii() and (ch.isalnum() or ch == "-") for ch in b):
+                raise ValueError(f"Штрихкод «{b[:20]}» — только цифры и латинские буквы")
+            if b not in bcs:
+                bcs.append(b)
+        if bcs != c["barcodes"]:
+            ch["barcodes"] = bcs
+    if not ch:
+        return {"status": "nothing"}
+    op = str(uuid.uuid4())
+    with db() as d:
+        d.run("INSERT INTO card_edit_q (id, pid, changes, status, attempts, error, who, created, sent, next_try)"
+              " VALUES (%s, %s, %s, 'queued', 0, '', %s, %s, 0, 0)", (op, pid, json.dumps(ch, ensure_ascii=False), who, time.time()))
+    return send_edit(op)
+
+
+def _eq(op):
+    with db() as d:
+        r = d.run("SELECT id, pid, changes, status, attempts, error FROM card_edit_q WHERE id=%s", (op,), one=True)
+    return {"id": r[0], "pid": r[1], "changes": json.loads(r[2] or "{}"), "status": r[3], "attempts": r[4] or 0, "error": r[5] or ""} if r else None
+
+
+def _emark(op, **f):
+    sets = ", ".join(f"{k}=%s" for k in f)
+    with db() as d:
+        d.run(f"UPDATE card_edit_q SET {sets} WHERE id=%s", (*f.values(), op))
+
+
+def _edit_body(cur, ch):
+    """Тело PUT из текущей карточки МойСклад: меняем только изменённое, остальное (другие цены, валюты, типы штрихкодов) — как было."""
+    body = {}
+    if "name" in ch:
+        body["name"] = ch["name"]
+    if "article" in ch:
+        body["article"] = ch["article"]
+    if "buy" in ch:
+        bp = dict(cur.get("buyPrice") or {})
+        bp["value"] = ch["buy"] * 100
+        body["buyPrice"] = bp
+    if "prices" in ch:
+        sp = []
+        for p in cur.get("salePrices") or []:
+            p = dict(p)
+            name = (p.get("priceType") or {}).get("name")
+            if name in ch["prices"]:
+                p["value"] = ch["prices"][name] * 100
+            sp.append(p)
+        body["salePrices"] = sp
+    if "barcodes" in ch:
+        old = {v: k for b in cur.get("barcodes") or [] for k, v in b.items() if isinstance(v, str)}
+        body["barcodes"] = [{old.get(v, _bc_type(v)): v} for v in ch["barcodes"]]
+    return body
+
+
+def send_edit(op):
+    with _lock:
+        o = _eq(op)
+        if not o or o["status"] == "sent":
+            return o
+        att = o["attempts"] + 1
+        _emark(op, attempts=att)
+        try:
+            kind = "variant" if (card(o["pid"]) or {}).get("kind") == "variant" else "product"
+            cur = oh.ms("GET", f"/entity/{kind}/{o['pid']}", timeout=30)
+            oh.ms("PUT", f"/entity/{kind}/{o['pid']}", json=_edit_body(cur, o["changes"]), timeout=30)
+            _emark(op, status="sent", error="", sent=time.time())
+            _apply_local(o["pid"], o["changes"])
+            print(f"Карточки: правка товара {o['pid'][:8]} записана в МойСклад ({', '.join(o['changes'])})", flush=True)
+        except Exception as e:
+            msg = str(e)[:300]
+            _emark(op, status="error" if msg.startswith("МойСклад 4") else "queued", error=msg,
+                   next_try=time.time() + min(3600, RETRY_EVERY * 2 ** min(att, 6)))
+            print(f"Карточки: правка товара {o['pid'][:8]} не отправлена (попытка {att}): {msg}", flush=True)
+    return _eq(op)
+
+
+def _apply_local(pid, ch):
+    """Сразу показываем новое в системе (зеркало подтянет то же самое из МойСклад при следующем проходе)."""
+    with mirror.db() as d:
+        r = d.run("SELECT prices FROM ms_product WHERE id=%s", (pid,), one=True)
+        if not r:
+            return
+        if "name" in ch:
+            d.run("UPDATE ms_product SET name=%s WHERE id=%s", (ch["name"], pid))
+        if "article" in ch:
+            d.run("UPDATE ms_product SET article=%s WHERE id=%s", (ch["article"], pid))
+        if "buy" in ch:
+            d.run("UPDATE ms_product SET buy_price=%s WHERE id=%s", (ch["buy"], pid))
+        if "prices" in ch:
+            pr = json.loads(r[0] or "{}")
+            pr.update(ch["prices"])
+            d.run("UPDATE ms_product SET prices=%s WHERE id=%s", (json.dumps(pr, ensure_ascii=False), pid))
+        if "barcodes" in ch:
+            d.run("UPDATE ms_product SET barcodes=%s WHERE id=%s", (json.dumps(ch["barcodes"], ensure_ascii=False), pid))
+
+
+def edits_pending(pid):
+    with db() as d:
+        rows = d.run("SELECT id, changes, status, error FROM card_edit_q WHERE pid=%s AND status<>'sent' ORDER BY created", (pid,), many=True) or []
+    return [{"id": i, "changes": json.loads(c or "{}"), "status": s, "error": e or ""} for i, c, s, e in rows]
+
+
+def retry_edit(op):
+    o = _eq(op)
+    if o and o["status"] == "error":
+        _emark(op, status="queued")
+    return send_edit(op)
+
+
 def _loop():
     time.sleep(150)
     while True:
         try:
             if enabled():
                 retry_pending()
+                now = time.time()
+                with db() as d:
+                    ids = [r[0] for r in d.run("SELECT id FROM card_edit_q WHERE status='queued' AND attempts<%s AND next_try<=%s AND created<%s",
+                                               (MAX_AUTO, now, now - 60), many=True) or []]
+                for i in ids:
+                    send_edit(i)
         except Exception as e:
             print("Карточки (очередь фото):", e, flush=True)
         time.sleep(RETRY_EVERY)

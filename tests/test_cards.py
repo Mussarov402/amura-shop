@@ -157,5 +157,53 @@ class CardsTest(unittest.TestCase):
         self.assertEqual(v["status"], "error")
 
 
+    def test_edit_sends_only_changes(self):
+        cur = {"id": "p1", "name": "Крем", "article": "", "buyPrice": {"value": 120000, "currency": {"meta": {"href": "kzt"}}},
+               "salePrices": [{"value": 200000, "priceType": {"name": "Оптовая цена", "meta": {"href": "pt1"}}},
+                              {"value": 300000, "priceType": {"name": "Розничная цена", "meta": {"href": "pt2"}}}],
+               "barcodes": [{"ean13": "4601234567893"}]}
+        sent, fail = [], []
+
+        def ms(method, path, params=None, json=None, **kw):
+            if method == "GET" and path == "/entity/product/p1":
+                return cur
+            if method == "PUT" and path == "/entity/product/p1":
+                if fail:
+                    raise fail.pop(0)
+                sent.append(json)
+                return {}
+            raise AssertionError(path)
+        oh.ms = ms
+        with mirror.db() as d:
+            d.run("UPDATE ms_product SET prices=%s WHERE id='p1'", ('{"Оптовая цена": 2000, "Розничная цена": 3000}',))
+        r = self.c.post("/admin/api/cards/p1/edit", headers=self.h,
+                        json={"name": " Крем дневной ", "prices": {"Оптовая цена": 2100, "Розничная цена": 3000}, "buy": 1200,
+                              "barcodes": ["4601234567893", "12345678", "ABC-1"]}).get_json()
+        self.assertEqual(r["edit"]["status"], "sent")
+        b = sent[0]
+        self.assertEqual(set(b), {"name", "salePrices", "barcodes"})                               # закупка не менялась — не шлём
+        self.assertEqual(b["name"], "Крем дневной")
+        self.assertEqual([(p["priceType"]["name"], p["value"]) for p in b["salePrices"]], [("Оптовая цена", 210000), ("Розничная цена", 300000)])
+        self.assertEqual(b["salePrices"][0]["priceType"]["meta"]["href"], "pt1")                  # вид цены сохранён
+        self.assertEqual(b["barcodes"], [{"ean13": "4601234567893"}, {"ean8": "12345678"}, {"code128": "ABC-1"}])
+        self.assertEqual((r["card"]["name"], r["card"]["prices"]["Оптовая цена"]), ("Крем дневной", 2100))   # сразу видно в системе
+        self.assertEqual(self.c.post("/admin/api/cards/p1/edit", headers=self.h, json={"name": "Крем дневной"}).get_json()["edit"]["status"], "nothing")
+        fail.append(requests.ConnectionError("timeout"))
+        r = self.c.post("/admin/api/cards/p1/edit", headers=self.h, json={"buy": 1300}).get_json()["edit"]
+        self.assertEqual(r["status"], "queued")                                                   # не потеряно
+        self.assertEqual(self.c.post(f"/admin/api/cards/edit-q/{r['id']}/retry", headers=self.h).get_json()["edit"]["status"], "sent")
+        self.assertEqual(sent[-1], {"buyPrice": {"value": 130000, "currency": {"meta": {"href": "kzt"}}}})
+
+    def test_edit_validation_and_owner_only(self):
+        for bad in ({"name": ""}, {"prices": {"Нет такой": 1}}, {"buy": -1}, {"barcodes": ["абв"]}, {"prices": {"Оптовая цена": "x"}}):
+            self.assertEqual(self.c.post("/admin/api/cards/p1/edit", headers=self.h, json=bad).status_code, 400, bad)
+        old = admin.who
+        try:
+            admin.who = lambda: {"role": "staff", "perms": ["products"], "name": "С"}
+            self.assertEqual(self.c.post("/admin/api/cards/p1/edit", json={"name": "X"}).status_code, 403)   # правка — только владелец
+            self.assertEqual(self.c.get("/admin/api/cards/p1").status_code, 200)                              # смотреть — можно
+        finally:
+            admin.who = old
+
 if __name__ == "__main__":
     unittest.main()

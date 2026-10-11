@@ -2628,3 +2628,29 @@ def card_video_file(pid):
     from flask import send_file
     resp = send_file(v[1], mimetype=v[0], conditional=True, max_age=86400)     # с диска, частями (Range), без чтения целиком в память
     return oh.cors(resp)
+
+
+@bp.post("/admin/api/cards/<pid>/edit")
+@guard
+def card_edit(pid):
+    """Правка карточки (название, артикул, цены, закупка, штрихкоды) — только владелец; в МойСклад через очередь."""
+    off = _cards_on()
+    if off:
+        return off
+    try:
+        r = cards.edit(pid, request.get_json(silent=True) or {}, _fin_who())
+    except ValueError as e:
+        return jsonify(ok=False, error=str(e)), 400
+    return jsonify(ok=True, edit=r, card=cards.card(pid))
+
+
+@bp.post("/admin/api/cards/edit-q/<op>/retry")
+@guard
+def card_edit_retry(op):
+    off = _cards_on()
+    if off:
+        return off
+    r = cards.retry_edit(op)
+    if not r:
+        return jsonify(ok=False, error="Не найдено"), 404
+    return jsonify(ok=True, edit=r, card=cards.card(r["pid"]))
