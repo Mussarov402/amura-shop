@@ -2675,3 +2675,44 @@ def card_edit_retry(op):
     if not r:
         return jsonify(ok=False, error="Не найдено"), 404
     return jsonify(ok=True, edit=r, card=cards.card(r["pid"]))
+
+
+@bp.get("/admin/api/cards/new-meta")
+@guard
+def card_new_meta():
+    off = _cards_on()
+    if off:
+        return off
+    try:
+        m = cards.new_meta()
+    except Exception as e:
+        return jsonify(ok=False, error=f"МойСклад не отдал папки и виды цен: {str(e)[:150]}"), 502
+    return jsonify(ok=True, pending=cards.new_pending(), **m)
+
+
+@bp.post("/admin/api/cards/new")
+@guard
+def card_new():
+    """Новый товар — только владелец; создаётся в МойСклад через очередь (externalCode, без дублей)."""
+    off = _cards_on()
+    if off:
+        return off
+    try:
+        r = cards.create(request.get_json(silent=True) or {}, _fin_who())
+    except ValueError as e:
+        return jsonify(ok=False, error=str(e)), 400
+    except Exception as e:
+        return jsonify(ok=False, error=f"МойСклад не ответил: {str(e)[:150]}"), 502
+    return jsonify(ok=True, new=r)
+
+
+@bp.post("/admin/api/cards/new-q/<op>/retry")
+@guard
+def card_new_retry(op):
+    off = _cards_on()
+    if off:
+        return off
+    r = cards.retry_new(op)
+    if not r:
+        return jsonify(ok=False, error="Не найдено"), 404
+    return jsonify(ok=True, new=r)
