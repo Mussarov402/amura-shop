@@ -33,6 +33,7 @@ DOC_DAYS = 90              # документы берём за последни
 ENTITIES = ("product", "variant", "counterparty") + DOC_TYPES
 MS_TZ = timezone(timedelta(hours=3))   # время в МойСклад — Москва
 RECON_EVERY = 86400        # автосверка раз в сутки, когда загрузка догнала МойСклад
+REPORT_PAGE = 100          # строк на страницу отчёта взаиморасчётов (тяжёлый отчёт)
 BACKOFF_MAX = 3600         # МойСклад не отвечает: пауза между проходами растёт 10 → 20 → 40 → 60 мин, чтобы не отнимать канал у сайта
 _net = {"fail": False, "streak": 0}
 
@@ -372,14 +373,16 @@ def sync_stock():
     return len(stock)
 
 
-def _report_rows(path, params=None):
+def _report_rows(path, params=None, page=1000):
+    """Отчёт МойСклад целиком, страницами. Тяжёлые отчёты (взаиморасчёты) — мелкими страницами: на медленном канале
+    (с 10.10) ответ на 1000 строк не успевал за 60 с, а по 100 строк проходит."""
     out, off = [], 0
     while True:
         _site_room()
-        r = oh.ms("GET", path, params={"limit": 1000, "offset": off, **(params or {})}, timeout=60)
+        r = oh.ms("GET", path, params={"limit": page, "offset": off, **(params or {})}, timeout=60)
         rows = r if isinstance(r, list) else r.get("rows", [])
         out += rows
-        off += 1000
+        off += page
         if isinstance(r, list) or off >= (r.get("meta") or {}).get("size", 0):
             return out
 
@@ -393,7 +396,7 @@ def sync_money():
         aid = _href_id(acc) or "cash:" + _href_id(org)                # без счёта — касса организации
         money.append((aid, acc.get("name") or r.get("name") or ("Касса" if not _href_id(acc) else ""), (r.get("balance") or 0) / 100))
     agents = [(_href_id(r.get("counterparty")), (r.get("counterparty") or {}).get("name") or "", (r.get("balance") or 0) / 100)
-              for r in _report_rows("/report/counterparty")]
+              for r in _report_rows("/report/counterparty", page=REPORT_PAGE)]
     t = time.time()
     with db() as d:
         d.run("DELETE FROM ms_money")
@@ -601,7 +604,7 @@ def _money_checks():
         ours_money = d.run("SELECT COALESCE(SUM(balance), 0) FROM ms_money", one=True)[0]
         ours_debt = d.run("SELECT COALESCE(SUM(balance), 0) FROM ms_agent_balance", one=True)[0]
     theirs_money = sum((r.get("balance") or 0) for r in _report_rows("/report/money/byaccount")) / 100
-    theirs_debt = sum((r.get("balance") or 0) for r in _report_rows("/report/counterparty")) / 100
+    theirs_debt = sum((r.get("balance") or 0) for r in _report_rows("/report/counterparty", page=REPORT_PAGE)) / 100
     out.append(_check("Деньги на счетах и в кассах, всего", round(ours_money), round(theirs_money), "₸"))
     out.append(_check("Взаиморасчёты с контрагентами, итог", round(ours_debt), round(theirs_debt), "₸"))
     return out
