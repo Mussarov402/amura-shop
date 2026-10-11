@@ -205,5 +205,72 @@ class CardsTest(unittest.TestCase):
         finally:
             admin.who = old
 
+    def _new_ms(self, fail=None):
+        created, calls = [], []
+
+        def ms(method, path, params=None, json=None, **kw):
+            calls.append((method, path))
+            if path == "/entity/productfolder":
+                return {"rows": [{"id": "f1", "name": "Кремы", "pathName": "Уход"}, {"id": "f0", "name": "Старое", "archived": True}]}
+            if path == "/context/companysettings/pricetype":
+                return [{"id": "pt1", "name": "Оптовая цена"}, {"id": "pt2", "name": "Розничная цена"}]
+            if method == "GET" and path == "/entity/product":
+                code = (params or {}).get("filter", "").split("externalCode=")[-1]
+                return {"rows": [c for c in created if c["externalCode"] == code]}
+            if method == "POST" and path == "/entity/product":
+                row = {"id": f"np{len(created) + 1}", "code": json.get("code", ""), "pathName": "Уход/Кремы", "updated": "2026-10-11 10:00:00.000", **json}
+                created.append(row)
+                if fail:
+                    e = fail.pop(0)
+                    if e == "lost":
+                        raise requests.ConnectionError("timeout")
+                    created.pop()
+                    raise e
+                return row
+            raise AssertionError(path)
+        cards._meta.clear()
+        oh.ms = ms
+        return created, calls
+
+    def test_new_product(self):
+        created, calls = self._new_ms()
+        m = self.c.get("/admin/api/cards/new-meta", headers=self.h).get_json()
+        self.assertEqual((m["folders"], [p["name"] for p in m["priceTypes"]], m["nextCode"]),
+                         ([{"id": "f1", "name": "Уход/Кремы"}], ["Оптовая цена", "Розничная цена"], "102"))   # архивные папки не показываем
+        r = self.c.post("/admin/api/cards/new", headers=self.h, json={"name": "Новый крем", "code": "102", "folder": "f1", "article": "A-1",
+                        "prices": {"Оптовая цена": 2500}, "buy": 1500, "barcodes": ["4601234567893"]}).get_json()["new"]
+        self.assertEqual((r["status"], r["pid"]), ("sent", "np1"))
+        b = created[0]
+        self.assertEqual(b["externalCode"], r["id"])
+        self.assertEqual(b["productFolder"]["meta"]["href"].rsplit("/", 1)[-1], "f1")
+        self.assertTrue(b["salePrices"][0]["priceType"]["meta"]["href"].endswith("/context/companysettings/pricetype/pt1"))
+        self.assertEqual((b["salePrices"][0]["value"], b["buyPrice"]["value"], b["barcodes"]), (250000, 150000, [{"ean13": "4601234567893"}]))
+        c = self.c.get("/admin/api/cards/np1", headers=self.h).get_json()["card"]                   # карточка открывается сразу
+        self.assertEqual((c["name"], c["code"], c["prices"]["Оптовая цена"]), ("Новый крем", "102", 2500))
+        self.assertEqual(self.c.post("/admin/api/cards/new", headers=self.h, json={"name": "Другой", "code": "102"}).status_code, 400)   # код занят
+        self.assertEqual(self.c.post("/admin/api/cards/new", headers=self.h, json={"name": "новый КРЕМ"}).status_code, 400)          # такое название есть
+        self.assertEqual(self.c.post("/admin/api/cards/new", headers=self.h, json={"name": "X", "folder": "zzz"}).status_code, 400)
+        self.assertEqual(self.c.post("/admin/api/cards/new", headers=self.h, json={"name": ""}).status_code, 400)
+
+    def test_new_product_lost_response_no_duplicate(self):
+        created, calls = self._new_ms(fail=["lost"])
+        r = self.c.post("/admin/api/cards/new", headers=self.h, json={"name": "Сыворотка"}).get_json()["new"]
+        self.assertEqual(r["status"], "queued")
+        self.assertEqual(len(created), 1)                                  # МойСклад создал
+        r = self.c.post(f"/admin/api/cards/new-q/{r['id']}/retry", headers=self.h).get_json()["new"]
+        self.assertEqual((r["status"], r["pid"]), ("sent", "np1"))
+        self.assertEqual(len(created), 1)                                  # второй карточки нет
+        self.assertEqual([c for c in calls if c == ("POST", "/entity/product")], [("POST", "/entity/product")])
+
+    def test_new_product_owner_only(self):
+        self._new_ms()
+        old = admin.who
+        try:
+            admin.who = lambda: {"role": "staff", "perms": ["products", "warehouse"], "name": "С"}
+            self.assertEqual(self.c.post("/admin/api/cards/new", json={"name": "X"}).status_code, 403)
+            self.assertEqual(self.c.get("/admin/api/cards/new-meta").status_code, 403)
+        finally:
+            admin.who = old
+
 if __name__ == "__main__":
     unittest.main()

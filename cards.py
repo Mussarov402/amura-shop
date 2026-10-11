@@ -45,6 +45,9 @@ def _schema(d):
     # правка карточки: изменённые поля (JSON) — очередь в МойСклад, как у фото
     d.run("CREATE TABLE IF NOT EXISTS card_edit_q (id TEXT PRIMARY KEY, pid TEXT, changes TEXT, status TEXT, attempts INTEGER DEFAULT 0,"
           " error TEXT, who TEXT, created DOUBLE PRECISION, sent DOUBLE PRECISION, next_try DOUBLE PRECISION DEFAULT 0)")
+    # новый товар: данные формы — очередь в МойСклад (externalCode = id, без дублей)
+    d.run("CREATE TABLE IF NOT EXISTS card_new_q (id TEXT PRIMARY KEY, data TEXT, status TEXT, pid TEXT, attempts INTEGER DEFAULT 0,"
+          " error TEXT, who TEXT, created DOUBLE PRECISION, sent DOUBLE PRECISION, next_try DOUBLE PRECISION DEFAULT 0)")
     d.run("CREATE TABLE IF NOT EXISTS product_video (pid TEXT PRIMARY KEY, mime TEXT, data " + blob + ", size INTEGER,"
           " status TEXT, error TEXT, name TEXT, who TEXT, at DOUBLE PRECISION)")
     d.c.commit()
@@ -513,6 +516,164 @@ def retry_edit(op):
     return send_edit(op)
 
 
+# ---------- новый товар ----------
+_meta = {}
+
+
+def new_meta():
+    """Папки товаров и виды цен из МойСклад для формы нового товара (кэш 10 минут) + следующий свободный код."""
+    c = _meta.get("v")
+    if not c or time.time() - c[0] > 600:
+        folders = [{"id": (x.get("id") or ""), "name": ((x.get("pathName") + "/") if x.get("pathName") else "") + (x.get("name") or "")}
+                   for x in oh.ms("GET", "/entity/productfolder", params={"limit": 1000}, timeout=30).get("rows") or [] if not x.get("archived")]
+        pts = oh.ms("GET", "/context/companysettings/pricetype", timeout=30)
+        pts = pts if isinstance(pts, list) else pts.get("rows", [])
+        c = (time.time(), {"folders": sorted(folders, key=lambda f: f["name"]),
+                           "priceTypes": [{"id": p.get("id") or "", "name": p.get("name") or ""} for p in pts]})
+        _meta["v"] = c
+    with mirror.db() as d:
+        codes = [r[0] for r in d.run("SELECT code FROM ms_product WHERE kind='product'", many=True) or []]
+    nums = [int(x) for x in codes if x and x.isdigit()]
+    width = max([len(x) for x in codes if x and x.isdigit()] or [5])
+    return {**c[1], "nextCode": str(max(nums or [0]) + 1).zfill(width)}
+
+
+def create(data, who=""):
+    """Новый товар: проверка, сохранение у нас, отправка в МойСклад. Ошибка проверки — ValueError."""
+    name = str(data.get("name") or "").strip()
+    if not name or len(name) > 255:
+        raise ValueError("Название — от 1 до 255 символов")
+    code = str(data.get("code") or "").strip()[:64]
+    meta = new_meta()
+    with mirror.db() as d:
+        if code and d.run("SELECT 1 FROM ms_product WHERE code=%s AND deleted=0", (code,), one=True):
+            raise ValueError(f"Код {code} уже занят — укажите другой")
+        same = any((n or "").strip().lower() == name.lower() for (n,) in d.run("SELECT name FROM ms_product WHERE deleted=0", many=True) or [])
+        if same and not data.get("force"):        # сравнение в Python: LOWER() в SQLite не знает кириллицы
+            raise ValueError("Товар с таким названием уже есть. Если это другой товар — измените название")
+    folder = str(data.get("folder") or "")
+    if folder and folder not in {f["id"] for f in meta["folders"]}:
+        raise ValueError("Выберите папку из списка")
+    pts = {p["name"]: p["id"] for p in meta["priceTypes"]}
+    prices = {}
+    for k, v in (data.get("prices") or {}).items():
+        if k not in pts:
+            raise ValueError(f"Нет такого вида цены: {k}")
+        try:
+            v = round(float(v or 0))
+        except (TypeError, ValueError):
+            raise ValueError("Цены — числа")
+        if v < 0:
+            raise ValueError("Цена не может быть меньше нуля")
+        prices[k] = v
+    try:
+        buy = round(float(data.get("buy") or 0))
+    except (TypeError, ValueError):
+        raise ValueError("Закупочная цена — число")
+    if buy < 0:
+        raise ValueError("Цена не может быть меньше нуля")
+    bcs = []
+    for b in data.get("barcodes") or []:
+        b = str(b or "").strip()
+        if not b:
+            continue
+        if len(b) > 64 or not all(ch.isascii() and (ch.isalnum() or ch == "-") for ch in b):
+            raise ValueError(f"Штрихкод «{b[:20]}» — только цифры и латинские буквы")
+        if b not in bcs:
+            bcs.append(b)
+    clean = {"name": name, "code": code, "article": str(data.get("article") or "").strip()[:255], "folder": folder,
+             "prices": prices, "buy": buy, "barcodes": bcs, "priceTypes": {k: pts[k] for k in prices}}
+    op = str(uuid.uuid4())
+    with db() as d:
+        d.run("INSERT INTO card_new_q (id, data, status, pid, attempts, error, who, created, sent, next_try)"
+              " VALUES (%s, %s, 'queued', '', 0, '', %s, %s, 0, 0)", (op, json.dumps(clean, ensure_ascii=False), who, time.time()))
+    return send_new(op)
+
+
+def _nq(op):
+    with db() as d:
+        r = d.run("SELECT id, data, status, pid, attempts, error FROM card_new_q WHERE id=%s", (op,), one=True)
+    return {"id": r[0], "data": json.loads(r[1] or "{}"), "status": r[2], "pid": r[3] or "", "attempts": r[4] or 0, "error": r[5] or ""} if r else None
+
+
+def _nmark(op, **f):
+    sets = ", ".join(f"{k}=%s" for k in f)
+    with db() as d:
+        d.run(f"UPDATE card_new_q SET {sets} WHERE id=%s", (*f.values(), op))
+
+
+def _new_body(op, x):
+    body = {"name": x["name"], "externalCode": op}
+    if x.get("code"):
+        body["code"] = x["code"]
+    if x.get("article"):
+        body["article"] = x["article"]
+    if x.get("folder"):
+        body["productFolder"] = oh.meta("productfolder", x["folder"])
+    if x.get("prices"):
+        body["salePrices"] = [{"value": v * 100, "priceType": {"meta": {"href": f"{oh.API}/context/companysettings/pricetype/{x['priceTypes'][k]}",
+                                                                        "type": "pricetype", "mediaType": "application/json"}}} for k, v in x["prices"].items()]
+    if x.get("buy"):
+        body["buyPrice"] = {"value": x["buy"] * 100}
+    if x.get("barcodes"):
+        body["barcodes"] = [{_bc_type(b): b} for b in x["barcodes"]]
+    return body
+
+
+def send_new(op):
+    """Одна попытка создать товар в МойСклад. Перед повтором ищет по externalCode — второй карточки не будет."""
+    with _lock:
+        o = _nq(op)
+        if not o or o["status"] == "sent":
+            return o
+        att = o["attempts"] + 1
+        _nmark(op, attempts=att)
+        try:
+            row = None
+            if o["attempts"]:
+                found = oh.ms("GET", "/entity/product", params={"filter": f"externalCode={op}", "limit": 1}, timeout=20).get("rows") or []
+                row = found[0] if found else None
+            if row is None:
+                row = oh.ms("POST", "/entity/product", json=_new_body(op, o["data"]), timeout=30)
+            pid = row.get("id") or ""
+            _nmark(op, status="sent", pid=pid, error="", sent=time.time())
+            _new_local(pid, row, o["data"])
+            print(f"Карточки: товар «{o['data']['name'][:40]}» создан в МойСклад ({pid[:8]})", flush=True)
+        except Exception as e:
+            msg = str(e)[:300]
+            _nmark(op, status="error" if msg.startswith("МойСклад 4") else "queued", error=msg,
+                   next_try=time.time() + min(3600, RETRY_EVERY * 2 ** min(att, 6)))
+            print(f"Карточки: товар «{o['data']['name'][:40]}» не создан (попытка {att}): {msg}", flush=True)
+    return _nq(op)
+
+
+def _new_local(pid, row, x):
+    """Новый товар сразу в нашей копии — карточка открывается без ожидания зеркала (оно потом перезапишет то же)."""
+    if not pid:
+        return
+    with mirror.db() as d:
+        if d.run("SELECT 1 FROM ms_product WHERE id=%s", (pid,), one=True):
+            return
+        d.run("INSERT INTO ms_product (id, kind, parent_id, code, article, name, folder, archived, prices, buy_price, barcodes, updated, deleted, seen)"
+              " VALUES (%s, 'product', NULL, %s, %s, %s, %s, 0, %s, %s, %s, %s, 0, %s)",
+              (pid, row.get("code") or x.get("code") or "", x.get("article") or "", x["name"], row.get("pathName") or "",
+               json.dumps(x.get("prices") or {}, ensure_ascii=False), x.get("buy") or 0, json.dumps(x.get("barcodes") or [], ensure_ascii=False),
+               (row.get("updated") or "")[:23], time.time()))
+
+
+def retry_new(op):
+    o = _nq(op)
+    if o and o["status"] == "error":
+        _nmark(op, status="queued")
+    return send_new(op)
+
+
+def new_pending():
+    with db() as d:
+        rows = d.run("SELECT id, data, status, error FROM card_new_q WHERE status<>'sent' ORDER BY created", many=True) or []
+    return [{"id": i, "name": json.loads(dt or "{}").get("name", ""), "status": s, "error": e or ""} for i, dt, s, e in rows]
+
+
 def _loop():
     time.sleep(150)
     while True:
@@ -525,6 +686,11 @@ def _loop():
                                                (MAX_AUTO, now, now - 60), many=True) or []]
                 for i in ids:
                     send_edit(i)
+                with db() as d:
+                    ids = [r[0] for r in d.run("SELECT id FROM card_new_q WHERE status='queued' AND attempts<%s AND next_try<=%s AND created<%s",
+                                               (MAX_AUTO, now, now - 60), many=True) or []]
+                for i in ids:
+                    send_new(i)
         except Exception as e:
             print("Карточки (очередь фото):", e, flush=True)
         time.sleep(RETRY_EVERY)

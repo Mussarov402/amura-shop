@@ -394,6 +394,38 @@ const productCard=async(pid,done)=>{const ov=document.createElement("div");ov.cl
   if($("#cvd"))$("#cvd").onclick=async()=>{if(!confirm("Удалить видео товара?"))return;try{await api("cards/"+encodeURIComponent(pid)+"/video",{method:"DELETE"});c.video=null;draw()}catch(e){alert(e.message)}}};
  const poll=()=>{clearTimeout(vt);if(c.video&&c.video.status==="processing")vt=setTimeout(async()=>{if(!ov.isConnected)return;try{await load()}catch(e){}draw();poll()},4000)};
  draw();poll();loadPh().then(()=>{if(ov.isConnected)draw()})};
+/* Новый товар (только владелец): создаётся в МойСклад через очередь, затем открывается его карточка — добавить фото и видео */
+const canNew=()=>canCard()&&ME.role==="owner";
+const newBtn=()=>canNew()?`<button class="btn" data-newp style="margin-bottom:12px">＋ Новый товар</button>`:"";
+const bindNew=done=>document.querySelectorAll("[data-newp]").forEach(b=>b.onclick=()=>newProduct(done));
+const newProduct=async done=>{const ov=document.createElement("div");ov.className="ovx";ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:flex-end;justify-content:center";document.body.appendChild(ov);
+ const close=()=>ov.remove();ov.onclick=e=>{if(e.target===ov)close()};ov.innerHTML='<div class="eo"><div class="mut">Загружаю папки и виды цен из МойСклад…</div></div>';
+ let M;try{M=await api("cards/new-meta")}catch(e){ov.querySelector(".eo").innerHTML='<div class="b x" style="white-space:normal">'+esc(e.message)+'</div><button class="btn ghost" style="margin-top:10px" id="npc">Закрыть</button>';$("#npc").onclick=close;return}
+ const F={name:"",code:M.nextCode,article:"",folder:"",buy:"",prices:Object.fromEntries(M.priceTypes.map(p=>[p.name,""])),barcodes:[]};
+ const keep=()=>{F.name=$("#np_name").value;F.code=$("#np_code").value;F.article=$("#np_art").value;F.folder=$("#np_fold").value;F.buy=$("#np_buy").value;ov.querySelectorAll("[data-np]").forEach(i=>F.prices[i.dataset.np]=i.value);
+  F.barcodes=[...ov.querySelectorAll("[data-nb]")].map(i=>i.value.trim()).filter(Boolean);const nb=$("#np_bc").value.trim();if(nb&&!F.barcodes.includes(nb))F.barcodes.push(nb)};
+ const draw=()=>{ov.querySelector(".eo").innerHTML=`<div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><div style="font-weight:800;font-size:17px">Новый товар</div><button class="btn ghost" id="npx" aria-label="Закрыть">✕</button></div>
+  ${M.pending.map(x=>`<div class="row" style="display:block"><b>${esc(x.name)}</b> — ${x.status==="error"?"МойСклад не принял":"ждёт отправки в МойСклад"}<div class="mut">${esc(x.error)}</div><button class="btn sm ghost" style="margin-top:6px" data-nrq="${esc(x.id)}">Повторить</button></div>`).join("")}
+  <div class="cfe" style="margin-top:10px"><label>Название *<input id="np_name" value="${esc(F.name)}" maxlength="255" placeholder="Бренд, название, объём"></label>
+   <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><label>Код<input id="np_code" value="${esc(F.code)}" maxlength="64"></label><label>Артикул<input id="np_art" value="${esc(F.article)}" maxlength="255"></label></div>
+   <label>Папка<select id="np_fold" style="display:block;width:100%;margin-top:4px;padding:10px 12px;border:1px solid #D9E0DB;border-radius:10px;font:inherit"><option value="">— без папки —</option>${M.folders.map(f=>`<option value="${esc(f.id)}" ${f.id===F.folder?"selected":""}>${esc(f.name)}</option>`).join("")}</select></label>
+   ${M.priceTypes.map(p=>`<label>${esc(p.name)}, ₸<input type="number" inputmode="numeric" min="0" data-np="${esc(p.name)}" value="${esc(F.prices[p.name])}"></label>`).join("")}
+   <label>Закупочная цена, ₸<input id="np_buy" type="number" inputmode="numeric" min="0" value="${esc(F.buy)}"></label>
+   <div class="mut" style="margin:6px 0 4px">Штрихкоды</div>${F.barcodes.map((b,i)=>`<div class="srow" style="margin-bottom:6px"><input data-nb="${i}" value="${esc(b)}"><button class="eox" data-nbx="${i}" aria-label="Убрать">✕</button></div>`).join("")}
+   <div class="srow"><input id="np_bc" placeholder="＋ Штрихкод" inputmode="numeric">${scanBtn("np")}</div>
+   <div class="mut" style="margin:10px 0">Товар появится в МойСклад сразу, на сайте — когда будет остаток (после приёмки). Фото и видео добавите в его карточке.</div>
+   <div class="mut" id="npm"></div><div style="display:flex;gap:8px"><button class="btn" id="nps">Создать товар</button><button class="btn ghost" id="npcl">Отмена</button></div></div>`;
+  $("#npx").onclick=close;$("#npcl").onclick=close;
+  ov.querySelectorAll("[data-nbx]").forEach(b=>b.onclick=()=>{keep();F.barcodes.splice(+b.dataset.nbx,1);draw()});
+  $("#np_bc").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();keep();draw();$("#np_bc").focus()}};
+  ov.querySelector('[data-scan="np"]').onclick=()=>{keep();scanCodes(code=>{if(!F.barcodes.includes(code))F.barcodes.push(code);draw()},true)};
+  ov.querySelectorAll("[data-nrq]").forEach(b=>b.onclick=async()=>{b.disabled=true;try{const r=await api("cards/new-q/"+b.dataset.nrq+"/retry",{method:"POST"});if(r.new.status==="sent"){close();toast("Товар создан в МойСклад ✓");productCard(r.new.pid,done)}else{toast("Пока не создан: "+r.new.error,5000);b.disabled=false}}catch(e){b.disabled=false;alert(e.message)}});
+  $("#nps").onclick=async()=>{keep();if(!F.name.trim())return $("#npm").textContent="Укажите название";const b=$("#nps");b.disabled=true;b.textContent="Создаю…";
+   try{const r=await api("cards/new",{method:"POST",body:JSON.stringify({name:F.name,code:F.code,article:F.article,folder:F.folder,buy:F.buy,barcodes:F.barcodes,prices:Object.fromEntries(Object.entries(F.prices).filter(([,v])=>v!==""))})});
+    if(r.new.status==="sent"){close();toast("Товар создан в МойСклад ✓ Добавьте фото",5000);productCard(r.new.pid,done)}
+    else{close();toast(r.new.status==="error"?"МойСклад не принял: "+r.new.error:"Сохранено. МойСклад не ответил — товар создастся автоматически",7000);done&&done()}}
+   catch(e){b.disabled=false;b.textContent="Создать товар";$("#npm").textContent=e.message}}};
+ draw();$("#np_name").focus()};
 /* Склад: вкладки «Остатки» и документы по видам (как в МойСклад: приёмки, списания, оприходования, перемещения, инвентаризации) */
 let WHT=(()=>{try{return localStorage.getItem("amura_wht")||"stock"}catch(e){return "stock"}})();
 const WHD=[["stock","Остатки"],["supply","Приёмки"],["loss","Списания"],["enter","Оприходования"],["move","Перемещения"],["inventory","Инвентаризации"]];
@@ -672,7 +704,7 @@ async wh(q="",store="",mode="all",page=0,foc=false){if(WHT!=="stock")return whDo
  $("#main").innerHTML=head("Склад","Модуль «Склад» · только просмотр · остатки МойСклад в нашей базе"+(o.synced?", снимок "+new Date(o.synced*1000).toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"}):""))+seg("wh")+whOpsCard(ops,o.stores.length)+whTabs()+`
 <div class="cards">${o.stores.map(s=>`<div class="card clk" data-st="${esc(s.id)}" style="cursor:pointer;${s.id===store?"box-shadow:inset 0 0 0 2px var(--g)":""}"><div class="l">${esc(s.name)}</div><div class="v">${fmt(s.units)} шт.</div><div class="s">${fmt(s.skus)} поз. · ${fmt(s.value)} ₸ по закупке${s.reserve?" · резерв "+fmt(s.reserve):""}</div></div>`).join("")||'<div class="card"><div class="mut">Складов нет — включите загрузку в «Своей базе».</div></div>'}</div>
 <div class="chips cn" style="margin:4px 0 10px;flex-wrap:wrap">${[["all","Все товары"],["in","Есть в наличии"],["out","Нет в наличии"]].map(([k,t])=>`<button class="st ${k===mode?"on":""}" data-wm="${k}">${t}</button>`).join("")}${store?`<span class="sp"></span><button class="on" data-st="">${esc((o.stores.find(s=>s.id===store)||{}).name||"Склад")} ✕</button>`:""}</div>
-<div class="srow" style="margin-bottom:12px"><input id="whq" placeholder="Название, код, артикул или штрихкод" value="${esc(q)}" enterkeyhint="search">${scanBtn("wh")}</div>
+${newBtn()}<div class="srow" style="margin-bottom:12px"><input id="whq" placeholder="Название, код, артикул или штрихкод" value="${esc(q)}" enterkeyhint="search">${scanBtn("wh")}</div>
 <div class="card"><div class="mut" style="margin-bottom:4px">Найдено: ${fmt(o.total)}</div>${o.items.length?o.items.map(x=>`<div class="row${canCard()?" clk":""}" style="display:block${canCard()?";cursor:pointer":""}" ${canCard()?`data-card="${esc(x.id)}"`:""}><div style="display:flex;justify-content:space-between;gap:10px"><b>${esc(x.name)}</b><span class="vos" style="white-space:nowrap">${n(x.stock)} шт.</span></div>
 <div class="mut">${x.code?"код "+esc(x.code)+" · ":""}${x.buy?"закупка "+fmt(x.buy)+" ₸":"без закупочной цены"}${x.reserve?" · резерв "+n(x.reserve):""}</div>${x.stores.length&&!(store&&x.stores.length===1)?`<div class="mut">${x.stores.map(s=>`${esc(s.store)}: <b>${n(s.stock)}</b>${s.reserve?" (резерв "+n(s.reserve)+")":""}`).join(" · ")}</div>`:""}</div>`).join(""):'<div class="mut" style="padding:16px;text-align:center">Ничего не нашлось</div>'}</div>
 ${page||o.total>(page+1)*50?`<div style="display:flex;gap:10px;justify-content:center;margin-top:12px">${page?'<button class="btn ghost" id="whp">← Назад</button>':""}${o.total>(page+1)*50?'<button class="btn ghost" id="whn">Ещё →</button>':""}</div>`:""}`;
@@ -683,7 +715,7 @@ ${page||o.total>(page+1)*50?`<div style="display:flex;gap:10px;justify-content:c
  if(foc){qi.focus();qi.setSelectionRange(qi.value.length,qi.value.length)}
  if($("#whp"))$("#whp").onclick=()=>{go({page:page-1});scrollTo(0,0)};if($("#whn"))$("#whn").onclick=()=>{go({page:page+1});scrollTo(0,0)}
  const re=()=>views.wh(q,store,mode,page);bindWhTabs();bindWhOps(o.stores,store,re);
- document.querySelectorAll("[data-card]").forEach(r=>r.onclick=()=>productCard(r.dataset.card));
+ document.querySelectorAll("[data-card]").forEach(r=>r.onclick=()=>productCard(r.dataset.card));bindNew(re);
  $('[data-scan="wh"]').onclick=()=>scanCodes(code=>go({q:code}),true)},
 async mirror(){const o=await api("mirror");const n=nav;
  const ago=t=>{if(!t)return "—";const m=Math.round((Date.now()/1000-t)/60);return m<1?"только что":m<60?m+" мин назад":m<1440?Math.round(m/60)+" ч назад":new Date(t*1000).toLocaleString("ru-RU",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})};
@@ -951,7 +983,7 @@ async delivery(){const o=await api("delivery");const n=nav;const S=o.services,R=
   catch(e){m.textContent="❌ "+e.message}finally{b.disabled=false}})},
 async products(q="",brand="",page=0){const size=+(localStorage.getItem("amura_psize")||100);const [o,bs]=await Promise.all([api("products?q="+encodeURIComponent(q)+"&brand="+encodeURIComponent(brand)+"&size="+size+"&offset="+page*size),api("brands")]);const pages=Math.max(1,Math.ceil(o.total/size));
  const cb=brand?bs.brands.find(b=>b.brand===brand):null;
- $("#main").innerHTML=head("Товары на сайте","Цены и остатки идут из МойСклад. Здесь только видимость.")+seg("products")+`<div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap"><select id="br" style="padding:12px;border:1px solid #CBD4CE;border-radius:10px;font:15px inherit;background:#fff"><option value="">Все бренды (${bs.brands.length})</option>${bs.brands.map(b=>`<option value="${esc(b.brand)}" ${b.brand===brand?"selected":""}>${esc(b.brand)} — ${b.total}${b.hidden?`, скрыто ${b.hidden}`:""}</option>`).join("")}</select><input id="q" placeholder="Поиск по названию, бренду, коду" value="${esc(q)}" style="flex:1;min-width:200px"></div>
+ $("#main").innerHTML=head("Товары на сайте","Цены и остатки идут из МойСклад. Здесь только видимость.")+seg("products")+newBtn()+`<div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap"><select id="br" style="padding:12px;border:1px solid #CBD4CE;border-radius:10px;font:15px inherit;background:#fff"><option value="">Все бренды (${bs.brands.length})</option>${bs.brands.map(b=>`<option value="${esc(b.brand)}" ${b.brand===brand?"selected":""}>${esc(b.brand)} — ${b.total}${b.hidden?`, скрыто ${b.hidden}`:""}</option>`).join("")}</select><input id="q" placeholder="Поиск по названию, бренду, коду" value="${esc(q)}" style="flex:1;min-width:200px"></div>
  ${cb?`<div class="card" style="margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><b style="flex:1">${esc(cb.brand)}: ${cb.total} тов., скрыто ${cb.hidden}</b><button class="btn ghost" id="bh">Скрыть весь бренд</button><button class="btn" id="bs">Показать весь бренд</button></div>`:""}
  <div class="card"><div class="mut" style="margin-bottom:6px">Найдено: ${o.total} · скрыто всего: ${o.hiddenTotal}</div>`+
  o.items.map(i=>`<div class="row ${i.hidden?"hid":""}"><span class="mut" style="width:56px">${esc(i.code)}</span><div class="grow${canCard()?" clk":""}" ${canCard()?`data-card="${esc(i.id)}" style="cursor:pointer"`:""}><b>${esc(i.name)}</b><div class="mut">${esc(i.brand)}</div></div><span class="num h">${i.qty} шт</span><span class="num h">${fmt(i.rtl)}</span><span class="num h">${fmt(i.opt)}</span><button class="sw ${i.hidden?"":"on"}" data-id="${i.id}" title="Показывать на сайте"></button></div>`).join("")+`</div>
@@ -965,7 +997,7 @@ async products(q="",brand="",page=0){const size=+(localStorage.getItem("amura_ps
  let t;$("#q").oninput=()=>{clearTimeout(t);t=setTimeout(()=>re().then(()=>{const i=$("#q");i.focus();i.setSelectionRange(99,99)}),400)};
  const bulk=async h=>{if(!confirm((h?"Скрыть":"Показать")+" все товары бренда «"+brand+"» на сайте?"))return;$("#main").innerHTML='<div class="mut">Применяю…</div>';try{await api("brands/hidden",{method:"POST",body:JSON.stringify({brand,hidden:h})})}catch(e){alert(e.message)}views.products("",brand)};
  if(cb){$("#bh").onclick=()=>bulk(true);$("#bs").onclick=()=>bulk(false)}
- document.querySelectorAll("[data-card]").forEach(r=>r.onclick=()=>productCard(r.dataset.card));
+ document.querySelectorAll("[data-card]").forEach(r=>r.onclick=()=>productCard(r.dataset.card));bindNew(re);
  document.querySelectorAll(".sw").forEach(b=>b.onclick=async()=>{const on=b.classList.contains("on");b.disabled=true;try{await api(`products/${b.dataset.id}/hidden`,{method:"POST",body:JSON.stringify({hidden:on})});b.classList.toggle("on");b.closest(".row").classList.toggle("hid",on)}catch(e){alert(e.message)}b.disabled=false})},
 async banners(site){site=site==="retail"?"retail":(site===undefined&&views.banners.site)||"opt";views.banners.site=site;const R=site==="retail",q=R?"?site=retail":"";
  const d=await api("banners"+q);let S=d.slides,sec=d.autoplaySec,size=d.size||"m";let BR=[];try{BR=(await api("brands")).brands.map(b=>b.brand).filter(b=>b&&b!=="Без бренда")}catch(e){if(e.message==="stale")throw e}
