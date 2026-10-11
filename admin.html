@@ -48,6 +48,8 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 .tabbar button[aria-current="page"] svg,.tabbar button.on svg{stroke-width:2.1}
 }
 @media(max-width:800px){html,body{background:#0E3B2C}.app{background:var(--bg)}}
+.wln{display:grid;grid-template-columns:150px minmax(0,1fr) auto auto;gap:8px;align-items:center}.wln input{min-width:0}.wln>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:560px){.wln{grid-template-columns:1fr 1fr}.wln>span,.wln input{grid-column:1/-1}}
 .ibx2{display:grid;grid-template-columns:380px 1fr;gap:14px;align-items:start}
 .il2{background:#fff;border:1px solid var(--line);border-radius:16px;overflow:hidden}.ih{padding:16px 16px 10px;position:sticky;top:0;background:#fff;z-index:2}.ih h1{margin:0 0 10px;font-size:clamp(21px,3.4vw,26px)}
 .chips{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}.chips::-webkit-scrollbar{display:none}.chips button{flex:none;border:0;background:#EEF1EE;color:#33403A;border-radius:99px;padding:8px 14px;font:700 13px inherit;font-family:inherit;cursor:pointer}.chips button.on{background:var(--g);color:#fff}.chips i{font-style:normal;opacity:.75;margin-left:2px}.chips.cn{align-items:center}.chips .sp{flex:none;width:1.5px;height:22px;background:var(--line);margin:0 2px}.chips.cn button.st{background:#EEF1EE;box-shadow:none}.chips.cn button.st.on{background:var(--g);color:#fff}.chips.cn button{position:relative;background:#fff;box-shadow:inset 0 0 0 1.5px var(--line)}.chips.cn button.on{background:var(--g);color:#fff;box-shadow:none}.chips.cn button.wa.on{background:#128C4A}.chips.cn button.tg.on{background:#1B7DB8}.chips .ud{position:absolute;top:5px;right:6px;width:8px;height:8px;border-radius:50%;background:#E5483A;border:1.5px solid #fff}
@@ -1005,7 +1007,7 @@ async inbox(openId){const st=await api("inbox/status");let cur=openId||null,flt=
  const srcWa=`<span class="src wa"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 00-7.7 13.6L3 21l4.5-1.2A9 9 0 1012 3z"/></svg>WhatsApp</span>`;
  const srcIg=`<span class="src ig"><svg viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="17" height="17" rx="5"/><circle cx="12" cy="12" r="4"/></svg>Instagram</span>`;
  const srcWeb=`<span class="src web"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.5 2.6 2.5 14.4 0 17M12 3.5c-2.5 2.6-2.5 14.4 0 17"/></svg>Сайт</span>`;
- const srcOf=c=>c.channel==="wa"?srcWa:c.channel==="ig"?srcIg:c.channel==="web"?srcWeb:src;
+ const srcOf=c=>c.channel==="wa"?(c.line?srcWa.replace("WhatsApp</span>","WhatsApp · "+esc(c.line)+"</span>"):srcWa):c.channel==="ig"?srcIg:c.channel==="web"?srcWeb:src;
  const unOf=c=>c.channel==="wa"?`<span class="un">+${esc(c.phone)}</span>`:(c.username?`<span class="un">@${esc(c.username)}</span>`:"");
  const ST={ai:["ИИ","ai"],manager:["Менеджер","mg"],closed:["Закрыт","cl"]},stb=s=>`<span class="stt ${(ST[s]||ST.ai)[1]}">${(ST[s]||ST.ai)[0]}</span>`;
  const warn=st.persistent?"":'<div class="b x" style="display:block;margin-bottom:10px;border-radius:10px;padding:10px 14px;white-space:normal">База данных не подключена: диалоги пропадут при перезапуске сервера.</div>';
@@ -1203,8 +1205,13 @@ async channels(){const c=await api("channels");const w=c.wa,g=c.ig||{};
  $("#main").innerHTML=head("Каналы","Откуда приходят сообщения клиентов")+seg("channels")+
  `<div class="card" style="margin-bottom:14px"><div class="row" style="border:0;padding-top:0"><div class="grow"><b>Telegram</b><div class="mut">Бот заказов AMURA Orders</div></div>${badge(c.tg.ok,"Подключён","Не настроен")}</div></div>
  <div class="card"><div class="row" style="border:0;padding-top:0"><div class="grow"><b>WhatsApp Business</b><div class="mut">Официальное подключение через Meta</div></div>${badge(w.ok,"Подключён","Не подключён")}</div>
- <div style="margin-top:12px;display:grid;gap:8px"><button class="btn wab" id="wcoex" ${w.readyCoex?"":"disabled"}>Подключить номер из приложения WhatsApp Business</button>
- <button class="btn ghost" id="wcon" ${w.ready?"":"disabled"}>Подключить новый номер (только для системы)</button> <button class="btn ghost" id="wtst" ${w.ok?"":"hidden"}>Проверить подключение</button></div>
+ ${w.ok?`<div class="wk" style="margin-top:12px"><div class="mut">Номера. Подпись видна в чатах, клиенту отвечаем с того номера, на который он написал.</div>
+  <div class="wln"><span class="mut">Основной</span><input id="wn0" value="${esc(w.name||"")}" placeholder="Подпись, например «Опт»" maxlength="40" autocomplete="off"><button class="btn sm ghost" data-tl="">Проверить</button></div>
+  ${(w.lines||[]).map(l=>`<div class="wln" data-pid="${esc(l.phone_id)}"><span class="mut">${esc(l.phone||l.phone_id)}</span><input value="${esc(l.name||"")}" placeholder="Подпись, например «Розница»" maxlength="40" autocomplete="off"><button class="btn sm ghost" data-tl="${esc(l.phone_id)}">Проверить</button><button class="btn sm ghost" data-rm="${esc(l.phone_id)}">Отключить</button></div>`).join("")}
+  <div><button class="btn sm" id="wns">Сохранить подписи</button></div>
+  <label>Подпись нового номера<input id="wnn" value="" placeholder="Например «Розница»" maxlength="40" autocomplete="off"></label></div>`:""}
+ <div style="margin-top:12px;display:grid;gap:8px"><button class="btn wab" id="wcoex" ${w.readyCoex?"":"disabled"}>${w.ok?"Добавить ещё номер из приложения WhatsApp Business":"Подключить номер из приложения WhatsApp Business"}</button>
+ <button class="btn ghost" id="wcon" ${w.ready?"":"disabled"}>${w.ok?"Добавить ещё новый номер (только для системы)":"Подключить новый номер (только для системы)"}</button> <button class="btn ghost" id="wtst" ${w.ok?"":"hidden"}>Проверить подключение</button></div>
  <div class="mut" id="wm" style="margin-top:8px;white-space:pre-wrap">${w.readyCoex||w.ready?"Первая кнопка: номер продолжит работать в приложении на телефоне и одновременно в системе. Откроется окно Facebook, в нём покажется QR-код: отсканируйте его в приложении WhatsApp Business (Настройки → Связанные устройства или как подскажет окно).":"Сначала один раз заполните данные приложения Meta ниже."}</div>
  <details ${w.ready?"":"open"} style="margin-top:14px"><summary style="cursor:pointer;font-weight:700">Данные приложения Meta (один раз)</summary>
   <div class="wk"><label>App ID<input id="wai" value="${esc(w.app_id)}" autocomplete="off"></label>
@@ -1218,7 +1225,7 @@ async channels(){const c=await api("channels");const w=c.wa,g=c.ig||{};
  <details style="margin-top:10px"><summary style="cursor:pointer;font-weight:700">Подключить по токену (если окно Facebook не сработало)</summary>
   <div class="wk"><label>ID аккаунта WhatsApp (WABA ID)<input id="wb" value="" autocomplete="off" inputmode="numeric"></label><label>Phone number ID (можно пустым)<input id="wp" value="${esc(w.phone_id)}" autocomplete="off"></label>
   <label>Токен доступа<input id="wt" type="password" value="${esc(w.token)}" autocomplete="off"></label>
-  <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="wtk">Подключить по токену</button><button class="btn ghost" id="wsv">Только сохранить</button></div><div class="mut">Phone number ID можно оставить пустым: панель найдёт ваш номер сама. Токен: Business Settings → Users → System users → Generate new token.</div></div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="wtk">Подключить по токену</button><button class="btn ghost" id="wsv">Только сохранить</button></div>${w.ok?'<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="wadd" checked style="width:auto"> Это ещё один номер (основной не трогать)</label>':""}<div class="mut">Phone number ID можно оставить пустым: система найдёт ваш номер сама. Токен: Business Settings → Users → System users → Generate new token.</div></div>
   <div style="margin-top:12px" class="mut">Webhook вручную (если не используете кнопку выше):</div>
   <div class="cp" style="margin-top:6px"><input readonly id="wu" value="${esc(w.url)}"><button class="btn sm ghost" data-c="wu">Копировать</button></div>
   <div class="cp" style="margin-top:6px"><input readonly id="wv" value="${esc(w.verify)}"><button class="btn sm ghost" data-c="wv">Копировать</button></div></details>
@@ -1247,7 +1254,11 @@ async channels(){const c=await api("channels");const w=c.wa,g=c.ig||{};
  $("#wsa").onclick=()=>save({app_id:$("#wai").value,secret:$("#wsc").value,config_id:$("#wcf").value,config_coex:$("#wcx").value});
  $("#wsv").onclick=()=>save({phone_id:$("#wp").value,token:$("#wt").value});
  $("#wtk").onclick=async()=>{const t=$("#wt").value.trim();if(!t||t.includes("•"))return msg("Вставьте токен целиком в поле выше.");msg("Подключаю…");
-  try{const j=await api("channels/wa-token",{method:"POST",body:JSON.stringify({token:t,phone_id:$("#wp").value,waba_id:$("#wb").value})});msg("Готово ✅ "+(j.name||"")+" "+(j.phone||""));setTimeout(()=>views.channels(),1500)}catch(e){msg(e.message)}};
+  try{const j=await api("channels/wa-token",{method:"POST",body:JSON.stringify({token:t,phone_id:$("#wp").value,waba_id:$("#wb").value,add:!!($("#wadd")&&$("#wadd").checked),name:$("#wnn")?$("#wnn").value:""})});msg("Готово ✅ "+(j.name||"")+" "+(j.phone||""));setTimeout(()=>views.channels(),1500)}catch(e){msg(e.message)}};
+ const lns=()=>[...document.querySelectorAll(".wln[data-pid]")].map(r=>({phone_id:r.dataset.pid,name:r.querySelector("input").value}));
+ if($("#wns"))$("#wns").onclick=()=>save({name:$("#wn0").value,lines:lns()},"Подписи сохранены ✅");
+ document.querySelectorAll("[data-rm]").forEach(b=>b.onclick=()=>{if(!confirm("Отключить этот номер от системы AMURA? В приложении WhatsApp он продолжит работать."))return;save({lines:lns().filter(x=>x.phone_id!==b.dataset.rm)},"Номер отключён")});
+ document.querySelectorAll("[data-tl]").forEach(b=>b.onclick=async()=>{msg("Проверяю…");try{const r=await api("channels/wa-test",{method:"POST",body:JSON.stringify({phone_id:b.dataset.tl})});msg("Работает ✅ "+(r.name||"")+" "+(r.phone||""))}catch(e){msg(e.message)}});
  $("#wtst").onclick=async()=>{msg("Проверяю…");try{const r=await api("channels/wa-test",{method:"POST"});msg("Работает ✅ "+(r.name||"")+" "+(r.phone||""))}catch(e){msg(e.message)}};
  let sess=null;if(!window._waMsg){window._waMsg=1;window.addEventListener("message",e=>{try{if(!/(^|\.)facebook\.com$/.test(new URL(e.origin).hostname))return;const d=typeof e.data==="string"?JSON.parse(e.data):e.data;if(d&&d.type==="WA_EMBEDDED_SIGNUP"){window._waSess=d}}catch(_){}})}
  const loadFB=()=>new Promise((res,rej)=>{if(window.FB)return res();window.fbAsyncInit=()=>{FB.init({appId:w.app_id,autoLogAppEvents:true,xfbml:false,version:"v21.0"});res()};
@@ -1260,7 +1271,7 @@ async channels(){const c=await api("channels");const w=c.wa,g=c.ig||{};
    msg("Завершаю подключение…");for(let i=0;i<10&&!window._waSess;i++)await new Promise(x=>setTimeout(x,250));const s=window._waSess;
    if(s&&s.event==="CANCEL")return msg("Подключение отменено в окне Facebook.");
    const sd=(s&&s.data)||{};
-   try{const j=await api("channels/wa-connect",{method:"POST",body:JSON.stringify({code,phone_id:sd.phone_number_id||"",waba_id:sd.waba_id||"",coex,redirect:location.href})});msg("Готово ✅ "+(j.name||"")+" "+(j.phone||""));setTimeout(()=>views.channels(),1500)}catch(e){msg(e.message)}};
+   try{const j=await api("channels/wa-connect",{method:"POST",body:JSON.stringify({code,phone_id:sd.phone_number_id||"",waba_id:sd.waba_id||"",coex,redirect:location.href,add:!!w.ok,name:$("#wnn")?$("#wnn").value:""})});msg("Готово ✅ "+(j.name||"")+" "+(j.phone||""));setTimeout(()=>views.channels(),1500)}catch(e){msg(e.message)}};
   FB.login(r=>{finish(r)},{config_id:(coex&&w.config_coex)?w.config_coex:w.config_id||w.config_coex,response_type:"code",override_default_response_type:true,extras:{setup:{},featureType:coex?"whatsapp_business_app_onboarding":"",sessionInfoVersion:"3"}})};      // вызов FB.login — сразу по нажатию, иначе Safari блокирует окно
  $("#wcoex").onclick=()=>connectWa(true);$("#wcon").onclick=()=>connectWa(false);
  if(w.readyCoex||w.ready){msg("Загружаю Facebook…");loadFB().then(()=>msg("Готово к подключению. Нажмите зелёную кнопку: откроется окно Facebook.")).catch(e=>msg(e.message))}},
