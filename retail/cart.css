@@ -145,3 +145,13 @@ input,select,textarea{font-size:16px!important}
 .rpush{display:grid;gap:6px;padding:14px;border-radius:14px;background:#EAF4EE;border:1px solid #CFE6D8;margin:4px 0 12px}
 .rpush b{font-size:15px}.rpush span{font-size:13.5px;color:var(--muted)}
 .rpush .btn{justify-self:start;padding:10px 18px;margin-top:4px}
+
+/* город в шапке, как у WB */
+.rtopc{display:flex;padding:6px 0 0}
+#rTopCity{display:inline-flex;align-items:center;gap:5px;border:0;background:none;color:#CFE1D7;font:inherit;font-size:13px;padding:2px 0;cursor:pointer;max-width:100%;min-width:0}
+#rTopCity svg{width:15px;height:15px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8}
+#rTopCity span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-bottom:1px dashed rgba(207,225,215,.5)}
+#rTopCity:hover{color:#fff}#rTopCity:focus-visible{outline:2px solid #fff;outline-offset:2px;border-radius:4px}
+#rCitySheet #rcQ{width:100%;border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:11px 12px;margin:0;font:inherit;font-size:16px}
+#rCitySheet .rcl{max-height:50vh;margin-top:0}
+#rCitySheet .rcl button.on{font-weight:700;color:var(--green-3, #0F3D2E)}

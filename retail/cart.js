@@ -569,6 +569,53 @@ const _go = go;
 go = function(v, keep){ if(v === "cart"){ STEP = NEXT || "cart"; NEXT = ""; } return _go(v, keep); };
 dlvRefresh = () => { paint(); const n = $("#rsNote"); if(n) n.textContent = courierNote(); };
 document.addEventListener("keydown", e => { if(e.key === "Escape" && $("#rSheet") && !$("#rSheet").hidden) closeSheet(); });
+/* город в шапке, как у WB: «📍 Алматы» — выбор сразу на сайте; тот же город берут корзина и сроки на карточках */
+const PIN_S = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6.5-6.2-6.5-11.2a6.5 6.5 0 0 1 13 0C18.5 14.8 12 21 12 21Z"/><circle cx="12" cy="9.8" r="2.3"/></svg>';
+function topCity(){
+  const w = $("header.top .wrap"); if(!w) return;
+  let b = $("#rTopCity");
+  if(!b){ const row = document.createElement("div"); row.className = "rtopc"; row.innerHTML = `<button type="button" id="rTopCity" aria-haspopup="dialog"></button>`; w.prepend(row); b = $("#rTopCity"); b.onclick = openCityPick; }
+  const c = form().city;
+  b.innerHTML = `${PIN_S}<span>${c ? esc(c) : "Выберите город"}</span>`;
+  b.setAttribute("aria-label", c ? "Город доставки: " + c + ". Изменить" : "Выбрать город доставки");
+}
+function openCityPick(){
+  let el = $("#rCitySheet");
+  if(!el){ el = document.createElement("div"); el.id = "rCitySheet"; el.className = "rsheet"; document.body.appendChild(el);
+    el.addEventListener("click", e => {
+      if(e.target === el || e.target.closest("[data-rcclose]")) return closeCityPick();
+      const pc = e.target.closest("[data-tcity]"); if(pc) return setTopCity(pc.dataset.tcity);
+      if(e.target.id === "rcOk"){ const v = $("#rcQ").value.trim(); if(v) setTopCity(v); else $("#rcQ").focus(); }
+    });
+    el.addEventListener("input", e => { if(e.target.id === "rcQ") drawTopCities(e.target.value); });
+    el.addEventListener("keydown", e => { if(e.target.id === "rcQ" && e.key === "Enter"){ e.preventDefault(); const v = e.target.value.trim(); const first = $("#rcList [data-tcity]"); if(first && v) setTopCity(first.dataset.tcity); else if(v) setTopCity(v); } });
+  }
+  el.innerHTML = `<div class="rsbox" role="dialog" aria-modal="true" aria-label="Ваш город">
+    <div class="rsh"><b>Ваш город</b><button type="button" class="rx" data-rcclose aria-label="Закрыть">×</button></div>
+    <div class="kv">Покажем способы и сроки доставки для вашего города</div>
+    <input id="rcQ" autocomplete="off" placeholder="Начните вводить: Алматы, Астана…" aria-label="Город">
+    <div class="rcl" id="rcList"></div>
+    <button type="button" class="btn" id="rcOk">Готово</button></div>`;
+  el.hidden = false; document.body.classList.add("rsheet-open");
+  drawTopCities(""); setTimeout(() => { const i = $("#rcQ"); if(i) i.focus(); }, 50);
+}
+function drawTopCities(q){
+  const box = $("#rcList"); if(!box) return;
+  const k = cityKey(q), cur = form().city;
+  const hit = k ? KZ_CITIES.filter(c => cityKey(c).startsWith(k)).concat(KZ_CITIES.filter(c => !cityKey(c).startsWith(k) && cityKey(c).includes(k))) : KZ_CITIES;
+  box.innerHTML = hit.length ? hit.map(c => `<button type="button" data-tcity="${esc(c)}" class="${c === cur ? "on" : ""}">${esc(c)}${c === cur ? " ✓" : ""}</button>`).join("")
+    : `<div class="kv">Такого города нет в списке — нажмите «Готово», оставим как написали</div>`;
+}
+function closeCityPick(){ const el = $("#rCitySheet"); if(el) el.hidden = true; if(!($("#rSheet") && !$("#rSheet").hidden)) document.body.classList.remove("rsheet-open"); }
+function setTopCity(city){
+  closeCityPick();
+  if(city !== form().city){ DLV.pvzSel = null; DLV.pvz = []; DLV.pvzFor = ""; saveForm({ city, address: "" }); loadDlv(city); }
+  topCity();
+  try{ if(VIEW === "cart") paint(); else render(); }catch{}
+}
+const _saveForm = saveForm;
+saveForm = function(patch){ const f = _saveForm(patch); if(patch && "city" in patch) topCity(); return f; };
+topCity();
 markRetail();
 if(VIEW === "cart") renderCart();
 if(VIEW === "me" && !AUTH.token) renderAuth();
