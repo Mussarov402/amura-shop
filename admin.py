@@ -1181,7 +1181,7 @@ def order_reserve(number):
     except Exception as e:
         return jsonify(ok=False, error="Не удалось: " + str(e)[:200]), 502
     _olog(number, "Резерв поставлен" if on else "Резерв снят")
-    for k in [k for k in oh._cache if k.startswith("ostk:")]:
+    for k in [k for k in list(oh._cache) if isinstance(k, str) and k.startswith("ostk:")]:   # в кэше бывают ключи-кортежи (каталог)
         oh._cache.pop(k, None)
     return jsonify(ok=True, reserved=on)
 
