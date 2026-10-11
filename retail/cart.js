@@ -646,7 +646,7 @@ function askCity(city, found){
   el.innerHTML = `<div class="rsbox" role="dialog" aria-modal="true" aria-label="Ваш город">
     <div class="kv">${found ? "Ваш город" : "Доставляем по всему Казахстану. Ваш город"}</div>
     <div class="rgq">${esc(city)}?</div>
-    <div class="rgb"><button type="button" class="btn" data-gyes>Да, верно</button><button type="button" class="btn ghost" data-gno>Нет, другой</button></div></div>`;
+    <div class="rgb"><button type="button" class="btn ghost" data-gno>Нет, другой</button><button type="button" class="btn" data-gyes>Да, верно</button></div></div>`;
   el.hidden = false; document.body.classList.add("rsheet-open");
 }
 function closeAsk(){ const el = $("#rGeoAsk"); if(el) el.hidden = true; if(!($("#rSheet") && !$("#rSheet").hidden)) document.body.classList.remove("rsheet-open"); }
