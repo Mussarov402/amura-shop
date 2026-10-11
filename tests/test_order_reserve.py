@@ -40,10 +40,10 @@ class OrderReserve(unittest.TestCase):
             if method == "PUT":
                 self.puts.append(kw["json"])
                 return {}
-            if path == "/report/stock/bystore/current":
-                k = kw["params"]["stockType"]
-                return [{"assortmentId": P1, "storeId": STORE, k: 10 if k == "stock" else 4},
-                        {"assortmentId": P1, "storeId": "other", k: 99}]
+            if path == "/entity/assortment":
+                f = kw["params"]["filter"]
+                self.flt = f
+                return {"rows": [{"id": P1, "stock": 10, "reserve": 4, "quantity": 6}] if "id=" + P1 in f else []}
             raise AssertionError(path)
         self.patch(oh, "ms", ms)
         self.patch(admin, "_order_fetch", lambda n: (order, p()))
@@ -62,7 +62,8 @@ class OrderReserve(unittest.TestCase):
 
     def test_stock_on_order_store(self):
         r = json.loads(self.c.get(f"/admin/api/orders/1600/stock?store={STORE}&ids={P1}").data)
-        self.assertEqual(r["items"][P1], {"stock": 10, "reserve": 4, "free": 6})       # чужой склад не считается
+        self.assertEqual(r["items"][P1], {"stock": 10, "reserve": 4, "free": 6})
+        self.assertIn(f"stockStore={oh.API}/entity/store/{STORE};", self.flt)          # остаток — на складе заказа
 
     def test_toggle_reserve(self):
         oh._cache[("ws", 1)] = (0, None)             # в общем кэше бывают ключи-кортежи (каталог) — не должны ронять очистку
