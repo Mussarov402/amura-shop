@@ -65,6 +65,9 @@ class OrderReserve(unittest.TestCase):
         self.assertEqual(r["items"][P1], {"stock": 10, "reserve": 4, "free": 6})       # чужой склад не считается
 
     def test_toggle_reserve(self):
+        oh._cache[("ws", 1)] = (0, None)             # в общем кэше бывают ключи-кортежи (каталог) — не должны ронять очистку
+        oh._cache["ostk:x"] = (0, None)
+        self.addCleanup(lambda: oh._cache.pop(("ws", 1), None))
         r = self.c.post("/admin/api/orders/1600/reserve", data=json.dumps({"on": False}), content_type="application/json")
         self.assertEqual(r.status_code, 200)
         pos = self.puts[-1]["positions"]
