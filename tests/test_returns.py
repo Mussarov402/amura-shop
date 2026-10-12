@@ -72,6 +72,26 @@ class ReturnsTest(unittest.TestCase):
         self.assertEqual(self.ret(kind="purchasereturn", demand="dm1", lines=[{"id": "p1", "qty": 1}]).status_code, 400)   # отгрузка — не приёмка
         self.assertEqual(self.ms.docs["salesreturn"], [])
 
+    def test_returns_made_in_moysklad_count(self):
+        """Возврат, сделанный прямо в МойСклад (зеркало знает основание), уменьшает «можно вернуть»; наш — не считается дважды."""
+        import mirror as m
+        parse = m._doc_parser("salesreturn")
+        row = parse({"meta": {"href": "https://x/entity/salesreturn/sr9"}, "id": "sr9", "name": "9", "moment": "2026-10-11 10:00:00",
+                     "applicable": True, "demand": {"meta": {"href": "https://x/entity/demand/dm1"}}}, 0)
+        self.assertEqual(row[-1], "dm1")                                                              # основание из МойСклад
+        self.assertIsNone(m._doc_parser("demand")({"id": "x", "meta": {"href": "https://x/entity/demand/x"}}, 0)[-1])
+        with mirror.db() as d:
+            d.run("INSERT INTO ms_doc (id, type, number, moment, agent_id, store_id, sum, applicable, deleted, base_id) VALUES ('sr9', 'salesreturn', '9', '2026-10-11 10:00:00', 'k1', 'sA', 1350, 1, 0, 'dm1')")
+            d.run("INSERT INTO ms_doc_line (doc_id, pos_id, product_id, qty, price, discount, sum) VALUES ('sr9', 'l1', 'p1', 1, 1350, 0, 1350)")
+        left = {l["id"]: l["left"] for l in whops.demand_lines("dm1")["lines"]}
+        self.assertEqual(left["p1"], 1)
+        self.assertEqual(self.ret(demand="dm1", lines=[{"id": "p1", "qty": 2}]).status_code, 400)     # второй раз не вернуть
+        r = self.ret(demand="dm1", lines=[{"id": "p1", "qty": 1}]).get_json()["op"]
+        with mirror.db() as d:                                                                        # наш возврат пришёл в зеркало
+            d.run("INSERT INTO ms_doc (id, type, number, moment, agent_id, store_id, sum, applicable, deleted, base_id) VALUES (%s, 'salesreturn', '10', '2026-10-11 11:00:00', 'k1', 'sA', 1350, 1, 0, 'dm1')", (r["msId"],))
+            d.run("INSERT INTO ms_doc_line (doc_id, pos_id, product_id, qty, price, discount, sum) VALUES (%s, 'l1', 'p1', 1, 1350, 0, 1350)", (r["msId"],))
+        self.assertEqual({l["id"]: l["returned"] for l in whops.demand_lines("dm1")["lines"]}["p1"], 2)   # 1 из МойСклад + 1 наш, не 3
+
     def test_lost_response_no_duplicate(self):
         self.ms.fail = ["lost"]
         r = self.ret(demand="dm1", lines=[{"id": "p1", "qty": 1}]).get_json()["op"]

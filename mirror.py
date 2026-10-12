@@ -25,7 +25,8 @@ EVERY = 600                # сек между проходами, когда в
 EVERY_LOADING = 120        # сек между проходами во время первичной загрузки
 FULL_EVERY = 86400         # раз в сутки — полный проход: находим удалённые в МойСклад товары
 SALES_DOCS = ("customerorder", "demand", "retaildemand", "salesreturn", "retailsalesreturn")   # документы продаж
-STOCK_DOCS = ("supply", "loss", "enter", "move", "inventory")   # складские: приёмки, списания, оприходования, перемещения, инвентаризации
+STOCK_DOCS = ("supply", "loss", "enter", "move", "inventory", "purchasereturn")   # складские: приёмки, списания, оприходования, перемещения, инвентаризации, возвраты поставщикам
+RETURN_BASE = {"salesreturn": "demand", "purchasereturn": "supply"}   # возврат → поле документа-основания (base_id)
 MONEY_DOCS = ("paymentin", "paymentout", "cashin", "cashout")   # деньги: входящие/исходящие платежи, приходные/расходные ордера
 LINE_DOCS = SALES_DOCS + STOCK_DOCS                               # у этих документов есть позиции (у денежных — нет)
 DOC_TYPES = LINE_DOCS + MONEY_DOCS
@@ -80,7 +81,8 @@ def _schema(d):
     # добавочные колонки (миграции только добавляющие): store2_id — склад-получатель у перемещения
     for col in ("ALTER TABLE ms_doc ADD COLUMN store2_id TEXT",
                 "ALTER TABLE ms_doc ADD COLUMN account_id TEXT",       # счёт организации у платежа
-                "ALTER TABLE ms_doc ADD COLUMN paid DOUBLE PRECISION"):  # оплачено по документу (payedSum МойСклад), ₸
+                "ALTER TABLE ms_doc ADD COLUMN paid DOUBLE PRECISION",   # оплачено по документу (payedSum МойСклад), ₸
+                "ALTER TABLE ms_doc ADD COLUMN base_id TEXT"):           # документ-основание возврата: отгрузка / приёмка
         try:
             d.run(col)
             d.c.commit()
@@ -149,7 +151,7 @@ def _parse_agent(row, now):
             1 if row.get("archived") else 0, (row.get("updated") or "")[:23], 0, now)
 
 
-_DCOLS = "id, type, number, moment, agent_id, store_id, store2_id, account_id, state_id, sum, applicable, descr, updated, deleted, seen, paid"
+_DCOLS = "id, type, number, moment, agent_id, store_id, store2_id, account_id, state_id, sum, applicable, descr, updated, deleted, seen, paid, base_id"
 
 
 def _doc_parser(kind):
@@ -159,7 +161,8 @@ def _doc_parser(kind):
                 _href_id(row.get("organizationAccount")), _href_id(row.get("state")), (row.get("sum") or 0) / 100,
                 1 if row.get("applicable") else 0,
                 (row.get("description") or row.get("paymentPurpose") or "").split("\n")[0][:200],
-                (row.get("updated") or "")[:23], 0, now, (row.get("payedSum") or 0) / 100)
+                (row.get("updated") or "")[:23], 0, now, (row.get("payedSum") or 0) / 100,
+                _href_id(row.get(RETURN_BASE[kind])) if kind in RETURN_BASE else None)
     return parse
 
 
@@ -216,6 +219,19 @@ def _links_reload():
             d.run("UPDATE ms_sync SET cursor='', skip=0, full_from=0, full_done=0 WHERE entity=%s", (t,))
         inbox.set_setting(d, "mirror_links_v", LINKS_V)
     print("Зеркало МойСклад: платежи будут перечитаны вместе со связями с документами", flush=True)
+
+
+BASE_V = "1"    # версия загрузки оснований возвратов: смена версии один раз перечитывает возвраты в окне DOC_DAYS
+
+
+def _base_reload():
+    with db() as d:
+        if inbox.get_setting(d, "mirror_base_v", "") == BASE_V:
+            return
+        for t in RETURN_BASE:
+            d.run("UPDATE ms_sync SET cursor='', skip=0, full_from=0, full_done=0 WHERE entity=%s", (t,))
+        inbox.set_setting(d, "mirror_base_v", BASE_V)
+    print("Зеркало МойСклад: возвраты будут перечитаны вместе с документами-основаниями", flush=True)
 
 
 def _lines_reload():
@@ -428,6 +444,7 @@ def tick():
     try:
         _lines_reload()
         _links_reload()
+        _base_reload()
         caught_all, parts, t0 = True, [], time.time()
         _net["fail"] = False
         for name, fn in (("store", sync_stores), *((e, (lambda e=e: sync_entity(e))) for e in ENTITIES), ("stock", sync_stock), ("money", sync_money)):
@@ -569,7 +586,8 @@ def _lines_check():
     return _check("Документы, где сумма позиций ≠ сумме документа", len(bad), 0, "", bad[:10], count=True)
 
 
-STOCK_DOC_NAMES = {"supply": "Приёмки", "loss": "Списания", "enter": "Оприходования", "move": "Перемещения", "inventory": "Инвентаризации"}
+STOCK_DOC_NAMES = {"supply": "Приёмки", "loss": "Списания", "enter": "Оприходования", "move": "Перемещения", "inventory": "Инвентаризации",
+                   "purchasereturn": "Возвраты поставщикам"}
 
 
 def _stock_doc_checks(days=7):
