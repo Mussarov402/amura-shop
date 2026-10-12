@@ -100,7 +100,7 @@ def recent(limit=30):
 
 def demand_lines(demand_id, kind="salesreturn"):
     """Документ для возврата (отгрузка — возврат покупателя, приёмка — возврат поставщику): контрагент, склад и позиции —
-    было в документе, уже возвращено из системы, можно вернуть; цена со скидкой."""
+    было в документе, уже возвращено (из системы и прямо в МойСклад), можно вернуть; цена со скидкой."""
     base = RETURNS[kind]
     with mirror.db() as d:
         x = d.run("SELECT id, number, agent_id, store_id, applicable FROM ms_doc WHERE id=%s AND type=%s AND deleted=0", (demand_id, base), one=True)
@@ -113,6 +113,12 @@ def demand_lines(demand_id, kind="salesreturn"):
         for (lines,) in d.run("SELECT lines FROM wh_op WHERE kind=%s AND demand_id=%s AND status<>'error'", (kind, demand_id), many=True) or []:
             for l in json.loads(lines or "[]"):
                 back[l["id"]] = back.get(l["id"], 0) + l["qty"]
+        mine = {r[0] for r in d.run("SELECT ms_id FROM wh_op WHERE kind=%s AND demand_id=%s AND ms_id<>''", (kind, demand_id), many=True) or []}
+    with mirror.db() as d:                     # возвраты, сделанные прямо в МойСклад (зеркало знает их основание), — кроме наших
+        for doc_id, pid, q in d.run("SELECT x.id, l.product_id, l.qty FROM ms_doc x JOIN ms_doc_line l ON l.doc_id=x.id"
+                                    " WHERE x.type=%s AND x.base_id=%s AND x.deleted=0 AND x.applicable=1", (kind, demand_id), many=True) or []:
+            if doc_id not in mine:
+                back[pid] = back.get(pid, 0) + (q or 0)
     out = [{"id": pid, "name": n or "(товар удалён)", "code": c or "", "kind": k or "product", "qty": q or 0, "returned": back.get(pid, 0),
             "left": round((q or 0) - back.get(pid, 0), 3), "price": round((sm or 0) / q) if q else 0} for pid, n, c, k, q, sm in rows]
     return {"id": x[0], "number": x[1] or "", "agent": x[2] or "", "store": x[3] or "", "applicable": bool(x[4]), "lines": out}
@@ -120,7 +126,7 @@ def demand_lines(demand_id, kind="salesreturn"):
 
 def create_return(demand_id, lines, descr="", who="", kind="salesreturn"):
     """Возврат по документу: покупателя — по отгрузке, поставщику — по приёмке. Склад и контрагент — из документа,
-    цены — как в нём, не больше, чем было в документе (за вычетом прежних возвратов из системы)."""
+    цены — как в нём, не больше, чем было в документе (за вычетом прежних возвратов — из системы и из МойСклад)."""
     if kind not in RETURNS:
         raise ValueError("Неизвестный возврат")
     what = "Отгрузка" if kind == "salesreturn" else "Приёмка"
