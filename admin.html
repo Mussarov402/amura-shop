@@ -662,10 +662,11 @@ const newOrder=async()=>{const ov=document.createElement("div");ov.className="ov
  try{shipOpts=shipOpts||await api("orders/ship")}catch(e){ov.querySelector(".eo").innerHTML='<div class="b x">'+esc(e.message)+'</div>';return}
  const F=k=>(ov.querySelector("#no_"+k)||{}).value||"";
  ov.querySelector(".eo").innerHTML=`<div class="voh"><div style="font-weight:800;font-size:18px">Новый заказ</div><button class="vox" aria-label="Закрыть">✕</button></div>
+  <div class="eos" style="margin-bottom:8px"><input id="no_cq" placeholder="🔍 Найти клиента в МойСклад: имя или телефон" autocomplete="off"><div id="no_cr"></div></div>
   <div class="nog"><input id="no_name" placeholder="Имя клиента" autocomplete="off"><input id="no_phone" type="tel" inputmode="tel" placeholder="Телефон (WhatsApp)" autocomplete="off"><input id="no_city" placeholder="Город" autocomplete="off">
   <select id="no_ship">${shipOpts.ship.map(x=>`<option value="${esc(x.key)}">${esc(x.name)}</option>`).join("")}</select></div>
   <div class="nog" id="no_x"></div>
-  <div class="mut" style="margin:12px 0 2px">Товары</div><div class="eos"><input id="eoq" placeholder="＋ Добавить товар: название или код" autocomplete="off"><div id="eor"></div></div>
+  <div class="mut" style="margin:12px 0 2px">Товары</div><div class="eos"><div class="srow"><input id="eoq" placeholder="＋ Добавить товар: название или код" autocomplete="off">${scanBtn("no")}</div><div id="eor"></div></div>
   <div id="nol" class="eol"></div><div class="eot" id="not"></div>
   <div class="mut" id="nom" style="white-space:pre-line"></div><div style="display:flex;gap:8px;margin-top:6px"><button class="btn" id="nos">Создать заказ</button><button class="btn ghost" id="noc">Отмена</button></div>`;
  const sel=ov.querySelector("#no_ship");sel.value="pickup";
@@ -681,6 +682,14 @@ const newOrder=async()=>{const ov=document.createElement("div");ov.className="ov
  let tm;ov.querySelector("#eoq").oninput=e=>{clearTimeout(tm);const q=e.target.value.trim();tm=setTimeout(async()=>{if(q.length<2)return ov.querySelector("#eor").innerHTML="";try{const r=await api("orders-search?q="+encodeURIComponent(q));
   ov.querySelector("#eor").innerHTML=r.items.map((x,i)=>`<button data-a="${i}"${x.qty>0?"":' style="opacity:.45"'}>${thumb(x.img)}<span class="srn">${esc(x.name)}</span><span class="mut">${fmt(x.price)} ₸ · ост. ${x.qty}</span></button>`).join("")||'<div class="mut">Ничего не найдено</div>';
   ov.querySelectorAll("#eor [data-a]").forEach(b=>b.onclick=()=>{const it=r.items[+b.dataset.a];if(it.qty<=0)return toast("Нет в наличии: "+it.name);const ex=L.find(z=>z.id===it.id);if(ex)ex.qty++;else L.push({id:it.id,name:it.name,qty:1,price:it.price,stock:it.qty,img:it.img});const sq=ov.querySelector("#eoq");sq.value="";ov.querySelector("#eor").innerHTML="";draw();toast("Добавлено: "+it.name,1400)})}catch(er){}},250)};
+ /* сканер: каждый штрихкод — +1 к товару (тот же поиск, что и вручную); камера открыта, пока не нажмут «Готово» */
+ ov.querySelector('[data-scan="no"]').onclick=()=>scanCodes(async code=>{const r=await api("orders-search?q="+encodeURIComponent(code));const it=r.items.find(x=>x.code===code)||(r.items.length===1?r.items[0]:null);
+  if(!it)return "Не найден товар со штрихкодом "+code;if(it.qty<=0)return "Нет в наличии: "+it.name;const ex=L.find(z=>z.id===it.id);if(ex)ex.qty++;else L.push({id:it.id,name:it.name,qty:1,price:it.price,stock:it.qty,img:it.img});draw();return it.name+" — "+fmt((ex||L[L.length-1]).qty)+" шт."});
+ /* клиент из МойСклад: подставляем имя, телефон и город — заказ привяжется к нему по телефону, как и раньше */
+ let tc;ov.querySelector("#no_cq").oninput=e=>{clearTimeout(tc);const q=e.target.value.trim(),box=ov.querySelector("#no_cr");tc=setTimeout(async()=>{if(q.length<2)return box.innerHTML="";try{const r=await api("clients?src=ms&q="+encodeURIComponent(q));
+  box.innerHTML=r.clients.slice(0,8).map((c,i)=>`<button data-c="${i}"><span class="srn">${esc(c.name)}</span><span class="mut">${esc(c.phone||"нет телефона")}${c.city?" · "+esc(c.city):""}</span></button>`).join("")||'<div class="mut">Не найден — заполните поля ниже, клиент создастся с заказом</div>';
+  box.querySelectorAll("[data-c]").forEach(b=>b.onclick=()=>{const c=r.clients[+b.dataset.c];ov.querySelector("#no_name").value=c.name||"";ov.querySelector("#no_phone").value=c.phone||"";if(c.city)ov.querySelector("#no_city").value=c.city;
+   box.innerHTML="";ov.querySelector("#no_cq").value="";toast("Клиент: "+c.name,1400);if(!c.phone)ov.querySelector("#no_phone").focus()})}catch(er){box.innerHTML='<div class="mut">'+esc(er.message)+'</div>'}},300)};
  ov.querySelector(".vox").onclick=ov.querySelector("#noc").onclick=()=>{if(confirmClose())ov.remove()};
  ov.querySelector("#nos").onclick=async e=>{const b=e.currentTarget,m=ov.querySelector("#nom");m.textContent="";
   if(!F("name")||!F("city")||F("phone").replace(/\D/g,"").length<10)return m.textContent="Укажите имя, телефон и город клиента";if(!L.length)return m.textContent="Добавьте хотя бы один товар";
