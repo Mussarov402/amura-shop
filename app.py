@@ -10,6 +10,8 @@ from admin import bp as admin_bp
 from order_hook import alert, bp
 
 app = Flask(__name__)
+from opt_site import bp as opt_site_bp  # noqa: E402
+app.register_blueprint(opt_site_bp)   # opt.amura.kz — оптовый сайт (первым: на этом адресе только сайт)
 app.register_blueprint(bp)
 app.register_blueprint(admin_bp)
 from wa import bp as wa_bp  # noqa: E402
