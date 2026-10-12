@@ -24,6 +24,7 @@ KINDS = {"supply": "Приёмка", "loss": "Списание", "enter": "Оп�
          "purchasereturn": "Возврат поставщику", "purchaseorder": "Заказ поставщику"}
 RETURNS = {"salesreturn": "demand", "purchasereturn": "supply"}   # возврат → документ, по которому он оформляется (колонка demand_id)
 AGENT_KINDS = ("supply", "salesreturn", "purchasereturn", "purchaseorder")
+BASED = {**RETURNS, "supply": "purchaseorder"}   # документ-основание в колонке demand_id: у приёмки — заказ поставщику (необязательно)
 PRICED = ("supply", "enter", "purchaseorder")   # цену вводит человек (закупка / себестоимость); у списания и перемещения — закупочная из карточки
 RETRY_EVERY = 60          # с, фоновый повтор очереди
 MAX_AUTO = 30             # после стольких неудачных попыток — только вручную
@@ -95,6 +96,14 @@ def recent(limit=30):
         o["storeName"], o["agentName"], o["store2Name"] = names.get(o["store"], ""), agents.get(o["agent"], ""), names.get(o["store2"], "")
         o["sum"] = round(sum(x["qty"] * x["price"] for x in o["lines"]))
         out.append(o)
+    po = [o["msId"] for o in out if o["kind"] == "purchaseorder" and o["msId"]]
+    if po:                                     # заказ поставщику: уже принят по нему товар?
+        with db() as d:
+            got = {r[0]: (r[1], r[2]) for r in d.run("SELECT demand_id, status, ms_number FROM wh_op WHERE kind='supply' AND status<>'error' AND demand_id IN ("
+                                                     + ", ".join(["%s"] * len(po)) + ")", po, many=True) or []}
+        for o in out:
+            if o["kind"] == "purchaseorder" and o["msId"] in got:
+                o["received"] = {"status": got[o["msId"]][0], "msNumber": got[o["msId"]][1] or ""}
     return out
 
 
@@ -164,6 +173,13 @@ def create(kind, store_id, lines, agent_id="", descr="", who="", store2_id="", o
         raise ValueError("Неизвестная операция")
     if kind in RETURNS and not demand_id:
         raise ValueError("Возврат оформляется из документа (отгрузки или приёмки)")
+    if kind == "supply" and demand_id:              # приёмка по заказу поставщику, созданному в системе
+        with db() as d:
+            po = d.run("SELECT agent_id FROM wh_op WHERE kind='purchaseorder' AND status='sent' AND ms_id=%s", (demand_id,), one=True)
+        if not po:
+            raise ValueError("Заказ поставщику не найден")
+        if po[0] != agent_id:
+            raise ValueError("Поставщик приёмки не совпадает с заказом")
     descr = (descr or "").strip()[:500]
     with db() as d:
         if not d.run("SELECT 1 FROM ms_store WHERE id=%s AND archived=0", (store_id,), one=True):
@@ -194,7 +210,7 @@ def create(kind, store_id, lines, agent_id="", descr="", who="", store2_id="", o
         op_id = op_id or str(uuid.uuid4())
         d.run(f"INSERT INTO wh_op ({_OCOLS}, next_try) VALUES (%s, %s, %s, %s, %s, %s, 'queued', '', '', 0, '', %s, %s, 0, %s, %s, 0)",
               (op_id, kind, store_id, agent_id if kind in AGENT_KINDS else "", descr, json.dumps(clean, ensure_ascii=False), who, time.time(),
-               store2_id, demand_id if kind in RETURNS else ""))
+               store2_id, demand_id if kind in BASED else ""))
     send(op_id)
     return get(op_id)
 
@@ -213,6 +229,8 @@ def _body(o):
         body["agent"] = oh.meta("counterparty", o["agent"])
     if o["kind"] in RETURNS:                    # ссылка на документ: demand у возврата покупателя, supply у возврата поставщику
         body[RETURNS[o["kind"]]] = oh.meta(RETURNS[o["kind"]], o["demand"])
+    if o["kind"] == "supply" and o["demand"]:   # приёмка по заказу поставщику
+        body["purchaseOrder"] = oh.meta("purchaseorder", o["demand"])
     return body
 
 

@@ -2682,8 +2682,10 @@ def warehouse_ops():
             return jsonify(ok=False, error="Приёмка и списание из панели выключены"), 403
         b = request.get_json(silent=True) or {}
         try:
-            op = whops.create(str(b.get("kind", "")), str(b.get("store", "")), b.get("lines") or [],
-                              str(b.get("agent", "")), str(b.get("descr", "")), _fin_who(), str(b.get("store2", "")))
+            kind = str(b.get("kind", ""))
+            op = whops.create(kind, str(b.get("store", "")), b.get("lines") or [],
+                              str(b.get("agent", "")), str(b.get("descr", "")), _fin_who(), str(b.get("store2", "")),
+                              demand_id=str(b.get("order", "")) if kind == "supply" else "")
         except ValueError as e:
             return jsonify(ok=False, error=str(e)), 400
         return jsonify(ok=True, op=op)
