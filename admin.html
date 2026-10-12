@@ -936,7 +936,7 @@ async clients(q="",src="ms",page=0,foc=false){const o=await api("clients?src="+s
  const chn=c=>c==="wa"?'<span class="src wa">WhatsApp</span>':c==="ig"?'<span class="src ig">Instagram</span>':c==="web"?'<span class="src web">Сайт</span>':'<span class="src">Telegram</span>';
  $("#main").innerHTML=head("Клиенты","Покупатели из МойСклад и все, кто писал в мессенджеры")+seg("clients")+
  `<div class="chips cn" style="margin-bottom:10px"><button class="st ${src==="ms"?"on":""}" data-src="ms">Покупатели</button><button class="st ${src==="retail"?"on":""}" data-src="retail">Розница</button><button class="st ${src==="chat"?"on":""}" data-src="chat">Писали в мессенджеры</button></div>
- <input id="clq" placeholder="Имя или телефон" value="${esc(q)}" style="width:100%;margin-bottom:12px" enterkeyhint="search">
+ ${ms?'<button class="btn" id="clnew" style="margin-bottom:10px">＋ Новый контрагент</button>':""}<input id="clq" placeholder="Имя или телефон" value="${esc(q)}" style="width:100%;margin-bottom:12px" enterkeyhint="search">
  <div class="card">${o.clients.length?o.clients.map(c=>ms
   ?`<div class="row clk" data-c="${c.id}" style="cursor:pointer">${avatar(c.name,40)}<div class="grow"><b>${esc(c.name)}</b><div class="mut">${esc(c.phone||"без телефона")}${c.city?" · "+esc(c.city):""}</div></div>${(c.tags||[]).includes("розница")?'<span class="src rtl">Розница</span>':""}${c.tg?chn("tg"):""}</div>`
   :`<div class="row clk" data-c="conv${c.conv}" style="cursor:pointer">${avatar(c.name,40)}<div class="grow"><b>${esc(c.name)}</b><div class="mut">${esc(c.phone?"+"+c.phone:(c.username?"@"+c.username:""))}</div></div>${chn(c.channel)}</div>`).join("")
@@ -944,6 +944,7 @@ async clients(q="",src="ms",page=0,foc=false){const o=await api("clients?src="+s
  ${src!=="chat"&&(page||o.more)?`<div style="display:flex;gap:10px;justify-content:center;margin-top:12px">${page?'<button class="btn ghost" id="clp">← Назад</button>':""}${o.more?'<button class="btn ghost" id="cln">Ещё →</button>':""}</div>`:""}`;
  bindSeg();
  document.querySelectorAll("[data-src]").forEach(b=>b.onclick=()=>views.clients($("#clq").value.trim(),b.dataset.src,0));
+ if($("#clnew"))$("#clnew").onclick=()=>contactForm(null,r=>r&&r.agent?clientCard(r.agent,()=>views.clients()):views.clients());
  let t;const qi=$("#clq");qi.oninput=()=>{clearTimeout(t);t=setTimeout(()=>views.clients(qi.value.trim(),src,0,true),500)};
  if(foc){qi.focus();qi.setSelectionRange(qi.value.length,qi.value.length)}
  if($("#clp"))$("#clp").onclick=()=>{views.clients(q,src,page-1);scrollTo(0,0)};if($("#cln"))$("#cln").onclick=()=>{views.clients(q,src,page+1);scrollTo(0,0)};
@@ -1689,6 +1690,24 @@ async function pickContacts(gid,have,done){let ch="",q="",src="chat",sel=new Set
 })();
 </script>
 <script>
+/* Контрагент: создание и правка карточки (название, телефон, город, теги, тип цены — только владелец) с двойной записью в МойСклад */
+const contactForm=async(c,done)=>{const ov=ovOpen(),box=ov.querySelector(".eo"),close=()=>ov.remove();let M;
+ try{M=await api("contacts/meta")}catch(e){box.innerHTML='<div class="b x" style="white-space:normal">'+esc(e.message)+'</div><button class="btn ghost" style="margin-top:10px" id="cfc">Закрыть</button>';$("#cfc").onclick=close;return}
+ const isNew=!c,c0=c||{name:"",phone:"",city:"",tags:[],priceType:""};
+ box.innerHTML=`<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:10px"><div style="font-weight:800;font-size:17px">${isNew?"Новый контрагент":"Изменить контрагента"}</div><button class="btn ghost" id="cfx" aria-label="Закрыть">✕</button></div>
+  <div class="cfe"><label>Название *<input id="cf_name" value="${esc(c0.name)}" maxlength="255" placeholder="Имя клиента или название компании"></label>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><label>Телефон<input id="cf_phone" type="tel" inputmode="tel" value="${esc(c0.phone)}" placeholder="+7 7xx xxx xx xx"></label><label>Город<input id="cf_city" value="${esc(c0.city)}" maxlength="255"></label></div>
+  <label>Теги (через запятую)<input id="cf_tags" value="${esc((c0.tags||[]).join(", "))}" placeholder="опт, поставщик"></label>
+  ${M.owner?`<label>Тип цены<select id="cf_pt" style="display:block;width:100%;margin-top:4px;padding:10px 12px;border:1px solid #D9E0DB;border-radius:10px;font:inherit"><option value="">— по умолчанию —</option>${M.priceTypes.map(p=>`<option value="${esc(p.id)}" ${p.id===c0.priceType?"selected":""}>${esc(p.name)}</option>`).join("")}</select></label>`:""}</div>
+  <div class="mut" style="margin:10px 0">${isNew?"Контрагент появится в МойСклад сразу. Если телефон уже есть у другого — подскажем, чтобы не было дублей.":"Изменения сразу уйдут в МойСклад."}</div>
+  <div class="mut" id="cfm"></div><div style="display:flex;gap:8px"><button class="btn" id="cfg">${isNew?"Создать":"Сохранить"}</button><button class="btn ghost" id="cfc">Отмена</button></div>`;
+ $("#cfx").onclick=$("#cfc").onclick=close;
+ $("#cfg").onclick=async()=>{const b={name:$("#cf_name").value.trim(),phone:$("#cf_phone").value.trim(),city:$("#cf_city").value.trim(),tags:$("#cf_tags").value.split(",").map(t=>t.trim()).filter(Boolean)};
+  if(M.owner&&$("#cf_pt"))b.priceType=$("#cf_pt").value;if(!b.name)return $("#cfm").textContent="Укажите название";
+  const btn=$("#cfg");btn.disabled=true;btn.textContent="Сохраняю…";
+  try{const r=await api(isNew?"contacts":"contacts/"+encodeURIComponent(c.id),{method:isNew?"POST":"PUT",body:JSON.stringify(b)});close();
+   toast(r.op.status==="sent"?(isNew?"Контрагент создан в МойСклад ✓":"Сохранено в МойСклад ✓"):r.op.status==="error"?"МойСклад не принял: "+r.op.error:"Сохранено. МойСклад не ответил — отправится автоматически",5000);done&&done(r.op)}
+  catch(e){btn.disabled=false;btn.textContent=isNew?"Создать":"Сохранить";if(e.message!=="401")$("#cfm").textContent=e.message}}};
 /* Карточка клиента: контакты, заказы и сумма покупок, долг/переплата, переписка, заметки */
 async function clientCard(id,back){
  $("#main").innerHTML='<div class="mut">Загрузка…</div>';
@@ -1699,7 +1718,7 @@ async function clientCard(id,back){
   :s.balance<0?stat("Долг клиента",fmt(-s.balance)+" ₸","по данным МойСклад","var(--danger,#A23B2A)")
   :s.balance>0?stat("Переплата",fmt(s.balance)+" ₸","по данным МойСклад","#1F6A50"):stat("Долг","нет","по данным МойСклад");
  const chats=r.chats.map(x=>`<div class="row"><div class="grow">${x.channel==="wa"?'<span class="src wa">WhatsApp</span>':x.channel==="ig"?'<span class="src ig">Instagram</span>':x.channel==="web"?'<span class="src web">Сайт</span>':'<span class="src">Telegram</span>'} <span class="mut">${esc(x.text||"")}</span></div>${x.unread?`<span class="tbn">${x.unread}</span>`:""}<button class="btn ghost" data-chat="${x.id}">Открыть чат</button></div>`).join("");
- $("#main").innerHTML=`<button class="btn ghost" id="clb" style="margin-bottom:12px">← Клиенты</button>
+ $("#main").innerHTML=`<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap"><button class="btn ghost" id="clb">← Клиенты</button>${c.id?'<button class="btn ghost" id="cle">✏️ Изменить</button>':""}</div>
  <div class="card" style="display:flex;gap:14px;align-items:center;margin-bottom:16px">${avatar(c.name,56)}<div class="grow" style="min-width:0"><h1 style="font-size:22px;margin:0">${esc(c.name)}</h1>
  <div class="mut" style="margin-top:4px">${[c.phone&&`<a href="tel:+${digits}" style="color:var(--g);font-weight:700">${esc(c.phone)}</a>`,c.email&&esc(c.email),c.city&&esc(c.city),c.username&&("@"+esc(c.username)),c.created&&("клиент с "+esc(c.created))].filter(Boolean).join(" · ")||"контактов нет"}</div>
  ${c.tags&&c.tags.length?`<div style="margin-top:6px">${c.tags.map(t=>`<span class="src" style="margin-right:4px">${esc(t)}</span>`).join("")}</div>`:""}${c.id?"":'<div class="mut" style="margin-top:6px">В МойСклад такого покупателя нет — он только писал в мессенджер.</div>'}</div></div>
@@ -1709,6 +1728,7 @@ async function clientCard(id,back){
  <div style="display:flex;gap:10px;align-items:center;margin-top:8px"><button class="btn" id="cns">Сохранить</button><span class="mut" id="cnm">${r.note.at?"изменено "+new Date(r.note.at*1000).toLocaleString("ru-RU",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})+(r.note.author?" · "+esc(r.note.author):""):""}</span></div></div>
  <div class="card"><div style="font-size:17px;font-weight:700;margin-bottom:6px">Заказы</div>${r.orders.length?r.orders.map(o=>`<div class="row"><div class="grow"><b>№ ${esc(o.number)}</b> <span class="mut">${esc(o.date.split("-").reverse().join("."))}</span><div class="mut">оплачено ${fmt(o.paid)} из ${fmt(o.sum)} ₸</div></div><span class="stt" style="${o.color?`background:${o.color}22;color:${o.color}`:""}">${esc(o.state)}</span><a href="#" class="cvo" data-n="${esc(o.number)}" data-id="${esc(o.id||"")}" style="color:var(--g);font-weight:700">Открыть</a></div>`).join(""):'<div class="mut" style="padding:6px 0">Заказов пока нет.</div>'}</div>`;
  $("#clb").onclick=()=>back?back():views.clients();scrollTo(0,0);
+ if($("#cle"))$("#cle").onclick=()=>contactForm(c,()=>clientCard(id,back));
  document.querySelectorAll("[data-chat]").forEach(b=>b.onclick=()=>openLink("#inbox/"+b.dataset.chat));document.querySelectorAll(".cvo").forEach(l=>l.onclick=e=>{e.preventDefault();viewOrder(l.dataset.n,l.dataset.id)});
  $("#cns").onclick=async()=>{$("#cnm").textContent="Сохраняю…";try{await api("clients/note",{method:"POST",body:JSON.stringify({key:r.note.key,text:$("#cnt").value})});$("#cnm").textContent="Сохранено ✓"}catch(e){$("#cnm").textContent=e.message}};
 }
