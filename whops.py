@@ -21,10 +21,10 @@ import order_hook as oh
 
 FLAG = "feat_wh_ops"
 KINDS = {"supply": "Приёмка", "loss": "Списание", "enter": "Оприходование", "move": "Перемещение", "salesreturn": "Возврат покупателя",
-         "purchasereturn": "Возврат поставщику"}
+         "purchasereturn": "Возврат поставщику", "purchaseorder": "Заказ поставщику"}
 RETURNS = {"salesreturn": "demand", "purchasereturn": "supply"}   # возврат → документ, по которому он оформляется (колонка demand_id)
-AGENT_KINDS = ("supply", "salesreturn", "purchasereturn")
-PRICED = ("supply", "enter")   # цену вводит человек (закупка / себестоимость); у списания и перемещения — закупочная из карточки
+AGENT_KINDS = ("supply", "salesreturn", "purchasereturn", "purchaseorder")
+PRICED = ("supply", "enter", "purchaseorder")   # цену вводит человек (закупка / себестоимость); у списания и перемещения — закупочная из карточки
 RETRY_EVERY = 60          # с, фоновый повтор очереди
 MAX_AUTO = 30             # после стольких неудачных попыток — только вручную
 _ready = [False]
