@@ -2817,6 +2817,51 @@ def warehouse_reorder():
     return jsonify(ok=True, **reorder.suggest(days, cover, target, a.get("q", "")[:100]))
 
 
+import labels as plabels  # noqa: E402  (этикетки и ценники товаров; наклейки заказов — labels_pdf выше)
+
+_plabel_jobs = {}        # короткая ссылка на PDF этикеток: токен → (время, параметры); живёт час
+
+
+def _can_plabels():
+    me = who()
+    return bool(me and (me["role"] == "owner" or {"products", "warehouse"} & set(me["perms"])))
+
+
+@bp.get("/admin/api/product-labels/meta")
+def product_labels_meta():
+    if not _can_plabels():
+        return jsonify(ok=False, error="Нет доступа"), 401
+    return jsonify(ok=True, priceTypes=plabels.price_types([i for i in request.args.get("ids", "").split(",") if i][:500]))
+
+
+@bp.post("/admin/api/product-labels")
+def product_labels_job():
+    """Этикетки / ценники со штрихкодом: проверяем и отдаём подписанную ссылку на PDF (открывается без входа, живёт час)."""
+    if not _can_plabels():
+        return jsonify(ok=False, error="Нет доступа"), 401
+    b = request.get_json(silent=True) or {}
+    args = (b.get("items") or [])[:500], str(b.get("kind", "label")), str(b.get("size", "58x40")), str(b.get("priceType", ""))[:100]
+    try:
+        plabels.pdf(*args)                          # проверка сразу: ошибка — здесь, а не в просмотрщике
+    except ValueError as e:
+        return jsonify(ok=False, error=str(e)), 400
+    now = time.time()
+    for k in [k for k, v in _plabel_jobs.items() if now - v[0] > 3600]:
+        _plabel_jobs.pop(k, None)
+    tok = secrets.token_hex(12)
+    _plabel_jobs[tok] = (now, args)
+    return jsonify(ok=True, url=f"/admin/product-labels/{tok}.pdf?t={_sig('lb' + tok)}")
+
+
+@bp.get("/admin/product-labels/<tok>.pdf")
+def product_labels_file(tok):
+    if not hmac.compare_digest(_sig("lb" + tok), request.args.get("t", "")) or tok not in _plabel_jobs:
+        return "Ссылка устарела — сформируйте этикетки заново", 404
+    from flask import Response
+    return Response(plabels.pdf(*_plabel_jobs[tok][1]), mimetype="application/pdf",
+                    headers={"Content-Disposition": "inline; filename=AMURA-labels.pdf", "Cache-Control": "private, max-age=3600"})
+
+
 @bp.get("/admin/api/warehouse/agents")
 @need("warehouse")
 def warehouse_agents():
