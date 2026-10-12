@@ -2798,6 +2798,23 @@ def return_create():
     return jsonify(ok=True, op=op)
 
 
+import reorder  # noqa: E402
+
+
+@bp.get("/admin/api/warehouse/reorder")
+@need("warehouse")
+def warehouse_reorder():
+    """Что дозаказать: остаток меньше cover дней продаж (по зеркалу, только чтение)."""
+    if not modules.enabled("warehouse"):
+        return jsonify(ok=False, error="Модуль «Склад» выключен"), 404
+    a = request.args
+    try:
+        days, cover, target = int(a.get("days", 28)), int(a.get("cover", 14)), int(a.get("target", 30))
+    except ValueError:
+        days, cover, target = 28, 14, 30
+    return jsonify(ok=True, **reorder.suggest(days, cover, target, a.get("q", "")[:100]))
+
+
 @bp.get("/admin/api/warehouse/agents")
 @need("warehouse")
 def warehouse_agents():
