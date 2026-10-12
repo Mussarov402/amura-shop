@@ -2,6 +2,12 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
+<script>/* переезд с amura.kz на opt.amura.kz: корзина и вход приходят в ссылке #amura-move= и сохраняются здесь */
+(function(){ try{ var m = location.hash.match(/^#amura-move=([^&]*)(?:&h=(.*))?$/); if(!m) return;
+  var d = JSON.parse(decodeURIComponent(escape(atob(m[1].replace(/-/g, "+").replace(/_/g, "/")))));
+  for(var k in d) if(localStorage.getItem(k) === null) localStorage.setItem(k, d[k]);
+  history.replaceState(null, "", location.pathname + location.search + (m[2] ? "#" + decodeURIComponent(m[2]) : ""));
+}catch(e){} })();</script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>AMURA — оптовый каталог</title>
 <meta name="description" content="Оригинальная корейская косметика оптом. Цены поштучно, от 10 штук и от короба.">
