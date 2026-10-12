@@ -42,6 +42,12 @@ def _schema(d):
           " expense TEXT, moment TEXT, descr TEXT, status TEXT, ms_id TEXT, ms_number TEXT, attempts INTEGER DEFAULT 0, error TEXT,"
           " who TEXT, created DOUBLE PRECISION, sent DOUBLE PRECISION, next_try DOUBLE PRECISION DEFAULT 0)")
     d.c.commit()
+    for col in ("doc_id", "doc_type"):        # добавочные колонки: оплата по конкретной отгрузке / приёмке
+        try:
+            d.run(f"ALTER TABLE pay_op ADD COLUMN {col} TEXT")
+            d.c.commit()
+        except Exception:
+            d.c.rollback()
     _ready[0] = True
 
 
@@ -83,13 +89,14 @@ def meta():
 
 
 def _row(r):
-    i, kind, agent, s, acc, exp, moment, descr, status, ms_id, ms_num, att, err, who, created, sent = r[:16]
+    i, kind, agent, s, acc, exp, moment, descr, status, ms_id, ms_num, att, err, who, created, sent, doc_id, doc_type = r[:18]
     return {"id": i, "kind": kind, "title": KINDS.get(kind, kind), "agent": agent, "sum": s or 0, "account": acc or "", "expense": exp or "",
             "moment": moment or "", "descr": descr or "", "status": status, "msId": ms_id or "", "msNumber": ms_num or "",
-            "attempts": att or 0, "error": err or "", "who": who or "", "created": created or 0, "sent": sent or 0}
+            "attempts": att or 0, "error": err or "", "who": who or "", "created": created or 0, "sent": sent or 0,
+            "docId": doc_id or "", "docType": doc_type or ""}
 
 
-_COLS = "id, kind, agent_id, sum, account, expense, moment, descr, status, ms_id, ms_number, attempts, error, who, created, sent"
+_COLS = "id, kind, agent_id, sum, account, expense, moment, descr, status, ms_id, ms_number, attempts, error, who, created, sent, doc_id, doc_type"
 
 
 def get(op_id):
@@ -132,7 +139,23 @@ def _moment(day):
     return t.astimezone(mirror.MS_TZ).strftime("%Y-%m-%d %H:%M:%S")
 
 
-def create(direction, agent_id, amount, account="", expense="", day="", descr="", who=""):
+LINK = {"in": "demand", "out": "supply"}    # оплата — по отгрузке покупателю, выплата — по приёмке от поставщика
+
+
+def doc_due(doc_id):
+    """Документ и долг по нему: сумма минус оплачено (большее из payedSum МойСклад и связанных платежей), ₸."""
+    with mirror.db() as d:
+        r = d.run("SELECT x.type, x.number, x.agent_id, x.sum, COALESCE(x.paid, 0), COALESCE(l.s, 0), x.applicable FROM ms_doc x"
+                  " LEFT JOIN (SELECT doc_id, SUM(sum) AS s FROM ms_payment_link GROUP BY doc_id) l ON l.doc_id=x.id"
+                  " WHERE x.id=%s AND x.deleted=0", (doc_id,), one=True)
+    if not r:
+        return None
+    t, num, agent, s, paid, linked, ap = r
+    return {"id": doc_id, "type": t, "number": num or "", "agent": agent or "", "sum": round(s or 0),
+            "paid": round(max(paid, linked)), "due": round((s or 0) - max(paid, linked)), "applicable": bool(ap)}
+
+
+def create(direction, agent_id, amount, account="", expense="", day="", descr="", who="", doc_id=""):
     """Проверяет и сохраняет операцию, затем сразу пробует провести в МойСклад. Ошибка проверки — ValueError."""
     if direction not in DIRS:
         raise ValueError("Неизвестная операция")
@@ -149,6 +172,16 @@ def create(direction, agent_id, amount, account="", expense="", day="", descr=""
         if not d.run("SELECT 1 FROM ms_agent WHERE id=%s AND deleted=0", (agent_id or "",), one=True):
             raise ValueError("Выберите контрагента")
     moment = _moment(day)
+    doc_type = ""
+    if doc_id:
+        doc = doc_due(doc_id)
+        if not doc or direction not in LINK or doc["type"] != LINK[direction]:
+            raise ValueError("Документ для оплаты не найден")
+        if doc["agent"] != agent_id:
+            raise ValueError("Документ другого контрагента")
+        if s > doc["due"] + 0.5:
+            raise ValueError(f"Сумма больше долга по документу ({doc['due']:,.0f} ₸)".replace(",", " ") + " — уменьшите или проведите без привязки")
+        doc_type = doc["type"]
     if direction == "adj":
         kind, account, expense = "counterpartyadjustment", "", ""
     else:
@@ -163,8 +196,8 @@ def create(direction, agent_id, amount, account="", expense="", day="", descr=""
         kind = {("in", False): "paymentin", ("in", True): "cashin", ("out", False): "paymentout", ("out", True): "cashout"}[(direction, account == CASH)]
     op_id = str(uuid.uuid4())
     with db() as d:
-        d.run(f"INSERT INTO pay_op ({_COLS}, next_try) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'queued', '', '', 0, '', %s, %s, 0, 0)",
-              (op_id, kind, agent_id, s, account, expense, moment, descr, who, time.time()))
+        d.run(f"INSERT INTO pay_op ({_COLS}, next_try) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'queued', '', '', 0, '', %s, %s, 0, %s, %s, 0)",
+              (op_id, kind, agent_id, s, account, expense, moment, descr, who, time.time(), doc_id or "", doc_type))
     send(op_id)
     return get(op_id)
 
@@ -181,6 +214,8 @@ def _body(o):
                                                 "type": "account", "mediaType": "application/json"}}
     if o["kind"] in ("paymentout", "cashout"):
         body["expenseItem"] = oh.meta("expenseitem", o["expense"])
+    if o["docId"]:
+        body["operations"] = [{**oh.meta(o["docType"], o["docId"]), "linkedSum": round(o["sum"] * 100)}]
     return body
 
 
@@ -206,6 +241,11 @@ def send(op_id):
             if row is None:
                 row = oh.ms("POST", f"/entity/{o['kind']}", json=_body(o), timeout=30)
             _mark(op_id, status="sent", ms_id=row.get("id") or "", ms_number=row.get("name") or "", error="", sent=time.time())
+            if o["docId"] and row.get("id"):     # документ сразу виден оплаченным (зеркало потом перезапишет то же)
+                with mirror.db() as d:
+                    d.run("INSERT INTO ms_payment_link (payment_id, doc_id, doc_type, sum) VALUES (%s, %s, %s, %s) ON CONFLICT (payment_id, doc_id) DO NOTHING",
+                          (row["id"], o["docId"], o["docType"], o["sum"]))
+                    d.run("UPDATE ms_doc SET paid=COALESCE(paid, 0)+%s WHERE id=%s", (o["sum"], o["docId"]))   # payedSum до следующего прохода
             print(f"Деньги: «{KINDS[o['kind']]}» {op_id[:8]} на {o['sum']:.0f} ₸ проведён в МойСклад №{row.get('name')}", flush=True)
             _bg(refresh, o["agent"])
         except Exception as e:

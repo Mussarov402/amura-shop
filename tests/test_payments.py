@@ -130,6 +130,31 @@ class PaymentsTest(unittest.TestCase):
         r = self.c.post(f"/admin/api/money/ops/{r['id']}/retry", headers=self.h).get_json()["op"]
         self.assertEqual(r["status"], "sent")
 
+    def test_linked_to_demand(self):
+        with mirror.db() as d:
+            d.run("DELETE FROM ms_payment_link")
+            d.run("INSERT INTO ms_doc (id, type, number, moment, agent_id, sum, applicable, deleted, paid) VALUES ('sp1', 'supply', '42', '2026-10-10 10:00:00', 's1', 50000, 1, 0, 0)")
+        self.assertEqual(payments.doc_due("dm1")["due"], 100000)
+        self.assertEqual(self.post(dir="in", agent="k1", sum=100001, account="acc1", doc="dm1").status_code, 400)   # больше долга
+        self.assertEqual(self.post(dir="in", agent="s1", sum=100, account="acc1", doc="dm1").status_code, 400)      # чужой документ
+        self.assertEqual(self.post(dir="out", agent="k1", sum=100, account="acc1", expense="e1", doc="dm1").status_code, 400)  # выплата не по отгрузке
+        r = self.post(dir="in", agent="k1", sum=60000, account="acc1", doc="dm1").get_json()["op"]
+        self.assertEqual(r["docId"], "dm1")
+        doc = self.ms.docs["paymentin"][0]
+        self.assertEqual(doc["operations"][0]["linkedSum"], 6000000)
+        self.assertTrue(doc["operations"][0]["meta"]["href"].endswith("/entity/demand/dm1"))
+        self.assertEqual(payments.doc_due("dm1")["due"], 40000)                      # документ сразу виден частично оплаченным
+        u = mirror.finance_view()["unpaid"]["demand"]["rows"][0]
+        self.assertEqual((u["due"], u["agentId"], u["balance"]), (40000, "k1", -40000))
+        self.post(dir="out", agent="s1", sum=50000, account="cash", expense="e1", doc="sp1")
+        self.assertEqual(self.ms.docs["cashout"][0]["operations"][0]["meta"]["type"], "supply")
+        self.assertEqual(payments.doc_due("sp1")["due"], 0)
+        with mirror.db() as d:                     # отгрузка уже частично оплачена в МойСклад (payedSum), без связей у нас
+            d.run("INSERT INTO ms_doc (id, type, number, moment, agent_id, sum, applicable, deleted, paid) VALUES ('dm2', 'demand', '8', '2026-10-10 11:00:00', 'k1', 6234, 1, 0, 5000)")
+        self.post(dir="in", agent="k1", sum=1234, account="acc1", doc="dm2")
+        self.assertEqual(payments.doc_due("dm2")["due"], 0)
+        self.assertEqual(self.post(dir="in", agent="k1", sum=1, account="acc1", doc="dm2").status_code, 400)        # второй раз не оплатить
+
     def test_validation(self):
         for b in ({"dir": "in", "agent": "nope", "sum": 1, "account": "acc1"}, {"dir": "in", "agent": "k1", "sum": -5, "account": "acc1"},
                   {"dir": "in", "agent": "k1", "sum": 5, "account": "zzz"}, {"dir": "in", "agent": "k1", "sum": 5, "account": "acc1", "day": "2099-01-01"},
