@@ -2493,6 +2493,34 @@ def money_ops():
     return jsonify(ok=True, enabled=payments.enabled(), ops=payments.recent())
 
 
+import reports  # noqa: E402
+
+
+def _days():
+    try:
+        return int(request.args.get("days", 30))
+    except ValueError:
+        return 30
+
+
+@bp.get("/admin/api/reports/profit")
+@guard
+def report_profit():
+    """Прибыль по товарам или клиентам за период — из нашей копии МойСклад, только чтение."""
+    if not modules.enabled("finance"):
+        return jsonify(ok=False, error="Модуль «Финансы» выключен"), 404
+    return jsonify(ok=True, **reports.profit(_days(), "agent" if request.args.get("by") == "agent" else "product"))
+
+
+@bp.get("/admin/api/reports/turnover")
+@guard
+def report_turnover():
+    """Обороты товаров за период (приход, расход, остаток) — из нашей копии МойСклад, только чтение."""
+    if not modules.enabled("finance"):
+        return jsonify(ok=False, error="Модуль «Финансы» выключен"), 404
+    return jsonify(ok=True, **reports.turnover(_days(), request.args.get("q", "")[:100]))
+
+
 @bp.post("/admin/api/money/transfer")
 @guard
 def money_transfer():
