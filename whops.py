@@ -20,7 +20,10 @@ import modules
 import order_hook as oh
 
 FLAG = "feat_wh_ops"
-KINDS = {"supply": "Приёмка", "loss": "Списание", "enter": "Оприходование", "move": "Перемещение", "salesreturn": "Возврат покупателя"}
+KINDS = {"supply": "Приёмка", "loss": "Списание", "enter": "Оприходование", "move": "Перемещение", "salesreturn": "Возврат покупателя",
+         "purchasereturn": "Возврат поставщику"}
+RETURNS = {"salesreturn": "demand", "purchasereturn": "supply"}   # возврат → документ, по которому он оформляется (колонка demand_id)
+AGENT_KINDS = ("supply", "salesreturn", "purchasereturn")
 PRICED = ("supply", "enter")   # цену вводит человек (закупка / себестоимость); у списания и перемещения — закупочная из карточки
 RETRY_EVERY = 60          # с, фоновый повтор очереди
 MAX_AUTO = 30             # после стольких неудачных попыток — только вручную
@@ -95,17 +98,19 @@ def recent(limit=30):
     return out
 
 
-def demand_lines(demand_id):
-    """Отгрузка для возврата: контрагент, склад и позиции — отгружено, уже возвращено из системы, можно вернуть; цена со скидкой."""
+def demand_lines(demand_id, kind="salesreturn"):
+    """Документ для возврата (отгрузка — возврат покупателя, приёмка — возврат поставщику): контрагент, склад и позиции —
+    было в документе, уже возвращено из системы, можно вернуть; цена со скидкой."""
+    base = RETURNS[kind]
     with mirror.db() as d:
-        x = d.run("SELECT id, number, agent_id, store_id, applicable FROM ms_doc WHERE id=%s AND type='demand' AND deleted=0", (demand_id,), one=True)
+        x = d.run("SELECT id, number, agent_id, store_id, applicable FROM ms_doc WHERE id=%s AND type=%s AND deleted=0", (demand_id, base), one=True)
         if not x:
             return None
         rows = d.run("SELECT l.product_id, p.name, p.code, p.kind, SUM(l.qty), SUM(l.sum) FROM ms_doc_line l LEFT JOIN ms_product p ON p.id=l.product_id"
                      " WHERE l.doc_id=%s GROUP BY l.product_id, p.name, p.code, p.kind ORDER BY p.name", (demand_id,), many=True) or []
     back = {}
     with db() as d:
-        for (lines,) in d.run("SELECT lines FROM wh_op WHERE kind='salesreturn' AND demand_id=%s AND status<>'error'", (demand_id,), many=True) or []:
+        for (lines,) in d.run("SELECT lines FROM wh_op WHERE kind=%s AND demand_id=%s AND status<>'error'", (kind, demand_id), many=True) or []:
             for l in json.loads(lines or "[]"):
                 back[l["id"]] = back.get(l["id"], 0) + l["qty"]
     out = [{"id": pid, "name": n or "(товар удалён)", "code": c or "", "kind": k or "product", "qty": q or 0, "returned": back.get(pid, 0),
@@ -113,13 +118,17 @@ def demand_lines(demand_id):
     return {"id": x[0], "number": x[1] or "", "agent": x[2] or "", "store": x[3] or "", "applicable": bool(x[4]), "lines": out}
 
 
-def create_return(demand_id, lines, descr="", who=""):
-    """Возврат покупателя по отгрузке: склад и контрагент — из отгрузки, цены — как в ней, не больше отгруженного."""
-    dm = demand_lines(demand_id)
+def create_return(demand_id, lines, descr="", who="", kind="salesreturn"):
+    """Возврат по документу: покупателя — по отгрузке, поставщику — по приёмке. Склад и контрагент — из документа,
+    цены — как в нём, не больше, чем было в документе (за вычетом прежних возвратов из системы)."""
+    if kind not in RETURNS:
+        raise ValueError("Неизвестный возврат")
+    what = "Отгрузка" if kind == "salesreturn" else "Приёмка"
+    dm = demand_lines(demand_id, kind)
     if not dm or not dm["applicable"]:
-        raise ValueError("Отгрузка не найдена или не проведена")
+        raise ValueError(f"{what} не найдена или не проведена")
     if not dm["agent"] or not dm["store"]:
-        raise ValueError("У отгрузки нет контрагента или склада")
+        raise ValueError(f"У документа нет контрагента или склада")
     have = {l["id"]: l for l in dm["lines"]}
     clean = []
     for x in lines or []:
@@ -131,13 +140,13 @@ def create_return(demand_id, lines, descr="", who=""):
         if q <= 0:
             continue
         if pid not in have:
-            raise ValueError("Этого товара нет в отгрузке")
+            raise ValueError("Этого товара нет в документе")
         if q > have[pid]["left"] + 1e-9:
             raise ValueError(f"«{have[pid]['name'][:40]}»: вернуть можно не больше {have[pid]['left']:g} шт.")
         clean.append({"id": pid, "qty": q, "price": have[pid]["price"]})
     if not clean:
         raise ValueError("Укажите, сколько возвращают")
-    return create("salesreturn", dm["store"], clean, dm["agent"], descr, who, demand_id=demand_id)
+    return create(kind, dm["store"], clean, dm["agent"], descr, who, demand_id=demand_id)
 
 
 def create(kind, store_id, lines, agent_id="", descr="", who="", store2_id="", op_id="", demand_id=""):
@@ -147,13 +156,13 @@ def create(kind, store_id, lines, agent_id="", descr="", who="", store2_id="", o
         return send(op_id)
     if kind not in KINDS:
         raise ValueError("Неизвестная операция")
-    if kind == "salesreturn" and not demand_id:
-        raise ValueError("Возврат оформляется из отгрузки")
+    if kind in RETURNS and not demand_id:
+        raise ValueError("Возврат оформляется из документа (отгрузки или приёмки)")
     descr = (descr or "").strip()[:500]
     with db() as d:
         if not d.run("SELECT 1 FROM ms_store WHERE id=%s AND archived=0", (store_id,), one=True):
             raise ValueError("Выберите склад")
-        if kind in ("supply", "salesreturn") and not d.run("SELECT 1 FROM ms_agent WHERE id=%s AND deleted=0", (agent_id or "",), one=True):
+        if kind in AGENT_KINDS and not d.run("SELECT 1 FROM ms_agent WHERE id=%s AND deleted=0", (agent_id or "",), one=True):
             raise ValueError("Выберите поставщика")
         if kind == "move":
             if not store2_id or store2_id == store_id or not d.run("SELECT 1 FROM ms_store WHERE id=%s AND archived=0", (store2_id,), one=True):
@@ -173,13 +182,13 @@ def create(kind, store_id, lines, agent_id="", descr="", who="", store2_id="", o
             if not p:
                 raise ValueError("Товар не найден — обновите список")
             clean.append({"id": pid, "kind": p[0] or "product", "name": p[1], "qty": qty,
-                          "price": round(price if kind in PRICED + ("salesreturn",) else (p[2] or 0))})
+                          "price": round(price if kind in PRICED + tuple(RETURNS) else (p[2] or 0))})
         if not clean:
             raise ValueError("Добавьте хотя бы один товар")
         op_id = op_id or str(uuid.uuid4())
         d.run(f"INSERT INTO wh_op ({_OCOLS}, next_try) VALUES (%s, %s, %s, %s, %s, %s, 'queued', '', '', 0, '', %s, %s, 0, %s, %s, 0)",
-              (op_id, kind, store_id, agent_id if kind in ("supply", "salesreturn") else "", descr, json.dumps(clean, ensure_ascii=False), who, time.time(),
-               store2_id, demand_id if kind == "salesreturn" else ""))
+              (op_id, kind, store_id, agent_id if kind in AGENT_KINDS else "", descr, json.dumps(clean, ensure_ascii=False), who, time.time(),
+               store2_id, demand_id if kind in RETURNS else ""))
     send(op_id)
     return get(op_id)
 
@@ -194,10 +203,10 @@ def _body(o):
         body["sourceStore"], body["targetStore"] = oh.meta("store", o["store"]), oh.meta("store", o["store2"])
     else:
         body["store"] = oh.meta("store", o["store"])
-    if o["kind"] in ("supply", "salesreturn"):
+    if o["kind"] in AGENT_KINDS:
         body["agent"] = oh.meta("counterparty", o["agent"])
-    if o["kind"] == "salesreturn":
-        body["demand"] = oh.meta("demand", o["demand"])
+    if o["kind"] in RETURNS:                    # ссылка на документ: demand у возврата покупателя, supply у возврата поставщику
+        body[RETURNS[o["kind"]]] = oh.meta(RETURNS[o["kind"]], o["demand"])
     return body
 
 

@@ -16,6 +16,7 @@ class ReturnsTest(unittest.TestCase):
     def setUp(self):
         tw.WhOpsTest.setUp(self)
         self.ms.docs["salesreturn"] = []
+        self.ms.docs["purchasereturn"] = []
         self.refreshed = []
         payments._bg = lambda fn, *a: self.refreshed.append(a)
         with mirror.db() as d:
@@ -25,6 +26,8 @@ class ReturnsTest(unittest.TestCase):
             d.run("INSERT INTO ms_doc_line (doc_id, pos_id, product_id, qty, price, discount, sum) VALUES ('dm1', 'l1', 'p1', 2, 1500, 10, 2700)")
             d.run("INSERT INTO ms_doc_line (doc_id, pos_id, product_id, qty, price, discount, sum) VALUES ('dm1', 'l2', 'v1', 1, 600, 0, 600)")
             d.run("INSERT INTO ms_doc (id, type, number, moment, agent_id, store_id, sum, applicable, deleted) VALUES ('dm0', 'demand', '16', '2026-10-10 10:00:00', 'k1', 'sA', 1, 0, 0)")
+            d.run("INSERT INTO ms_doc (id, type, number, moment, agent_id, store_id, sum, applicable, deleted) VALUES ('sp1', 'supply', '42', '2026-10-10 10:00:00', 'k1', 'sB', 12000, 1, 0)")
+            d.run("INSERT INTO ms_doc_line (doc_id, pos_id, product_id, qty, price, discount, sum) VALUES ('sp1', 'l1', 'p1', 10, 1200, 0, 12000)")
 
     def ret(self, **b):
         return self.c.post("/admin/api/returns", headers=self.h, json=b)
@@ -53,6 +56,20 @@ class ReturnsTest(unittest.TestCase):
         # через складские операции (право «Склад») возврат не оформить
         r = self.c.post("/admin/api/warehouse/ops", headers=self.h, json={"kind": "salesreturn", "store": "sA", "lines": [{"id": "p1", "qty": 1}]})
         self.assertEqual(r.status_code, 400)
+        self.assertEqual(self.ms.docs["salesreturn"], [])
+
+    def test_purchase_return(self):
+        dm = self.c.get("/admin/api/returns/sp1?type=supply", headers=self.h).get_json()["demand"]
+        self.assertEqual([(l["id"], l["qty"], l["price"]) for l in dm["lines"]], [("p1", 10, 1200)])
+        self.assertEqual(self.c.get("/admin/api/returns/sp1", headers=self.h).status_code, 404)           # приёмка — не отгрузка
+        r = self.ret(kind="purchasereturn", demand="sp1", lines=[{"id": "p1", "qty": 3}], descr="брак").get_json()["op"]
+        self.assertEqual((r["kind"], r["status"], r["store"], r["agent"]), ("purchasereturn", "sent", "sB", "k1"))
+        doc = self.ms.docs["purchasereturn"][0]
+        self.assertTrue(doc["supply"]["meta"]["href"].endswith("/entity/supply/sp1"))
+        self.assertNotIn("demand", doc)
+        self.assertEqual([(p["quantity"], p["price"]) for p in doc["positions"]], [(3, 120000)])
+        self.assertEqual(self.ret(kind="purchasereturn", demand="sp1", lines=[{"id": "p1", "qty": 8}]).status_code, 400)   # осталось 7
+        self.assertEqual(self.ret(kind="purchasereturn", demand="dm1", lines=[{"id": "p1", "qty": 1}]).status_code, 400)   # отгрузка — не приёмка
         self.assertEqual(self.ms.docs["salesreturn"], [])
 
     def test_lost_response_no_duplicate(self):

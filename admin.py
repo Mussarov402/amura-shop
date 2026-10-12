@@ -2679,24 +2679,27 @@ def return_lines(demand_id):
     """Возврат покупателя: позиции отгрузки — сколько отгружено, возвращено и можно вернуть."""
     if not whops.enabled():
         return jsonify(ok=False, error="Складские операции из системы выключены"), 403
-    dm = whops.demand_lines(demand_id)
-    return jsonify(ok=True, demand=dm) if dm else (jsonify(ok=False, error="Отгрузка не найдена"), 404)
+    kind = "purchasereturn" if request.args.get("type") == "supply" else "salesreturn"
+    dm = whops.demand_lines(demand_id, kind)
+    return jsonify(ok=True, demand=dm) if dm else (jsonify(ok=False, error="Документ не найден"), 404)
 
 
 @bp.post("/admin/api/returns")
 @guard
 def return_create():
-    """Возврат покупателя по отгрузке (salesreturn с привязкой к отгрузке) — только владелец: меняет и склад, и долг клиента."""
+    """Возврат по документу — покупателя (salesreturn по отгрузке) или поставщику (purchasereturn по приёмке, kind=purchasereturn).
+    Только владелец: меняет и склад, и взаиморасчёты."""
     if not whops.enabled():
         return jsonify(ok=False, error="Складские операции из системы выключены"), 403
     b = request.get_json(silent=True) or {}
     try:
-        op = whops.create_return(str(b.get("demand", "")), b.get("lines") or [], str(b.get("descr", "")), _fin_who())
+        op = whops.create_return(str(b.get("demand", "")), b.get("lines") or [], str(b.get("descr", "")), _fin_who(),
+                                 "purchasereturn" if b.get("kind") == "purchasereturn" else "salesreturn")
     except ValueError as e:
         return jsonify(ok=False, error=str(e)), 400
     if op and op["status"] == "sent":
         import payments
-        payments._bg(payments.refresh, op["agent"])      # долг клиента сразу из МойСклад
+        payments._bg(payments.refresh, op["agent"])      # взаиморасчёты сразу из МойСклад
     return jsonify(ok=True, op=op)
 
 
