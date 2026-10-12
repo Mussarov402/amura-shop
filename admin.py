@@ -2493,6 +2493,23 @@ def money_ops():
     return jsonify(ok=True, enabled=payments.enabled(), ops=payments.recent())
 
 
+@bp.post("/admin/api/money/transfer")
+@guard
+def money_transfer():
+    """Перемещение денег между своими счётом и кассой — два документа в МойСклад (расход + приход)."""
+    off = _pay_off()
+    if off:
+        return off
+    b = request.get_json(silent=True) or {}
+    try:
+        ops = payments.transfer(str(b.get("from", "")), str(b.get("to", "")), b.get("sum"), str(b.get("day", "")), str(b.get("descr", "")), _fin_who())
+    except ValueError as e:
+        return jsonify(ok=False, error=str(e)), 400
+    except Exception as e:
+        return jsonify(ok=False, error="МойСклад не ответил: " + str(e)[:200]), 502
+    return jsonify(ok=True, ops=ops)
+
+
 @bp.post("/admin/api/money/ops/flag")
 @guard
 def money_ops_flag():

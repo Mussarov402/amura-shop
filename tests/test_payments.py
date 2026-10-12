@@ -52,6 +52,8 @@ class FakePayMS:
 
     def _apply(self, ent, j):
         aid = j["agent"]["meta"]["href"].rsplit("/", 1)[-1]
+        if aid not in self.balance:                  # своя организация (перемещение денег) — взаиморасчётов нет
+            return
         s = j["sum"] / 100
         self.balance[aid] += s if ent in ("paymentin", "cashin", "counterpartyadjustment") else -s
 
@@ -154,6 +156,22 @@ class PaymentsTest(unittest.TestCase):
         self.post(dir="in", agent="k1", sum=1234, account="acc1", doc="dm2")
         self.assertEqual(payments.doc_due("dm2")["due"], 0)
         self.assertEqual(self.post(dir="in", agent="k1", sum=1, account="acc1", doc="dm2").status_code, 400)        # второй раз не оплатить
+
+    def test_transfer_account_to_cash(self):
+        r = self.c.post("/admin/api/money/transfer", headers=self.h, json={"from": "acc1", "to": "cash", "sum": 200000, "descr": "в кассу"}).get_json()
+        self.assertEqual([(o["kind"], o["status"]) for o in r["ops"]], [("paymentout", "sent"), ("cashin", "sent")])
+        out, inn = self.ms.docs["paymentout"][0], self.ms.docs["cashin"][0]
+        for doc in (out, inn):
+            self.assertTrue(doc["agent"]["meta"]["href"].endswith("/entity/organization/org1"))    # контрагент — своя организация
+            self.assertEqual(doc["sum"], 20000000)
+        self.assertTrue(out["expenseItem"]["meta"]["href"].endswith("/entity/expenseitem/e2"))     # статья «Перемещение»
+        self.assertTrue(out["organizationAccount"]["meta"]["href"].endswith("/accounts/acc1"))
+        self.assertNotIn("expenseItem", inn)
+        self.assertNotEqual(out["externalCode"], inn["externalCode"])
+        self.assertEqual(payments.recent()[0]["agentName"], "Перемещение денег")
+        for b in ({"from": "acc1", "to": "acc1", "sum": 5}, {"from": "acc1", "to": "zzz", "sum": 5}, {"from": "cash", "to": "acc1", "sum": 0}):
+            self.assertEqual(self.c.post("/admin/api/money/transfer", headers=self.h, json=b).status_code, 400, b)
+        self.assertEqual(self.c.post("/admin/api/money/transfer", json={"from": "acc1", "to": "cash", "sum": 5}).status_code, 401)
 
     def test_validation(self):
         for b in ({"dir": "in", "agent": "nope", "sum": 1, "account": "acc1"}, {"dir": "in", "agent": "k1", "sum": -5, "account": "acc1"},

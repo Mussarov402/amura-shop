@@ -27,6 +27,8 @@ KINDS = {"paymentin": "Входящий платёж", "paymentout": "Исход
          "cashout": "Расходный ордер", "counterpartyadjustment": "Корректировка долга"}
 DIRS = {"in": "Оплата", "out": "Выплата", "adj": "Корректировка"}
 CASH = "cash"
+ORG = "org:"                 # контрагент-организация: перемещение денег между своими счётом и кассой
+TRANSFER_ITEM = "Перемещение"   # статья расходов для перемещения (есть в МойСклад)
 MAX_SUM = 10 ** 10          # ₸, защита от лишних нулей
 RETRY_EVERY = 60
 MAX_AUTO = 30
@@ -116,7 +118,7 @@ def recent(limit=20, agent_id=""):
     out = []
     for r in rows:
         o = _row(r)
-        o["agentName"] = names.get(o["agent"], "")
+        o["agentName"] = "Перемещение денег" if o["agent"].startswith(ORG) else names.get(o["agent"], "")
         out.append(o)
     return out
 
@@ -202,9 +204,41 @@ def create(direction, agent_id, amount, account="", expense="", day="", descr=""
     return get(op_id)
 
 
+def transfer(src, dst, amount, day="", descr="", who=""):
+    """Перемещение денег между своими счётом и кассой (как в МойСклад): расход из источника (исходящий платёж / расходный ордер,
+    статья «Перемещение») и приход в получателя (входящий платёж / приходный ордер), контрагент — своя организация.
+    Это две операции очереди: каждая со своим externalCode, повтор без дублей."""
+    try:
+        s = round(float(amount), 2)
+    except (TypeError, ValueError):
+        raise ValueError("Сумма — число")
+    if s <= 0 or s > MAX_SUM:
+        raise ValueError("Сумма должна быть больше нуля" if s <= 0 else "Слишком большая сумма — проверьте нули")
+    m = meta()
+    accs = {a["id"] for a in m["accounts"]}
+    if src not in accs or dst not in accs:
+        raise ValueError("Выберите, откуда и куда")
+    if src == dst:
+        raise ValueError("Откуда и куда — разные счета")
+    item = next((x["id"] for x in m["expenses"] if x["name"].strip().lower() == TRANSFER_ITEM.lower()), "")
+    if not item:
+        raise ValueError(f"В МойСклад нет статьи расходов «{TRANSFER_ITEM}»")
+    moment, agent = _moment(day), ORG + oh.organization()
+    descr = ((descr or "").strip() or "Перемещение денег")[:500]
+    ids = []
+    with db() as d:
+        for kind, acc, exp in ((("cashout" if src == CASH else "paymentout"), src, item), (("cashin" if dst == CASH else "paymentin"), dst, "")):
+            op_id = str(uuid.uuid4())
+            d.run(f"INSERT INTO pay_op ({_COLS}, next_try) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'queued', '', '', 0, '', %s, %s, 0, '', '', 0)",
+                  (op_id, kind, agent, s, acc, exp, moment, descr, who, time.time()))
+            ids.append(op_id)
+    return [send(i) for i in ids]
+
+
 def _body(o):
     org = oh.organization()
-    body = {"externalCode": o["id"], "organization": oh.meta("organization", org), "agent": oh.meta("counterparty", o["agent"]),
+    agent = oh.meta("organization", o["agent"][len(ORG):]) if o["agent"].startswith(ORG) else oh.meta("counterparty", o["agent"])
+    body = {"externalCode": o["id"], "organization": oh.meta("organization", org), "agent": agent,
             "moment": o["moment"], "applicable": True, "sum": round(o["sum"] * 100),
             "description": ("Из системы AMURA" + (f" ({o['who']})" if o["who"] else "") + (": " + o["descr"] if o["descr"] else ""))[:4000]}
     if o["kind"] != "counterpartyadjustment":
@@ -263,6 +297,8 @@ def _bg(fn, *args):
 def refresh(agent_id):
     """Баланс контрагента и деньги на счетах — сразу из МойСклад (только чтение), чтобы не ждать прохода зеркала."""
     try:
+        if agent_id.startswith(ORG):
+            raise LookupError                    # перемещение денег: контрагента нет, только деньги на счетах
         r = oh.ms("GET", f"/report/counterparty/{agent_id}", timeout=30)
         bal = (r.get("balance") or 0) / 100
         name = (r.get("counterparty") or {}).get("name") or ""
@@ -271,6 +307,11 @@ def refresh(agent_id):
                 d.run("UPDATE ms_agent_balance SET balance=%s, synced=%s WHERE agent_id=%s", (bal, time.time(), agent_id))
             else:
                 d.run("INSERT INTO ms_agent_balance (agent_id, name, balance, synced) VALUES (%s, %s, %s, %s)", (agent_id, name, bal, time.time()))
+    except LookupError:
+        pass
+    except Exception as e:
+        print("Деньги: не удалось сразу обновить баланс контрагента:", str(e)[:200], flush=True)
+    try:
         rows = mirror._report_rows("/report/money/byaccount")
         with mirror.db() as d:
             t = time.time()
@@ -281,7 +322,7 @@ def refresh(agent_id):
                 d.run("INSERT INTO ms_money (account_id, name, balance, synced) VALUES (%s, %s, %s, %s)",
                       (aid, acc.get("name") or x.get("name") or ("Касса" if not mirror._href_id(acc) else ""), (x.get("balance") or 0) / 100, t))
     except Exception as e:
-        print("Деньги: не удалось сразу обновить баланс:", str(e)[:200], flush=True)
+        print("Деньги: не удалось сразу обновить деньги на счетах:", str(e)[:200], flush=True)
 
 
 def retry(op_id):
