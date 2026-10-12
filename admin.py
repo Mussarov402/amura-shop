@@ -715,7 +715,8 @@ def _olog(number, text, who_name=None):
 def _cp_row(c):
     tgid = next((str(a.get("value") or "") for a in c.get("attributes") or [] if a.get("name") == oh.ATTR_TGID), "")
     return {"id": c["id"], "name": c.get("name", ""), "phone": c.get("phone", ""), "email": c.get("email", ""),
-            "tags": c.get("tags") or [], "tg": tgid, "city": c.get("actualAddress", ""), "created": (c.get("created") or "")[:10]}
+            "tags": c.get("tags") or [], "tg": tgid, "city": c.get("actualAddress", ""), "created": (c.get("created") or "")[:10],
+            "priceType": ((c.get("priceType") or {}).get("meta") or {}).get("href", "").rstrip("/").rsplit("/", 1)[-1] if c.get("priceType") else ""}
 
 
 def _chats_for(phone, tgid):
@@ -757,6 +758,55 @@ def clients():
         params["filter"] = f"tags={oh.RETAIL_TAG}"
     rows = fresh(f"adm_cl:{'r' if retail else ''}:{q}:{page}", 60, lambda: oh.ms("GET", "/entity/counterparty", params=params, timeout=12)["rows"])
     return jsonify(ok=True, clients=[_cp_row(c) for c in rows], more=len(rows) == 50)
+
+
+import contacts  # noqa: E402
+
+
+@bp.get("/admin/api/contacts/meta")
+@need("orders")
+def contacts_meta():
+    try:
+        pts = contacts.price_types()
+    except Exception as e:
+        return jsonify(ok=False, error="МойСклад не ответил: " + str(e)[:150]), 502
+    return jsonify(ok=True, priceTypes=pts, owner=is_admin(), pending=contacts.pending())
+
+
+def _contact_result(fn):
+    try:
+        op = fn()
+    except PermissionError as e:
+        return jsonify(ok=False, error=str(e)), 403
+    except LookupError as e:
+        return jsonify(ok=False, error=str(e)), 404
+    except ValueError as e:
+        return jsonify(ok=False, error=str(e)), 400
+    for k in [k for k in list(oh._cache) if str(k).startswith("adm_cl:")]:   # список клиентов сразу с изменениями
+        oh._cache.pop(k, None)
+    return jsonify(ok=True, op=op)
+
+
+@bp.post("/admin/api/contacts")
+@need("orders")
+def contacts_create():
+    """Новый клиент / поставщик — двойная запись в МойСклад (тип цены задаёт только владелец)."""
+    b = request.get_json(silent=True) or {}
+    return _contact_result(lambda: contacts.create(b, (who() or {}).get("name", ""), is_admin()))
+
+
+@bp.put("/admin/api/contacts/<agent_id>")
+@need("orders")
+def contacts_edit(agent_id):
+    b = request.get_json(silent=True) or {}
+    return _contact_result(lambda: contacts.edit(agent_id, b, (who() or {}).get("name", ""), is_admin()))
+
+
+@bp.post("/admin/api/contacts/q/<op>/retry")
+@need("orders")
+def contacts_retry(op):
+    o = contacts.retry(op)
+    return jsonify(ok=True, op=o) if o else (jsonify(ok=False, error="Операция не найдена"), 404)
 
 
 @bp.get("/admin/api/clients/<cid>")
