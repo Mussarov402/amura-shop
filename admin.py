@@ -952,7 +952,39 @@ def order_detail(number):
                    description=o.get("description") or "", lines=lines, loader=loader, fee=fee, total=o["sum"] / 100,
                    feeRate=oh.FEE_RATE, hasFee=any(p["assortment"].get("name") == oh.FEE_NAME for p in pos),
                    store=(o.get("store") or {}).get("meta", {}).get("href", "").rstrip("/").rsplit("/", 1)[-1],
-                   reserved=any((l["reserve"] or 0) > 0 for l in lines if l["type"] in RESERVABLE))
+                   reserved=any((l["reserve"] or 0) > 0 for l in lines if l["type"] in RESERVABLE),
+                   shipOps=shipments.enabled(), demands=len(o.get("demands") or []), shipOp=shipments.for_order(o["id"]))
+
+
+import shipments  # noqa: E402
+
+
+@bp.post("/admin/api/orders/<number>/ship")
+@need("orders")
+def order_ship_create(number):
+    """Отгрузка из заказа прямо в системе (флаг feat_ship_ops, по умолчанию выключен) — без дублей с отгрузкой сценария МойСклад."""
+    if not shipments.enabled():
+        return jsonify(ok=False, error="Отгрузка из системы выключена"), 403
+    oid = request.args.get("id", "")
+    if not oh.re.fullmatch(r"[0-9a-f-]{36}", oid):
+        return jsonify(ok=False, error="Нет id заказа"), 400
+    try:
+        op = shipments.create(oid, (who() or {}).get("name", ""))
+    except ValueError as e:
+        return jsonify(ok=False, error=str(e)), 400
+    except Exception as e:
+        return jsonify(ok=False, error="МойСклад не ответил: " + str(e)[:150]), 502
+    if op and op["status"] == "sent":
+        _olog(number, f"Отгружен из системы: отгрузка №{op['msNumber']}", (who() or {}).get("name"))
+    return jsonify(ok=True, op=op)
+
+
+@bp.route("/admin/api/ship/flag", methods=["GET", "POST"])
+@guard
+def ship_flag():
+    if request.method == "POST":
+        shipments.set_enabled(bool((request.get_json(silent=True) or {}).get("on")))
+    return jsonify(ok=True, enabled=shipments.enabled())
 
 
 @bp.post("/admin/api/orders/bulk")
