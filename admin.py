@@ -2641,6 +2641,33 @@ def warehouse_inventory_conduct(inv_id):
         return jsonify(ok=False, error=str(e)), 400
 
 
+@bp.get("/admin/api/returns/<demand_id>")
+@guard
+def return_lines(demand_id):
+    """Возврат покупателя: позиции отгрузки — сколько отгружено, возвращено и можно вернуть."""
+    if not whops.enabled():
+        return jsonify(ok=False, error="Складские операции из системы выключены"), 403
+    dm = whops.demand_lines(demand_id)
+    return jsonify(ok=True, demand=dm) if dm else (jsonify(ok=False, error="Отгрузка не найдена"), 404)
+
+
+@bp.post("/admin/api/returns")
+@guard
+def return_create():
+    """Возврат покупателя по отгрузке (salesreturn с привязкой к отгрузке) — только владелец: меняет и склад, и долг клиента."""
+    if not whops.enabled():
+        return jsonify(ok=False, error="Складские операции из системы выключены"), 403
+    b = request.get_json(silent=True) or {}
+    try:
+        op = whops.create_return(str(b.get("demand", "")), b.get("lines") or [], str(b.get("descr", "")), _fin_who())
+    except ValueError as e:
+        return jsonify(ok=False, error=str(e)), 400
+    if op and op["status"] == "sent":
+        import payments
+        payments._bg(payments.refresh, op["agent"])      # долг клиента сразу из МойСклад
+    return jsonify(ok=True, op=op)
+
+
 @bp.get("/admin/api/warehouse/agents")
 @need("warehouse")
 def warehouse_agents():
