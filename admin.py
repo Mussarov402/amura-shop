@@ -2451,7 +2451,8 @@ def money_ops():
         b = request.get_json(silent=True) or {}
         try:
             op = payments.create(str(b.get("dir", "")), str(b.get("agent", "")), b.get("sum"), str(b.get("account", "")),
-                                 str(b.get("expense", "")), str(b.get("day", "")), str(b.get("descr", "")), _fin_who())
+                                 str(b.get("expense", "")), str(b.get("day", "")), str(b.get("descr", "")), _fin_who(),
+                                 str(b.get("doc", "")))
         except ValueError as e:
             return jsonify(ok=False, error=str(e)), 400
         except Exception as e:

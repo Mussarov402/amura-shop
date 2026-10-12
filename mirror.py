@@ -846,16 +846,16 @@ UNPAID_DOCS = ("demand", "supply")   # отгрузки — не оплатил 
 def _unpaid(d, kind, top):
     """Неоплаченные проведённые документы в окне зеркала (DOC_DAYS). Оплачено — большее из payedSum МойСклад
     (обновляется полным проходом) и суммы связанных платежей из ms_payment_link (обновляется с каждым платежом)."""
-    rows = d.run("SELECT x.id, x.number, x.moment, x.sum, COALESCE(x.paid, 0), COALESCE(l.s, 0), a.name FROM ms_doc x"
+    rows = d.run("SELECT x.id, x.number, x.moment, x.sum, COALESCE(x.paid, 0), COALESCE(l.s, 0), a.name, x.agent_id, b.balance FROM ms_doc x"
                  " LEFT JOIN (SELECT doc_id, SUM(sum) AS s FROM ms_payment_link GROUP BY doc_id) l ON l.doc_id=x.id"
-                 " LEFT JOIN ms_agent a ON a.id=x.agent_id"
+                 " LEFT JOIN ms_agent a ON a.id=x.agent_id LEFT JOIN ms_agent_balance b ON b.agent_id=x.agent_id"
                  " WHERE x.type=%s AND x.deleted=0 AND x.applicable=1 ORDER BY x.moment DESC", (kind,), many=True) or []
     out = []
-    for i, num, moment, s, paid, linked, name in rows:
+    for i, num, moment, s, paid, linked, name, agent_id, bal in rows:
         due = round((s or 0) - max(paid, linked))
         if due >= 1:
             day = datetime.strptime(moment[:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=MS_TZ).astimezone(oh.ALMATY).date() if moment else None
             out.append({"id": i, "number": num, "day": str(day or ""), "agent": name or "", "sum": round(s or 0),
-                        "paid": round(max(paid, linked)), "due": due})
+                        "paid": round(max(paid, linked)), "due": due, "agentId": agent_id or "", "balance": round(bal or 0)})
     return {"total": sum(r["due"] for r in out), "count": len(out), "rows": out[:top]}
 
