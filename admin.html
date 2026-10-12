@@ -323,7 +323,8 @@ const whOpsCard=(ops,o_stores=2)=>{if(!ops)return "";const st=x=>x.status==="sen
  <div class="mut">${new Date(x.created*1000).toLocaleString("ru-RU",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})} · ${x.lines.length} поз.${x.who?" · "+esc(x.who):""}</div>${x.error?`<div class="mut" style="color:var(--bad)">${esc(x.error)}</div>`:""}<button class="btn ghost" style="margin-top:6px" data-inv="${x.id}">${x.status==="done"?"Открыть":"Продолжить"}</button></div>`).join(""):""}
  ${ops.ops.slice(0,10).map(x=>`<div class="row" style="display:block"><div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><b>${esc(x.title)} · ${esc(x.storeName||"склад")}${x.store2Name?" → "+esc(x.store2Name):""}${x.agentName?" · "+esc(x.agentName):""}</b>${st(x)}</div>
  <div class="mut">${new Date(x.created*1000).toLocaleString("ru-RU",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})} · ${x.lines.length} поз. · ${fmt(x.lines.reduce((a,l)=>a+l.qty,0))} шт.${x.kind==="supply"||x.kind==="enter"||x.kind==="purchaseorder"?" · "+fmt(x.sum)+" ₸":""}${x.who?" · "+esc(x.who):""}</div>
- ${x.status!=="sent"&&x.error?`<div class="mut" style="color:var(--bad)">${esc(x.error)}</div>`:""}${x.status!=="sent"&&ops.enabled?`<button class="btn ghost" style="margin-top:6px" data-whr="${x.id}">Повторить</button>`:""}</div>`).join("")}</div>`};
+ ${x.status!=="sent"&&x.error?`<div class="mut" style="color:var(--bad)">${esc(x.error)}</div>`:""}${x.status!=="sent"&&ops.enabled?`<button class="btn ghost" style="margin-top:6px" data-whr="${x.id}">Повторить</button>`:""}
+ ${x.kind==="purchaseorder"&&x.status==="sent"?(x.received?`<div class="mut">Принят${x.received.status==="sent"?": приёмка №"+esc(x.received.msNumber):" — приёмка ждёт МойСклад"}</div>`:ops.enabled?`<button class="btn" style="margin-top:6px" data-pof="${esc(JSON.stringify({store:x.store,order:x.msId,agent:{id:x.agent,name:x.agentName},lines:x.lines.map(l=>({id:l.id,name:l.name,qty:l.qty,price:l.price,have:0}))}))}">Принять по заказу</button>`:""):""}</div>`).join("")}</div>`};
 /* Сканер штрихкодов камерой. Android/Chrome — встроенный BarcodeDetector; iPhone — своя копия ZXing (/admin/vendor/zxing.min.js,
    грузится только при первом открытии). onCode(code) вызывается на каждый новый код; вернёт строку — она покажется под рамкой;
    once=true — закрыть после первого кода. */
@@ -559,6 +560,7 @@ const bindWhOps=(stores,store,re)=>{
  document.querySelectorAll("[data-whk]").forEach(b=>b.onclick=()=>whOp(b.dataset.whk,stores,store,re));
  document.querySelectorAll("[data-inv]").forEach(b=>b.onclick=()=>whInv(b.dataset.inv,stores,store,re));
  document.querySelectorAll("[data-reo]").forEach(b=>b.onclick=()=>reorderView(stores,store,re));
+ document.querySelectorAll("[data-pof]").forEach(b=>b.onclick=()=>{const x=JSON.parse(b.dataset.pof);whOp("supply",stores,x.store,re,x)});
  document.querySelectorAll("[data-whr]").forEach(b=>b.onclick=async()=>{b.disabled=true;try{const r=await api("warehouse/ops/"+b.dataset.whr+"/retry",{method:"POST"});toast(r.op.status==="sent"?"Проведено в МойСклад №"+r.op.msNumber+" ✓":"Пока не отправлено: "+r.op.error,5000);re()}catch(e){b.disabled=false;if(e.message!=="401")alert(e.message)}})};
 /* Инвентаризация: черновик пересчёта хранится у нас и сохраняется после каждого изменения; «Провести» — учёт из МойСклад в этот момент,
    излишки — оприходованием, недостача — списанием. Пересчитываются только добавленные товары. */
@@ -639,7 +641,7 @@ const whOp=(kind,stores,store0,done,pre)=>{const K=WHK[kind],pr=!!K.pr;const ov=
  const keep=()=>{S.descr=$("#wod").value;S.store=$("#wos").value;if($("#wos2"))S.store2=$("#wos2").value};
  const add=it=>{const ex=L.find(z=>z.id===it.id);if(ex){ex.qty+=1;return ex.qty}L.push({id:it.id,name:it.name,qty:1,price:it.buy||0,have:it.stock});return 1};
  const sel=(id,v)=>`<select id="${id}" style="width:100%;padding:10px 12px;border:1px solid #D9E0DB;border-radius:10px;font:inherit;margin-bottom:10px">${stores.map(s=>`<option value="${esc(s.id)}" ${s.id===v?"selected":""}>${esc(s.name)}</option>`).join("")}</select>`;
- const draw=()=>{const tot=L.reduce((a,x)=>a+x.qty*x.price,0);ov.querySelector(".eo").innerHTML=`<div style="font-weight:800;font-size:17px;margin-bottom:10px">${K.t}</div>
+ const draw=()=>{const tot=L.reduce((a,x)=>a+x.qty*x.price,0);ov.querySelector(".eo").innerHTML=`<div style="font-weight:800;font-size:17px;margin-bottom:10px">${K.t}${pre&&pre.order?" по заказу поставщику":""}</div>
   <label class="mut" style="display:block;margin-bottom:4px">${K.to?"Откуда":"Склад"}</label>${sel("wos",S.store)}${K.to?`<label class="mut" style="display:block;margin-bottom:4px">Куда</label>${sel("wos2",S.store2)}`:""}
   ${K.ag?`<label class="mut" style="display:block;margin-bottom:4px">Поставщик</label>${S.agent?`<div class="row" style="padding:6px 0"><div class="grow"><b>${esc(S.agent.name)}</b></div><button class="btn ghost" id="woa0">Изменить</button></div>`:`<div class="eos"><input id="woa" placeholder="Название или телефон поставщика" autocomplete="off"><div id="woar"></div></div>`}`:""}
   <div class="eol" style="margin-top:10px">${L.map((x,i)=>`<div class="eor"><div class="eon">${esc(x.name)}${K.chk?`<div class="mut">в наличии ${fmt(x.have)}</div>`:""}</div><input type="number" inputmode="decimal" min="0" step="any" value="${x.qty}" data-i="${i}" data-f="qty" aria-label="Количество" style="width:72px">${pr?`<span class="mut">×</span><input type="number" inputmode="numeric" min="0" value="${x.price}" data-i="${i}" data-f="price" aria-label="${K.pr}" style="width:90px">`:""}<button class="eox" data-x="${i}" aria-label="Убрать">✕</button></div>`).join("")}</div>
@@ -666,7 +668,7 @@ const whOp=(kind,stores,store0,done,pre)=>{const K=WHK[kind],pr=!!K.pr;const ov=
   $("#wog").onclick=async()=>{keep();if(K.ag&&!S.agent)return $("#eom").textContent="Выберите поставщика";if(K.to&&(!S.store2||S.store2===S.store))return $("#eom").textContent="Склады «Откуда» и «Куда» должны быть разными";if(!L.length)return $("#eom").textContent="Добавьте хотя бы один товар";
    if(K.chk&&L.some(x=>x.qty>x.have)&&!confirm((kind==="move"?"Перемещаете":"Списываете")+" больше, чем есть на складе. Продолжить?"))return;
    const b=$("#wog");b.disabled=true;b.textContent="Провожу…";
-   try{const r=await api("warehouse/ops",{method:"POST",body:JSON.stringify({kind,store:S.store,store2:K.to?S.store2:"",agent:K.ag?S.agent.id:"",descr:S.descr,lines:L.map(x=>({id:x.id,qty:x.qty,price:x.price}))})});close();
+   try{const r=await api("warehouse/ops",{method:"POST",body:JSON.stringify({kind,store:S.store,store2:K.to?S.store2:"",agent:K.ag?S.agent.id:"",descr:S.descr,order:pre&&pre.order||"",lines:L.map(x=>({id:x.id,qty:x.qty,price:x.price}))})});close();
     toast(r.op.status==="sent"?K.ok+" в МойСклад №"+r.op.msNumber+" ✓":r.op.status==="error"?"МойСклад не принял: "+r.op.error:"Сохранено. МойСклад не ответил — отправится автоматически",6000);done()}
    catch(e){b.disabled=false;b.textContent=K.b;if(e.message!=="401")$("#eom").textContent=e.message}}};
  draw()};

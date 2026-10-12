@@ -45,6 +45,18 @@ class ReorderTest(unittest.TestCase):
         self.assertTrue(doc["agent"]["meta"]["href"].endswith("/counterparty/k1"))
         self.assertEqual([(p["quantity"], p["price"]) for p in doc["positions"]], [(25, 115000)])
         self.assertEqual(self.post(kind="purchaseorder", store="sA", lines=[{"id": "p1", "qty": 1}]).status_code, 400)   # без поставщика
+        # приёмка по этому заказу: ссылка purchaseOrder, заказ отмечен принятым
+        po = r["msId"]
+        self.assertEqual(self.post(kind="supply", store="sA", agent="k1", order="nope", lines=[{"id": "p1", "qty": 1, "price": 1}]).status_code, 400)
+        with mirror.db() as d:
+            d.run("INSERT INTO ms_agent (id, name, archived, deleted) VALUES ('k2', 'Other', 0, 0)")
+        self.assertEqual(self.post(kind="supply", store="sA", agent="k2", order=po, lines=[{"id": "p1", "qty": 1, "price": 1}]).status_code, 400)
+        s = self.post(kind="supply", store="sA", agent="k1", order=po, lines=[{"id": "p1", "qty": 24, "price": 1150}]).get_json()["op"]
+        self.assertEqual(s["demand"], po)
+        self.assertTrue(self.ms.docs["supply"][0]["purchaseOrder"]["meta"]["href"].endswith("/entity/purchaseorder/" + po))
+        ops = {o["id"]: o for o in self.c.get("/admin/api/warehouse/ops", headers=self.h).get_json()["ops"]}
+        self.assertEqual(ops[r["id"]]["received"]["status"], "sent")
+        self.assertNotIn("purchaseOrder", self.post(kind="supply", store="sA", agent="k1", lines=[{"id": "p1", "qty": 1, "price": 1}]) and self.ms.docs["supply"][1])
 
 
 if __name__ == "__main__":
