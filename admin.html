@@ -689,6 +689,7 @@ const newOrder=async()=>{const ov=document.createElement("div");ov.className="ov
   <div class="nog" id="no_x"></div>
   <div class="mut" style="margin:12px 0 2px">Товары</div><div class="eos"><div class="srow"><input id="eoq" placeholder="＋ Добавить товар: название или код" autocomplete="off">${scanBtn("no")}</div><div id="eor"></div></div>
   <div id="nol" class="eol"></div><div class="eot" id="not"></div>
+  <textarea id="no_comment" rows="2" maxlength="1000" placeholder="Комментарий к заказу (необязательно)" style="min-height:0;height:56px;margin-top:8px"></textarea>
   <div class="mut" id="nom" style="white-space:pre-line"></div><div style="display:flex;gap:8px;margin-top:6px"><button class="btn" id="nos">Создать заказ</button><button class="btn ghost" id="noc">Отмена</button></div>`;
  const sel=ov.querySelector("#no_ship");sel.value="pickup";
  const extra=()=>{const k=sel.value,o=shipOpts.ship.find(x=>x.key===k)||{};const x=ov.querySelector("#no_x");
@@ -715,7 +716,7 @@ const newOrder=async()=>{const ov=document.createElement("div");ov.className="ov
  ov.querySelector("#nos").onclick=async e=>{const b=e.currentTarget,m=ov.querySelector("#nom");m.textContent="";
   if(!F("name")||!F("city")||F("phone").replace(/\D/g,"").length<10)return m.textContent="Укажите имя, телефон и город клиента";if(!L.length)return m.textContent="Добавьте хотя бы один товар";
   const over=L.filter(x=>x.qty>x.stock);if(over.length&&!confirm("На складе меньше, чем в заказе:\n"+over.map(x=>`${x.name} — ост. ${x.stock}`).join("\n")+"\nЗаказ создастся на остаток. Продолжить?"))return;
-  const body={orderKey:key,name:F("name"),phone:F("phone"),city:F("city"),shipping:sel.value,logistics:F("logistics"),address:F("address"),recipient:F("recipient"),zip:F("zip"),
+  const body={orderKey:key,name:F("name"),phone:F("phone"),city:F("city"),shipping:sel.value,logistics:F("logistics"),address:F("address"),recipient:F("recipient"),zip:F("zip"),comment:F("comment"),
    items:L.map(x=>({id:x.id,qty:x.qty,...(x.custom?{price:x.price}:{})}))};
   b.disabled=true;b.textContent="Создаю…";
   try{const r=await api("orders/new",{method:"POST",body:JSON.stringify(body)});ov.remove();toast("Заказ № "+r.number+" создан ✓");

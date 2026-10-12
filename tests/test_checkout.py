@@ -145,6 +145,18 @@ class Orders(unittest.TestCase):
         self.assertIn("Курьер по Алматы (Яндекс) — Абая 10, кв 5", body["description"])
         self.assertEqual(body["positions"][-1]["price"], 100000)
 
+    def test_comment_only_from_panel(self):
+        """Комментарий менеджера пишется только в заказ из системы; у сайта описание то же, что и без него."""
+        self.order(shipping="pickup")
+        plain = self.posted[-1]["description"]
+        self.order(shipping="pickup", comment="позвонить перед отправкой")
+        self.assertEqual(self.posted[-1]["description"], plain)                       # сайт: комментарий игнорируется
+        d = {"name": "Аружан", "phone": "+77012345678", "city": "Алматы", "shipping": "pickup", "items": [{"id": "p1", "qty": 1}]}
+        oh.order_core(d, "panel-1", "1.1.1.1", None, source="из панели", panel=True)
+        base = self.posted[-1]["description"]
+        oh.order_core({**d, "comment": "  позвонить перед отправкой  "}, "panel-2", "1.1.1.1", None, source="из панели", panel=True)
+        self.assertEqual(self.posted[-1]["description"], base + "\nКомментарий: позвонить перед отправкой")
+
     def test_bad_slot_and_no_address(self):
         self.assertEqual(self.order(address="Абая 10", slot={"date": "2000-01-01", "from": "08:00"})[1], 400)
         self.assertEqual(self.order()[1], 400)

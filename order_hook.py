@@ -798,6 +798,14 @@ def _create_order_impl(key):
     return jsonify(**payload) if status == 200 else (jsonify(**payload), status)
 
 
+def _panel_comment(d, panel):
+    """Комментарий менеджера к заказу — только для заказов из системы AMURA (panel=True); у сайта описание прежнее."""
+    if not panel:
+        return ""
+    c = str(d.get("comment") or "").strip()[:1000]
+    return f"\nКомментарий: {c}" if c else ""
+
+
 def order_core(d, key, ip, me, source="с сайта", panel=False):
     """Создание заказа в МойСклад (общее для сайта, ИИ-продажника и панели). Возвращает (словарь, http-статус).
     panel=True: заказ создаёт менеджер — без лимита частоты, оптовые цены, менеджер может задать свою цену."""
@@ -900,7 +908,7 @@ def order_core(d, key, ip, me, source="с сайта", panel=False):
             "store": meta("store", store_id()),          # склад сразу: отгрузка по сценарию проводится, а не остаётся черновиком
             "agent": meta("counterparty", agent),
             "shipmentAddress": city,
-            "description": f"Заказ {source}\n{name}, {contact}\nГород: {city}\nОтправка: {ship_name}",
+            "description": f"Заказ {source}\n{name}, {contact}\nГород: {city}\nОтправка: {ship_name}" + _panel_comment(d, panel),
             "positions": positions,
         })
     except Exception as e:
