@@ -1,5 +1,6 @@
 """Модуль «Источники»: откуда пришли покупатели (авторы UGC, блогеры, реклама) и сколько купили.
-Ссылка с меткой: https://amura.kz/?ref=CODE (сайт запоминает метку на 30 дней). Промокод источника — поле в корзине;
+Ссылка с меткой: https://amura.kz/?ref=CODE (сайт запоминает метку на 30 дней). Промокод источника — поле в корзине
+только на розничном сайте (на оптовом его нет — решение владельца 13.10);
 скидка по промокоду только если владелец задал % > 0, цену пересчитывает сервер. Без метки и промокода заказ идёт как раньше.
 Таблицы: src_source (источники), src_event (переходы и «в корзину» по дням), src_order (заказы с сайта и их источник)."""
 import json
@@ -122,7 +123,7 @@ def for_order(d):
     """Источник заказа с сайта: верный промокод важнее метки. Возвращает (src | None, скидка %)."""
     if not on():
         return None, 0
-    s = by_promo(d.get("promo"))
+    s = by_promo(d.get("promo")) if str(d.get("mode", "")) == "retail" else None   # промокод — только на розничном сайте
     if s:
         return s, (s["discount"] if s["discount"] > 0 else 0)
     return by_code(d.get("ref")), 0
@@ -176,7 +177,7 @@ def visit():
 def promo_check():
     if request.method == "OPTIONS":
         return "", 204
-    if not on() or oh.too_many("promo:" + _ip(), limit=30, window=600):
+    if not on() or request.args.get("retail") != "1" or oh.too_many("promo:" + _ip(), limit=30, window=600):   # только розница
         return jsonify(ok=False, error="Промокод не найден"), 404
     s = by_promo(request.args.get("code"))
     if not s:

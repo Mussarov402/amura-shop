@@ -497,7 +497,7 @@ const REF = (() => {
   let carted = false;
   return { code: cur, cart(){ const c = cur(); if(c && !carted){ carted = true; ping(c, "cart"); } } };
 })();
-let PROMO = load("amura-promo", null), PROMO_ON = false;   // промокод источника: скидку задаёт владелец, цену считает сервер
+let PROMO = RETAIL ? load("amura-promo", null) : null, PROMO_ON = false;   // промокод — только на розничном сайте   // промокод источника: скидку задаёт владелец, цену считает сервер
 const promoPrice = p => PROMO && PROMO.discount > 0 ? Math.max(1, Math.round(p * (100 - PROMO.discount) / 100)) : p;
 let tt; function toast(m){ const t = $("#toast"); t.textContent = m; t.style.display = "block"; clearTimeout(tt); tt = setTimeout(() => t.style.display = "none", 2600); }
 
@@ -593,7 +593,7 @@ async function boot(){
   const live = refreshLive();
   const [okStatic, okLive] = await Promise.all([stat, live]);
   refProduct();
-  if(PROMO) fetch(CONFIG.apiUrl + "/ref/promo?code=" + encodeURIComponent(PROMO.code)).then(r => r.json()).then(j => {   // промокод могли убрать или сменить скидку
+  if(PROMO) fetch(CONFIG.apiUrl + "/ref/promo?retail=1&code=" + encodeURIComponent(PROMO.code)).then(r => r.json()).then(j => {   // промокод могли убрать или сменить скидку
     PROMO = j.ok ? { code: j.code, discount: j.discount || 0 } : null; save("amura-promo", PROMO); if(VIEW === "cart") renderCart();
   }).catch(() => {});
   if(!okStatic && !okLive && !shown){ ALL = DEMO_ITEMS; DEMO = true; $("#demoBar").hidden = false; applyData({ items: DEMO_ITEMS }); render(); if(VIEW !== "home") go(VIEW, true); return; }
@@ -953,7 +953,7 @@ function renderCart(){
       <div class="field"><label>${RETAIL ? "Способ получения" : "Способ отправки"}</label>
         <div class="ship${RETAIL ? " dlvs" : ""}">${CONFIG.shipping.map(s => `<label class="${f.ship===s.id?"on":""}" data-m="${s.id}"><input type="radio" name="ship" value="${s.id}" ${f.ship===s.id?"checked":""}><span>${esc(RETAIL && s.id === "cdek" ? "Пункт выдачи СДЭК" : RETAIL && s.id === "courier" ? "Курьер" : s.name)}${RETAIL ? `<small class="dlvn"></small>` : ""}</span>${RETAIL ? `<em class="dlvp"></em>` : ""}</label>`).join("")}</div></div>
       <div id="shipExtra">${shipExtraHTML(f)}</div>
-      ${PROMO_ON || PROMO ? `<div class="field"><label for="fPromo">Промокод</label><div style="display:flex;gap:8px"><input id="fPromo" autocapitalize="characters" autocomplete="off" placeholder="Если есть" value="${esc(PROMO ? PROMO.code : "")}" style="flex:1;min-width:0"><button class="btn ghost" id="promoBtn" type="button" style="width:auto;flex:none;padding:0 16px">${PROMO ? "Убрать" : "Применить"}</button></div><div class="kv" id="promoMsg" style="margin-top:4px">${PROMO ? (PROMO.discount > 0 ? `Промокод применён: скидка ${PROMO.discount}%` : "Промокод применён") : ""}</div></div>` : ""}
+      ${RETAIL && (PROMO_ON || PROMO) ? `<div class="field"><label for="fPromo">Промокод</label><div style="display:flex;gap:8px"><input id="fPromo" autocapitalize="characters" autocomplete="off" placeholder="Если есть" value="${esc(PROMO ? PROMO.code : "")}" style="flex:1;min-width:0"><button class="btn ghost" id="promoBtn" type="button" style="width:auto;flex:none;padding:0 16px">${PROMO ? "Убрать" : "Применить"}</button></div><div class="kv" id="promoMsg" style="margin-top:4px">${PROMO ? (PROMO.discount > 0 ? `Промокод применён: скидка ${PROMO.discount}%` : "Промокод применён") : ""}</div></div>` : ""}
       <div class="err" id="err"></div>
       <button class="btn" id="send" type="submit">Отправить заказ</button>
       <button class="btn ghost" id="clear" type="button">Очистить корзину</button>
@@ -1125,7 +1125,7 @@ async function promoApply(){
   if(!code){ msg.textContent = "Введите промокод"; return; }
   msg.textContent = "Проверяем…";
   try{
-    const r = await fetch(CONFIG.apiUrl + "/ref/promo?code=" + encodeURIComponent(code)), j = await r.json();
+    const r = await fetch(CONFIG.apiUrl + "/ref/promo?retail=1&code=" + encodeURIComponent(code)), j = await r.json();
     if(!j.ok){ msg.textContent = j.error || "Промокод не найден"; return; }
     PROMO = { code: j.code, discount: j.discount || 0 }; save("amura-promo", PROMO); readFormSafe(); renderCart(); render();
   }catch{ msg.textContent = "Нет связи с сервером, попробуйте ещё раз"; }
@@ -1169,7 +1169,7 @@ $("#drawerBody").addEventListener("submit", async e => {
     pvz: RETAIL && f.ship === "cdek" ? f.pvz : undefined,
     slot: RETAIL && f.ship === "courier" ? f.slot : undefined,
     ref: REF.code() || undefined,
-    promo: PROMO ? PROMO.code : undefined
+    promo: RETAIL && PROMO ? PROMO.code : undefined
   };
   const btn = $("#send"); btn.disabled = true; btn.textContent = "Отправляем…";
   try{
