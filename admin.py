@@ -2596,6 +2596,20 @@ def report_shift(shift_id):
     return jsonify(ok=True, shift=s)
 
 
+import audit  # noqa: E402
+
+
+@bp.get("/admin/api/audit")
+@guard
+def audit_view():
+    """Контроль учёта: замечания по приёмкам, минусам, поставщикам и продажам без себестоимости — только чтение."""
+    try:
+        res = audit.check()
+    except Exception as e:
+        return jsonify(ok=False, error=str(e)[:200]), 500
+    return jsonify(ok=True, **res)
+
+
 _report_files = {}      # короткая ссылка на Excel отчёта: токен → (время, параметры); живёт час
 
 
