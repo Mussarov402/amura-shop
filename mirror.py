@@ -37,6 +37,7 @@ ENTITIES = ("product", "variant", "counterparty") + DOC_TYPES + (SHIFTS,)
 MS_TZ = timezone(timedelta(hours=3))   # время в МойСклад — Москва
 RECON_EVERY = 86400        # автосверка раз в сутки, когда загрузка догнала МойСклад
 REPORT_PAGE = 100          # строк на страницу отчёта взаиморасчётов (тяжёлый отчёт)
+COST_EVERY = 3600         # себестоимость остатков (отчёт «Остатки» МойСклад) — раз в час
 BACKOFF_MAX = 3600         # МойСклад не отвечает: пауза между проходами растёт 10 → 20 → 40 → 60 мин, чтобы не отнимать канал у сайта
 _net = {"fail": False, "streak": 0}
 
@@ -80,6 +81,8 @@ def _schema(d):
         "CREATE TABLE IF NOT EXISTS ms_shift (id TEXT PRIMARY KEY, number TEXT, moment TEXT, close_at TEXT, store_id TEXT, point TEXT,"
         " cash DOUBLE PRECISION, nocash DOUBLE PRECISION, got_cash DOUBLE PRECISION, got_nocash DOUBLE PRECISION, commission DOUBLE PRECISION,"
         " updated TEXT, deleted INTEGER DEFAULT 0, seen DOUBLE PRECISION)",
+        # себестоимость единицы товара по МойСклад (отчёт «Остатки», поле price; снимок заменяется целиком раз в COST_EVERY), ₸
+        "CREATE TABLE IF NOT EXISTS ms_cost (product_id TEXT PRIMARY KEY, cost DOUBLE PRECISION, synced DOUBLE PRECISION)",
         f"CREATE TABLE IF NOT EXISTS ms_recon (id {pk}, at DOUBLE PRECISION, ok INTEGER, body TEXT)",
     ):
         d.run(s)
@@ -421,6 +424,33 @@ def sync_stock():
     return len(stock)
 
 
+def _stock_all():
+    """Отчёт МойСклад «Остатки» по всем складам: [(товар/модификация, остаток, себестоимость единицы ₸)]."""
+    return [(_href_id(r), r.get("stock", 0) or 0, (r.get("price") or 0) / 100) for r in _report_rows("/report/stock/all")]
+
+
+def _save_cost(rows):
+    t = time.time()
+    with db() as d:
+        d.run("DELETE FROM ms_cost")
+        for pid, _, cost in rows:
+            if pid:
+                d.run("INSERT INTO ms_cost (product_id, cost, synced) VALUES (%s, %s, %s) ON CONFLICT (product_id) DO NOTHING", (pid, cost, t))
+        st = _state(d, "cost")
+        _save_state(d, "cost", st, last_run=t, last_ok=t, rows=len(rows), error="")
+
+
+def sync_cost(force=False):
+    """Себестоимость остатков из отчёта «Остатки» МойСклад (только GET) — не чаще раза в COST_EVERY."""
+    with db() as d:
+        r = d.run("SELECT last_ok FROM ms_sync WHERE entity='cost'", one=True)
+    if not force and r and r[0] and time.time() - r[0] < COST_EVERY:
+        return "свежая"
+    rows = _stock_all()
+    _save_cost(rows)
+    return len(rows)
+
+
 def _report_rows(path, params=None, page=1000):
     """Отчёт МойСклад целиком, страницами. Тяжёлые отчёты (взаиморасчёты) — мелкими страницами: на медленном канале
     (с 10.10) ответ на 1000 строк не успевал за 60 с, а по 100 строк проходит."""
@@ -480,7 +510,7 @@ def tick():
         _shift_reload()
         caught_all, parts, t0 = True, [], time.time()
         _net["fail"] = False
-        for name, fn in (("store", sync_stores), *((e, (lambda e=e: sync_entity(e))) for e in ENTITIES), ("stock", sync_stock), ("money", sync_money)):
+        for name, fn in (("store", sync_stores), *((e, (lambda e=e: sync_entity(e))) for e in ENTITIES), ("stock", sync_stock), ("cost", sync_cost), ("money", sync_money)):
             if _net["fail"]:                  # МойСклад уже не ответил в этом проходе — остальное не запрашиваем, бережём канал сайта
                 parts.append(f"{name} пропущено")
                 continue
@@ -707,6 +737,13 @@ def reconcile():
     checks.append(_check("Остаток, всего единиц", round(sum(ours_stock.values())), round(sum(theirs_stock.values())), "шт",
                          [f"{names.get(p, p)}: у нас {ours_stock.get(p, 0):g}, в МойСклад {theirs_stock.get(p, 0):g}" for p in bad[:10]]))
     checks.append(_check("Товары с другим остатком", len(bad), 0, count=True))
+    rows = _stock_all()                                               # себестоимость: заодно обновляем нашу копию
+    _save_cost(rows)
+    theirs_value = sum(q * c for _, q, c in rows)
+    with db() as d:
+        ours_value = (d.run("SELECT COALESCE(SUM(k.stock * COALESCE(c.cost, p.buy_price, 0)), 0) FROM ms_stock k"
+                            " LEFT JOIN ms_cost c ON c.product_id=k.product_id LEFT JOIN ms_product p ON p.id=k.product_id", one=True) or [0])[0]
+    checks.append(_check("Себестоимость остатков, всего", round(ours_value or 0), round(theirs_value), "₸"))
     v = oh._cache.get("live")                                         # цены, которые сейчас видит сайт
     if v:
         diff = []
@@ -787,13 +824,17 @@ def stock_of(q, limit=30):
 
 def warehouse_view(q="", store="", mode="all", limit=50, offset=0):
     """Модуль «Склад» (только просмотр, из зеркала): итоги по складам и товары с остатками по складам.
-    mode: all — все неархивные товары, in — есть на складе, out — нет (остаток ≤ 0); store — только этот склад."""
+    mode: all — все неархивные товары, in — есть на складе, out — нет (остаток ≤ 0), neg — в минусе; store — только этот склад."""
     q = (q or "").strip()
     with db() as d:
-        stores = d.run("SELECT s.id, s.name, COALESCE(SUM(CASE WHEN k.stock>0 THEN k.stock ELSE 0 END), 0),"
-                       " COUNT(CASE WHEN k.stock>0 THEN 1 END), COALESCE(SUM(CASE WHEN k.stock>0 THEN k.stock * COALESCE(p.buy_price, 0) ELSE 0 END), 0),"
-                       " COALESCE(SUM(k.reserve), 0)"
-                       " FROM ms_store s LEFT JOIN ms_stock k ON k.store_id=s.id LEFT JOIN ms_product p ON p.id=k.product_id AND p.deleted=0"
+        # как в МойСклад: все остатки, включая минусовые; позиции — с ненулевым остатком или резервом;
+        # сумма — по себестоимости из отчёта «Остатки» (ms_cost), если товара там нет — по закупочной цене карточки
+        stores = d.run("SELECT s.id, s.name, COALESCE(SUM(k.stock), 0),"
+                       " COUNT(CASE WHEN k.stock<>0 OR k.reserve<>0 THEN 1 END),"
+                       " COALESCE(SUM(k.stock * COALESCE(c.cost, p.buy_price, 0)), 0), COALESCE(SUM(k.reserve), 0),"
+                       " COUNT(CASE WHEN k.stock<0 THEN 1 END), COALESCE(SUM(CASE WHEN k.stock<0 THEN k.stock ELSE 0 END), 0)"
+                       " FROM ms_store s LEFT JOIN ms_stock k ON k.store_id=s.id LEFT JOIN ms_product p ON p.id=k.product_id"
+                       " LEFT JOIN ms_cost c ON c.product_id=k.product_id"
                        " WHERE s.archived=0 GROUP BY s.id, s.name ORDER BY s.name", many=True) or []
         names = dict(d.run("SELECT id, name FROM ms_store", many=True) or [])
         synced = (d.run("SELECT MAX(synced) FROM ms_stock", one=True) or [0])[0] or 0
@@ -803,9 +844,11 @@ def warehouse_view(q="", store="", mode="all", limit=50, offset=0):
             args += [f"%{q.lower()}%", f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%"]
         join = "LEFT JOIN ms_stock k ON k.product_id=p.id" + (" AND k.store_id=%s" if store else "")
         jargs = [store] if store else []
-        having = {"in": " HAVING COALESCE(SUM(k.stock), 0)>0", "out": " HAVING COALESCE(SUM(k.stock), 0)<=0"}.get(mode, "")
-        base = (f"SELECT p.id, p.code, p.name, p.buy_price, COALESCE(SUM(k.stock), 0), COALESCE(SUM(k.reserve), 0) FROM ms_product p {join}"
-                f" WHERE {' AND '.join(cond)} GROUP BY p.id, p.code, p.name, p.buy_price{having}")
+        having = {"in": " HAVING COALESCE(SUM(k.stock), 0)>0", "out": " HAVING COALESCE(SUM(k.stock), 0)<=0",
+                  "neg": " HAVING COALESCE(SUM(k.stock), 0)<0"}.get(mode, "")
+        base = (f"SELECT p.id, p.code, p.name, p.buy_price, COALESCE(SUM(k.stock), 0), COALESCE(SUM(k.reserve), 0), c.cost FROM ms_product p {join}"
+                f" LEFT JOIN ms_cost c ON c.product_id=p.id"
+                f" WHERE {' AND '.join(cond)} GROUP BY p.id, p.code, p.name, p.buy_price, c.cost{having}")
         total = (d.run(f"SELECT COUNT(*) FROM ({base}) t", (*jargs, *args), one=True) or [0])[0]
         rows = d.run(base + " ORDER BY p.name LIMIT %s OFFSET %s", (*jargs, *args, limit, offset), many=True) or []
         by = {}
@@ -816,10 +859,11 @@ def warehouse_view(q="", store="", mode="all", limit=50, offset=0):
                 if a or b:
                     by.setdefault(pid, []).append({"store": names.get(sid, sid), "id": sid, "stock": a or 0, "reserve": b or 0})
     return {"synced": synced, "total": total,
-            "stores": [{"id": i, "name": n or i, "units": round(u), "skus": c, "value": round(v), "reserve": round(r)}
-                       for i, n, u, c, v, r in stores],
-            "items": [{"id": pid, "code": code, "name": name, "buy": round(bp or 0), "stock": a, "reserve": b,
-                       "stores": sorted(by.get(pid, []), key=lambda x: x["store"])} for pid, code, name, bp, a, b in rows]}
+            "stores": [{"id": i, "name": n or i, "units": round(u), "skus": c, "value": round(v), "reserve": round(r),
+                        "negSkus": nc, "negUnits": round(nu)} for i, n, u, c, v, r, nc, nu in stores],
+            "items": [{"id": pid, "code": code, "name": name, "buy": round(bp or 0), "cost": round(cost if cost is not None else bp or 0),
+                       "stock": a, "reserve": b, "stores": sorted(by.get(pid, []), key=lambda x: x["store"])}
+                      for pid, code, name, bp, a, b, cost in rows]}
 
 
 def _alm(moment):

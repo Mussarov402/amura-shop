@@ -85,8 +85,9 @@ class ModulesTest(unittest.TestCase):
         self.c.put("/admin/api/modules", headers=self.h, json={"id": "warehouse", "on": True})
         self.assertTrue(self.c.get("/admin/api/modules/on", headers=self.h).get_json()["on"]["warehouse"])
         with mirror.db() as d:
-            for t in ("ms_store", "ms_stock", "ms_product"):
+            for t in ("ms_store", "ms_stock", "ms_product", "ms_cost"):
                 d.run(f"DELETE FROM {t}")
+            d.run("INSERT INTO ms_cost (product_id, cost, synced) VALUES ('p1', 1200, 1)")    # себестоимость МойСклад важнее закупки из карточки
             for sid, name, arch in (("sA", "Основной", 0), ("sB", "Магазин", 0), ("sZ", "Старый", 1)):
                 d.run("INSERT INTO ms_store (id, name, archived) VALUES (%s, %s, %s)", (sid, name, arch))
             for pid, name, code, bp, arch in (("p1", "Крем дневной", "101", 1000, 0), ("p2", "Крем ночной", "102", 2000, 0),
@@ -97,8 +98,12 @@ class ModulesTest(unittest.TestCase):
                 d.run("INSERT INTO ms_stock (product_id, store_id, stock, reserve, synced) VALUES (%s, %s, %s, %s, 1)", (pid, sid, st, rs))
         g = lambda qs="": self.c.get("/admin/api/warehouse" + qs, headers=self.h).get_json()
         j = g()
-        self.assertEqual([(s["name"], s["units"], s["skus"], s["value"], s["reserve"]) for s in j["stores"]],
-                         [("Магазин", 2, 1, 2000, 0), ("Основной", 8, 2, 11000, 1)])          # архивный склад скрыт
+        # как в МойСклад: минусовые остатки входят в итог; сумма — по себестоимости (p1 — 1200 из отчёта, p2 — закупка 2000)
+        self.assertEqual([(s["name"], s["units"], s["skus"], s["value"], s["reserve"], s["negSkus"], s["negUnits"]) for s in j["stores"]],
+                         [("Магазин", 1, 2, 2400, 0, 1, -1), ("Основной", 8, 2, 12000, 1, 0, 0)])   # архивный склад скрыт
+        self.assertEqual({x["name"]: x["cost"] for x in j["items"]}, {"Крем дневной": 1200, "Крем ночной": 2000, "Сыворотка": 0})
+        self.assertEqual([x["name"] for x in g("?mode=neg")["items"]], ["Сыворотка"])
+        self.assertEqual(g("?mode=neg&store=sA")["items"], [])
         self.assertEqual([(x["name"], x["stock"]) for x in j["items"]], [("Крем дневной", 7), ("Крем ночной", 3), ("Сыворотка", -1)])
         self.assertEqual([(s["store"], s["stock"], s["reserve"]) for s in j["items"][0]["stores"]], [("Магазин", 2, 0), ("Основной", 5, 1)])
         self.assertEqual([x["name"] for x in g("?q=Крем")["items"]], ["Крем дневной", "Крем ночной"])   # архивный товар не виден
