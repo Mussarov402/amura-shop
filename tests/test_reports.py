@@ -62,6 +62,22 @@ class ReportsTest(unittest.TestCase):
         self.assertEqual((rows["p2"]["in"], rows["p2"]["out"]), (0, 3))                            # отгрузка 1 + списание 2
         self.assertEqual([x["id"] for x in self.get("turnover?days=30&q=Sham")["rows"]], ["p2"])
 
+    def test_excel_export(self):
+        import io
+        from openpyxl import load_workbook
+        for kind, first in (("product", "Krem"), ("agent", "Ertos"), ("turn", "Shampoo")):
+            r = self.c.post("/admin/api/reports/export", headers=self.h, json={"kind": kind, "days": 30}).get_json()
+            f = self.c.get(r["url"])
+            self.assertEqual(f.status_code, 200)
+            ws = load_workbook(io.BytesIO(f.data)).active
+            names = [c.value for c in ws["A"]][2:-1]
+            self.assertIn(first, names)
+            self.assertEqual(ws.cell(ws.max_row, 1).value, "Итого")
+        ws = load_workbook(io.BytesIO(self.c.get(self.c.post("/admin/api/reports/export", headers=self.h, json={"kind": "product"}).get_json()["url"]).data)).active
+        self.assertEqual([c.value for c in ws[ws.max_row]][3:6], [3600, 1800, 1800])           # итог: выручка, себестоимость, прибыль
+        self.assertEqual(self.c.get(r["url"].split("?")[0] + "?t=bad").status_code, 404)
+        self.assertEqual(self.c.post("/admin/api/reports/export", json={"kind": "turn"}).status_code, 401)
+
     def test_owner_and_module(self):
         self.assertEqual(self.c.get("/admin/api/reports/profit").status_code, 401)
         self.c.put("/admin/api/modules", headers=self.h, json={"id": "finance", "on": False})

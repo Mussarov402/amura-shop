@@ -87,3 +87,44 @@ def turnover(days=30, q="", limit=50):
     out.sort(key=lambda r: -(r["out"] + r["in"]))
     return {"days": days, "count": len(out), "totalIn": round(sum(r["in"] for r in out), 3), "totalOut": round(sum(r["out"] for r in out), 3),
             "rows": out[:limit]}
+
+
+def xlsx(kind="product", days=30, q=""):
+    """Отчёт целиком (без ограничения строк) в Excel: прибыль по товарам / клиентам или обороты."""
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+    wb = Workbook()
+    ws = wb.active
+    if kind == "turn":
+        r = turnover(days, q, limit=100000)
+        ws.title = "Обороты"
+        head = ["Товар", "Код", "Приход, шт.", "Расход, шт.", "Остаток, шт."]
+        rows = [[x["name"], x["code"], x["in"], x["out"], x["stock"]] for x in r["rows"]]
+        total = ["Итого", "", r["totalIn"], r["totalOut"], ""]
+    else:
+        by = "agent" if kind == "agent" else "product"
+        r = profit(days, by, limit=100000)
+        ws.title = "Прибыль по клиентам" if by == "agent" else "Прибыль по товарам"
+        head = (["Клиент"] if by == "agent" else ["Товар", "Код", "Кол-во, шт."]) + ["Выручка, ₸", "Себестоимость, ₸", "Прибыль, ₸", "Маржа, %"]
+        rows = [([x["name"]] if by == "agent" else [x["name"], x["code"], x["qty"]]) + [x["revenue"], x["cost"], x["profit"], x["margin"]]
+                for x in r["rows"]]
+        t = r["total"]
+        total = (["Итого"] if by == "agent" else ["Итого", "", ""]) + [t["revenue"], t["cost"], t["profit"], t["margin"]]
+    ws.append([f"AMURA — {ws.title} за {r['days']} дн. (по данным МойСклад в системе AMURA)"])
+    ws["A1"].font = Font(bold=True)
+    ws.append(head)
+    for c in ws[2]:
+        c.font = Font(bold=True)
+    for row in rows:
+        ws.append(row)
+    ws.append(total)
+    for c in ws[ws.max_row]:
+        c.font = Font(bold=True)
+    ws.column_dimensions["A"].width = 48
+    for col in "BCDEFG":
+        ws.column_dimensions[col].width = 16
+    ws.freeze_panes = "A3"
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
