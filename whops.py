@@ -25,6 +25,7 @@ KINDS = {"supply": "Приёмка", "loss": "Списание", "enter": "Оп�
 RETURNS = {"salesreturn": "demand", "purchasereturn": "supply"}   # возврат → документ, по которому он оформляется (колонка demand_id)
 AGENT_KINDS = ("supply", "salesreturn", "purchasereturn", "purchaseorder")
 BASED = {**RETURNS, "supply": "purchaseorder"}   # документ-основание в колонке demand_id: у приёмки — заказ поставщику (необязательно)
+CUR_KINDS = ("supply", "purchaseorder", "purchasereturn", "salesreturn")   # документы, которые бывают в валюте (доллар и т.п.)
 PRICED = ("supply", "enter", "purchaseorder")   # цену вводит человек (закупка / себестоимость); у списания и перемещения — закупочная из карточки
 RETRY_EVERY = 60          # с, фоновый повтор очереди
 MAX_AUTO = 30             # после стольких неудачных попыток — только вручную
@@ -39,9 +40,10 @@ def _schema(d):
           " lines TEXT, status TEXT, ms_id TEXT, ms_number TEXT, attempts INTEGER DEFAULT 0, error TEXT, who TEXT,"
           " created DOUBLE PRECISION, sent DOUBLE PRECISION, next_try DOUBLE PRECISION DEFAULT 0)")
     d.c.commit()
-    for col in ("store2_id", "demand_id"):   # добавочные колонки: склад-получатель у перемещения, отгрузка у возврата
+    # добавочные колонки: склад-получатель у перемещения, отгрузка у возврата; валюта документа (пусто — тенге) и курс
+    for col, typ in (("store2_id", "TEXT"), ("demand_id", "TEXT"), ("cur", "TEXT"), ("rate", "DOUBLE PRECISION")):
         try:
-            d.run(f"ALTER TABLE wh_op ADD COLUMN {col} TEXT")
+            d.run(f"ALTER TABLE wh_op ADD COLUMN {col} {typ}")
             d.c.commit()
         except Exception:
             d.c.rollback()
@@ -67,13 +69,14 @@ def set_enabled(on):
 
 
 def _row(r):
-    i, kind, store, agent, descr, lines, status, ms_id, ms_num, att, err, who, created, sent, store2, demand = r[:16]
+    i, kind, store, agent, descr, lines, status, ms_id, ms_num, att, err, who, created, sent, store2, demand, cur, rate = r[:18]
     return {"id": i, "kind": kind, "title": KINDS.get(kind, kind), "store": store, "store2": store2 or "", "agent": agent, "descr": descr or "",
             "lines": json.loads(lines or "[]"), "status": status, "msId": ms_id or "", "msNumber": ms_num or "",
-            "attempts": att or 0, "error": err or "", "who": who or "", "created": created or 0, "sent": sent or 0, "demand": demand or ""}
+            "attempts": att or 0, "error": err or "", "who": who or "", "created": created or 0, "sent": sent or 0, "demand": demand or "",
+            "cur": cur or "", "rate": rate or 1}
 
 
-_OCOLS = "id, kind, store_id, agent_id, descr, lines, status, ms_id, ms_number, attempts, error, who, created, sent, store2_id, demand_id"
+_OCOLS = "id, kind, store_id, agent_id, descr, lines, status, ms_id, ms_number, attempts, error, who, created, sent, store2_id, demand_id, cur, rate"
 
 
 def get(op_id):
@@ -94,7 +97,9 @@ def recent(limit=30):
     for r in rows:
         o = _row(r)
         o["storeName"], o["agentName"], o["store2Name"] = names.get(o["store"], ""), agents.get(o["agent"], ""), names.get(o["store2"], "")
-        o["sum"] = round(sum(x["qty"] * x["price"] for x in o["lines"]))
+        sc = sum(x["qty"] * x["price"] for x in o["lines"])          # в валюте документа
+        o["sum"] = round(sc * (o["rate"] if o["cur"] else 1))         # в тенге
+        o["orig"] = mirror.money_label(o["cur"], sc, o["rate"])
         out.append(o)
     po = [o["msId"] for o in out if o["kind"] == "purchaseorder" and o["msId"]]
     if po:                                     # заказ поставщику: уже принят по нему товар?
@@ -112,7 +117,8 @@ def demand_lines(demand_id, kind="salesreturn"):
     было в документе, уже возвращено (из системы и прямо в МойСклад), можно вернуть; цена со скидкой."""
     base = RETURNS[kind]
     with mirror.db() as d:
-        x = d.run("SELECT id, number, agent_id, store_id, applicable FROM ms_doc WHERE id=%s AND type=%s AND deleted=0", (demand_id, base), one=True)
+        x = d.run("SELECT id, number, agent_id, store_id, applicable, cur, rate FROM ms_doc WHERE id=%s AND type=%s AND deleted=0",
+                  (demand_id, base), one=True)
         if not x:
             return None
         rows = d.run("SELECT l.product_id, p.name, p.code, p.kind, SUM(l.qty), SUM(l.sum) FROM ms_doc_line l LEFT JOIN ms_product p ON p.id=l.product_id"
@@ -128,9 +134,13 @@ def demand_lines(demand_id, kind="salesreturn"):
                                     " WHERE x.type=%s AND x.base_id=%s AND x.deleted=0 AND x.applicable=1", (kind, demand_id), many=True) or []:
             if doc_id not in mine:
                 back[pid] = back.get(pid, 0) + (q or 0)
+    cur, rate = x[5] or "", x[6] or 1
+    # цена — в валюте документа (позиции в зеркале — в тенге по курсу документа): возврат по долларовой приёмке — тоже в долларах
+    price = (lambda sm, q: round(sm / q / rate, 2)) if cur else (lambda sm, q: round(sm / q))
     out = [{"id": pid, "name": n or "(товар удалён)", "code": c or "", "kind": k or "product", "qty": q or 0, "returned": back.get(pid, 0),
-            "left": round((q or 0) - back.get(pid, 0), 3), "price": round((sm or 0) / q) if q else 0} for pid, n, c, k, q, sm in rows]
-    return {"id": x[0], "number": x[1] or "", "agent": x[2] or "", "store": x[3] or "", "applicable": bool(x[4]), "lines": out}
+            "left": round((q or 0) - back.get(pid, 0), 3), "price": price(sm or 0, q) if q else 0} for pid, n, c, k, q, sm in rows]
+    return {"id": x[0], "number": x[1] or "", "agent": x[2] or "", "store": x[3] or "", "applicable": bool(x[4]), "lines": out,
+            "cur": cur, "rate": rate}
 
 
 def create_return(demand_id, lines, descr="", who="", kind="salesreturn"):
@@ -161,25 +171,37 @@ def create_return(demand_id, lines, descr="", who="", kind="salesreturn"):
         clean.append({"id": pid, "qty": q, "price": have[pid]["price"]})
     if not clean:
         raise ValueError("Укажите, сколько возвращают")
-    return create(kind, dm["store"], clean, dm["agent"], descr, who, demand_id=demand_id)
+    return create(kind, dm["store"], clean, dm["agent"], descr, who, demand_id=demand_id, cur=dm["cur"], rate=dm["rate"])
 
 
-def create(kind, store_id, lines, agent_id="", descr="", who="", store2_id="", op_id="", demand_id=""):
+def create(kind, store_id, lines, agent_id="", descr="", who="", store2_id="", op_id="", demand_id="", cur="", rate=None):
     """Проверяет и сохраняет операцию, затем сразу пробует отправить в МойСклад. Ошибка проверки — ValueError.
-    op_id — свой id операции (инвентаризация): если такая операция уже есть, вторая не создаётся."""
+    op_id — свой id операции (инвентаризация): если такая операция уже есть, вторая не создаётся.
+    cur — валюта документа (USD; пусто или KZT — тенге): цены в этой валюте, в МойСклад документ уходит с rate (курс — текущий
+    курс валюты МойСклад, у возврата — курс документа-основания)."""
     if op_id and get(op_id):
         return send(op_id)
     if kind not in KINDS:
         raise ValueError("Неизвестная операция")
     if kind in RETURNS and not demand_id:
         raise ValueError("Возврат оформляется из документа (отгрузки или приёмки)")
+    cur = "" if (cur or "").upper() in ("", "KZT") else cur.upper()
     if kind == "supply" and demand_id:              # приёмка по заказу поставщику, созданному в системе
         with db() as d:
-            po = d.run("SELECT agent_id FROM wh_op WHERE kind='purchaseorder' AND status='sent' AND ms_id=%s", (demand_id,), one=True)
+            po = d.run("SELECT agent_id, cur FROM wh_op WHERE kind='purchaseorder' AND status='sent' AND ms_id=%s", (demand_id,), one=True)
         if not po:
             raise ValueError("Заказ поставщику не найден")
         if po[0] != agent_id:
             raise ValueError("Поставщик приёмки не совпадает с заказом")
+        if (po[1] or "") != cur:
+            raise ValueError("Валюта приёмки не совпадает с заказом")
+    if cur:
+        if kind not in CUR_KINDS:
+            raise ValueError("Этот документ оформляется только в тенге")
+        rate = rate or mirror.cur_rate(cur)
+        if not rate or not mirror.cur_id(cur):
+            raise ValueError(f"В МойСклад нет валюты {cur} или её курса")
+    rate = rate if cur else 1
     descr = (descr or "").strip()[:500]
     with db() as d:
         if not d.run("SELECT 1 FROM ms_store WHERE id=%s AND archived=0", (store_id,), one=True):
@@ -203,14 +225,15 @@ def create(kind, store_id, lines, agent_id="", descr="", who="", store2_id="", o
             p = d.run("SELECT kind, name, buy_price FROM ms_product WHERE id=%s AND deleted=0", (pid,), one=True)
             if not p:
                 raise ValueError("Товар не найден — обновите список")
+            pr = price if kind in PRICED + tuple(RETURNS) else (p[2] or 0)
             clean.append({"id": pid, "kind": p[0] or "product", "name": p[1], "qty": qty,
-                          "price": round(price if kind in PRICED + tuple(RETURNS) else (p[2] or 0))})
+                          "price": round(pr, 2) if cur else round(pr)})          # в валюте — с центами, в тенге — без тиынов
         if not clean:
             raise ValueError("Добавьте хотя бы один товар")
         op_id = op_id or str(uuid.uuid4())
-        d.run(f"INSERT INTO wh_op ({_OCOLS}, next_try) VALUES (%s, %s, %s, %s, %s, %s, 'queued', '', '', 0, '', %s, %s, 0, %s, %s, 0)",
+        d.run(f"INSERT INTO wh_op ({_OCOLS}, next_try) VALUES (%s, %s, %s, %s, %s, %s, 'queued', '', '', 0, '', %s, %s, 0, %s, %s, %s, %s, 0)",
               (op_id, kind, store_id, agent_id if kind in AGENT_KINDS else "", descr, json.dumps(clean, ensure_ascii=False), who, time.time(),
-               store2_id, demand_id if kind in BASED else ""))
+               store2_id, demand_id if kind in BASED else "", cur, rate))
     send(op_id)
     return get(op_id)
 
@@ -231,6 +254,11 @@ def _body(o):
         body[RETURNS[o["kind"]]] = oh.meta(RETURNS[o["kind"]], o["demand"])
     if o["kind"] == "supply" and o["demand"]:   # приёмка по заказу поставщику
         body["purchaseOrder"] = oh.meta("purchaseorder", o["demand"])
+    if o["cur"]:                                 # валютный документ: цены в валюте, курс — явно (иначе МойСклад примет доллары за тенге)
+        cid = mirror.cur_id(o["cur"])
+        if not cid:
+            raise ValueError(f"В МойСклад нет валюты {o['cur']}")
+        body["rate"] = {"currency": oh.meta("currency", cid), "value": o["rate"]}
     return body
 
 

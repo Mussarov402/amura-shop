@@ -68,15 +68,18 @@ def enabled():
 def card(pid):
     """Данные товара из зеркала (быстро, без МойСклад) + видео + очередь фото."""
     with mirror.db() as d:
-        r = d.run("SELECT id, kind, code, article, name, folder, prices, buy_price, barcodes, archived FROM ms_product WHERE id=%s AND deleted=0",
+        r = d.run("SELECT id, kind, code, article, name, folder, prices, buy_price, barcodes, archived, buy_raw, buy_cur FROM ms_product"
+                  " WHERE id=%s AND deleted=0",
                   (pid,), one=True)
         if not r:
             return None
         names = dict(d.run("SELECT id, name FROM ms_store", many=True) or [])
         stock = d.run("SELECT store_id, stock, reserve FROM ms_stock WHERE product_id=%s", (pid,), many=True) or []
-    i, kind, code, art, name, folder, prices, buy, bcs, arch = r
+    i, kind, code, art, name, folder, prices, buy, bcs, arch, buy_raw, buy_cur = r
     return {"id": i, "kind": kind or "product", "code": code or "", "article": art or "", "name": name or "", "folder": folder or "",
-            "prices": json.loads(prices or "{}"), "buy": round(buy or 0), "barcodes": json.loads(bcs or "[]"), "archived": bool(arch),
+            "prices": json.loads(prices or "{}"),
+            # закупочная цена — в валюте карточки МойСклад (buyCur, пусто — тенге); buyKzt — в тенге по текущему курсу
+            "buy": round(buy_raw or 0, 2) if buy_cur else round(buy or 0), "buyCur": buy_cur or "", "buyKzt": round(buy or 0), "barcodes": json.loads(bcs or "[]"), "archived": bool(arch),
             "stock": sorted([{"store": names.get(s, s), "stock": a or 0, "reserve": b or 0} for s, a, b in stock if a or b], key=lambda x: x["store"]),
             "site": f"{oh.SITE_URL.rstrip('/')}/img/{i}.webp" if getattr(oh, "SITE_URL", "") else "",
             "video": video_info(i), "pending": pending(i), "edits": edits_pending(i)}
@@ -380,13 +383,13 @@ def edit(pid, data, who=""):
             ch["article"] = art
     if "buy" in data:
         try:
-            buy = round(float(data["buy"]))
+            buy = round(float(data["buy"]), 2) if c.get("buyCur") else round(float(data["buy"]))
         except (TypeError, ValueError):
             raise ValueError("Закупочная цена — число")
         if buy < 0:
             raise ValueError("Цена не может быть меньше нуля")
         if buy != c["buy"]:
-            ch["buy"] = buy
+            ch["buy"], ch["buyCur"] = buy, c.get("buyCur", "")
     if "prices" in data:
         pr = {}
         for k, v in (data["prices"] or {}).items():
@@ -444,7 +447,13 @@ def _edit_body(cur, ch):
         body["article"] = ch["article"]
     if "buy" in ch:
         bp = dict(cur.get("buyPrice") or {})
-        bp["value"] = ch["buy"] * 100
+        # цена в валюте карточки: если в МойСклад валюту закупки за это время поменяли — не пишем (иначе доллары станут тенге)
+        ms_cur = ((bp.get("currency") or {}).get("meta") or {}).get("href", "").rstrip("/").rsplit("/", 1)[-1]
+        mirror._load_cur()
+        foreign = bool(ms_cur) and ms_cur in mirror._CUR["by_id"] and ms_cur != mirror._CUR["default"]
+        if (ch.get("buyCur") and ms_cur != mirror.cur_id(ch["buyCur"])) or (not ch.get("buyCur") and foreign):
+            raise ValueError("Валюта закупочной цены в МойСклад изменилась — откройте карточку заново")
+        bp["value"] = round(ch["buy"] * 100)
         body["buyPrice"] = bp
     if "prices" in ch:
         sp = []
@@ -494,7 +503,8 @@ def _apply_local(pid, ch):
         if "article" in ch:
             d.run("UPDATE ms_product SET article=%s WHERE id=%s", (ch["article"], pid))
         if "buy" in ch:
-            d.run("UPDATE ms_product SET buy_price=%s WHERE id=%s", (ch["buy"], pid))
+            rate = mirror.cur_rate(ch.get("buyCur", "")) if ch.get("buyCur") else 1
+            d.run("UPDATE ms_product SET buy_raw=%s, buy_price=%s WHERE id=%s", (ch["buy"], round(ch["buy"] * (rate or 0)), pid))
         if "prices" in ch:
             pr = json.loads(r[0] or "{}")
             pr.update(ch["prices"])
