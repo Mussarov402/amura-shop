@@ -1,4 +1,4 @@
-"""Розничный сайт: заказ по розничным ценам с пометкой, каталог ?mode=retail, shop/index.html совпадает с index.html."""
+"""Розничный сайт: заказ по розничным ценам с пометкой, каталог ?mode=retail, index.html (розница) совпадает с opt/index.html."""
 import json
 import os
 import sys
@@ -117,10 +117,10 @@ class RetailCatalog(unittest.TestCase):
 
 class ShopPage(unittest.TestCase):
     def test_shop_in_sync(self):
-        with open(os.path.join(ROOT, "index.html"), encoding="utf-8") as f:
+        with open(os.path.join(ROOT, "opt", "index.html"), encoding="utf-8") as f:
             want = make_shop.build(f.read())
-        with open(os.path.join(ROOT, "shop", "index.html"), encoding="utf-8") as f:
-            self.assertEqual(f.read(), want, "shop/index.html устарел — запустите python make_shop.py")
+        with open(os.path.join(ROOT, "index.html"), encoding="utf-8") as f:
+            self.assertEqual(f.read(), want, "index.html (розница) устарел — запустите python make_shop.py")
         self.assertIn("window.AMURA_RETAIL = true", want)
 
 

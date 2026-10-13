@@ -1,10 +1,10 @@
 name: Розничный сайт
 
-# shop/index.html собирается из index.html (make_shop.py): любое изменение сайта сразу попадает и в розницу
+# розница (index.html в корне, amura.kz) собирается из оптового opt/index.html (make_shop.py): любое изменение сайта сразу попадает и в розницу
 on:
   push:
     branches: [main]
-    paths: ["index.html", "make_shop.py", "retail/**"]
+    paths: ["opt/index.html", "make_shop.py", "retail/**"]
   workflow_dispatch: {}
 
 permissions:
@@ -25,8 +25,8 @@ jobs:
         run: |
           git config user.name "amura-bot"
           git config user.email "amura-bot@users.noreply.github.com"
-          git add shop
+          git add index.html manifest.webmanifest shop
           git diff --cached --quiet && echo "Без изменений" && exit 0
-          git commit -m "Розничный сайт: пересобран из index.html"
+          git commit -m "Розничный сайт: пересобран из opt/index.html"
           git pull --rebase
           git push
