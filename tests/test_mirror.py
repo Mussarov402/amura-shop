@@ -41,6 +41,7 @@ class FakeMS:
         self.calls = []
         self.stock = {}       # (pid, store) -> qty
         self.reserve = {}
+        self.cost = {}        # pid -> себестоимость единицы, ₸
 
     def __call__(self, method, path, params=None, **kw):
         assert method == "GET", "зеркало не должно писать в МойСклад"
@@ -84,6 +85,14 @@ class FakeMS:
         if path == "/report/stock/bystore/current":
             src = self.stock if params["stockType"] == "stock" else self.reserve
             return [{"assortmentId": p, "storeId": s, params["stockType"]: q} for (p, s), q in src.items()]
+        if path == "/report/stock/all":                       # отчёт «Остатки»: себестоимость единицы в тиынах
+            tot = {}
+            for (p, _), q in self.stock.items():
+                tot[p] = tot.get(p, 0) + q
+            rows = [{"meta": {"href": f"https://x/entity/product/{p}?expand=supplier"}, "stock": q, "price": self.cost.get(p, 0) * 100}
+                    for p, q in tot.items()]
+            off, lim = params.get("offset", 0), params.get("limit", 1000)
+            return {"meta": {"size": len(rows)}, "rows": rows[off:off + lim]}
         if path == "/report/stock/all/current":
             tot = {}
             for (p, _), q in self.stock.items():
@@ -96,7 +105,7 @@ class MirrorTest(unittest.TestCase):
     def setUp(self):
         with mirror.db() as d:
             for t in ("ms_product", "ms_agent", "ms_doc", "ms_doc_line", "ms_store", "ms_stock", "ms_sync", "ms_recon",
-                      "ms_money", "ms_agent_balance", "ms_payment_link"):
+                      "ms_money", "ms_agent_balance", "ms_payment_link", "ms_cost"):
                 d.run(f"DELETE FROM {t}")
             inbox.set_setting(d, mirror.FLAG, "0")
         self.ms = FakeMS()
@@ -152,6 +161,7 @@ class MirrorTest(unittest.TestCase):
         self.ms.variants = [{**prod(20, "2026-10-01 12:00:00.000"), "product": {"meta": {"href": "https://x/entity/product/p1"}}}]
         self.ms.stock = {("p0", STORE_A): 5, ("p0", STORE_B): 2, ("p1", STORE_A): 7.5}
         self.ms.reserve = {("p0", STORE_A): 1}
+        self.ms.cost = {"p0": 800.5}                                      # p1 нет себестоимости — 0, как в МойСклад
         import contextlib, io
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
@@ -168,6 +178,11 @@ class MirrorTest(unittest.TestCase):
         self.assertEqual(by["Товары (не в архиве)"]["ours"], 4)
         self.assertTrue(by["Модификации (не в архиве)"]["ok"])
         self.assertTrue(by["Остаток, всего единиц"]["ok"])
+        self.assertEqual(self.count("SELECT cost FROM ms_cost WHERE product_id='p0'"), 800.5)   # тиыны → ₸, id без ?expand
+        self.assertEqual((by["Себестоимость остатков, всего"]["ours"], by["Себестоимость остатков, всего"]["theirs"]), (5604, 5604))
+        self.assertTrue(by["Себестоимость остатков, всего"]["ok"])
+        self.assertIn("cost 2", out.getvalue())
+        self.assertEqual(mirror.sync_cost(), "свежая")                   # не чаще раза в час
         self.assertEqual(by["Цены товаров сайта"]["ours"], 1)
         self.assertFalse(r["ok"])
         # остаток в МойСклад изменился — сверка это видит до следующей синхронизации
