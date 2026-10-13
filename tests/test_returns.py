@@ -78,8 +78,8 @@ class ReturnsTest(unittest.TestCase):
         parse = m._doc_parser("salesreturn")
         row = parse({"meta": {"href": "https://x/entity/salesreturn/sr9"}, "id": "sr9", "name": "9", "moment": "2026-10-11 10:00:00",
                      "applicable": True, "demand": {"meta": {"href": "https://x/entity/demand/dm1"}}}, 0)
-        self.assertEqual(row[-1], "dm1")                                                              # основание из МойСклад
-        self.assertIsNone(m._doc_parser("demand")({"id": "x", "meta": {"href": "https://x/entity/demand/x"}}, 0)[-1])
+        self.assertEqual(row[-2], "dm1")                                                              # основание из МойСклад
+        self.assertIsNone(m._doc_parser("demand")({"id": "x", "meta": {"href": "https://x/entity/demand/x"}}, 0)[-2])
         with mirror.db() as d:
             d.run("INSERT INTO ms_doc (id, type, number, moment, agent_id, store_id, sum, applicable, deleted, base_id) VALUES ('sr9', 'salesreturn', '9', '2026-10-11 10:00:00', 'k1', 'sA', 1350, 1, 0, 'dm1')")
             d.run("INSERT INTO ms_doc_line (doc_id, pos_id, product_id, qty, price, discount, sum) VALUES ('sr9', 'l1', 'p1', 1, 1350, 0, 1350)")
