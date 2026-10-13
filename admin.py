@@ -2667,6 +2667,76 @@ def sources_export():
     return jsonify(ok=True, url=f"/admin/report-files/{tok}.xlsx?t={_sig('rx' + tok)}")
 
 
+# ---------- модуль «Пожелания клиентов» (раздел — владелец; «В пожелания» из чата — у кого есть «Сообщения») ----------
+import wishes  # noqa: E402
+
+
+def _wish_off():
+    return None if modules.enabled("wishes") else (jsonify(ok=False, error="Модуль «Пожелания клиентов» выключен"), 404)
+
+
+@bp.get("/admin/api/wishes")
+@guard
+def wishes_admin():
+    return _wish_off() or jsonify(ok=True, **wishes.report(_days()))
+
+
+@bp.post("/admin/api/wishes/<int:wid>")
+@guard
+def wish_mark(wid):
+    off = _wish_off()
+    if off:
+        return off
+    try:
+        wishes.set_status(wid, str((request.get_json(silent=True) or {}).get("status", "")))
+    except ValueError as e:
+        return jsonify(ok=False, error=str(e)), 400
+    return jsonify(ok=True)
+
+
+@bp.post("/admin/api/wishes/from-msg")
+@need("inbox")
+def wish_from_msg():
+    off = _wish_off()
+    if off:
+        return off
+    try:
+        wishes.from_message(int((request.get_json(silent=True) or {}).get("msg") or 0))
+    except ValueError as e:
+        return jsonify(ok=False, error=str(e)), 400
+    return jsonify(ok=True)
+
+
+_wish_files = {}
+
+
+@bp.post("/admin/api/wishes/export")
+@guard
+def wish_export():
+    off = _wish_off()
+    if off:
+        return off
+    try:
+        days = int((request.get_json(silent=True) or {}).get("days", 30))
+    except (TypeError, ValueError):
+        days = 30
+    now = time.time()
+    for k in [k for k, v in _wish_files.items() if now - v[0] > 3600]:
+        _wish_files.pop(k, None)
+    tok = secrets.token_hex(12)
+    _wish_files[tok] = (now, days)
+    return jsonify(ok=True, url=f"/admin/wish-files/{tok}.xlsx?t={_sig('wx' + tok)}")
+
+
+@bp.get("/admin/wish-files/<tok>.xlsx")
+def wish_file(tok):
+    if not hmac.compare_digest(_sig("wx" + tok), request.args.get("t", "")) or tok not in _wish_files:
+        return "Ссылка устарела — выгрузите заново", 404
+    from flask import Response
+    return Response(wishes.xlsx(_wish_files[tok][1]), mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": "attachment; filename=AMURA-wishes.xlsx", "Cache-Control": "private, max-age=3600"})
+
+
 @bp.post("/admin/api/money/transfer")
 @guard
 def money_transfer():
