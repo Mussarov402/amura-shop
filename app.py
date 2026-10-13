@@ -26,6 +26,8 @@ from checkout import bp as checkout_bp  # noqa: E402
 app.register_blueprint(checkout_bp)
 from reviews import bp as reviews_bp  # noqa: E402
 app.register_blueprint(reviews_bp)
+from sources import bp as sources_bp  # noqa: E402
+app.register_blueprint(sources_bp)
 from courier import bp as courier_bp  # noqa: E402
 app.register_blueprint(courier_bp)
 import courier  # noqa: E402

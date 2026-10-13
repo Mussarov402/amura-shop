@@ -2620,8 +2620,51 @@ def report_file(tok):
     if not hmac.compare_digest(_sig("rx" + tok), request.args.get("t", "")) or tok not in _report_files:
         return "Ссылка устарела — выгрузите отчёт заново", 404
     from flask import Response
-    return Response(reports.xlsx(*_report_files[tok][1]), mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    kind, days, q = _report_files[tok][1]
+    body = sources.xlsx(days) if kind == "sources" else reports.xlsx(kind, days, q)
+    return Response(body, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     headers={"Content-Disposition": "attachment; filename=AMURA-report.xlsx", "Cache-Control": "private, max-age=3600"})
+
+
+# ---------- модуль «Источники»: откуда пришли покупатели (только владелец) ----------
+import sources  # noqa: E402
+
+
+def _src_off():
+    return None if modules.enabled("sources") else (jsonify(ok=False, error="Модуль «Источники» выключен"), 404)
+
+
+@bp.route("/admin/api/sources", methods=["GET", "POST"])
+@guard
+def sources_admin():
+    """Список источников и отчёт за период; POST — добавить или изменить источник."""
+    off = _src_off()
+    if off:
+        return off
+    if request.method == "POST":
+        try:
+            sources.save(request.get_json(silent=True) or {})
+        except ValueError as e:
+            return jsonify(ok=False, error=str(e)), 400
+    return jsonify(ok=True, sources=sources.all_sources(), report=sources.report(_days()))
+
+
+@bp.post("/admin/api/sources/export")
+@guard
+def sources_export():
+    off = _src_off()
+    if off:
+        return off
+    try:
+        days = int((request.get_json(silent=True) or {}).get("days", 30))
+    except (TypeError, ValueError):
+        days = 30
+    now = time.time()
+    for k in [k for k, v in _report_files.items() if now - v[0] > 3600]:
+        _report_files.pop(k, None)
+    tok = secrets.token_hex(12)
+    _report_files[tok] = (now, ("sources", days, ""))
+    return jsonify(ok=True, url=f"/admin/report-files/{tok}.xlsx?t={_sig('rx' + tok)}")
 
 
 @bp.post("/admin/api/money/transfer")
