@@ -57,7 +57,7 @@ class Sources(unittest.TestCase):
 
     def order(self, **extra):
         d = {"name": "Тамирис", "phone": "+77012345678", "city": "Алматы", "shipping": "pickup", "items": [{"id": "p1", "qty": 2}]} | extra
-        return oh.order_core(d, "k" + str(len(self.posted)) + json.dumps(extra), "1.1.1.1", None)
+        return oh.order_core(d, "k" + str(len(self.posted)) + json.dumps(extra), "1.1.1.1", "cid-1" if extra.get("mode") == "retail" else None)
 
     def test_off_changes_nothing(self):
         self.add(promo="AIG10", discount=10)
@@ -97,17 +97,21 @@ class Sources(unittest.TestCase):
     def test_promo(self):
         self.add(promo="aig10")
         self.add(name="Реклама", code="ads")
-        self.assertEqual(json.loads(self.c.get("/ref/promo?code=AIG10").data)["discount"], 0)
-        res, st = self.order(ref="ads", promo="AIG10")
-        self.assertEqual(self.posted[-1]["positions"][0]["price"], 500000)           # скидка 0 — цена прежняя
+        self.assertEqual(json.loads(self.c.get("/ref/promo?retail=1&code=AIG10").data)["discount"], 0)
+        self.assertEqual(self.c.get("/ref/promo?code=AIG10").status_code, 404)              # на оптовом сайте промокода нет
+        res, st = self.order(ref="ads", promo="AIG10", mode="retail")
+        self.assertEqual(self.posted[-1]["positions"][0]["price"], 669000)           # скидка 0 — цена прежняя
         self.assertIn("Источник: aigerim", self.posted[-1]["description"])           # промокод важнее метки
         self.add(promo="AIG10", discount=10)
         sources.reset()
-        res, st = self.order(promo="aig10")
-        self.assertEqual(self.posted[-1]["positions"][0]["price"], 450000)           # скидка задана владельцем — пересчёт на сервере
+        res, st = self.order(promo="aig10", mode="retail")
+        self.assertEqual(self.posted[-1]["positions"][0]["price"], 602100)           # скидка задана владельцем — пересчёт на сервере
         self.assertIn("скидка 10%", self.posted[-1]["description"])
+        res, st = self.order(promo="aig10", ref="ads")                               # опт: промокод не действует
+        self.assertEqual(self.posted[-1]["positions"][0]["price"], 500000)
+        self.assertIn("Источник: ads", self.posted[-1]["description"])
         self.assertEqual(self.add(name="Другой", code="other", promo="AIG10").status_code, 400)   # промокод не повторяется
-        self.assertEqual(self.c.get("/ref/promo?code=NOPE").status_code, 404)
+        self.assertEqual(self.c.get("/ref/promo?retail=1&code=NOPE").status_code, 404)
 
     def test_visit_rate_limit(self):
         self.add()

@@ -125,6 +125,7 @@ function totalsHTML(f, t){
     <div class="rrow"><span>${fmt(t.count)} ${plural(t.count, "товар", "товара", "товаров")} на сумму</span><span>${fmt(t.goods)} ₸</span></div>
     <div class="rrow"><span>Доставка</span><span class="${t.dlv === 0 ? "free" : ""}">${t.dlv === null ? (f.city ? "считаем…" : "укажите город") : priceTxt(t.dlv)}</span></div>
     ${rest ? `<div class="rfree">До бесплатной доставки ещё <b>${fmt(rest)} ₸</b><i><b style="width:${Math.round(100 * t.goods / ff)}%"></b></i></div>` : ""}
+    ${PROMO_ON || PROMO ? `<div class="field" style="margin-top:10px"><label for="fPromo">Промокод</label><div style="display:flex;gap:8px"><input id="fPromo" autocapitalize="characters" autocomplete="off" placeholder="Если есть" value="${esc(PROMO ? PROMO.code : "")}" style="flex:1;min-width:0"><button class="btn ghost" id="promoBtn" type="button" style="width:auto;flex:none;padding:0 14px">${PROMO ? "Убрать" : "Применить"}</button></div><div class="kv" id="promoMsg" style="margin-top:4px">${PROMO ? (PROMO.discount > 0 ? `Скидка ${PROMO.discount}% учтена в цене` : "Промокод применён") : ""}</div></div>` : ""}
     <div class="err" id="rErr"></div>
     <button type="button" class="btn rgo" id="rGo">${login ? "Войти и заказать" : "Заказать"}</button>
     ${window.AMURA_LEGAL ? `<div class="rterms">Нажимая «Заказать», вы принимаете условия <a href="/shop/legal/offer.html" target="_blank">оферты</a> и <a href="/shop/legal/privacy.html" target="_blank">политики конфиденциальности</a></div>` : ""}
@@ -414,7 +415,7 @@ async function submit(){
     name: f.name, contact: "wa", phone: digits, telegram: "",
     city: f.city || (AUTH.profile && AUTH.profile.city) || "Алматы", shipping: f.ship, address: f.address || "",
     items: t.ls.map(l => ({ id: l.it.id, qty: l.q, price: l.price })), clientTotal: t.total,
-    orderKey: orderKey(), mode: "retail",
+    orderKey: orderKey(), mode: "retail", ref: REF.code() || undefined, promo: PROMO ? PROMO.code : undefined,   // модуль «Источники»
     pvz: f.ship === "cdek" ? DLV.pvzSel : undefined, slot: f.ship === "courier" ? DLV.slotSel : undefined
   };
   const btns = [...document.querySelectorAll("#rGo, [data-rgo]")]; busy = true;

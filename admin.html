@@ -967,7 +967,7 @@ async sources(){let D=(()=>{try{return +localStorage.getItem("amura_src_d")||30}
    <div class="nog" style="grid-template-columns:1fr"><label class="mut">Имя — автор, блогер или реклама<input id="sn" value="${esc(x.name||"")}" placeholder="Айгерим, Instagram"></label>
    <label class="mut">Код для ссылки — латиница и цифры${n?"":" (не меняется)"}<input id="sc" value="${esc(x.code||"")}" placeholder="aigerim" autocapitalize="off" ${n?"":"disabled"}></label>
    <label class="mut">Стоимость, ₸ — сколько заплатили (для окупаемости)<input id="sk" type="number" inputmode="numeric" min="0" value="${x.cost||""}" placeholder="необязательно"></label>
-   <label class="mut">Промокод — покупатель вводит в корзине<input id="sp" value="${esc(x.promo||"")}" placeholder="необязательно" autocapitalize="characters"></label>
+   <label class="mut">Промокод — покупатель вводит в корзине розничного сайта<input id="sp" value="${esc(x.promo||"")}" placeholder="необязательно" autocapitalize="characters"></label>
    <label class="mut">Скидка по промокоду, % — 0 = без скидки<input id="sz" type="number" inputmode="numeric" min="0" max="90" value="${x.discount||0}"></label>
    ${n?"":`<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="sa" ${x.archived?"checked":""} style="width:auto"> В архиве — ссылка и промокод перестают работать</label>`}</div>
    <div class="err" id="serr" style="color:var(--bad);margin:8px 0"></div><button class="btn" id="ssv" style="width:100%">Сохранить</button>`);

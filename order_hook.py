@@ -580,7 +580,7 @@ def catalog_route():
     closed = not site_on("rtl" if request.args.get("mode") == "retail" else "opt")
     try:
         import sources
-        promo = sources.promo_available()
+        promo = request.args.get("mode") == "retail" and sources.promo_available()   # промокод — только на розничном сайте
     except Exception:
         promo = False
     ck = ("catjson", ws, closed, promo)             # JSON и gzip собираются раз на обновление каталога, а не на каждого посетителя
