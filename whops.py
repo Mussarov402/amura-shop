@@ -330,7 +330,9 @@ def agents(q, limit=20):
     with mirror.db() as d:
         rows = d.run("SELECT id, name, phone FROM ms_agent WHERE deleted=0 AND archived=0 AND (LOWER(name) LIKE %s OR name LIKE %s OR phone LIKE %s)"
                      " ORDER BY name LIMIT %s", (f"%{q.lower()}%", f"%{q}%", f"%{q}%", limit), many=True) or []
-    return [{"id": i, "name": n, "phone": p or ""} for i, n, p in rows]
+    import audit
+    with mirror.db() as d:                         # валюта, в которой поставщик обычно работает (для предупреждения в форме)
+        return [{"id": i, "name": n, "phone": p or "", "cur": audit.usual_cur(d, i)} for i, n, p in rows]
 
 
 if os.environ.get("PORT"):          # только на сервере; пока флаг выключен, очередь не трогается

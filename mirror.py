@@ -698,6 +698,11 @@ def _loop():
                     nxt = time.time() + (EVERY if done else EVERY_LOADING)
                 if done and time.time() - last_recon() > RECON_EVERY:
                     reconcile()
+                    try:
+                        import audit                           # контроль учёта — сразу после сверки (только чтение)
+                        audit.nightly()
+                    except Exception as e:
+                        print("Контроль учёта:", e, flush=True)
         except Exception as e:
             print("Зеркало МойСклад (цикл):", e, flush=True)
         time.sleep(30)
@@ -864,9 +869,14 @@ def reconcile():
     _save_cost(rows)
     theirs_value = sum(q * c for _, q, c in rows)
     with db() as d:
-        ours_value = (d.run("SELECT COALESCE(SUM(k.stock * COALESCE(c.cost, p.buy_price, 0)), 0) FROM ms_stock k"
-                            " LEFT JOIN ms_cost c ON c.product_id=k.product_id LEFT JOIN ms_product p ON p.id=k.product_id", one=True) or [0])[0]
-    checks.append(_check("Себестоимость остатков, всего", round(ours_value or 0), round(theirs_value), "₸"))
+        # сравниваем в том же объёме, что отчёт МойСклад: товары из него (часть товаров с остатком МойСклад в отчёт не включает —
+        # в карточке склада они считаются по закупке и показаны отдельно, см. warehouse_view)
+        ours_value = (d.run("SELECT COALESCE(SUM(k.stock * c.cost), 0) FROM ms_stock k JOIN ms_cost c ON c.product_id=k.product_id",
+                            one=True) or [0])[0]
+        outside = d.run("SELECT COUNT(DISTINCT k.product_id) FROM ms_stock k LEFT JOIN ms_cost c ON c.product_id=k.product_id"
+                        " WHERE c.product_id IS NULL AND k.stock<>0", one=True)[0]
+    checks.append(_check("Себестоимость остатков, всего", round(ours_value or 0), round(theirs_value), "₸",
+                         [f"ещё {outside} товаров с остатком нет в отчёте МойСклад — у нас по закупке"] if outside else None))
     v = oh._cache.get("live")                                         # цены, которые сейчас видит сайт
     if v:
         diff = []
@@ -955,7 +965,9 @@ def warehouse_view(q="", store="", mode="all", limit=50, offset=0):
         stores = d.run("SELECT s.id, s.name, COALESCE(SUM(k.stock), 0),"
                        " COUNT(CASE WHEN k.stock<>0 OR k.reserve<>0 THEN 1 END),"
                        " COALESCE(SUM(k.stock * COALESCE(c.cost, p.buy_price, 0)), 0), COALESCE(SUM(k.reserve), 0),"
-                       " COUNT(CASE WHEN k.stock<0 THEN 1 END), COALESCE(SUM(CASE WHEN k.stock<0 THEN k.stock ELSE 0 END), 0)"
+                       " COUNT(CASE WHEN k.stock<0 THEN 1 END), COALESCE(SUM(CASE WHEN k.stock<0 THEN k.stock ELSE 0 END), 0),"
+                       " COUNT(CASE WHEN c.product_id IS NULL AND k.stock<>0 THEN 1 END),"
+                       " COALESCE(SUM(CASE WHEN c.product_id IS NULL THEN k.stock * COALESCE(p.buy_price, 0) ELSE 0 END), 0)"
                        " FROM ms_store s LEFT JOIN ms_stock k ON k.store_id=s.id LEFT JOIN ms_product p ON p.id=k.product_id"
                        " LEFT JOIN ms_cost c ON c.product_id=k.product_id"
                        " WHERE s.archived=0 GROUP BY s.id, s.name ORDER BY s.name", many=True) or []
@@ -969,13 +981,16 @@ def warehouse_view(q="", store="", mode="all", limit=50, offset=0):
         jargs = [store] if store else []
         having = {"in": " HAVING COALESCE(SUM(k.stock), 0)>0", "out": " HAVING COALESCE(SUM(k.stock), 0)<=0",
                   "neg": " HAVING COALESCE(SUM(k.stock), 0)<0"}.get(mode, "")
-        base = (f"SELECT p.id, p.code, p.name, p.buy_price, COALESCE(SUM(k.stock), 0), COALESCE(SUM(k.reserve), 0), c.cost, p.buy_raw, p.buy_cur FROM ms_product p {join}"
+        base = (f"SELECT p.id, p.code, p.name, p.buy_price, COALESCE(SUM(k.stock), 0), COALESCE(SUM(k.reserve), 0), c.cost, p.buy_raw, p.buy_cur,"
+                f" p.prices FROM ms_product p {join}"
                 f" LEFT JOIN ms_cost c ON c.product_id=p.id"
-                f" WHERE {' AND '.join(cond)} GROUP BY p.id, p.code, p.name, p.buy_price, c.cost, p.buy_raw, p.buy_cur{having}")
+                f" WHERE {' AND '.join(cond)} GROUP BY p.id, p.code, p.name, p.buy_price, c.cost, p.buy_raw, p.buy_cur, p.prices{having}")
         total = (d.run(f"SELECT COUNT(*) FROM ({base}) t", (*jargs, *args), one=True) or [0])[0]
         rows = d.run(base + " ORDER BY p.name LIMIT %s OFFSET %s", (*jargs, *args, limit, offset), many=True) or []
         by = {}
         ids = [r[0] for r in rows]
+        import audit                                       # средняя цена прошлых приёмок — для предупреждений в форме приёмки
+        avg = audit.avg_buy(d, ids) if ids else {}
         if ids:
             for pid, sid, a, b in d.run("SELECT product_id, store_id, stock, reserve FROM ms_stock WHERE product_id IN ("
                                         + ", ".join(["%s"] * len(ids)) + ")", ids, many=True) or []:
@@ -983,12 +998,19 @@ def warehouse_view(q="", store="", mode="all", limit=50, offset=0):
                     by.setdefault(pid, []).append({"store": names.get(sid, sid), "id": sid, "stock": a or 0, "reserve": b or 0})
     return {"synced": synced, "total": total,
             "stores": [{"id": i, "name": n or i, "units": round(u), "skus": c, "value": round(v), "reserve": round(r),
-                        "negSkus": nc, "negUnits": round(nu)} for i, n, u, c, v, r, nc, nu in stores],
+                        "negSkus": nc, "negUnits": round(nu), "byBuySkus": bs, "byBuyValue": round(bv)}   # нет в отчёте МойСклад — по закупке
+                       for i, n, u, c, v, r, nc, nu, bs, bv in stores],
             "items": [{"id": pid, "code": code, "name": name, "buy": round(bp or 0), "cost": round(cost if cost is not None else bp or 0),
                        "stock": a, "reserve": b, "stores": sorted(by.get(pid, []), key=lambda x: x["store"]),
                        # закупка в валюте карточки — для форм операций (у тенге buyCur пусто, buyRaw = buy)
-                       "buyCur": bc or "", "buyRaw": round(br, 2) if bc and br is not None else round(bp or 0)}
-                      for pid, code, name, bp, a, b, cost, br, bc in rows]}
+                       "buyCur": bc or "", "buyRaw": round(br, 2) if bc and br is not None else round(bp or 0),
+                       "retail": round(_retail(prs)), "avgBuy": round(avg.get(pid) or 0)}
+                      for pid, code, name, bp, a, b, cost, br, bc, prs in rows]}
+
+
+def _retail(prices_json):
+    pr = json.loads(prices_json or "{}")
+    return next((v for k, v in pr.items() if "розн" in k.lower()), 0) or 0
 
 
 def _alm(moment):
