@@ -1402,11 +1402,12 @@ async inbox(openId){const st=await api("inbox/status");let cur=openId||null,flt=
     tx.value=m.text;tx.oninput();paintMsgs(lastR,false);tx.focus();tx.setSelectionRange(tx.value.length,tx.value.length)};
    $("#msgs").onclick=e=>{const b=e.target.closest(".ebt");if(b)startEdit(+b.dataset.e)};
    $("#edx").onclick=stopEdit;
-   const send=async()=>{const t=tx.value.trim();if(editing!==null&&!t)return;if(!t&&!pends.length)return;sd.disabled=true;
+   const send=async()=>{const t=tx.value.trim();if(editing!==null&&!t)return;if(!t&&!pends.length)return;const keep=document.activeElement===tx||matchMedia("(hover:hover) and (pointer:fine)").matches;sd.disabled=true;
     try{if(editing!==null){const j=await api(`inbox/conv/${cur}/msg/${editing}/edit`,{method:"POST",body:JSON.stringify({text:t})});editing=null;$("#edb").hidden=true;$("#att").hidden=false;if(j&&j.inplace===false)toast("Клиенту ушло исправление")}
      else if(pends.length){const fs=pends;for(let i=0;i<fs.length;i++){await upload(await shrink(fs[i]),i===0&&t?{caption:t}:{});pends=fs.slice(i+1)}}
      else await api(`inbox/conv/${cur}/send`,{method:"POST",body:JSON.stringify({text:t})});
-     tx.value="";tx.style.height="auto";built=0;await openChat(true);list()}catch(e){if(e.message!=="401")alert(e.message);drawPend()}sd.disabled=false;mode()};
+     tx.value="";tx.style.height="auto";await openChat(true);list()}catch(e){if(e.message!=="401")alert(e.message);drawPend()}sd.disabled=false;mode();
+     if(keep){const f=$("#tx");if(f&&!f.disabled){f.focus();f.setSelectionRange(f.value.length,f.value.length)}}};   // после отправки курсор остаётся в поле — можно печатать дальше (компьютер; на телефоне — если писали с клавиатуры)
    sd.onclick=()=>{if(locked)return finish(true);if(has())send()};
    tx.onkeydown=e=>{if(e.key==="Escape"&&editing!==null){e.preventDefault();return stopEdit()}if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing&&e.keyCode!==229){e.preventDefault();if(tx.value.trim()||pends.length)send()}};   // Enter — отправить, Shift+Enter — новая строка
    // голосовое и видеокружок, как в Telegram: удерживать — запись, влево — отмена, вверх — замок; короткое нажатие — переключить голос/кружок
@@ -1429,7 +1430,8 @@ async inbox(openId){const st=await api("inbox/status");let cur=openId||null,flt=
     mr.start(250);t0=Date.now();recUI(true);$("#rt").textContent="0:00";
     rtimer=setInterval(()=>{const s=Math.floor(elapsed());$("#rt").textContent=Math.floor(s/60)+":"+String(s%60).padStart(2,"0");if(round&&s>=59)finish(true)},250)};
    const lock=()=>{locked=true;recUI(true);$("#rp").innerHTML=PAUSE;mode()};
-   sd.onpointerdown=e=>{if(has()||locked||sd.disabled)return;e.preventDefault();pressing=true;x0=e.clientX;y0=e.clientY;try{sd.setPointerCapture(e.pointerId)}catch(er){}
+   sd.onpointerdown=e=>{if(has()){if(document.activeElement===tx)e.preventDefault();return}   // отправка: поле не теряет фокус — клавиатура на телефоне не прячется
+    if(locked||sd.disabled)return;e.preventDefault();pressing=true;x0=e.clientX;y0=e.clientY;try{sd.setPointerCapture(e.pointerId)}catch(er){}
     holdT=setTimeout(()=>{holdT=0;begin()},220)};
    sd.onpointermove=e=>{if(!pressing||locked||!mr||mr.state==="inactive")return;const dx=e.clientX-x0,dy=e.clientY-y0;
     $("#rh").style.transform=`translateX(${Math.min(0,dx)}px)`;if(dx<-90){pressing=false;finish(false)}else if(dy<-70){pressing=false;lock()}};
@@ -1447,7 +1449,7 @@ async inbox(openId){const st=await api("inbox/status");let cur=openId||null,flt=
    el.ontouchstart=e=>{const t=e.touches[0];sw=!IOS&&t.clientX<=40;sx=t.clientX;sy=t.clientY;dx=0};
    el.ontouchmove=e=>{if(!sw)return;const t=e.touches[0];dx=t.clientX-sx;if(Math.abs(t.clientY-sy)>Math.abs(dx)&&dx<40){sw=false;el.style.transform="";return}if(dx>0)el.style.transform=`translateX(${dx}px)`};
    el.ontouchend=()=>{if(!sw)return;el.style.transition="transform .18s";if(dx>90){el.style.transform="translateX(100%)";setTimeout(()=>{closeChat();el.style.transform="";el.style.transition=""},170)}else{el.style.transform="";setTimeout(()=>el.style.transition="",200)}sw=false};
-   paintMsgs(r,true)}else paintMsgs(r,false);
+   paintMsgs(r,true)}else paintMsgs(r,first===true);   // first — после своей отправки: прокрутить к последнему сообщению
   $("#sbx").innerHTML=stb(c.status);
   $("#cmp").classList.toggle("off",c.open===false);
   $("#acts").innerHTML=(c.open===false?(c.channel==="ig"?'<span class="hint" style="color:#8A5A00">Прошло больше 7 дней с последнего сообщения клиента. Instagram не даёт ответить, пока клиент не напишет снова.</span>':'<span class="hint" style="color:#8A5A00">Прошло больше 24 часов с последнего сообщения клиента. WhatsApp разрешает ответить только одобренным шаблоном, поэтому писать можно после нового сообщения клиента.</span>'):c.late?'<span class="hint">Прошло больше 24 часов: Instagram примет ответ менеджера до 7 дней, ИИ уже не ответит.</span>':"")+(c.status==="ai"?'<span class="hint">Сейчас отвечает ИИ. Если вы напишете, диалог перейдёт к менеджеру.</span><button data-s="manager">Взять себе</button>':c.status==="closed"?'<span class="hint">Диалог закрыт. Новое сообщение клиента откроет его снова.</span>':'<span class="hint">Отвечает менеджер, ИИ молчит.</span><button data-s="ai">Вернуть ИИ</button>')+(c.status!=="closed"?'<button data-s="closed">Закрыть</button>':"");
