@@ -621,6 +621,7 @@ async function refreshLive(){
     const data = await getJSON(CONFIG.liveUrl, 60000, AUTH.token ? { Authorization: "Bearer " + AUTH.token } : undefined);   // сервер может «просыпаться» до минуты
     lastLive = Date.now();
     siteClosed(data.closed);
+    if(!RETAIL && (data.minOrder || 0) !== MIN_ORDER){ MIN_ORDER = data.minOrder || 0; if(VIEW === "cart" && $("#sum")) renderSum(); }
     if(!!data.promo !== PROMO_ON){ PROMO_ON = !!data.promo; if(VIEW === "cart" && !document.activeElement?.matches("#drawerBody input")) renderCart(); }
     const typing = document.activeElement && document.activeElement.matches("#grid input, #sheet input");
     applyData(data); cacheSave();
@@ -1073,6 +1074,7 @@ $("#drawerBody").addEventListener("click", e => {
   DLV.slotSel = DLV.opts.slots.find(s => s.date === date && s.from === from) || null;
   document.querySelectorAll("[data-slot]").forEach(x => x.classList.toggle("on", x === b)); readForm();
 });
+let MIN_ORDER = 0;   // оптовый сайт: заказ от минимальной суммы товаров (задаётся в системе AMURA, приходит с каталогом)
 function renderSum(){
   const ship = document.querySelector('input[name="ship"]:checked')?.value;
   const t = totals(ship);
@@ -1081,7 +1083,8 @@ function renderSum(){
     ${t.fee ? `<div><span>Комиссия банка 0,95%</span><b>${fmt(t.fee)} ₸</b></div>` : ""}
     ${PROMO && PROMO.discount > 0 ? `<div><span>Скидка по промокоду ${esc(PROMO.code)}</span><b>−${PROMO.discount}% учтена</b></div>` : ""}
     ${RETAIL ? dlvSumHTML(ship, t) : ""}
-    <div class="total"><span>Итого</span><span>${fmt(t.total)} ₸</span></div>`;
+    <div class="total"><span>Итого</span><span>${fmt(t.total)} ₸</span></div>
+    ${!RETAIL && MIN_ORDER && t.goods < MIN_ORDER ? `<div class="minord" style="display:block;margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--warn-bg);color:var(--warn-fg);font-size:14px">Минимальный заказ для новых покупателей — <b>${fmt(MIN_ORDER)} ₸</b>, добавьте ещё на <b>${fmt(MIN_ORDER - t.goods)} ₸</b>. Если вы уже заказывали у нас — отправляйте, минимума для вас нет<div style="display:block;height:6px;border-radius:3px;background:rgba(0,0,0,.08);margin-top:6px;overflow:hidden"><div style="display:block;height:100%;width:${Math.round(100 * t.goods / MIN_ORDER)}%;background:currentColor"></div></div></div>` : ""}`;
 }
 function readForm(){
   const contact = document.querySelector(".seg [aria-pressed=true]")?.dataset.c || "wa";
