@@ -1,4 +1,4 @@
-/* Розничный сайт: оформление заказа как на WB (только amura.kz/shop, вставляет make_shop.py) */
+/* Розничный сайт: оформление заказа как на WB (только розница amura.kz, вставляет make_shop.py) */
 #viewCart .narrow.rwide{max-width:1080px}
 #drawerTitle .rsub{display:block;font-family:inherit;font-size:13.5px;font-weight:600;color:var(--muted);margin-top:2px}
 .rco{display:grid;gap:12px;align-items:start;margin-top:6px}

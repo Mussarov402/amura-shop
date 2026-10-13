@@ -1,8 +1,10 @@
-"""Розничный сайт amura.kz/shop — тот же index.html в режиме розницы (window.AMURA_RETAIL).
+"""Розничный сайт amura.kz — тот же оптовый opt/index.html в режиме розницы (window.AMURA_RETAIL).
 
-Запуск: python make_shop.py  → пересобирает shop/index.html и shop/manifest.webmanifest.
-Отдельно shop/index.html не редактировать: правки — в index.html (общее) или retail/ (только розница), потом этот скрипт
-(GitHub Action «Розничный сайт» делает это сам при каждом изменении index.html в main).
+Оптовый сайт — opt/index.html, его показывает opt.amura.kz (opt_site.py). Розница собирается в корень сайта.
+Запуск: python make_shop.py  → пересобирает index.html и manifest.webmanifest в корне, shop/ (старый адрес — переадресация
+на amura.kz, юридические страницы shop/legal/). Корневой index.html и shop/ вручную не редактировать: правки — в
+opt/index.html (общее) или retail/ (только розница), потом этот скрипт
+(GitHub Action «Розничный сайт» делает это сам при каждом изменении opt/index.html в main).
 """
 import json
 import os
@@ -13,14 +15,14 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 def build(src):
     def rep(s, old, new):
         if old not in s:
-            raise SystemExit(f"make_shop: в index.html не найдено: {old}")
+            raise SystemExit(f"make_shop: в opt/index.html не найдено: {old}")
         return s.replace(old, new, 1)
     s = rep(src, "<head>\n", "<head>\n<!-- Собрано из index.html скриптом make_shop.py — не редактировать вручную -->\n"
-            "<script>window.AMURA_RETAIL = true; document.documentElement.dataset.theme = 'light';</script>\n")   # розница всегда светлая, как WB
+            "<script>window.AMURA_RETAIL = true; document.documentElement.dataset.theme = 'light';</script>\n" + TO_OPT)   # розница всегда светлая, как WB
     s = rep(s, "<title>AMURA — оптовый каталог</title>", "<title>AMURA — корейская косметика</title>")
     s = rep(s, '<meta name="description" content="Оригинальная корейская косметика оптом. Цены поштучно, от 10 штук и от короба.">',
             '<meta name="description" content="Оригинальная корейская косметика с доставкой по Алматы и Казахстану.">')
-    s = rep(s, '<link rel="manifest" href="manifest.webmanifest">', '<link rel="manifest" href="/shop/manifest.webmanifest">')
+    s = rep(s, '<link rel="manifest" href="manifest.webmanifest">', '<link rel="manifest" href="/manifest.webmanifest">')
     s = rep(s, '<link rel="apple-touch-icon" href="icon-180.png">', '<link rel="apple-touch-icon" href="/icon-180.png">')
     # оформление заказа как на WB — только для розницы, оптовый index.html не меняется
     def read(name):
@@ -82,32 +84,60 @@ ul{{padding-left:20px}}li{{margin:6px 0}}</style></head>
 
 
 def legal_footer(r):
-    links = "".join(f'<a href="legal/{k}.html">{t}</a>' for k, t in LEGAL)
+    links = "".join(f'<a href="/shop/legal/{k}.html">{t}</a>' for k, t in LEGAL)
     return (f'<footer class="rlegal"><nav>{links}</nav><div>{r.get("seller", "")} · ИИН {r.get("iin", "")} · '
             f'Оплата картами Visa и Mastercard</div></footer>\n')
 
 
 MANIFEST = {
-    "name": "AMURA — корейская косметика", "short_name": "AMURA", "start_url": "/shop/", "scope": "/shop/",
+    "name": "AMURA — корейская косметика", "short_name": "AMURA", "start_url": "/", "scope": "/",
     "display": "standalone", "background_color": "#F5F6F4", "theme_color": "#0E3B2C", "lang": "ru",
     "icons": [{"src": "/icon-192.png", "sizes": "192x192", "type": "image/png"},
               {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}],
 }
 
 
+# оптовики, заходившие на amura.kz до переезда, уходят на opt.amura.kz вместе с корзиной и входом;
+# остальные остаются в рознице. Признак — кэш каталога оптового сайта (розница хранит свой с приставкой «r:»).
+TO_OPT = r"""<script>/* переезд опта на opt.amura.kz: оптовик попадает туда сразу, корзина и вход переносятся */
+(function(){ try{
+  var LS = localStorage, h = location.hash;
+  if(!/(^|\.)amura\.kz$/.test(location.hostname) || /^opt\./.test(location.hostname)) return;
+  if(LS.getItem("amura-stay-retail") || /^#p\//.test(h) || /[?&]utm_/.test(location.search)) return;
+  if(LS.getItem("amura-catalog-v2") === null) return;
+  var d = {};
+  for(var i = 0; i < LS.length; i++){ var k = LS.key(i); if(k.indexOf("r:") !== 0 && k !== "amura-catalog-v2") d[k] = LS.getItem(k); }
+  var m = btoa(unescape(encodeURIComponent(JSON.stringify(d)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  location.replace("https://opt.amura.kz/" + location.search + "#amura-move=" + m + (h.length > 1 ? "&h=" + encodeURIComponent(h.slice(1)) : ""));
+}catch(e){} })();</script>
+"""
+
+# старый адрес розницы amura.kz/shop/ — переадресация на amura.kz (ссылка и #p/… сохраняются), покупатель остаётся в рознице
+SHOP_STUB = """<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="robots" content="noindex">
+<title>AMURA — корейская косметика</title>
+<script>try{ localStorage.setItem("amura-stay-retail", "1"); }catch(e){}
+location.replace("/" + location.search + location.hash);</script>
+<meta http-equiv="refresh" content="0; url=/"></head>
+<body><a href="/">AMURA — перейти в магазин</a></body></html>
+"""
+
+
 def main():
-    with open(os.path.join(ROOT, "index.html"), encoding="utf-8") as f:
+    with open(os.path.join(ROOT, "opt", "index.html"), encoding="utf-8") as f:
         out = build(f.read())
+    with open(os.path.join(ROOT, "index.html"), "w", encoding="utf-8") as f:
+        f.write(out)
     os.makedirs(os.path.join(ROOT, "shop"), exist_ok=True)
     with open(os.path.join(ROOT, "shop", "index.html"), "w", encoding="utf-8") as f:
-        f.write(out)
+        f.write(SHOP_STUB)
     os.makedirs(os.path.join(ROOT, "shop", "legal"), exist_ok=True)
     for k, page in legal_pages(legal_req()).items():
         with open(os.path.join(ROOT, "shop", "legal", k + ".html"), "w", encoding="utf-8") as f:
             f.write(page)
-    with open(os.path.join(ROOT, "shop", "manifest.webmanifest"), "w", encoding="utf-8") as f:
-        json.dump(MANIFEST, f, ensure_ascii=False, indent=2)
-        f.write("\n")
+    for path in (("manifest.webmanifest",), ("shop", "manifest.webmanifest")):    # второй — для установленных со старого адреса
+        with open(os.path.join(ROOT, *path), "w", encoding="utf-8") as f:
+            json.dump(MANIFEST, f, ensure_ascii=False, indent=2)
+            f.write("\n")
 
 
 if __name__ == "__main__":

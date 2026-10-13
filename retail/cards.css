@@ -1,4 +1,4 @@
-/* Розничный сайт: карточки товаров как на WB (только amura.kz/shop) */
+/* Розничный сайт: карточки товаров как на WB (только розница amura.kz) */
 .card.rpc{background:transparent;border:0;padding:0;gap:3px;border-radius:0;box-shadow:none}
 .rpc-img{position:relative}
 .rpc .thumb{width:100%;border-radius:16px;background:#fff}

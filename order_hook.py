@@ -548,7 +548,7 @@ SITE_CLOSED = "Магазин временно не принимает зака�
 
 
 def site_on(kind):
-    """Включён ли сайт: kind = «opt» (оптовый amura.kz) или «rtl» (розничный amura.kz/shop). Выключатели — в «Обзоре» (кэш 15 с)."""
+    """Включён ли сайт: kind = «opt» (оптовый opt.amura.kz) или «rtl» (розничный amura.kz). Выключатели — в «Обзоре» (кэш 15 с)."""
     def get():
         import inbox
         with inbox.db() as d:
@@ -837,7 +837,7 @@ def order_core(d, key, ip, me, source="с сайта", panel=False):
         if not v:
             return dict(ok=False, error="Склад сейчас не отвечает, попробуйте через минуту"), 503
         cat = {i["id"]: i for i in v[1]["items"]}
-    retail = retail_req                                             # заказ с розничного сайта (amura.kz/shop)
+    retail = retail_req                                             # заказ с розничного сайта (amura.kz)
     if retail:
         source = RETAIL_SOURCE
     ws = True if panel else (False if retail else is_wholesale(me))
