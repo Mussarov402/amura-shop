@@ -188,33 +188,22 @@ def nightly():
 
 
 def text(res):
-    """Сообщение владельцу (Telegram, до 4000 знаков)."""
+    """Короткое сообщение владельцу (5–7 строк): итоги по разделам и самое заметное, подробности — в системе AMURA."""
     fmt = lambda v: f"{round(v):,}".replace(",", " ")
-    parts = ["📋 Контроль учёта — замечания (в МойСклад ничего не менялось):"]
+    lines = ["📋 Контроль учёта — есть замечания:"]
     if res["supplies"]:
-        parts.append(f"\n1) Приёмки за сутки ({len(res['supplies'])}):")
-        for s in res["supplies"][:TOP]:
-            head = f"• №{s['number']} · {s['agent'] or 'без поставщика'} · {s['day']}"
-            parts.append(head + (f" — {s['curFlag']}" if s["curFlag"] else ""))
-            for ln in s["lines"][:5]:
-                parts.append(f"   – {ln['product'][:50]}: {', '.join(ln['flags'])}")
-            if len(s["lines"]) > 5:
-                parts.append(f"   … и ещё {len(s['lines']) - 5} поз.")
+        s = res["supplies"][0]
+        ex = s["curFlag"] or (s["lines"][0]["product"][:30] + ": " + s["lines"][0]["flags"][0] if s["lines"] else "")
+        lines.append(f"• Приёмки за сутки: {len(res['supplies'])} с замечаниями (№{s['number']} — {ex})")
     if res["negatives"]:
-        parts.append(f"\n2) Отрицательные остатки ({len(res['negatives'])} поз.) — продано без приёмки:")
-        for n in res["negatives"][:TOP]:
-            parts.append(f"• {n['product'][:50]}: {n['stock']:g} шт. (с {n['since']})")
+        lines.append(f"• В минусе: {len(res['negatives'])} поз., {fmt(-sum(n['stock'] for n in res['negatives']))} шт.")
     if res["suppliers"]:
-        parts.append(f"\n3) Поставщики без оплат за {PAY_DAYS} дней, долг растёт:")
-        for s in res["suppliers"][:TOP]:
-            parts.append(f"• {s['name'][:40]}: мы должны {fmt(s['balance'])} ₸, приёмок за 30 дней {s['supplies30']}, всего {s['supplies']}")
+        s = res["suppliers"][0]
+        lines.append(f"• Без оплат {PAY_DAYS} дней: {len(res['suppliers'])} пост. (больше всего — {s['name'][:30]}, {fmt(s['balance'])} ₸)")
     if res["zeroCost"]:
-        parts.append(f"\n4) Продажи за сутки с нулевой себестоимостью ({len(res['zeroCost'])} поз.):")
-        for z in res["zeroCost"][:TOP]:
-            parts.append(f"• {z['product'][:50]}: {z['qty']:g} шт.")
-    parts.append("\nПодробно: система AMURA → Отчёты → «Контроль учёта».")
-    t = "\n".join(parts)
-    return t if len(t) <= 4000 else t[:3990] + "\n…"
+        lines.append(f"• Продажи без себестоимости за сутки: {len(res['zeroCost'])} поз.")
+    lines.append("Подробно: система AMURA → Отчёты → «Контроль учёта».")
+    return "\n".join(lines)
 
 
 def morning(force=False):
