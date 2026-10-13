@@ -75,6 +75,9 @@ class FakeMS:
             if ent in self.docs and params.get("expand") != "positions":   # без expand МойСклад даёт только ссылку на позиции
                 out = [{**r, "positions": {"meta": {"size": len((r.get("positions") or {}).get("rows") or [])}}} for r in out]
             return {"meta": {"size": len(rows)}, "rows": out}
+        if path == "/entity/currency":
+            return {"rows": [{"id": "kzt", "isoCode": "KZT", "name": "тенге", "rate": 1, "default": True},
+                             {"id": "usd", "isoCode": "USD", "name": "доллар", "rate": 472.9, "default": False}]}
         if path == "/report/money/byaccount":
             return {"meta": {"size": len(self.money)}, "rows": self.money}
         if path == "/report/counterparty":
@@ -166,7 +169,7 @@ class MirrorTest(unittest.TestCase):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             self.assertTrue(mirror.tick())
-        self.assertIn("Зеркало МойСклад, проход: store 2; product +5", out.getvalue())
+        self.assertIn("Зеркало МойСклад, проход: store 2; currency 2; product +5", out.getvalue())
         self.assertIn("догнали: да", out.getvalue())
         self.assertEqual(self.count("SELECT COUNT(*) FROM ms_store"), 2)
         self.assertEqual(self.count("SELECT reserve FROM ms_stock WHERE product_id='p0' AND store_id=%s", (STORE_A,)), 1)

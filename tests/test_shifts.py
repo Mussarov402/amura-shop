@@ -118,8 +118,8 @@ class ShiftsTest(unittest.TestCase):
     def test_shift_link_parsed_and_reload_light(self):
         row = {"id": "c1", "name": "1", "moment": ms_t(1), "updated": ms_t(1), "sum": 500000, "applicable": True,
                "retailShift": ref("retailshift", "s1")}
-        self.assertEqual(mirror._doc_parser("retaildemand")(row, 0)[-1], "s1")
-        self.assertIsNone(mirror._doc_parser("demand")(row, 0)[-1])
+        self.assertEqual(mirror._doc_parser("retaildemand")(row, 0)[mirror._DCOLS.split(", ").index("shift_id")], "s1")
+        self.assertIsNone(mirror._doc_parser("demand")(row, 0)[mirror._DCOLS.split(", ").index("shift_id")])
         with mirror.db() as d:
             d.run("DELETE FROM setting WHERE key='mirror_shift_v'")
             d.run("DELETE FROM ms_sync WHERE entity IN ('retaildemand', 'retailsalesreturn')")

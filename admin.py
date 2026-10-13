@@ -2856,11 +2856,12 @@ def warehouse_ops():
             kind = str(b.get("kind", ""))
             op = whops.create(kind, str(b.get("store", "")), b.get("lines") or [],
                               str(b.get("agent", "")), str(b.get("descr", "")), _fin_who(), str(b.get("store2", "")),
-                              demand_id=str(b.get("order", "")) if kind == "supply" else "")
+                              demand_id=str(b.get("order", "")) if kind == "supply" else "", cur=str(b.get("cur", ""))[:3])
         except ValueError as e:
             return jsonify(ok=False, error=str(e)), 400
         return jsonify(ok=True, op=op)
-    return jsonify(ok=True, enabled=whops.enabled(), ops=whops.recent(), inv=inventory.recent() if whops.enabled() else [])
+    return jsonify(ok=True, enabled=whops.enabled(), ops=whops.recent(), inv=inventory.recent() if whops.enabled() else [],
+                   currencies=mirror.currencies())
 
 
 @bp.post("/admin/api/warehouse/ops/flag")

@@ -83,6 +83,9 @@ def _schema(d):
         " updated TEXT, deleted INTEGER DEFAULT 0, seen DOUBLE PRECISION)",
         # себестоимость единицы товара по МойСклад (отчёт «Остатки», поле price; снимок заменяется целиком раз в COST_EVERY), ₸
         "CREATE TABLE IF NOT EXISTS ms_cost (product_id TEXT PRIMARY KEY, cost DOUBLE PRECISION, synced DOUBLE PRECISION)",
+        # валюты МойСклад: iso — код (USD), rate — курс к валюте учёта (тенге), is_default — валюта учёта
+        "CREATE TABLE IF NOT EXISTS ms_currency (id TEXT PRIMARY KEY, iso TEXT, name TEXT, rate DOUBLE PRECISION, is_default INTEGER DEFAULT 0,"
+        " synced DOUBLE PRECISION)",
         f"CREATE TABLE IF NOT EXISTS ms_recon (id {pk}, at DOUBLE PRECISION, ok INTEGER, body TEXT)",
     ):
         d.run(s)
@@ -92,7 +95,15 @@ def _schema(d):
                 "ALTER TABLE ms_doc ADD COLUMN account_id TEXT",       # счёт организации у платежа
                 "ALTER TABLE ms_doc ADD COLUMN paid DOUBLE PRECISION",   # оплачено по документу (payedSum МойСклад), ₸
                 "ALTER TABLE ms_doc ADD COLUMN base_id TEXT",            # документ-основание возврата: отгрузка / приёмка
-                "ALTER TABLE ms_doc ADD COLUMN shift_id TEXT"):          # кассовая смена чека / возврата по кассе
+                "ALTER TABLE ms_doc ADD COLUMN shift_id TEXT",           # кассовая смена чека / возврата по кассе
+                # валюта документа: cur — код (USD; пусто — тенге), rate — курс документа, sum_cur — сумма в валюте документа;
+                # sum и paid (и позиции) хранятся в тенге = сумма документа × курс
+                "ALTER TABLE ms_doc ADD COLUMN cur TEXT",
+                "ALTER TABLE ms_doc ADD COLUMN rate DOUBLE PRECISION",
+                "ALTER TABLE ms_doc ADD COLUMN sum_cur DOUBLE PRECISION",
+                # закупочная цена карточки: buy_raw — в валюте карточки (buy_cur, пусто — тенге); buy_price — в тенге по текущему курсу
+                "ALTER TABLE ms_product ADD COLUMN buy_raw DOUBLE PRECISION",
+                "ALTER TABLE ms_product ADD COLUMN buy_cur TEXT"):
         try:
             d.run(col)
             d.c.commit()
@@ -129,6 +140,92 @@ def _href_id(obj):
     return ((obj or {}).get("meta") or {}).get("href", "").rsplit("/", 1)[-1].split("?")[0]
 
 
+_CUR = {"default": "", "by_id": {}}     # валюты МойСклад (из ms_currency): id валюты учёта и {id: (код, курс)}
+SYMBOL = {"USD": "$", "EUR": "€", "RUB": "₽", "CNY": "¥"}
+
+
+def _load_cur():
+    if _CUR["by_id"]:
+        return
+    try:
+        with db() as d:
+            rows = d.run("SELECT id, iso, rate, is_default FROM ms_currency", many=True) or []
+    except Exception:
+        rows = []
+    _CUR["by_id"] = {i: (iso or "", r or 1) for i, iso, r, df in rows}
+    _CUR["default"] = next((i for i, _, _, df in rows if df), "")
+
+
+def _rate(row):
+    """Валюта и курс документа МойСклад: ("", 1) — тенге; ("USD", 472.9) — долларовый документ."""
+    _load_cur()
+    r = row.get("rate") or {}
+    cid = _href_id(r.get("currency"))
+    value = r.get("value")
+    if not cid or cid == _CUR["default"] or value in (None, 0, 1):
+        return "", 1.0
+    return _CUR["by_id"].get(cid, ("?", 0))[0] or "?", float(value)
+
+
+def cur_rate(iso):
+    """Текущий курс валюты по коду (тенге — 1)."""
+    _load_cur()
+    if not iso:
+        return 1.0
+    return next((r for i, (c, r) in _CUR["by_id"].items() if c == iso), 0) or 0
+
+
+def cur_id(iso):
+    _load_cur()
+    return next((i for i, (c, _) in _CUR["by_id"].items() if c == iso), "")
+
+
+def currencies():
+    """Валюты для форм: [{"iso", "rate", "default"}] — тенге первым."""
+    _load_cur()
+    out = [{"iso": c or "KZT", "rate": r, "default": i == _CUR["default"]} for i, (c, r) in _CUR["by_id"].items()]
+    return sorted(out, key=lambda x: (not x["default"], x["iso"])) or [{"iso": "KZT", "rate": 1, "default": True}]
+
+
+def money_label(cur, amount, rate=None):
+    """«$2 149,80 по 472,9» — исходная сумма валютного документа (у тенге — пусто)."""
+    if not cur:
+        return ""
+    sym = SYMBOL.get(cur)
+    a = f"{amount:,.2f}".replace(",", " ").replace(".", ",")
+    txt = f"{sym}{a}" if sym else f"{a} {cur}"
+    return txt + (f" по {rate:g}".replace(".", ",") if rate else "")
+
+
+def sync_currency():
+    """Валюты и курсы МойСклад (только GET); закупочные цены в валюте пересчитываются в тенге по текущему курсу."""
+    rows = oh.ms("GET", "/entity/currency", params={"limit": 100}, timeout=30).get("rows", [])
+    t = time.time()
+    with db() as d:
+        d.run("DELETE FROM ms_currency")
+        for r in rows:
+            d.run("INSERT INTO ms_currency (id, iso, name, rate, is_default, synced) VALUES (%s, %s, %s, %s, %s, %s)",
+                  (_id(r), r.get("isoCode") or "", r.get("name") or "", r.get("rate") or 1, 1 if r.get("default") else 0, t))
+        for r in rows:
+            if not r.get("default") and r.get("isoCode"):
+                d.run("UPDATE ms_product SET buy_price=buy_raw * %s WHERE buy_cur=%s", (r.get("rate") or 0, r["isoCode"]))
+    _CUR["by_id"] = {}
+    _load_cur()
+    return len(rows)
+
+
+def _buy(row):
+    """Закупочная цена карточки: (в тенге по текущему курсу, в валюте карточки, код валюты — пусто для тенге)."""
+    bp = row.get("buyPrice") or {}
+    raw = (bp.get("value") or 0) / 100
+    _load_cur()
+    cid = _href_id(bp.get("currency"))
+    if not cid or cid == _CUR["default"] or cid not in _CUR["by_id"]:
+        return round(raw), raw, ""
+    iso, rate = _CUR["by_id"][cid]
+    return round(raw * (rate or 0)), raw, iso or ""
+
+
 def _prices(row):
     out = {}
     for p in row.get("salePrices") or []:
@@ -146,12 +243,11 @@ def _parse(kind, row, now):
     return (_id(row), kind, _href_id(row.get("product")) if kind == "variant" else None,
             row.get("code") or "", row.get("article") or "", row.get("name") or "",
             row.get("pathName") or "", 1 if row.get("archived") else 0,
-            json.dumps(_prices(row), ensure_ascii=False),
-            round(((row.get("buyPrice") or {}).get("value") or 0) / 100),
-            json.dumps(_barcodes(row), ensure_ascii=False), (row.get("updated") or "")[:23], 0, now)
+            json.dumps(_prices(row), ensure_ascii=False), _buy(row)[0],
+            json.dumps(_barcodes(row), ensure_ascii=False), (row.get("updated") or "")[:23], 0, now, _buy(row)[1], _buy(row)[2])
 
 
-_COLS = "id, kind, parent_id, code, article, name, folder, archived, prices, buy_price, barcodes, updated, deleted, seen"
+_COLS = "id, kind, parent_id, code, article, name, folder, archived, prices, buy_price, barcodes, updated, deleted, seen, buy_raw, buy_cur"
 _ACOLS = "id, name, phone, email, inn, company_type, tags, archived, updated, deleted, seen"
 
 
@@ -161,7 +257,7 @@ def _parse_agent(row, now):
             1 if row.get("archived") else 0, (row.get("updated") or "")[:23], 0, now)
 
 
-_DCOLS = "id, type, number, moment, agent_id, store_id, store2_id, account_id, state_id, sum, applicable, descr, updated, deleted, seen, paid, base_id, shift_id"
+_DCOLS = "id, type, number, moment, agent_id, store_id, store2_id, account_id, state_id, sum, applicable, descr, updated, deleted, seen, paid, base_id, shift_id, cur, rate, sum_cur"
 
 
 _SCOLS = "id, number, moment, close_at, store_id, point, cash, nocash, got_cash, got_nocash, commission, updated, deleted, seen"
@@ -176,19 +272,22 @@ def _parse_shift(row, now):
 
 def _doc_parser(kind):
     def parse(row, now):
+        cur, rate = _rate(row)                               # суммы — в тенге: сумма в валюте документа × курс документа
+        s = (row.get("sum") or 0) / 100
         return (_id(row), kind, row.get("name") or "", (row.get("moment") or "")[:23], _href_id(row.get("agent")),
                 _href_id(row.get("store") or row.get("sourceStore")), _href_id(row.get("targetStore")),
-                _href_id(row.get("organizationAccount")), _href_id(row.get("state")), (row.get("sum") or 0) / 100,
+                _href_id(row.get("organizationAccount")), _href_id(row.get("state")), s * rate,
                 1 if row.get("applicable") else 0,
                 (row.get("description") or row.get("paymentPurpose") or "").split("\n")[0][:200],
-                (row.get("updated") or "")[:23], 0, now, (row.get("payedSum") or 0) / 100,
+                (row.get("updated") or "")[:23], 0, now, (row.get("payedSum") or 0) / 100 * rate,
                 _href_id(row.get(RETURN_BASE[kind])) if kind in RETURN_BASE else None,
-                _href_id(row.get("retailShift")) if kind in RETAIL_DOCS else None)
+                _href_id(row.get("retailShift")) if kind in RETAIL_DOCS else None, cur, rate, s)
     return parse
 
 
-def _line(doc_id, p):
-    qty, price, disc = p.get("quantity") or 0, (p.get("price") or 0) / 100, p.get("discount") or 0
+def _line(doc_id, p, rate=1.0):
+    """Позиция в тенге (цена документа × курс документа)."""
+    qty, price, disc = p.get("quantity") or 0, (p.get("price") or 0) / 100 * rate, p.get("discount") or 0
     return (doc_id, _id(p), _href_id(p.get("assortment")), qty, price, disc, qty * price * (1 - disc / 100))
 
 
@@ -205,7 +304,8 @@ def _doc_lines(entity, row):
             off += 1000
             if off >= (r.get("meta") or {}).get("size", 0):
                 break
-    return [_line(_id(row), p) for p in items]
+    rate = _rate(row)[1]
+    return [_line(_id(row), p, rate) for p in items]
 
 
 def _save_lines(d, lines_by_doc):
@@ -219,6 +319,7 @@ def _save_links(d, rows):
     """operations платежа → ms_payment_link (заменяем целиком для каждого загруженного платежа)."""
     for r in rows:
         pid = _id(r)
+        rate = _rate(r)[1]
         d.run("DELETE FROM ms_payment_link WHERE payment_id=%s", (pid,))
         for op in r.get("operations") or []:
             href = (op.get("meta") or {}).get("href", "")
@@ -226,7 +327,7 @@ def _save_links(d, rows):
                 continue
             doc_type = href.split("/entity/")[-1].split("/")[0] if "/entity/" in href else ""
             d.run("INSERT INTO ms_payment_link (payment_id, doc_id, doc_type, sum) VALUES (%s, %s, %s, %s) ON CONFLICT (payment_id, doc_id) DO NOTHING",
-                  (pid, _href_id(op), doc_type, (op.get("linkedSum") or 0) / 100))
+                  (pid, _href_id(op), doc_type, (op.get("linkedSum") or 0) / 100 * rate))
 
 
 LINKS_V = "1"   # версия загрузки связей платежей: смена версии один раз перечитывает платежи в окне DOC_DAYS
@@ -266,6 +367,19 @@ def _shift_reload():
             d.run("UPDATE ms_sync SET cursor=%s, skip=0, full_from=%s WHERE entity=%s AND full_done>0", (_floor(t), time.time(), t))
         inbox.set_setting(d, "mirror_shift_v", SHIFT_V)
     print("Зеркало МойСклад: чеки будут перечитаны вместе с кассовыми сменами", flush=True)
+
+
+CUR_V = "1"   # версия загрузки валют: один раз перечитывает шапки документов (лёгкий проход) и карточки товаров с валютой и курсом
+
+
+def _cur_reload():
+    with db() as d:
+        if inbox.get_setting(d, "mirror_cur_v", "") == CUR_V:
+            return
+        for t in DOC_TYPES + ("product", "variant"):        # full_done не трогаем — проход «лёгкий»: позиции лишь у изменённых и валютных
+            d.run("UPDATE ms_sync SET cursor=%s, skip=0, full_from=%s WHERE entity=%s AND full_done>0", (_floor(t), time.time(), t))
+        inbox.set_setting(d, "mirror_cur_v", CUR_V)
+    print("Зеркало МойСклад: документы и товары будут перечитаны с валютой и курсом", flush=True)
 
 
 def _lines_reload():
@@ -353,8 +467,11 @@ def sync_entity(entity, max_pages=MAX_PAGES, pause=PAUSE):
         if entity in LINE_DOCS and not with_lines and rows:           # лёгкий проход: позиции только у изменённых
             with db() as d:
                 ids = [_id(r) for r in rows]
-                old = dict(d.run("SELECT id, updated FROM ms_doc WHERE id IN (" + ", ".join(["%s"] * len(ids)) + ")", ids, many=True) or [])
-            need = [r for r in rows if old.get(_id(r)) != (r.get("updated") or "")[:23]]
+                old = {i: (u, rt) for i, u, rt in d.run("SELECT id, updated, rate FROM ms_doc WHERE id IN (" + ", ".join(["%s"] * len(ids)) + ")",
+                                                         ids, many=True) or []}
+            # позиции — у изменённых и у валютных, загруженных ещё без курса (их позиции были в валюте, а не в тенге)
+            need = [r for r in rows if (old.get(_id(r)) or (None, None))[0] != (r.get("updated") or "")[:23]
+                    or (old[_id(r)][1] is None and _rate(r)[1] != 1)]
         lines = {_id(r): _doc_lines(entity, r) for r in need}
         t = time.time()
         with db() as d:
@@ -508,9 +625,10 @@ def tick():
         _links_reload()
         _base_reload()
         _shift_reload()
+        _cur_reload()
         caught_all, parts, t0 = True, [], time.time()
         _net["fail"] = False
-        for name, fn in (("store", sync_stores), *((e, (lambda e=e: sync_entity(e))) for e in ENTITIES), ("stock", sync_stock), ("cost", sync_cost), ("money", sync_money)):
+        for name, fn in (("store", sync_stores), ("currency", sync_currency), *((e, (lambda e=e: sync_entity(e))) for e in ENTITIES), ("stock", sync_stock), ("cost", sync_cost), ("money", sync_money)):
             if _net["fail"]:                  # МойСклад уже не ответил в этом проходе — остальное не запрашиваем, бережём канал сайта
                 parts.append(f"{name} пропущено")
                 continue
@@ -679,7 +797,7 @@ def _money_checks():
             with db() as d:
                 ours = d.run("SELECT COALESCE(SUM(sum), 0) FROM ms_doc WHERE deleted=0 AND applicable=1 AND moment>=%s AND moment<%s"
                              " AND type IN (" + ", ".join(["%s"] * len(types)) + ")", (a, b, *types), one=True)[0]
-            theirs = sum((r.get("sum") or 0) for t in types for r in _ms_docs(t, f"moment>={a};moment<{b};applicable=true")) / 100
+            theirs = sum(_tenge(r) for t in types for r in _ms_docs(t, f"moment>={a};moment<{b};applicable=true"))
             out.append(_check(f"{title} {label} (платежи + ордера)", round(ours), round(theirs), "₸"))
     with db() as d:
         ours_money = d.run("SELECT COALESCE(SUM(balance), 0) FROM ms_money", one=True)[0]
@@ -689,6 +807,11 @@ def _money_checks():
     out.append(_check("Деньги на счетах и в кассах, всего", round(ours_money), round(theirs_money), "₸"))
     out.append(_check("Взаиморасчёты с контрагентами, итог", round(ours_debt), round(theirs_debt), "₸"))
     return out
+
+
+def _tenge(row):
+    """Сумма документа МойСклад в тенге (валютный — по курсу документа)."""
+    return (row.get("sum") or 0) / 100 * _rate(row)[1]
 
 
 def _sales_checks():
@@ -706,7 +829,7 @@ def _sales_checks():
         theirs = {}
         for t in SALE_TYPES + RETURN_TYPES:
             rows = _ms_docs(t, f"moment>={a};moment<{b};applicable=true")
-            theirs[t] = (len(rows), sum((r.get("sum") or 0) for r in rows) / 100)
+            theirs[t] = (len(rows), sum(_tenge(r) for r in rows))
         net = lambda m: round(sum(m[t][1] for t in SALE_TYPES) - sum(m[t][1] for t in RETURN_TYPES))
         cnt = lambda m: sum(m[t][0] for t in SALE_TYPES + RETURN_TYPES)
         out.append(_check(f"Продажи {label}: отгрузки + чеки − возвраты", net(ours), net(theirs), "₸"))
@@ -846,9 +969,9 @@ def warehouse_view(q="", store="", mode="all", limit=50, offset=0):
         jargs = [store] if store else []
         having = {"in": " HAVING COALESCE(SUM(k.stock), 0)>0", "out": " HAVING COALESCE(SUM(k.stock), 0)<=0",
                   "neg": " HAVING COALESCE(SUM(k.stock), 0)<0"}.get(mode, "")
-        base = (f"SELECT p.id, p.code, p.name, p.buy_price, COALESCE(SUM(k.stock), 0), COALESCE(SUM(k.reserve), 0), c.cost FROM ms_product p {join}"
+        base = (f"SELECT p.id, p.code, p.name, p.buy_price, COALESCE(SUM(k.stock), 0), COALESCE(SUM(k.reserve), 0), c.cost, p.buy_raw, p.buy_cur FROM ms_product p {join}"
                 f" LEFT JOIN ms_cost c ON c.product_id=p.id"
-                f" WHERE {' AND '.join(cond)} GROUP BY p.id, p.code, p.name, p.buy_price, c.cost{having}")
+                f" WHERE {' AND '.join(cond)} GROUP BY p.id, p.code, p.name, p.buy_price, c.cost, p.buy_raw, p.buy_cur{having}")
         total = (d.run(f"SELECT COUNT(*) FROM ({base}) t", (*jargs, *args), one=True) or [0])[0]
         rows = d.run(base + " ORDER BY p.name LIMIT %s OFFSET %s", (*jargs, *args, limit, offset), many=True) or []
         by = {}
@@ -862,8 +985,10 @@ def warehouse_view(q="", store="", mode="all", limit=50, offset=0):
             "stores": [{"id": i, "name": n or i, "units": round(u), "skus": c, "value": round(v), "reserve": round(r),
                         "negSkus": nc, "negUnits": round(nu)} for i, n, u, c, v, r, nc, nu in stores],
             "items": [{"id": pid, "code": code, "name": name, "buy": round(bp or 0), "cost": round(cost if cost is not None else bp or 0),
-                       "stock": a, "reserve": b, "stores": sorted(by.get(pid, []), key=lambda x: x["store"])}
-                      for pid, code, name, bp, a, b, cost in rows]}
+                       "stock": a, "reserve": b, "stores": sorted(by.get(pid, []), key=lambda x: x["store"]),
+                       # закупка в валюте карточки — для форм операций (у тенге buyCur пусто, buyRaw = buy)
+                       "buyCur": bc or "", "buyRaw": round(br, 2) if bc and br is not None else round(bp or 0)}
+                      for pid, code, name, bp, a, b, cost, br, bc in rows]}
 
 
 def _alm(moment):
@@ -878,29 +1003,31 @@ def wh_docs(kind, offset=0, limit=30):
     with db() as d:
         names = dict(d.run("SELECT id, name FROM ms_store", many=True) or [])
         total = (d.run("SELECT COUNT(*) FROM ms_doc WHERE type=%s AND deleted=0", (kind,), one=True) or [0])[0]
-        rows = d.run("SELECT x.id, x.number, x.moment, x.store_id, x.store2_id, a.name, x.sum, x.applicable, x.descr,"
+        rows = d.run("SELECT x.id, x.number, x.moment, x.store_id, x.store2_id, a.name, x.sum, x.applicable, x.descr, x.cur, x.sum_cur, x.rate,"
                      " (SELECT COUNT(*) FROM ms_doc_line l WHERE l.doc_id=x.id), (SELECT COALESCE(SUM(l.qty), 0) FROM ms_doc_line l WHERE l.doc_id=x.id)"
                      " FROM ms_doc x LEFT JOIN ms_agent a ON a.id=x.agent_id WHERE x.type=%s AND x.deleted=0"
                      " ORDER BY x.moment DESC LIMIT %s OFFSET %s", (kind, limit, offset), many=True) or []
     return {"total": total, "docs": [{"id": i, "number": n or "", "at": _alm(m), "store": names.get(s1, ""), "store2": names.get(s2, ""),
                                       "agent": a or "", "sum": round(sm or 0), "applicable": bool(ap), "descr": ds or "",
-                                      "positions": pc or 0, "qty": q or 0}
-                                     for i, n, m, s1, s2, a, sm, ap, ds, pc, q in rows]}
+                                      "positions": pc or 0, "qty": q or 0, "orig": money_label(cu, sc or 0, rt)}
+                                     for i, n, m, s1, s2, a, sm, ap, ds, cu, sc, rt, pc, q in rows]}
 
 
 def wh_doc(doc_id):
     with db() as d:
-        r = d.run("SELECT x.id, x.type, x.number, x.moment, x.store_id, x.store2_id, a.name, x.sum, x.applicable, x.descr"
+        r = d.run("SELECT x.id, x.type, x.number, x.moment, x.store_id, x.store2_id, a.name, x.sum, x.applicable, x.descr, x.cur, x.sum_cur, x.rate"
                   " FROM ms_doc x LEFT JOIN ms_agent a ON a.id=x.agent_id WHERE x.id=%s", (doc_id,), one=True)
         if not r:
             return None
         names = dict(d.run("SELECT id, name FROM ms_store", many=True) or [])
         lines = d.run("SELECT p.name, p.code, l.qty, l.price, l.sum FROM ms_doc_line l LEFT JOIN ms_product p ON p.id=l.product_id"
                       " WHERE l.doc_id=%s ORDER BY p.name", (doc_id,), many=True) or []
-    i, t, n, m, s1, s2, a, sm, ap, ds = r
+    i, t, n, m, s1, s2, a, sm, ap, ds, cu, sc, rt = r
+    rt = rt or 1
     return {"id": i, "type": t, "number": n or "", "at": _alm(m), "store": names.get(s1, ""), "store2": names.get(s2, ""), "agent": a or "",
-            "sum": round(sm or 0), "applicable": bool(ap), "descr": ds or "",
-            "lines": [{"name": nm or "(товар удалён)", "code": c or "", "qty": q or 0, "price": round(pr or 0), "sum": round(su or 0)}
+            "sum": round(sm or 0), "applicable": bool(ap), "descr": ds or "", "cur": cu or "", "orig": money_label(cu, sc or 0, rt),
+            "lines": [{"name": nm or "(товар удалён)", "code": c or "", "qty": q or 0, "price": round(pr or 0), "sum": round(su or 0),
+                       "orig": money_label(cu, (pr or 0) / rt)}            # цена в валюте документа
                       for nm, c, q, pr, su in lines]}
 
 
@@ -941,16 +1068,20 @@ UNPAID_DOCS = ("demand", "supply")   # отгрузки — не оплатил 
 def _unpaid(d, kind, top):
     """Неоплаченные проведённые документы в окне зеркала (DOC_DAYS). Оплачено — большее из payedSum МойСклад
     (обновляется полным проходом) и суммы связанных платежей из ms_payment_link (обновляется с каждым платежом)."""
-    rows = d.run("SELECT x.id, x.number, x.moment, x.sum, COALESCE(x.paid, 0), COALESCE(l.s, 0), a.name, x.agent_id, b.balance FROM ms_doc x"
+    rows = d.run("SELECT x.id, x.number, x.moment, x.sum, COALESCE(x.paid, 0), COALESCE(l.s, 0), a.name, x.agent_id, b.balance,"
+                 " x.cur, x.rate FROM ms_doc x"
                  " LEFT JOIN (SELECT doc_id, SUM(sum) AS s FROM ms_payment_link GROUP BY doc_id) l ON l.doc_id=x.id"
                  " LEFT JOIN ms_agent a ON a.id=x.agent_id LEFT JOIN ms_agent_balance b ON b.agent_id=x.agent_id"
                  " WHERE x.type=%s AND x.deleted=0 AND x.applicable=1 ORDER BY x.moment DESC", (kind,), many=True) or []
     out = []
-    for i, num, moment, s, paid, linked, name, agent_id, bal in rows:
+    for i, num, moment, s, paid, linked, name, agent_id, bal, cu, rt in rows:
         due = round((s or 0) - max(paid, linked))
         if due >= 1:
+            rt = rt or 1
             day = datetime.strptime(moment[:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=MS_TZ).astimezone(oh.ALMATY).date() if moment else None
             out.append({"id": i, "number": num, "day": str(day or ""), "agent": name or "", "sum": round(s or 0),
-                        "paid": round(max(paid, linked)), "due": due, "agentId": agent_id or "", "balance": round(bal or 0)})
+                        "paid": round(max(paid, linked)), "due": due, "agentId": agent_id or "", "balance": round(bal or 0),
+                        "cur": cu or "", "rate": rt, "dueCur": round((due if not cu else ((s or 0) - max(paid, linked)) / rt), 2),
+                        "orig": money_label(cu, ((s or 0) - max(paid, linked)) / rt, rt)})
     return {"total": sum(r["due"] for r in out), "count": len(out), "rows": out[:top]}
 
