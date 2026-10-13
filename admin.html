@@ -1402,11 +1402,12 @@ async inbox(openId){const st=await api("inbox/status");let cur=openId||null,flt=
     tx.value=m.text;tx.oninput();paintMsgs(lastR,false);tx.focus();tx.setSelectionRange(tx.value.length,tx.value.length)};
    $("#msgs").onclick=e=>{const b=e.target.closest(".ebt");if(b)startEdit(+b.dataset.e)};
    $("#edx").onclick=stopEdit;
-   const send=async()=>{const t=tx.value.trim();if(editing!==null&&!t)return;if(!t&&!pends.length)return;sd.disabled=true;
+   const send=async()=>{const t=tx.value.trim();if(editing!==null&&!t)return;if(!t&&!pends.length)return;const keep=document.activeElement===tx||matchMedia("(hover:hover) and (pointer:fine)").matches;sd.disabled=true;
     try{if(editing!==null){const j=await api(`inbox/conv/${cur}/msg/${editing}/edit`,{method:"POST",body:JSON.stringify({text:t})});editing=null;$("#edb").hidden=true;$("#att").hidden=false;if(j&&j.inplace===false)toast("Клиенту ушло исправление")}
      else if(pends.length){const fs=pends;for(let i=0;i<fs.length;i++){await upload(await shrink(fs[i]),i===0&&t?{caption:t}:{});pends=fs.slice(i+1)}}
      else await api(`inbox/conv/${cur}/send`,{method:"POST",body:JSON.stringify({text:t})});
-     tx.value="";tx.style.height="auto";built=0;await openChat(true);list()}catch(e){if(e.message!=="401")alert(e.message);drawPend()}sd.disabled=false;mode()};
+     tx.value="";tx.style.height="auto";built=0;await openChat(true);list()}catch(e){if(e.message!=="401")alert(e.message);drawPend()}sd.disabled=false;mode();
+     if(keep){const f=$("#tx");if(f&&!f.disabled){f.focus();f.setSelectionRange(f.value.length,f.value.length)}}};   // после отправки курсор остаётся в поле — можно печатать дальше (компьютер; на телефоне — если писали с клавиатуры)
    sd.onclick=()=>{if(locked)return finish(true);if(has())send()};
    tx.onkeydown=e=>{if(e.key==="Escape"&&editing!==null){e.preventDefault();return stopEdit()}if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing&&e.keyCode!==229){e.preventDefault();if(tx.value.trim()||pends.length)send()}};   // Enter — отправить, Shift+Enter — новая строка
    // голосовое и видеокружок, как в Telegram: удерживать — запись, влево — отмена, вверх — замок; короткое нажатие — переключить голос/кружок
