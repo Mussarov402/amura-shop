@@ -357,18 +357,28 @@ DOC_NAMES = {"customerorder": "Заказ", "demand": "Отгрузка", "retai
              "cashin": "Приходный ордер", "cashout": "Расходный ордер"}
 
 
-def card(agent_id):
-    """Карточка контрагента: баланс (знак как в отчёте взаиморасчётов: плюс — мы должны), документы за 90 дней, наши операции."""
+DOC_GROUPS = {"sale": ("customerorder", "demand", "retaildemand", "salesreturn", "retailsalesreturn"), "supply": ("supply",),
+              "money": ("paymentin", "paymentout", "cashin", "cashout")}
+
+
+def card(agent_id, q="", group="", limit=60):
+    """Карточка контрагента: баланс (знак как в отчёте взаиморасчётов: плюс — мы должны), документы за 90 дней, наши операции.
+    q — поиск документа по номеру (часть номера), group — sale / supply / money (остальное — все виды)."""
+    types = DOC_GROUPS.get(group) or tuple(DOC_NAMES)
+    q = "".join(ch for ch in str(q or "") if ch.isalnum())[:30]
     with mirror.db() as d:
         a = d.run("SELECT id, name, phone, email, inn FROM ms_agent WHERE id=%s AND deleted=0", (agent_id,), one=True)
         if not a:
             return None
         b = d.run("SELECT balance, synced FROM ms_agent_balance WHERE agent_id=%s", (agent_id,), one=True)
-        docs = d.run("SELECT id, type, number, moment, sum, applicable FROM ms_doc WHERE agent_id=%s AND deleted=0 AND type IN ("
-                     + ", ".join(["%s"] * len(DOC_NAMES)) + ") ORDER BY moment DESC LIMIT 60", (agent_id, *DOC_NAMES), many=True) or []
+        where = "agent_id=%s AND deleted=0 AND type IN (" + ", ".join(["%s"] * len(types)) + ")" + (" AND number LIKE %s" if q else "")
+        args = (agent_id, *types, *((f"%{q}%",) if q else ()))
+        total = (d.run(f"SELECT COUNT(*) FROM ms_doc WHERE {where}", args, one=True) or [0])[0] or 0
+        docs = d.run(f"SELECT id, type, number, moment, sum, applicable FROM ms_doc WHERE {where} ORDER BY moment DESC LIMIT %s",
+                     (*args, limit), many=True) or []
     bal = round((b or [0])[0] or 0)
     return {"id": a[0], "name": a[1] or "", "phone": a[2] or "", "email": a[3] or "", "inn": a[4] or "", "balance": bal,
-            "synced": (b or [0, 0])[1] or 0,
+            "synced": (b or [0, 0])[1] or 0, "docsTotal": total,
             "docs": [{"id": i, "type": t, "title": DOC_NAMES.get(t, t), "number": n or "", "at": mirror._alm(m), "sum": round(s or 0),
                       "applicable": bool(ap), "money": t in mirror.MONEY_DOCS} for i, t, n, m, s, ap in docs],
             "ops": recent(20, agent_id)}

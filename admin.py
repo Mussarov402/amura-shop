@@ -2571,6 +2571,39 @@ def report_turnover():
     return jsonify(ok=True, **reports.turnover(_days(), request.args.get("q", "")[:100]))
 
 
+_report_files = {}      # короткая ссылка на Excel отчёта: токен → (время, параметры); живёт час
+
+
+@bp.post("/admin/api/reports/export")
+@guard
+def report_export():
+    """Отчёт в Excel: подписанная ссылка на файл (скачивается без входа, как PDF заказов), живёт час."""
+    if not modules.enabled("finance"):
+        return jsonify(ok=False, error="Модуль «Финансы» выключен"), 404
+    b = request.get_json(silent=True) or {}
+    kind = str(b.get("kind", "product"))
+    kind = kind if kind in ("product", "agent", "turn") else "product"
+    try:
+        days = int(b.get("days", 30))
+    except (TypeError, ValueError):
+        days = 30
+    now = time.time()
+    for k in [k for k, v in _report_files.items() if now - v[0] > 3600]:
+        _report_files.pop(k, None)
+    tok = secrets.token_hex(12)
+    _report_files[tok] = (now, (kind, days, str(b.get("q", ""))[:100]))
+    return jsonify(ok=True, url=f"/admin/report-files/{tok}.xlsx?t={_sig('rx' + tok)}")
+
+
+@bp.get("/admin/report-files/<tok>.xlsx")
+def report_file(tok):
+    if not hmac.compare_digest(_sig("rx" + tok), request.args.get("t", "")) or tok not in _report_files:
+        return "Ссылка устарела — выгрузите отчёт заново", 404
+    from flask import Response
+    return Response(reports.xlsx(*_report_files[tok][1]), mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": "attachment; filename=AMURA-report.xlsx", "Cache-Control": "private, max-age=3600"})
+
+
 @bp.post("/admin/api/money/transfer")
 @guard
 def money_transfer():
@@ -2635,7 +2668,7 @@ def money_agent_card(agent_id):
     off = _pay_off(False)
     if off:
         return off
-    c = payments.card(agent_id)
+    c = payments.card(agent_id, request.args.get("q", ""), request.args.get("group", ""))
     return jsonify(ok=True, agent=c, enabled=payments.enabled()) if c else (jsonify(ok=False, error="Контрагент не найден"), 404)
 
 

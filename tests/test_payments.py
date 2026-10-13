@@ -190,6 +190,16 @@ class PaymentsTest(unittest.TestCase):
         self.c.put("/admin/api/modules", headers=self.h, json={"id": "finance", "on": False})
         self.assertEqual(self.c.get("/admin/api/money/ops", headers=self.h).status_code, 404)
 
+    def test_card_search(self):
+        with mirror.db() as d:
+            d.run("INSERT INTO ms_doc (id, type, number, moment, agent_id, sum, applicable, deleted) VALUES ('pi9', 'paymentin', '00123', '2026-10-11 10:00:00', 'k1', 500, 1, 0)")
+        c = lambda q: self.c.get("/admin/api/money/agents/k1" + q, headers=self.h).get_json()["agent"]
+        self.assertEqual((c("")["docsTotal"], len(c("")["docs"])), (2, 2))
+        self.assertEqual([x["id"] for x in c("?q=12")["docs"]], ["pi9"])                 # по части номера
+        self.assertEqual([x["id"] for x in c("?group=money")["docs"]], ["pi9"])
+        self.assertEqual([x["id"] for x in c("?group=sale")["docs"]], ["dm1"])
+        self.assertEqual(c("?q=99999")["docsTotal"], 0)
+
     def test_card_debts_meta(self):
         self.post(dir="in", agent="k1", sum=1000, account="acc1")
         c = self.c.get("/admin/api/money/agents/k1", headers=self.h).get_json()["agent"]
