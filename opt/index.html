@@ -250,6 +250,7 @@ form.co{display:grid;gap:12px;padding-top:6px}
 .modal{position:fixed;inset:0;z-index:42;display:none;place-items:center;padding:16px}
 .modal.open{display:grid}
 .sheet{background:var(--surface);border-radius:var(--radius-lg);max-width:880px;width:100%;max-height:calc(100% - 16px);overflow:auto;display:grid;grid-template-columns:1fr 1fr;position:relative}
+.sheet.opros{grid-template-columns:1fr;max-width:560px}   /* анкета «Пожелания» — одна колонка */
 .sheet .pic{position:relative;background:#fff;display:grid;place-items:center;min-height:300px;border-radius:var(--radius-lg) 0 0 var(--radius-lg)}
 .sheet .pic img{max-height:460px;object-fit:contain;padding:22px}
 .sheet .info{padding:26px;display:flex;flex-direction:column;gap:10px}
@@ -596,6 +597,7 @@ async function boot(){
   if(PROMO) fetch(CONFIG.apiUrl + "/ref/promo?retail=1&code=" + encodeURIComponent(PROMO.code)).then(r => r.json()).then(j => {   // промокод могли убрать или сменить скидку
     PROMO = j.ok ? { code: j.code, discount: j.discount || 0 } : null; save("amura-promo", PROMO); if(VIEW === "cart") renderCart();
   }).catch(() => {});
+  oprosLink();
   if(!okStatic && !okLive && !shown){ ALL = DEMO_ITEMS; DEMO = true; $("#demoBar").hidden = false; applyData({ items: DEMO_ITEMS }); render(); if(VIEW !== "home") go(VIEW, true); return; }
   if(okStatic && okLive) getJSON(CONFIG.catalogUrl, 8000).then(d => { (d.items || []).forEach(i => { if(i.desc) DESC[i.id] = i.desc; }); ALL.forEach(i => { if(i.desc === undefined && i.id in DESC) i.desc = DESC[i.id]; }); cacheSave(); }).catch(() => {});
   setInterval(() => { if(document.visibilityState === "visible") refreshLive(); }, CONFIG.refreshMs);
@@ -885,7 +887,7 @@ function descHTML(it){
   return `<div class="desc${long ? " clip" : ""}" id="descText">${esc(it.desc)}</div>${long ? `<button type="button" class="more-link" id="descMore">Читать полностью</button>` : ""}`;
 }
 function openProduct(it){
-  $("#sheet").dataset.id = it.id;
+  $("#sheet").dataset.id = it.id; $("#sheet").classList.remove("opros");
   $("#sheet").innerHTML = `<button class="x" id="closeModal" aria-label="Закрыть">×</button>
     <div class="pic">${favBtnHTML(it.id)}${it.imgBig || it.img ? `<img src="${esc(it.imgBig || it.img)}" alt="${esc(it.name)}">` : `<span class="ph" style="font-size:48px">${esc((it.brand||"A").charAt(0))}</span>`}</div>
     <div class="info">
@@ -1253,6 +1255,45 @@ async function sharePdf(url, number, btn){
 /* ===== UI ===== */
 function closeAll(){ $("#modal").classList.remove("open"); $("#scrim").classList.remove("open"); $("#catPanel").classList.remove("open"); $("#catPanel").setAttribute("aria-hidden", "true"); }
 $("#scrim").onclick = closeAll;
+/* ===== Анкета «Пожелания» (amura.kz/#opros, opt.amura.kz/#opros): что хотят видеть покупатели. Модуль «Пожелания клиентов» в системе AMURA.
+   Без скидок и промокодов за ответ; имя и телефон — по желанию. */
+async function openOpros(){
+  try{ const j = await (await fetch(CONFIG.apiUrl + "/wish")).json(); if(!j.ok) return; }catch{ return; }
+  const brands = [...new Set(ALL.map(i => i.brand).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ru"));
+  const W = { brands: [], rating: 0 }, ta = 'style="width:100%;min-height:76px;border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:11px 12px;resize:vertical"';
+  const chips = () => W.brands.map((b, i) => `<button type="button" class="chip" data-wb="${i}" style="border:1px solid var(--line);background:var(--bg);border-radius:999px;padding:5px 10px;font-size:13px">${esc(b)} ✕</button>`).join(" ");
+  $("#sheet").dataset.id = ""; $("#sheet").classList.add("opros");
+  $("#sheet").innerHTML = `<button class="x" id="closeModal" aria-label="Закрыть">×</button><div class="info" id="wishBox">
+    <h3>Что вы хотите видеть в AMURA?</h3><p class="kv">Пара минут — и мы привезём то, что вам нужно.</p>
+    <div class="field"><label for="wWant">Какие бренды или товары хотите у нас видеть?</label><textarea id="wWant" ${ta} placeholder="Например: крем Medi-Peel, маски Mediheal"></textarea></div>
+    <div class="field"><label for="wBrand">Бренды — выберите или впишите</label><input id="wBrand" list="wBrands" placeholder="Начните вводить бренд" autocomplete="off"><datalist id="wBrands">${brands.map(b => `<option value="${esc(b)}">`).join("")}</datalist><div id="wChips" style="margin-top:6px"></div></div>
+    <div class="field"><label for="wImp">Что нам улучшить?</label><textarea id="wImp" ${ta} placeholder="Сайт, доставка, цены, ассортимент…"></textarea></div>
+    <div class="field"><label>Оценка магазина — по желанию</label><div id="wRate" style="display:flex;gap:6px">${[1,2,3,4,5].map(n => `<button type="button" data-wr="${n}" aria-label="${n} из 5" style="font-size:28px;line-height:1;border:0;background:none;color:var(--line);cursor:pointer">★</button>`).join("")}</div></div>
+    <div class="field"><label for="wName">Имя и телефон — если хотите, чтобы мы ответили</label><div style="display:flex;gap:8px"><input id="wName" placeholder="Имя" autocomplete="name" style="flex:1;min-width:0"><input id="wPhone" type="tel" inputmode="tel" placeholder="+7 7__" autocomplete="tel" style="flex:1;min-width:0"></div></div>
+    <div class="err" id="wErr"></div><button class="btn" id="wSend" type="button">Отправить</button></div>`;
+  $("#modal").classList.add("open"); $("#scrim").classList.add("open"); $("#closeModal").onclick = closeAll;
+  const addBrand = () => { const v = $("#wBrand").value.trim(); if(v && W.brands.length < 10 && !W.brands.some(b => b.toLowerCase() === v.toLowerCase())) W.brands.push(v); $("#wBrand").value = ""; $("#wChips").innerHTML = chips(); };
+  $("#wBrand").addEventListener("change", addBrand);
+  $("#wBrand").addEventListener("keydown", e => { if(e.key === "Enter"){ e.preventDefault(); addBrand(); } });
+  $("#wishBox").addEventListener("click", async e => {
+    const c = e.target.closest("[data-wb]"); if(c){ W.brands.splice(+c.dataset.wb, 1); $("#wChips").innerHTML = chips(); return; }
+    const r = e.target.closest("[data-wr]"); if(r){ W.rating = +r.dataset.wr; document.querySelectorAll("[data-wr]").forEach(b => b.style.color = +b.dataset.wr <= W.rating ? "#E3A008" : "var(--line)"); return; }
+    if(e.target.id !== "wSend") return;
+    addBrand();
+    const body = { want: $("#wWant").value.trim(), improve: $("#wImp").value.trim(), brands: W.brands, rating: W.rating || undefined,
+      name: $("#wName").value.trim(), phone: $("#wPhone").value.trim(), retail: RETAIL, ref: (typeof REF !== "undefined" && REF.code()) || undefined };
+    if(!body.want && !body.improve && !body.brands.length && !body.rating){ $("#wErr").textContent = "Напишите хотя бы одно пожелание"; return; }
+    e.target.disabled = true; e.target.textContent = "Отправляем…";
+    try{
+      const j = await (await fetch(CONFIG.apiUrl + "/wish", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json();
+      if(!j.ok) throw new Error(j.error || "Не получилось отправить");
+      $("#wishBox").innerHTML = `<h3>Спасибо! 💚</h3><p>Мы прочитаем каждый ответ и учтём при следующих закупках.</p><button class="btn" type="button" id="wDone">Вернуться в каталог</button>`;
+      $("#wDone").onclick = closeAll;
+    }catch(x){ $("#wErr").textContent = x.message || "Нет связи с сервером"; e.target.disabled = false; e.target.textContent = "Отправить"; }
+  });
+}
+function oprosLink(){ if(location.hash === "#opros"){ history.replaceState(history.state, "", location.pathname + location.search); openOpros(); } }
+addEventListener("hashchange", oprosLink);
 let VIEW = "home";
 function go(v, keepScroll){
   VIEW = v; document.body.dataset.view = v;
