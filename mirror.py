@@ -26,6 +26,7 @@ EVERY_LOADING = 120        # сек между проходами во врем�
 FULL_EVERY = 86400         # раз в сутки — полный проход: находим удалённые в МойСклад товары
 SALES_DOCS = ("customerorder", "demand", "retaildemand", "salesreturn", "retailsalesreturn")   # документы продаж
 STOCK_DOCS = ("supply", "loss", "enter", "move", "inventory", "purchasereturn")   # складские: приёмки, списания, оприходования, перемещения, инвентаризации, возвраты поставщикам
+RETAIL_DOCS = ("retaildemand", "retailsalesreturn")   # чеки и возвраты по кассе: у них есть кассовая смена (shift_id)
 RETURN_BASE = {"salesreturn": "demand", "purchasereturn": "supply"}   # возврат → поле документа-основания (base_id)
 MONEY_DOCS = ("paymentin", "paymentout", "cashin", "cashout")   # деньги: входящие/исходящие платежи, приходные/расходные ордера
 LINE_DOCS = SALES_DOCS + STOCK_DOCS                               # у этих документов есть позиции (у денежных — нет)
@@ -87,7 +88,8 @@ def _schema(d):
     for col in ("ALTER TABLE ms_doc ADD COLUMN store2_id TEXT",
                 "ALTER TABLE ms_doc ADD COLUMN account_id TEXT",       # счёт организации у платежа
                 "ALTER TABLE ms_doc ADD COLUMN paid DOUBLE PRECISION",   # оплачено по документу (payedSum МойСклад), ₸
-                "ALTER TABLE ms_doc ADD COLUMN base_id TEXT"):           # документ-основание возврата: отгрузка / приёмка
+                "ALTER TABLE ms_doc ADD COLUMN base_id TEXT",            # документ-основание возврата: отгрузка / приёмка
+                "ALTER TABLE ms_doc ADD COLUMN shift_id TEXT"):          # кассовая смена чека / возврата по кассе
         try:
             d.run(col)
             d.c.commit()
@@ -156,7 +158,7 @@ def _parse_agent(row, now):
             1 if row.get("archived") else 0, (row.get("updated") or "")[:23], 0, now)
 
 
-_DCOLS = "id, type, number, moment, agent_id, store_id, store2_id, account_id, state_id, sum, applicable, descr, updated, deleted, seen, paid, base_id"
+_DCOLS = "id, type, number, moment, agent_id, store_id, store2_id, account_id, state_id, sum, applicable, descr, updated, deleted, seen, paid, base_id, shift_id"
 
 
 _SCOLS = "id, number, moment, close_at, store_id, point, cash, nocash, got_cash, got_nocash, commission, updated, deleted, seen"
@@ -177,7 +179,8 @@ def _doc_parser(kind):
                 1 if row.get("applicable") else 0,
                 (row.get("description") or row.get("paymentPurpose") or "").split("\n")[0][:200],
                 (row.get("updated") or "")[:23], 0, now, (row.get("payedSum") or 0) / 100,
-                _href_id(row.get(RETURN_BASE[kind])) if kind in RETURN_BASE else None)
+                _href_id(row.get(RETURN_BASE[kind])) if kind in RETURN_BASE else None,
+                _href_id(row.get("retailShift")) if kind in RETAIL_DOCS else None)
     return parse
 
 
@@ -247,6 +250,19 @@ def _base_reload():
             d.run("UPDATE ms_sync SET cursor='', skip=0, full_from=0, full_done=0 WHERE entity=%s", (t,))
         inbox.set_setting(d, "mirror_base_v", BASE_V)
     print("Зеркало МойСклад: возвраты будут перечитаны вместе с документами-основаниями", flush=True)
+
+
+SHIFT_V = "1"   # версия загрузки смен у чеков: смена версии один раз перечитывает шапки чеков в окне DOC_DAYS (лёгкий проход, без позиций)
+
+
+def _shift_reload():
+    with db() as d:
+        if inbox.get_setting(d, "mirror_shift_v", "") == SHIFT_V:
+            return
+        for t in RETAIL_DOCS:                    # full_done не трогаем — проход «лёгкий»: только шапки, позиции лишь у изменённых
+            d.run("UPDATE ms_sync SET cursor=%s, skip=0, full_from=%s WHERE entity=%s AND full_done>0", (_floor(t), time.time(), t))
+        inbox.set_setting(d, "mirror_shift_v", SHIFT_V)
+    print("Зеркало МойСклад: чеки будут перечитаны вместе с кассовыми сменами", flush=True)
 
 
 def _lines_reload():
@@ -461,6 +477,7 @@ def tick():
         _lines_reload()
         _links_reload()
         _base_reload()
+        _shift_reload()
         caught_all, parts, t0 = True, [], time.time()
         _net["fail"] = False
         for name, fn in (("store", sync_stores), *((e, (lambda e=e: sync_entity(e))) for e in ENTITIES), ("stock", sync_stock), ("money", sync_money)):

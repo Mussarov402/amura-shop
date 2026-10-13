@@ -95,6 +95,41 @@ class ShiftsTest(unittest.TestCase):
         self.assertEqual({x["id"]: x["lines"] for x in s["docs"]}["r1"], 1)
         self.assertEqual(self.get("shifts/nope").status_code, 404)
 
+    def test_two_points_overlap(self):
+        """Две точки на одном складе, смены идут одновременно: чек со ссылкой на смену считается только в своей."""
+        self.load()
+        with mirror.db() as d:
+            d.run("INSERT INTO ms_shift (id, number, moment, close_at, store_id, point, cash, nocash, deleted) VALUES ('s9', '00048', %s, %s, 'sA', 'rp2', 900, 0, 0)",
+                  (ms_t(5.5), ms_t(2.5)))
+            d.run("UPDATE ms_doc SET shift_id='s1' WHERE id IN ('r1', 'r2', 'rr')")
+            d.run("INSERT INTO ms_doc (id, type, number, moment, store_id, sum, applicable, deleted, shift_id) VALUES ('p9', 'retaildemand', 'p9', %s, 'sA', 900, 1, 0, 's9')",
+                  (ms_t(4),))
+        self.fake([{"id": "rp", "name": "Точка продаж"}, {"id": "rp2", "name": "Точка продаж 2"}])
+        reports_mod = __import__("reports")
+        reports_mod._pts.clear()
+        rows = {x["id"]: x for x in self.get("shifts?days=7").get_json()["rows"]}
+        self.assertEqual((rows["s1"]["receipts"], rows["s9"]["receipts"]), (2, 1))
+        self.assertEqual((rows["s1"]["point"], rows["s9"]["point"]), ("Точка продаж", "Точка продаж 2"))
+        s9 = self.get("shifts/s9").get_json()["shift"]
+        self.assertEqual([x["id"] for x in s9["docs"]], ["p9"])
+        s1 = self.get("shifts/s1").get_json()["shift"]
+        self.assertEqual(sorted(x["id"] for x in s1["docs"]), ["r1", "r2", "rr"])
+
+    def test_shift_link_parsed_and_reload_light(self):
+        row = {"id": "c1", "name": "1", "moment": ms_t(1), "updated": ms_t(1), "sum": 500000, "applicable": True,
+               "retailShift": ref("retailshift", "s1")}
+        self.assertEqual(mirror._doc_parser("retaildemand")(row, 0)[-1], "s1")
+        self.assertIsNone(mirror._doc_parser("demand")(row, 0)[-1])
+        with mirror.db() as d:
+            d.run("DELETE FROM setting WHERE key='mirror_shift_v'")
+            d.run("DELETE FROM ms_sync WHERE entity IN ('retaildemand', 'retailsalesreturn')")
+            d.run("INSERT INTO ms_sync (entity, cursor, skip, full_from, full_done, rows) VALUES ('retaildemand', '2026-10-13 00:00:00', 7, 0, 123, 0)")
+        mirror._shift_reload()
+        with mirror.db() as d:
+            cur, skip, ff, fd = d.run("SELECT cursor, skip, full_from, full_done FROM ms_sync WHERE entity='retaildemand'", one=True)
+        self.assertEqual((cur, skip, fd), (mirror._floor("retaildemand"), 0, 123))   # лёгкий проход: full_done сохранён
+        self.assertTrue(ff)
+
     def test_owner_and_module(self):
         self.load()
         self.assertEqual(self.c.get("/admin/api/reports/shifts").status_code, 401)
