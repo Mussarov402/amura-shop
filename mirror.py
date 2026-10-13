@@ -31,7 +31,8 @@ MONEY_DOCS = ("paymentin", "paymentout", "cashin", "cashout")   # деньги: 
 LINE_DOCS = SALES_DOCS + STOCK_DOCS                               # у этих документов есть позиции (у денежных — нет)
 DOC_TYPES = LINE_DOCS + MONEY_DOCS
 DOC_DAYS = 90              # документы берём за последние 90 дней по updated (вся история не нужна для сверки и тяжела)
-ENTITIES = ("product", "variant", "counterparty") + DOC_TYPES
+SHIFTS = "retailshift"      # кассовые смены — только просмотр (своя таблица ms_shift, окно DOC_DAYS)
+ENTITIES = ("product", "variant", "counterparty") + DOC_TYPES + (SHIFTS,)
 MS_TZ = timezone(timedelta(hours=3))   # время в МойСклад — Москва
 RECON_EVERY = 86400        # автосверка раз в сутки, когда загрузка догнала МойСклад
 REPORT_PAGE = 100          # строк на страницу отчёта взаиморасчётов (тяжёлый отчёт)
@@ -74,6 +75,10 @@ def _schema(d):
         # full_from — начало текущего полного прохода (0 — идёт обычная докачка изменений)
         "CREATE TABLE IF NOT EXISTS ms_sync (entity TEXT PRIMARY KEY, cursor TEXT, skip INTEGER DEFAULT 0, full_from DOUBLE PRECISION DEFAULT 0,"
         " full_done DOUBLE PRECISION DEFAULT 0, last_run DOUBLE PRECISION, last_ok DOUBLE PRECISION, rows INTEGER DEFAULT 0, error TEXT)",
+        # кассовые смены: moment/close_at — время МойСклад (Москва), close_at пусто — смена открыта; суммы — тенге
+        "CREATE TABLE IF NOT EXISTS ms_shift (id TEXT PRIMARY KEY, number TEXT, moment TEXT, close_at TEXT, store_id TEXT, point TEXT,"
+        " cash DOUBLE PRECISION, nocash DOUBLE PRECISION, got_cash DOUBLE PRECISION, got_nocash DOUBLE PRECISION, commission DOUBLE PRECISION,"
+        " updated TEXT, deleted INTEGER DEFAULT 0, seen DOUBLE PRECISION)",
         f"CREATE TABLE IF NOT EXISTS ms_recon (id {pk}, at DOUBLE PRECISION, ok INTEGER, body TEXT)",
     ):
         d.run(s)
@@ -152,6 +157,16 @@ def _parse_agent(row, now):
 
 
 _DCOLS = "id, type, number, moment, agent_id, store_id, store2_id, account_id, state_id, sum, applicable, descr, updated, deleted, seen, paid, base_id"
+
+
+_SCOLS = "id, number, moment, close_at, store_id, point, cash, nocash, got_cash, got_nocash, commission, updated, deleted, seen"
+
+
+def _parse_shift(row, now):
+    m = lambda k: (row.get(k) or 0) / 100
+    return (_id(row), row.get("name") or "", (row.get("moment") or "")[:23], (row.get("closeDate") or "")[:23],
+            _href_id(row.get("store")), _href_id(row.get("retailStore")), m("proceedsCash"), m("proceedsNoCash"),
+            m("receivedCash"), m("receivedNoCash"), m("bankComission"), (row.get("updated") or "")[:23], 0, now)
 
 
 def _doc_parser(kind):
@@ -247,7 +262,7 @@ def _lines_reload():
 
 def _floor(entity):
     """Нижняя граница updated для полного прохода: у документов — DOC_DAYS дней назад, у справочников — без границы."""
-    if entity not in DOC_TYPES:
+    if entity not in DOC_TYPES and entity != SHIFTS:
         return ""
     return (datetime.now(MS_TZ) - timedelta(days=DOC_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -258,6 +273,7 @@ _TABLES = {
     "variant": ("ms_product", _COLS, lambda r, t: _parse("variant", r, t), "kind='variant'"),
     "counterparty": ("ms_agent", _ACOLS, _parse_agent, "1=1"),
     **{t: ("ms_doc", _DCOLS, _doc_parser(t), f"type='{t}'") for t in DOC_TYPES},
+    SHIFTS: ("ms_shift", _SCOLS, _parse_shift, "1=1"),
 }
 
 

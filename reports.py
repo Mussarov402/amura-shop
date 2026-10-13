@@ -1,11 +1,13 @@
-"""Отчёты по нашей копии МойСклад (только чтение): прибыль по товарам и клиентам, обороты товаров.
+"""Отчёты по нашей копии МойСклад (только чтение): прибыль по товарам и клиентам, обороты товаров, кассовые смены.
 
 - продажи — проведённые отгрузки и чеки минус возвраты покупателей и по чекам (позиции документов, сумма со скидкой);
 - себестоимость — количество × закупочная цена из карточки товара (приближение: МойСклад считает по партиям,
   поэтому прибыль здесь может немного отличаться от его отчёта «Прибыльность»);
 - период — по дате документа в Алматы, не больше окна зеркала (DOC_DAYS);
 - обороты — приход (приёмки, оприходования, возвраты покупателей) и расход (отгрузки, чеки, списания, возвраты поставщикам)
-  по товарам за период и текущий остаток."""
+  по товарам за период и текущий остаток;
+- кассовые смены — смены МойСклад (выручка наличными и безналом — как в МойСклад) и их чеки и возвраты из нашей копии
+  (чек относится к смене по складу и времени между открытием и закрытием). Только просмотр: без ОФД и без записи в МойСклад."""
 from datetime import datetime, timedelta
 
 import mirror
@@ -128,3 +130,72 @@ def xlsx(kind="product", days=30, q=""):
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+RETAIL = ("retaildemand", "retailsalesreturn")
+
+
+def _shift_row(r):
+    i, num, mo, cl, store, cash, nocash, gc, gn, com = r
+    return {"id": i, "number": num or "", "open": mo or "", "close": cl or "", "storeId": store or "", "cash": round(cash or 0),
+            "noCash": round(nocash or 0), "total": round((cash or 0) + (nocash or 0)), "gotCash": round(gc or 0),
+            "gotNoCash": round(gn or 0), "commission": round(com or 0)}
+
+
+def _in_shift(s, doc_moment, doc_store):
+    """Чек относится к смене: тот же склад и время чека между открытием и закрытием (открытая смена — до сих пор)."""
+    return (not s["storeId"] or doc_store == s["storeId"]) and s["open"] <= doc_moment and (not s["close"] or doc_moment <= s["close"])
+
+
+def shifts(days=30, limit=100):
+    """Кассовые смены за период (по открытию, Алматы): выручка наличными / безналом по МойСклад и чеки из нашей копии."""
+    days, a, b = _bounds(days)
+    cols = "id, number, moment, close_at, store_id, cash, nocash, got_cash, got_nocash, commission"
+    with mirror.db() as d:
+        rows = [_shift_row(r) for r in d.run(f"SELECT {cols} FROM ms_shift WHERE deleted=0 AND moment>=%s AND moment<%s ORDER BY moment DESC",
+                                             (a, b), many=True) or []]
+        docs = d.run(f"SELECT type, moment, store_id, sum FROM ms_doc WHERE deleted=0 AND applicable=1 AND type IN ({_ph(RETAIL)}) AND moment>=%s",
+                     (*RETAIL, a), many=True) or []
+        stores = dict(d.run("SELECT id, name FROM ms_store", many=True) or [])
+    for s in rows:
+        s["store"] = stores.get(s["storeId"], "")
+        s["receipts"] = s["returns"] = s["returnsSum"] = 0
+        for t, mo, st, sm in docs:
+            if _in_shift(s, mo or "", st or ""):
+                if t == "retaildemand":
+                    s["receipts"] += 1
+                else:
+                    s["returns"] += 1
+                    s["returnsSum"] += round(sm or 0)
+    tot = {"cash": sum(s["cash"] for s in rows), "noCash": sum(s["noCash"] for s in rows), "receipts": sum(s["receipts"] for s in rows)}
+    tot["total"] = tot["cash"] + tot["noCash"]
+    tot["avg"] = round(tot["total"] / len(rows)) if rows else 0
+    return {"days": days, "count": len(rows), "open": sum(1 for s in rows if not s["close"]), "total": tot, "rows": rows[:limit]}
+
+
+def shift(shift_id):
+    """Одна смена и её чеки и возвраты (из нашей копии МойСклад). Нет смены — None."""
+    cols = "id, number, moment, close_at, store_id, cash, nocash, got_cash, got_nocash, commission"
+    with mirror.db() as d:
+        r = d.run(f"SELECT {cols} FROM ms_shift WHERE id=%s AND deleted=0", (shift_id,), one=True)
+        if not r:
+            return None
+        s = _shift_row(r)
+        args = [*RETAIL, s["open"]] + ([s["close"]] if s["close"] else []) + ([s["storeId"]] if s["storeId"] else [])
+        docs = d.run(f"SELECT x.id, x.type, x.number, x.moment, x.sum, a.name FROM ms_doc x LEFT JOIN ms_agent a ON a.id=x.agent_id"
+                     f" WHERE x.deleted=0 AND x.applicable=1 AND x.type IN ({_ph(RETAIL)}) AND x.moment>=%s"
+                     + (" AND x.moment<=%s" if s["close"] else "") + (" AND x.store_id=%s" if s["storeId"] else "")
+                     + " ORDER BY x.moment DESC", args, many=True) or []
+        st = d.run("SELECT name FROM ms_store WHERE id=%s", (s["storeId"],), one=True) if s["storeId"] else None
+        lines = {}
+        ids = [x[0] for x in docs]
+        if ids:
+            for doc_id, n in d.run(f"SELECT doc_id, COUNT(*) FROM ms_doc_line WHERE doc_id IN ({_ph(ids)}) GROUP BY doc_id", ids, many=True) or []:
+                lines[doc_id] = n
+    s["store"] = (st and st[0]) or ""
+    s["docs"] = [{"id": i, "type": t, "title": "Возврат" if t == "retailsalesreturn" else "Чек", "number": n or "", "at": mo or "",
+                  "sum": round(sm or 0), "agent": ag or "", "lines": lines.get(i, 0)} for i, t, n, mo, sm, ag in docs]
+    s["receipts"] = sum(1 for x in s["docs"] if x["type"] == "retaildemand")
+    s["receiptsSum"] = sum(x["sum"] for x in s["docs"] if x["type"] == "retaildemand")
+    s["returnsSum"] = sum(x["sum"] for x in s["docs"] if x["type"] != "retaildemand")
+    return s
