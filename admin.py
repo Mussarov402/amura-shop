@@ -2571,6 +2571,26 @@ def report_turnover():
     return jsonify(ok=True, **reports.turnover(_days(), request.args.get("q", "")[:100]))
 
 
+@bp.get("/admin/api/reports/shifts")
+@guard
+def report_shifts():
+    """Кассовые смены за период и их чеки — из нашей копии МойСклад, только просмотр (без ОФД и без записи в МойСклад)."""
+    if not modules.enabled("finance"):
+        return jsonify(ok=False, error="Модуль «Финансы» выключен"), 404
+    return jsonify(ok=True, **reports.shifts(_days()))
+
+
+@bp.get("/admin/api/reports/shifts/<shift_id>")
+@guard
+def report_shift(shift_id):
+    if not modules.enabled("finance"):
+        return jsonify(ok=False, error="Модуль «Финансы» выключен"), 404
+    s = reports.shift(shift_id)
+    if not s:
+        return jsonify(ok=False, error="Смена не найдена"), 404
+    return jsonify(ok=True, shift=s)
+
+
 _report_files = {}      # короткая ссылка на Excel отчёта: токен → (время, параметры); живёт час
 
 

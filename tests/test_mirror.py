@@ -35,6 +35,7 @@ class FakeMS:
         self.variants = []
         self.agents = []
         self.docs = {t: [] for t in mirror.DOC_TYPES}
+        self.shifts = []       # кассовые смены (retailshift)
         self.money = []        # строки /report/money/byaccount
         self.balances = []     # строки /report/counterparty
         self.calls = []
@@ -52,8 +53,8 @@ class FakeMS:
             off, lim = params.get("offset", 0), params.get("limit", 1000)
             return {"meta": {"size": len(allp)}, "rows": allp[off:off + lim]}
         ent = path.rsplit("/", 1)[-1]
-        if path.startswith("/entity/") and (ent in ("product", "variant", "counterparty") or ent in self.docs):
-            rows = {"product": self.products, "variant": self.variants, "counterparty": self.agents, **self.docs}[ent]
+        if path.startswith("/entity/") and (ent in ("product", "variant", "counterparty", "retailshift") or ent in self.docs):
+            rows = {"product": self.products, "variant": self.variants, "counterparty": self.agents, "retailshift": self.shifts, **self.docs}[ent]
             for f in filter(None, params.get("filter", "").split(";")):
                 if f.startswith("updated>="):
                     rows = [r for r in rows if r["updated"][:19] >= f[9:]]
