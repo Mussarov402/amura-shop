@@ -578,12 +578,17 @@ def catalog_route():
         data = v[1]                        # МойСклад не ответил — отдаём последние данные
     ws = False if request.args.get("mode") == "retail" else is_wholesale(session_cid())   # розничный сайт — всегда розница
     closed = not site_on("rtl" if request.args.get("mode") == "retail" else "opt")
-    ck = ("catjson", ws, closed)             # JSON и gzip собираются раз на обновление каталога, а не на каждого посетителя
+    try:
+        import sources
+        promo = sources.promo_available()
+    except Exception:
+        promo = False
+    ck = ("catjson", ws, closed, promo)             # JSON и gzip собираются раз на обновление каталога, а не на каждого посетителя
     hit = _cache.get(ck)
     if hit and hit[0] is data:
         body = hit[1]
     else:
-        raw = json.dumps({"updated": data["updated"], "wholesale": ws, "items": view_items(data["items"], ws)} | ({"closed": SITE_CLOSED} if closed else {}),
+        raw = json.dumps({"updated": data["updated"], "wholesale": ws, "items": view_items(data["items"], ws)} | ({"closed": SITE_CLOSED} if closed else {}) | ({"promo": True} if promo else {}),
                          ensure_ascii=False, separators=(",", ":")).encode()
         body = (raw, gzip.compress(raw, 6))
         _cache[ck] = (data, body)
@@ -838,6 +843,14 @@ def order_core(d, key, ip, me, source="с сайта", panel=False):
             return dict(ok=False, error="Склад сейчас не отвечает, попробуйте через минуту"), 503
         cat = {i["id"]: i for i in v[1]["items"]}
     retail = retail_req                                             # заказ с розничного сайта (amura.kz)
+    site = not panel and source == "с сайта"                       # заказ с сайта (не панель и не ИИ) — для модуля «Источники»
+    src, disc = None, 0
+    if site:
+        try:
+            import sources
+            src, disc = sources.for_order(d)
+        except Exception as e:
+            print("Источники: источник заказа не определён:", str(e)[:200], flush=True)
     if retail:
         source = RETAIL_SOURCE
     ws = True if panel else (False if retail else is_wholesale(me))
@@ -849,6 +862,8 @@ def order_core(d, key, ip, me, source="с сайта", panel=False):
             continue
         qty = min(qty, int(item["qty"]))
         price = unit_price(item, qty, ws)
+        if disc:                                                    # промокод источника со скидкой — только по настройке владельца
+            price = sources.apply_discount(price, disc)
         if panel and p.get("price") not in (None, ""):
             try:
                 price = max(0, round(float(p["price"])))
@@ -908,7 +923,8 @@ def order_core(d, key, ip, me, source="с сайта", panel=False):
             "store": meta("store", store_id()),          # склад сразу: отгрузка по сценарию проводится, а не остаётся черновиком
             "agent": meta("counterparty", agent),
             "shipmentAddress": city,
-            "description": f"Заказ {source}\n{name}, {contact}\nГород: {city}\nОтправка: {ship_name}" + _panel_comment(d, panel),
+            "description": f"Заказ {source}\n{name}, {contact}\nГород: {city}\nОтправка: {ship_name}" + _panel_comment(d, panel)
+                           + (f"\nИсточник: {src['code']}" + (f" (промокод {src['promo']}, скидка {disc:g}%)" if disc else "") if src else ""),
             "positions": positions,
         })
     except Exception as e:
@@ -917,6 +933,12 @@ def order_core(d, key, ip, me, source="с сайта", panel=False):
         return dict(ok=False, error="Не удалось сохранить заказ, менеджер уже получил его и свяжется с вами"), 502
 
     number = order["name"]
+    if site:
+        try:
+            import sources
+            sources.record_order(order.get("id", ""), number, src["code"] if src else "", lines, retail)
+        except Exception as e:
+            print("Источники:", str(e)[:200], flush=True)
     if retail:
         def _mark():
             try:

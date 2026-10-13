@@ -477,6 +477,28 @@ if(RETAIL){
 const SK = k => RETAIL && k !== "amura-auth" ? "r:" + k : k;   // корзина и кэш розницы — отдельно от оптового сайта, вход общий
 function load(k, d){ try{ const v = localStorage.getItem(SK(k)); return v ? JSON.parse(v) : d; }catch{ return d; } }
 function save(k, v){ try{ localStorage.setItem(SK(k), JSON.stringify(v)); }catch{} }
+/* ===== Источник покупателя: ссылка ?ref=CODE от автора/блогера (модуль «Источники» в системе AMURA) =====
+   Метка живёт 30 дней (последний клик), из адреса убирается; переход отправляется раз в день на устройство,
+   «в корзину» — первое добавление за визит. Без метки сайт работает как раньше. Личных данных не отправляем. */
+const REF = (() => {
+  const day = () => new Date().toISOString().slice(0, 10);
+  const ping = (code, kind) => fetch(CONFIG.apiUrl + "/ref/visit", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ref: code, kind, retail: RETAIL, page: location.pathname }), keepalive: true }).catch(() => {});
+  try{
+    const u = new URL(location.href), code = (u.searchParams.get("ref") || "").trim().toLowerCase();
+    if(/^[a-z0-9][a-z0-9_-]{1,31}$/.test(code)){
+      localStorage.setItem("amura-ref", JSON.stringify({ code, at: Date.now() }));
+      u.searchParams.delete("ref"); history.replaceState(history.state, "", u.pathname + u.search + u.hash);
+      const k = code + "|" + day();
+      if(localStorage.getItem("amura-ref-v") !== k){ localStorage.setItem("amura-ref-v", k); ping(code, "visit"); }
+    }
+  }catch{}
+  const cur = () => { try{ const r = JSON.parse(localStorage.getItem("amura-ref") || "null"); return r && Date.now() - r.at < 30 * 864e5 ? r.code : ""; }catch{ return ""; } };
+  let carted = false;
+  return { code: cur, cart(){ const c = cur(); if(c && !carted){ carted = true; ping(c, "cart"); } } };
+})();
+let PROMO = load("amura-promo", null), PROMO_ON = false;   // промокод источника: скидку задаёт владелец, цену считает сервер
+const promoPrice = p => PROMO && PROMO.discount > 0 ? Math.max(1, Math.round(p * (100 - PROMO.discount) / 100)) : p;
 let tt; function toast(m){ const t = $("#toast"); t.textContent = m; t.style.display = "block"; clearTimeout(tt); tt = setTimeout(() => t.style.display = "none", 2600); }
 
 /* ===== Цена по количеству ===== */
@@ -550,6 +572,12 @@ function cacheLoad(){
 function skeletonGrid(n){
   $("#grid").innerHTML = Array.from({ length: n }, () => `<div class="card sk"><div class="thumb skel"></div><div class="skel" style="height:14px;width:40%"></div><div class="skel" style="height:34px"></div><div class="skel" style="height:22px;width:55%"></div><div class="skel" style="height:96px"></div><div class="skel" style="height:40px"></div></div>`).join("");
 }
+/* ссылка на товар от источника: …/?ref=CODE#p/<id> — открыть карточку, когда каталог загрузится */
+function refProduct(){
+  const m = location.hash.match(/^#p\/([\w-]+)$/); if(!m) return;
+  const it = byId(m[1]); if(!it) return;
+  history.replaceState(history.state, "", location.pathname + location.search); openProduct(it);
+}
 async function boot(){
   renderCartCount();
   // 0) мгновенно: каталог, который этот телефон уже видел (как в приложениях WB / Kaspi)
@@ -564,6 +592,10 @@ async function boot(){
   }).catch(() => false);
   const live = refreshLive();
   const [okStatic, okLive] = await Promise.all([stat, live]);
+  refProduct();
+  if(PROMO) fetch(CONFIG.apiUrl + "/ref/promo?code=" + encodeURIComponent(PROMO.code)).then(r => r.json()).then(j => {   // промокод могли убрать или сменить скидку
+    PROMO = j.ok ? { code: j.code, discount: j.discount || 0 } : null; save("amura-promo", PROMO); if(VIEW === "cart") renderCart();
+  }).catch(() => {});
   if(!okStatic && !okLive && !shown){ ALL = DEMO_ITEMS; DEMO = true; $("#demoBar").hidden = false; applyData({ items: DEMO_ITEMS }); render(); if(VIEW !== "home") go(VIEW, true); return; }
   if(okStatic && okLive) getJSON(CONFIG.catalogUrl, 8000).then(d => { (d.items || []).forEach(i => { if(i.desc) DESC[i.id] = i.desc; }); ALL.forEach(i => { if(i.desc === undefined && i.id in DESC) i.desc = DESC[i.id]; }); cacheSave(); }).catch(() => {});
   setInterval(() => { if(document.visibilityState === "visible") refreshLive(); }, CONFIG.refreshMs);
@@ -587,6 +619,7 @@ async function refreshLive(){
     const data = await getJSON(CONFIG.liveUrl, 60000, AUTH.token ? { Authorization: "Bearer " + AUTH.token } : undefined);   // сервер может «просыпаться» до минуты
     lastLive = Date.now();
     siteClosed(data.closed);
+    if(!!data.promo !== PROMO_ON){ PROMO_ON = !!data.promo; if(VIEW === "cart" && !document.activeElement?.matches("#drawerBody input")) renderCart(); }
     const typing = document.activeElement && document.activeElement.matches("#grid input, #sheet input");
     applyData(data); cacheSave();
     if(!typing) render();
@@ -690,7 +723,7 @@ function onBuyClick(e){
   if(tier){ if(!tier.disabled) setPick(it, Number(tier.dataset.tier)); }
   else if(e.target.closest("[data-inc]")) setPick(it, q + 1);
   else if(e.target.closest("[data-dec]")) setPick(it, q - 1);
-  else if(e.target.closest("[data-add]")){ cart[it.id] = q; save("amura-cart2", cart); renderCartCount(); refreshCard(it.id); toast(`${it.name.slice(0,40)} — ${q} шт в корзине`); }
+  else if(e.target.closest("[data-add]")){ cart[it.id] = q; save("amura-cart2", cart); REF.cart(); renderCartCount(); refreshCard(it.id); toast(`${it.name.slice(0,40)} — ${q} шт в корзине`); }
   else if(e.target.closest("[data-open]")) openProduct(it);
 }
 function onBuyChange(e){
@@ -880,7 +913,7 @@ $("#modal").addEventListener("click", e => { if(e.target.id === "modal") closeAl
 
 /* ===== Корзина ===== */
 function lines(){
-  return Object.entries(cart).map(([id, q]) => { const it = byId(id); return it ? { it, q, price: unitPrice(it, q), tier: tierOf(it, q) } : null; }).filter(Boolean);
+  return Object.entries(cart).map(([id, q]) => { const it = byId(id); return it ? { it, q, price: promoPrice(unitPrice(it, q)), tier: tierOf(it, q) } : null; }).filter(Boolean);
 }
 function totals(ship){
   const ls = lines();
@@ -920,6 +953,7 @@ function renderCart(){
       <div class="field"><label>${RETAIL ? "Способ получения" : "Способ отправки"}</label>
         <div class="ship${RETAIL ? " dlvs" : ""}">${CONFIG.shipping.map(s => `<label class="${f.ship===s.id?"on":""}" data-m="${s.id}"><input type="radio" name="ship" value="${s.id}" ${f.ship===s.id?"checked":""}><span>${esc(RETAIL && s.id === "cdek" ? "Пункт выдачи СДЭК" : RETAIL && s.id === "courier" ? "Курьер" : s.name)}${RETAIL ? `<small class="dlvn"></small>` : ""}</span>${RETAIL ? `<em class="dlvp"></em>` : ""}</label>`).join("")}</div></div>
       <div id="shipExtra">${shipExtraHTML(f)}</div>
+      ${PROMO_ON || PROMO ? `<div class="field"><label for="fPromo">Промокод</label><div style="display:flex;gap:8px"><input id="fPromo" autocapitalize="characters" autocomplete="off" placeholder="Если есть" value="${esc(PROMO ? PROMO.code : "")}" style="flex:1;min-width:0"><button class="btn ghost" id="promoBtn" type="button" style="width:auto;flex:none;padding:0 16px">${PROMO ? "Убрать" : "Применить"}</button></div><div class="kv" id="promoMsg" style="margin-top:4px">${PROMO ? (PROMO.discount > 0 ? `Промокод применён: скидка ${PROMO.discount}%` : "Промокод применён") : ""}</div></div>` : ""}
       <div class="err" id="err"></div>
       <button class="btn" id="send" type="submit">Отправить заказ</button>
       <button class="btn ghost" id="clear" type="button">Очистить корзину</button>
@@ -1043,6 +1077,7 @@ function renderSum(){
   $("#sum").innerHTML = `<div><span>Товары, ${fmt(t.count)} шт</span><b>${fmt(t.goods)} ₸</b></div>
     ${t.loader ? `<div><span>Услуга грузчика</span><b>${fmt(t.loader)} ₸</b></div>` : ""}
     ${t.fee ? `<div><span>Комиссия банка 0,95%</span><b>${fmt(t.fee)} ₸</b></div>` : ""}
+    ${PROMO && PROMO.discount > 0 ? `<div><span>Скидка по промокоду ${esc(PROMO.code)}</span><b>−${PROMO.discount}% учтена</b></div>` : ""}
     ${RETAIL ? dlvSumHTML(ship, t) : ""}
     <div class="total"><span>Итого</span><span>${fmt(t.total)} ₸</span></div>`;
 }
@@ -1057,6 +1092,7 @@ function readForm(){
   save("amura-form", f); return f;
 }
 $("#drawerBody").addEventListener("click", e => {
+  if(e.target.id === "promoBtn"){ promoApply(); return; }
   const seg = e.target.closest(".seg button");
   if(seg){ document.querySelectorAll(".seg button").forEach(b => b.setAttribute("aria-pressed", b === seg)); $("#waField").hidden = seg.dataset.c !== "wa"; $("#tgField").hidden = seg.dataset.c !== "tg"; readForm(); return; }
   if(e.target.id === "clear"){ cart = {}; save("amura-cart2", cart); renderCartCount(); render(); renderCart(); return; }
@@ -1083,6 +1119,17 @@ function setCartQty(it, v){
   save("amura-cart2", cart); renderCartCount(); refreshCard(it.id); readFormSafe(); renderCart();
 }
 function readFormSafe(){ if($("#fName")) readForm(); }
+async function promoApply(){
+  const msg = $("#promoMsg"), code = ($("#fPromo").value || "").trim();
+  if(PROMO){ PROMO = null; save("amura-promo", null); readFormSafe(); renderCart(); return; }
+  if(!code){ msg.textContent = "Введите промокод"; return; }
+  msg.textContent = "Проверяем…";
+  try{
+    const r = await fetch(CONFIG.apiUrl + "/ref/promo?code=" + encodeURIComponent(code)), j = await r.json();
+    if(!j.ok){ msg.textContent = j.error || "Промокод не найден"; return; }
+    PROMO = { code: j.code, discount: j.discount || 0 }; save("amura-promo", PROMO); readFormSafe(); renderCart(); render();
+  }catch{ msg.textContent = "Нет связи с сервером, попробуйте ещё раз"; }
+}
 
 /* ===== Отправка заказа ===== */
 let orderKeyVal = "";   // один ключ на попытку заказа: повторная отправка не создаёт дубль
@@ -1120,7 +1167,9 @@ $("#drawerBody").addEventListener("submit", async e => {
     orderKey: orderKey(),
     mode: RETAIL ? "retail" : undefined,
     pvz: RETAIL && f.ship === "cdek" ? f.pvz : undefined,
-    slot: RETAIL && f.ship === "courier" ? f.slot : undefined
+    slot: RETAIL && f.ship === "courier" ? f.slot : undefined,
+    ref: REF.code() || undefined,
+    promo: PROMO ? PROMO.code : undefined
   };
   const btn = $("#send"); btn.disabled = true; btn.textContent = "Отправляем…";
   try{
