@@ -87,6 +87,7 @@ class AuditTest(unittest.TestCase):
             self.assertEqual(len(sent), 1)
             self.assertIn("Асель Оптом", sent[0])
             self.assertIn("№new1", sent[0])
+            self.assertLessEqual(len(sent[0].split("\n")), 7)                          # коротко: 5–7 строк
             audit.morning()                                                              # раз в день
             self.assertEqual(len(sent), 1)
             with inbox.db() as d:
