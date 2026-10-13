@@ -566,6 +566,49 @@ def set_site(kind, on):
     _cache.pop("siteon:" + kind, None)
 
 
+OPT_MIN_DEFAULT = 20000                    # минимальный заказ на оптовом сайте, ₸ (как на баннере; решение владельца 13.10)
+
+
+def opt_min():
+    """Минимальная сумма товаров в заказе с оптового сайта (0 — без минимума). Меняется в «Обзоре → Сайты» (кэш 15 с)."""
+    def get():
+        import inbox
+        with inbox.db() as d:
+            return max(0, int(float(inbox.get_setting(d, "opt_min_order", str(OPT_MIN_DEFAULT)) or 0)))
+    try:
+        return cached("optmin", 15, get)
+    except Exception:
+        return OPT_MIN_DEFAULT
+
+
+MIN_FREE_TAG = "без минимума"             # метка контрагента в МойСклад: минимальная сумма для него не действует
+
+
+def min_exempt(cid):
+    """Постоянный покупатель — минимальный заказ не действует: уже есть заказы в МойСклад или метка «без минимума».
+    МойСклад не ответил — не мешаем заказу (лучше принять, чем потерять постоянного клиента). Кэш 10 минут."""
+    if not cid:
+        return False
+    def check():
+        cp = ms("GET", f"/entity/counterparty/{cid}", timeout=10)
+        if MIN_FREE_TAG in {t.strip().lower() for t in cp.get("tags") or []}:
+            return True
+        r = ms("GET", "/entity/customerorder", params={"filter": f"agent={API}/entity/counterparty/{cid}", "limit": 1}, timeout=10)
+        return (r.get("meta") or {}).get("size", len(r.get("rows") or [])) > 0
+    try:
+        return cached("minfree:" + cid, 600, check)
+    except Exception as e:
+        print("Проверка постоянного покупателя не удалась:", str(e)[:200], flush=True)
+        return True
+
+
+def set_opt_min(v):
+    import inbox
+    with inbox.db() as d:
+        inbox.set_setting(d, "opt_min_order", str(max(0, int(v))))
+    _cache.pop("optmin", None)
+
+
 @bp.route("/catalog")
 def catalog_route():
     try:
@@ -583,12 +626,15 @@ def catalog_route():
         promo = request.args.get("mode") == "retail" and sources.promo_available()   # промокод — только на розничном сайте
     except Exception:
         promo = False
-    ck = ("catjson", ws, closed, promo)             # JSON и gzip собираются раз на обновление каталога, а не на каждого посетителя
+    mn = 0 if request.args.get("mode") == "retail" else opt_min()   # минимальный заказ — только оптовый сайт
+    if mn and session_cid() and min_exempt(session_cid()):         # вошёл постоянный покупатель — минимума для него нет
+        mn = 0
+    ck = ("catjson", ws, closed, promo, mn)             # JSON и gzip собираются раз на обновление каталога, а не на каждого посетителя
     hit = _cache.get(ck)
     if hit and hit[0] is data:
         body = hit[1]
     else:
-        raw = json.dumps({"updated": data["updated"], "wholesale": ws, "items": view_items(data["items"], ws)} | ({"closed": SITE_CLOSED} if closed else {}) | ({"promo": True} if promo else {}),
+        raw = json.dumps({"updated": data["updated"], "wholesale": ws, "items": view_items(data["items"], ws)} | ({"closed": SITE_CLOSED} if closed else {}) | ({"promo": True} if promo else {}) | ({"minOrder": mn} if mn else {}),
                          ensure_ascii=False, separators=(",", ":")).encode()
         body = (raw, gzip.compress(raw, 6))
         _cache[ck] = (data, body)
@@ -885,6 +931,16 @@ def order_core(d, key, ip, me, source="с сайта", panel=False):
     if ship == "kazpost" and not (recipient and len(zipcode) == 6 and address):
         return dict(ok=False, error="Для Казпочты укажите ФИО, индекс и адрес"), 400
     goods = sum(l["qty"] * l["price"] for l in lines)
+    mn = opt_min() if site and not retail else 0                   # оптовый сайт: заказ от минимальной суммы (панель и ИИ — без ограничения)
+    if goods < mn:                                                 # постоянный (по входу или по номеру телефона) — без минимума
+        try:
+            cid = me or ((cp_by_phone(phone) or {}).get("id") if phone else None)
+        except Exception:
+            cid = None
+        if cid and min_exempt(cid):
+            mn = 0
+    if goods < mn:
+        return dict(ok=False, error=f"Минимальный заказ для новых покупателей — {fmt(mn)} ₸. Добавьте товаров ещё на {fmt(mn - goods)} ₸"), 400
     dlv = 0
     if retail:                                   # розница: цена доставки — по настройкам, считаем здесь (как на WB)
         import checkout

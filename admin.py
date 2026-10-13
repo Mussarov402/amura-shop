@@ -2478,7 +2478,12 @@ def sites_admin():
         b = request.get_json(silent=True) or {}
         if b.get("id") in oh.SITES and "on" in b:
             oh.set_site(b["id"], bool(b["on"]))
-    return jsonify(ok=True, sites=[{"id": k, "title": t, "on": oh.site_on(k)} for k, t in oh.SITES.items()])
+        if "optMin" in b:
+            try:
+                oh.set_opt_min(float(b["optMin"] or 0))
+            except (TypeError, ValueError):
+                return jsonify(ok=False, error="Минимальная сумма — число"), 400
+    return jsonify(ok=True, optMin=oh.opt_min(), sites=[{"id": k, "title": t, "on": oh.site_on(k)} for k, t in oh.SITES.items()])
 
 
 # ---------- подключаемые модули (по умолчанию выключены; см. modules.py) ----------

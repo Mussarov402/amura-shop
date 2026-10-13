@@ -37,6 +37,7 @@ class Sources(unittest.TestCase):
                           "find_or_create_agent": lambda *a: "agent-1", "organization": lambda: "org-1", "store_id": lambda: "store-1",
                           "fee_service_id": lambda: "fee-1", "delivery_service_id": lambda: "dlv-1", "notify_bg": lambda fn: None,
                           "is_wholesale": lambda cid: True,
+                          "opt_min": lambda: 0,
                           "_post_order": lambda body: self.posted.append(body) or {"name": str(1500 + len(self.posted)), "id": "o" + str(len(self.posted))}}.items():
             self.patch(oh, name, val)
         self.patch(sources, "_cancelled_ids", lambda ids: set())
