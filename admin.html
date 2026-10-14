@@ -302,12 +302,16 @@ function sitesDraw(){const box=$("#sites");if(!box)return;
   new MutationObserver(()=>{const x=ctx(inp);if(!x)return;delete x.box.dataset.kbu;x.box.dataset.q=inp.value.trim();if(desk.matches&&x.items.length)mark(x,0);else delete x.box.dataset.kb}).observe(c.box,{childList:true});
   c.box.addEventListener("mouseover",e=>{if(!desk.matches)return;const x=ctx(inp),b=e.target.closest(x.sel);if(b)mark(x,x.items.indexOf(b),true)})};
  document.addEventListener("focusin",e=>{if(PAIRS[e.target.id])watch(e.target)});
+ /* выбор товара мышью в изменении заказа и документах склада — тоже как в новом заказе: поиск очищается, список закрывается
+    (на компьютере курсор остаётся в поиске; на телефоне клавиатуру не поднимаем) */
+ document.addEventListener("click",e=>{const b=e.target.closest("#eor [data-a]");if(!b||+(b.style.opacity||1)<1)return;   /* бледная строка — нет в наличии, не добавлена */const box=b.closest("#eor"),root=box.closest(".eo")||document;
+  setTimeout(()=>{const q=root.isConnected?root.querySelector("#eoq"):document.querySelector(".eo #eoq");if(!q)return;q.value="";const r=(root.isConnected?root:document).querySelector("#eor");if(r)r.innerHTML="";if(desk.matches)q.focus()},0)});
  document.addEventListener("keydown",e=>{const inp=e.target;if(!PAIRS[inp.id]||!desk.matches)return;const c=ctx(inp);if(!c)return;const n=c.items.length,i=+(c.box.dataset.kb??-1);
   if((e.key==="ArrowDown"||e.key==="ArrowUp")&&n){e.preventDefault();mark(c,e.key==="ArrowDown"?Math.min(n-1,i+1):Math.max(0,i-1),true)}
   else if(e.key==="Enter"&&n&&i>=0&&c.items[i]){
    /* по подсвеченному — если человек выбрал стрелками/мышью или список свежий по набранному; сканер штрихкода (свой Enter у поля) — как раньше */
    const fresh=c.box.dataset.q===inp.value.trim();if(!(c.box.dataset.kbu||(fresh&&!inp.onkeydown)))return;
-   e.preventDefault();e.stopImmediatePropagation();const id=inp.id,root=inp.closest(".eo");c.items[i].click();
+   e.preventDefault();e.stopImmediatePropagation();const id=inp.id,root=inp.closest(".eo"),it=c.items[i];it.click();if(+(it.style.opacity||1)<1)return;   /* нет в наличии — поиск не трогаем */
    /* как в МойСклад: строка добавлена (повтор — +1 к количеству), поиск пустой и в фокусе — печатаем следующий товар */
    const again=()=>{const q=(root&&root.isConnected&&root.querySelector("#"+id))||document.querySelector(".eo #"+id)||document.getElementById(id);if(!q)return;
     q.value="";const x=ctx(q);if(x)x.box.innerHTML="";q.focus()};again();setTimeout(again,0)}
