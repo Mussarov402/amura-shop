@@ -1,0 +1,6 @@
+reels/*/frames/
+reels/*/out.mp4
+reels/*/mix.wav
+reels/*/voice.*
+reels/*/cues.json
+reels/*/snap_*.jpg
