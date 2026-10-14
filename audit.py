@@ -216,9 +216,11 @@ def morning(force=False):
     res = check()
     save(res)
     if not res["count"] or not oh.notif_on("audit") or not oh.OWNER:
+        print(f"Контроль учёта, утро: {'замечаний нет' if not res['count'] else 'переключатель выключен — не пишем'}", flush=True)
         return res
     try:
         oh.tg("sendMessage", chat_id=oh.OWNER, text=text(res))
+        print(f"Контроль учёта, утро: владельцу отправлено ({res['count']} замечаний)", flush=True)
     except Exception as e:
         print("Контроль учёта: сообщение не отправлено:", e, flush=True)
     return res
