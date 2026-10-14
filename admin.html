@@ -202,7 +202,7 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 .dlc>label{display:grid;gap:4px;font-size:13.5px;font-weight:600;margin-top:10px}.dlc>label input{font:inherit;font-size:16px;padding:10px 12px;border:1px solid #D5DCD7;border-radius:10px;width:100%;box-sizing:border-box}
 .rtb{font-size:11px;font-weight:800;border-radius:6px;padding:1px 6px;background:#FCE8EE;color:#A0254F;text-transform:uppercase;letter-spacing:.3px}
 .eor input{width:74px;padding:8px;border:1px solid #D9E0DB;border-radius:8px;font:inherit;text-align:right}.eor input:first-of-type{width:56px}.eox{border:0;background:#F4E4E4;color:#9B2C2C;border-radius:8px;width:32px;height:32px;cursor:pointer}
-.eos input,.eo textarea{width:100%;padding:10px 12px;border:1px solid #D9E0DB;border-radius:10px;font:inherit;box-sizing:border-box}#eor button,#woar button{all:unset;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 6px;border-bottom:1px solid #EEF1EE;font-size:14px;width:calc(100% - 12px)}#eor button:hover,#woar button:hover{background:#F1F6F3}
+.eos input,.eo textarea{width:100%;padding:10px 12px;border:1px solid #D9E0DB;border-radius:10px;font:inherit;box-sizing:border-box}#eor button,#woar button{all:unset;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 6px;border-bottom:1px solid #EEF1EE;font-size:14px;width:calc(100% - 12px)}#eor button:hover,#woar button:hover{background:#F1F6F3}#eor button.kbon,#woar button.kbon{background:#E3EFE8;box-shadow:inset 3px 0 0 #0E3B2C}
 .eot{display:flex;flex-wrap:wrap;gap:6px 14px;margin:12px 0 8px;font-size:14px}.eot b{margin-left:auto}
 /* поля ровно во всех разделах: не шире своего блока, одна высота; iPhone — время и дата слева и не вылезают за край */
 input,select,textarea{max-width:100%;min-width:0;font-size:16px!important}   /* меньше 16px — iPhone приближает экран при вводе */
@@ -292,6 +292,22 @@ function sitesDraw(){const box=$("#sites");if(!box)return;
    if(!on&&!confirm("Выключить "+(b.dataset.site==="opt"?"оптовый":"розничный")+" сайт? Покупатели увидят «Магазин временно закрыт»."))return;
    b.disabled=true;try{draw(await api("sites",{method:"PUT",body:JSON.stringify({id:b.dataset.site,on})}))}catch(x){b.disabled=false;if(x.message!=="401")alert(x.message)}})};
  api("sites").then(draw).catch(()=>box.remove())}
+/* поиск товара в окнах заказа и документов: на компьютере ↑/↓ — по найденным, Enter — добавить подсвеченный, Esc — очистить поиск.
+   Первый найденный подсвечен сразу; наведение мышью двигает подсветку. Телефон — без изменений. */
+(()=>{const PAIRS={eoq:["eor","[data-a]"],woa:["woar","[data-g]"]},desk=matchMedia("(hover:hover) and (pointer:fine)"),seen=new WeakSet();
+ const ctx=inp=>{const p=PAIRS[inp.id];if(!p)return null;const root=inp.closest(".eo")||document,box=root.querySelector("#"+p[0]);return box?{box,items:[...box.querySelectorAll(p[1])],sel:p[1]}:null};
+ const mark=(c,i,user)=>{c.items.forEach((b,k)=>b.classList.toggle("kbon",k===i));c.box.dataset.kb=i;if(user)c.box.dataset.kbu="1";const b=c.items[i];if(b&&user)b.scrollIntoView({block:"nearest"})};
+ const watch=inp=>{const c=ctx(inp);if(!c||seen.has(c.box))return;seen.add(c.box);
+  new MutationObserver(()=>{const x=ctx(inp);if(!x)return;delete x.box.dataset.kbu;x.box.dataset.q=inp.value.trim();if(desk.matches&&x.items.length)mark(x,0);else delete x.box.dataset.kb}).observe(c.box,{childList:true});
+  c.box.addEventListener("mouseover",e=>{if(!desk.matches)return;const x=ctx(inp),b=e.target.closest(x.sel);if(b)mark(x,x.items.indexOf(b),true)})};
+ document.addEventListener("focusin",e=>{if(PAIRS[e.target.id])watch(e.target)});
+ document.addEventListener("keydown",e=>{const inp=e.target;if(!PAIRS[inp.id]||!desk.matches)return;const c=ctx(inp);if(!c)return;const n=c.items.length,i=+(c.box.dataset.kb??-1);
+  if((e.key==="ArrowDown"||e.key==="ArrowUp")&&n){e.preventDefault();mark(c,e.key==="ArrowDown"?Math.min(n-1,i+1):Math.max(0,i-1),true)}
+  else if(e.key==="Enter"&&n&&i>=0&&c.items[i]){
+   /* по подсвеченному — если человек выбрал стрелками/мышью или список свежий по набранному; сканер штрихкода (свой Enter у поля) — как раньше */
+   const fresh=c.box.dataset.q===inp.value.trim();if(!(c.box.dataset.kbu||(fresh&&!inp.onkeydown)))return;
+   e.preventDefault();e.stopImmediatePropagation();c.items[i].click()}
+  else if(e.key==="Escape"&&(n||inp.value)){e.preventDefault();e.stopImmediatePropagation();inp.value="";c.box.innerHTML=""}},true)})();
 const SEG={inbox:[["inbox","Чаты"],["groups","Группы и рассылки"],["wishes","Пожелания"]],orders:[["orders","Заказы"],["retail","Розница"],["courier","Курьер"],["express","Express"],["clients","Клиенты"]],products:[["products","Товары"],["wh","Склад"],["reviews","Отзывы"],["banners","Баннеры на главной"]],overview:[["overview","Состояние"],["money","Деньги"],["reports","Отчёты"],["sources","Источники"],["pay","Оплата"],["accounts","Счета"],["delivery","Доставка"],["notif","Уведомления"]],ai:[["ai","Чат-проверка"],["rules","Правила"],["kb","База знаний"],["channels","Каналы"],["team","Команда"]]};
 const grp=a=>({groups:"inbox",wishes:"inbox",money:"overview",reports:"overview",sources:"overview",wh:"products",courier:"orders",express:"orders",notif:"overview",delivery:"overview",accounts:"overview",clients:"orders",retail:"orders",banners:"products",reviews:"products",pay:"overview",team:"ai",rules:"ai",kb:"ai",channels:"ai"}[a]||a);
 const seg=a=>{const g=SEG[grp(a)].filter(([k])=>can(k));if(g.length<2)return "";return `<div class="seg" data-g="${grp(a)}">${g.map(([k,t])=>`<button class="${k===a?"on":""}" data-go="${k}">${t}</button>`).join("")}</div>`};
