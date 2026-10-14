@@ -292,7 +292,8 @@ function sitesDraw(){const box=$("#sites");if(!box)return;
    if(!on&&!confirm("Выключить "+(b.dataset.site==="opt"?"оптовый":"розничный")+" сайт? Покупатели увидят «Магазин временно закрыт»."))return;
    b.disabled=true;try{draw(await api("sites",{method:"PUT",body:JSON.stringify({id:b.dataset.site,on})}))}catch(x){b.disabled=false;if(x.message!=="401")alert(x.message)}})};
  api("sites").then(draw).catch(()=>box.remove())}
-/* поиск товара в окнах заказа и документов: на компьютере ↑/↓ — по найденным, Enter — добавить подсвеченный, Esc — очистить поиск.
+/* поиск товара в окнах заказа и документов (как в МойСклад): на компьютере ↑/↓ — по найденным, Enter — добавить подсвеченный
+   (поиск очищается и остаётся в фокусе, повтор того же товара — +1 к количеству), Esc — очистить поиск.
    Первый найденный подсвечен сразу; наведение мышью двигает подсветку. Телефон — без изменений. */
 (()=>{const PAIRS={eoq:["eor","[data-a]"],woa:["woar","[data-g]"]},desk=matchMedia("(hover:hover) and (pointer:fine)"),seen=new WeakSet();
  const ctx=inp=>{const p=PAIRS[inp.id];if(!p)return null;const root=inp.closest(".eo")||document,box=root.querySelector("#"+p[0]);return box?{box,items:[...box.querySelectorAll(p[1])],sel:p[1]}:null};
@@ -306,7 +307,10 @@ function sitesDraw(){const box=$("#sites");if(!box)return;
   else if(e.key==="Enter"&&n&&i>=0&&c.items[i]){
    /* по подсвеченному — если человек выбрал стрелками/мышью или список свежий по набранному; сканер штрихкода (свой Enter у поля) — как раньше */
    const fresh=c.box.dataset.q===inp.value.trim();if(!(c.box.dataset.kbu||(fresh&&!inp.onkeydown)))return;
-   e.preventDefault();e.stopImmediatePropagation();c.items[i].click()}
+   e.preventDefault();e.stopImmediatePropagation();const id=inp.id,root=inp.closest(".eo");c.items[i].click();
+   /* как в МойСклад: строка добавлена (повтор — +1 к количеству), поиск пустой и в фокусе — печатаем следующий товар */
+   const again=()=>{const q=(root&&root.isConnected&&root.querySelector("#"+id))||document.querySelector(".eo #"+id)||document.getElementById(id);if(!q)return;
+    q.value="";const x=ctx(q);if(x)x.box.innerHTML="";q.focus()};again();setTimeout(again,0)}
   else if(e.key==="Escape"&&(n||inp.value)){e.preventDefault();e.stopImmediatePropagation();inp.value="";c.box.innerHTML=""}},true)})();
 const SEG={inbox:[["inbox","Чаты"],["groups","Группы и рассылки"],["wishes","Пожелания"]],orders:[["orders","Заказы"],["retail","Розница"],["courier","Курьер"],["express","Express"],["clients","Клиенты"]],products:[["products","Товары"],["wh","Склад"],["reviews","Отзывы"],["banners","Баннеры на главной"]],overview:[["overview","Состояние"],["money","Деньги"],["reports","Отчёты"],["sources","Источники"],["pay","Оплата"],["accounts","Счета"],["delivery","Доставка"],["notif","Уведомления"]],ai:[["ai","Чат-проверка"],["rules","Правила"],["kb","База знаний"],["channels","Каналы"],["team","Команда"]]};
 const grp=a=>({groups:"inbox",wishes:"inbox",money:"overview",reports:"overview",sources:"overview",wh:"products",courier:"orders",express:"orders",notif:"overview",delivery:"overview",accounts:"overview",clients:"orders",retail:"orders",banners:"products",reviews:"products",pay:"overview",team:"ai",rules:"ai",kb:"ai",channels:"ai"}[a]||a);
