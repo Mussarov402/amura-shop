@@ -1440,7 +1440,9 @@ def order_search():
     if len(q) < 2:
         return jsonify(ok=True, items=[])
     shown, _ = _all_items()
-    out = smart_find(shown, q, 30)
+    v = oh._cache.get("live")
+    gone = (v[1].get("outItems") if v else None) or []          # нет в наличии — тоже находятся и добавляются
+    out = smart_find(shown + gone, q, 30)
     return jsonify(ok=True, items=[{"type": "product", "id": i["id"], "name": i["name"], "qty": i["qty"], "price": oh.unit_price(i, 1, True),
                                     "img": f"{oh.SITE_URL}/{i['img']}" if i.get("img") else ""} for i in out])
 
@@ -1460,6 +1462,10 @@ def order_edit(number):
         positions, goods, loader = [], 0, 0
         prod = [p for p in pos if p["assortment"]["meta"]["type"] in RESERVABLE]
         keep_res = not prod or any((p.get("reserve") or 0) > 0 for p in prod)
+        try:
+            free = oh.panel_catalog()
+        except Exception:
+            free = {}
         if len(lines) > 1000:
             return jsonify(ok=False, error="Слишком много позиций"), 400
         for l in lines:
@@ -1469,6 +1475,8 @@ def order_edit(number):
             p = {"quantity": qty, "price": round(price * 100), "assortment": oh.meta(l["type"], l["id"])}
             if l["type"] in RESERVABLE and keep_res:            # резерв остаётся как был: сняли — правка его не ставит
                 p["reserve"] = qty
+                if not l.get("pos"):                            # новая строка: резерв не больше остатка (нет в наличии — без резерва)
+                    p["reserve"] = min(qty, max(0, int((free.get(l["id"]) or {}).get("qty") or 0)))
             if l.get("pos") and oh.re.fullmatch(r"[0-9a-f-]{36}", str(l["pos"])):
                 p["id"] = l["pos"]
             positions.append(p)

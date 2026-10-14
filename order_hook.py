@@ -377,7 +377,7 @@ def build_live(products):
     stock = _stock()
     imgs = cached("imgidx", 1800, _img_index)
     new_since = (datetime.now(ALMATY) - timedelta(days=21)).strftime("%Y-%m-%d")
-    items, descs = [], {}
+    items, descs, out = [], {}, []           # out — нет в наличии: только для заказов из системы AMURA, клиентам не уходит
     try:
         import admin
         hidden = admin.hidden_ids()          # товары, скрытые в панели управления
@@ -387,8 +387,8 @@ def build_live(products):
         _names[r["id"]] = (r.get("name", ""), r.get("code", ""))   # справочник названий для позиций заказов
         if r.get("_site"):                 # строка из catalog.json — цены уже готовы, обновляем только остаток
             qty = int(stock.get(r["id"], 0) or 0)
-            if qty > 0:
-                items.append({k: v for k, v in r.items() if k not in ("_site", "desc")} | {"qty": qty})
+            row = {k: v for k, v in r.items() if k not in ("_site", "desc")} | {"qty": qty}
+            (items if qty > 0 else out).append(row)
             descs[r["id"]] = r.get("desc", "")
             continue
         if r.get("code") == LOADER_CODE:
@@ -396,12 +396,12 @@ def build_live(products):
         qty = int(stock.get(r["id"], 0) or 0)
         opt, rtl = _price(r, PRICE_OPT), _price(r, PRICE_RTL)
         descs[r["id"]] = (r.get("description") or "")[:4000]
-        if qty <= 0 or (opt <= 0 and rtl <= 0):
+        if opt <= 0 and rtl <= 0:
             continue
         mid, box = _price(r, PRICE_MID), _price(r, PRICE_BOX)
         bq = max([int(p.get("quantity", 0)) for p in (r.get("packs") or []) if p.get("quantity", 0) > 1] or [0])
         upd = r.get("updated", "")
-        items.append({
+        (items if qty > 0 else out).append({
             "id": r["id"], "name": r.get("name", ""), "brand": _brand(r), "group": (r.get("pathName") or "").strip(), "code": r.get("code", ""),
             "article": r.get("article", ""), "country": _country(r), "barcode": _barcode(r), "qty": qty,
             "opt": opt, "mid": mid if 0 < mid < opt else 0,
@@ -413,7 +413,13 @@ def build_live(products):
     items = [i for i in items if i["id"] not in hidden]
     _cache["descs"] = (time.time(), descs)
     # описание не входит в живой каталог (он уходит клиентам каждые 3 минуты) — отдаётся по /product/<id>
-    return {"updated": datetime.now(ALMATY).strftime("%d.%m.%Y %H:%M"), "items": items, "hiddenItems": hid_items}
+    return {"updated": datetime.now(ALMATY).strftime("%d.%m.%Y %H:%M"), "items": items, "hiddenItems": hid_items, "outItems": out}
+
+
+def panel_catalog():
+    """Для заказов из системы AMURA: товары в наличии, скрытые и те, которых нет в наличии (остаток ≤ 0)."""
+    data = live(max_age=60)
+    return {i["id"]: i for i in (data.get("outItems") or []) + (data.get("hiddenItems") or []) + data["items"]}
 
 
 _live_lock = threading.Lock()
@@ -902,12 +908,19 @@ def order_core(d, key, ip, me, source="с сайта", panel=False):
         source = RETAIL_SOURCE
     ws = True if panel else (False if retail else is_wholesale(me))
     lines = []
+    if panel:                                                       # менеджер может добавить и товар, которого нет в наличии
+        try:
+            cat = panel_catalog()
+        except Exception as e:
+            print("Заказ из системы: полный каталог не получен:", str(e)[:200], flush=True)
     for p in (d.get("items") or [])[:1000 if panel else 200]:
         item = cat.get(str(p.get("id")))
         qty = int(p.get("qty") or 0)
         if not item or qty <= 0:
             continue
-        qty = min(qty, int(item["qty"]))
+        stock = int(item.get("qty") or 0)
+        if not panel:
+            qty = min(qty, stock)
         price = unit_price(item, qty, ws)
         if disc:                                                    # промокод источника со скидкой — только по настройке владельца
             price = sources.apply_discount(price, disc)
@@ -918,7 +931,7 @@ def order_core(d, key, ip, me, source="с сайта", panel=False):
                 pass
         if qty <= 0 or price <= 0:
             continue
-        lines.append({"id": item["id"], "name": item["name"], "qty": qty, "price": price})
+        lines.append({"id": item["id"], "name": item["name"], "qty": qty, "price": price, "reserve": min(qty, max(stock, 0))})   # резерв — не больше остатка
     if not lines:
         return dict(ok=False, error="Корзина пуста или товаров нет в наличии"), 400
 
@@ -965,7 +978,7 @@ def order_core(d, key, ip, me, source="с сайта", panel=False):
 
     try:
         agent = me or find_or_create_agent(name, phone, telegram, city)
-        positions = [{"quantity": l["qty"], "price": l["price"] * 100, "reserve": l["qty"],   # резерв товара под заказ
+        positions = [{"quantity": l["qty"], "price": l["price"] * 100, "reserve": l["reserve"],   # резерв товара под заказ (не больше остатка)
                       "assortment": meta("product", l["id"])} for l in lines]
         if loader:
             positions.append({"quantity": 1, "price": loader * 100, "assortment": meta("product", loader_id())})
