@@ -194,6 +194,41 @@ class CardsTest(unittest.TestCase):
         self.assertEqual(self.c.post(f"/admin/api/cards/edit-q/{r['id']}/retry", headers=self.h).get_json()["edit"]["status"], "sent")
         self.assertEqual(sent[-1], {"buyPrice": {"value": 130000, "currency": {"meta": {"href": "kzt"}}}})
 
+    def test_edit_uom_drops_same_pack(self):
+        """Смена единицы «шт» → «уп»: упаковка «уп» убирается (иначе МойСклад: «[3007] Упаковка уп повторяется»), другие — как были."""
+        cur = {"id": "p1", "uom": {"meta": {"href": "https://x/entity/uom/sht"}},
+               "packs": [{"id": "k1", "uom": {"meta": {"href": "https://x/entity/uom/up"}}, "quantity": 1},
+                         {"id": "k2", "uom": {"meta": {"href": "https://x/entity/uom/box"}}, "quantity": 20}]}
+        sent = []
+
+        def ms(method, path, params=None, json=None, **kw):
+            if path == "/entity/uom":
+                return {"rows": [{"id": "sht", "name": "шт"}, {"id": "up", "name": "уп"}, {"id": "box", "name": "кор"}]}
+            if method == "GET" and path == "/entity/product/p1":
+                return cur
+            if method == "PUT" and path == "/entity/product/p1":
+                sent.append(json)
+                return {}
+            raise AssertionError(path)
+        oh.ms = ms
+        cards._meta.pop("uom", None)
+        with mirror.db() as d:
+            d.run("UPDATE ms_product SET uom='sht' WHERE id='p1'")
+            d.run("INSERT INTO ms_product (id, kind, name, archived, deleted, uom) VALUES ('p2', 'product', 'Маска', 0, 0, 'up')")
+        j = self.c.get("/admin/api/cards/p1", headers=self.h).get_json()
+        self.assertEqual((j["card"]["uom"], [u["name"] for u in j["uoms"]]), ("sht", ["уп", "шт"]))     # только используемые
+        self.assertEqual(self.c.post("/admin/api/cards/p1/edit", headers=self.h, json={"uom": "nope"}).status_code, 400)
+        r = self.c.post("/admin/api/cards/p1/edit", headers=self.h, json={"uom": "up"}).get_json()
+        self.assertEqual(r["edit"]["status"], "sent")
+        self.assertEqual(sent[0]["uom"]["meta"]["href"].rsplit("/", 1)[-1], "up")
+        self.assertEqual([p["id"] for p in sent[0]["packs"]], ["k2"])
+        self.assertEqual(r["card"]["uom"], "up")
+        cur["uom"], cur["packs"] = {"meta": {"href": "https://x/entity/uom/up"}}, [cur["packs"][1]]
+        self.c.post("/admin/api/cards/p1/edit", headers=self.h, json={"uom": "sht"})
+        self.assertNotIn("packs", sent[1])                                                         # упаковки «шт» нет — packs не трогаем
+        with mirror.db() as d:
+            d.run("DELETE FROM ms_product WHERE id='p2'")
+
     def test_edit_validation_and_owner_only(self):
         for bad in ({"name": ""}, {"prices": {"Нет такой": 1}}, {"buy": -1}, {"barcodes": ["абв"]}, {"prices": {"Оптовая цена": "x"}}):
             self.assertEqual(self.c.post("/admin/api/cards/p1/edit", headers=self.h, json=bad).status_code, 400, bad)
