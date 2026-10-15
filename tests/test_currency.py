@@ -142,6 +142,10 @@ class WhCurrencyTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             whops.create("loss", "sA", [{"id": "p1", "qty": 1}], cur="USD")   # списание — только в тенге
 
+    def test_supply_custom_rate(self):
+        whops.create("supply", "sA", [{"id": "p1", "qty": 1, "price": 7}], agent_id="k1", cur="USD", rate=480)
+        self.assertEqual(self.ms.docs["supply"][-1]["rate"]["value"], 480)              # курс поправили в форме
+
     def test_tenge_supply_has_no_rate(self):
         whops.create("supply", "sA", [{"id": "p1", "qty": 1, "price": 1200.4}], agent_id="k1", cur="KZT")
         doc = self.ms.docs["supply"][-1]
@@ -198,3 +202,44 @@ class CardCurrencyTest(unittest.TestCase):
         r = self.c.post("/admin/api/cards/p1/edit", headers=self.h, json={"buy": 10}).get_json()["edit"]
         self.assertNotEqual(r["status"], "sent")
         self.assertEqual(self.sent, [])
+
+
+class SwitchCurrencyTest(unittest.TestCase):
+    """Приёмка 00295: долларовые цифры внесены в тенговый документ — владелец меняет валюту, цифры остаются."""
+    def setUp(self):
+        oh.ORDER_SECRET = b"x"
+        set_currencies()
+        self.put = []
+        oh.ms = lambda m, p, json=None, **k: (self.put.append((m, p, json)) or {"id": "su5", "name": "00295", "sum": 669730})
+        import app as _app
+        import admin as _admin
+        self.c = _app.app.test_client()
+        self.h = {"Authorization": "Bearer " + _admin.make_admin_token()}
+        with mirror.db() as d:
+            d.run("DELETE FROM ms_doc WHERE id='su5'")
+            d.run("DELETE FROM ms_doc_line WHERE doc_id='su5'")
+            d.run("INSERT INTO ms_doc (id, type, number, sum, applicable, deleted, cur, rate, sum_cur) VALUES ('su5', 'supply', '00295', 6697.3, 0, 0, '', 1, 6697.3)")
+            d.run("INSERT INTO ms_doc_line (doc_id, pos_id, product_id, qty, price, discount, sum) VALUES ('su5', 'l1', 'p1', 10, 7, 0, 70)")
+
+    def test_switch_to_usd_and_back(self):
+        r = self.c.post("/admin/api/warehouse/docs/su5/currency", headers=self.h, json={"cur": "USD", "rate": 470}).get_json()
+        self.assertTrue(r["ok"])
+        self.assertEqual((r["cur"], r["rate"], r["sum"]), ("USD", 470, round(6697.3 * 470)))
+        m, p, body = self.put[-1]
+        self.assertEqual((m, p), ("PUT", "/entity/supply/su5"))
+        self.assertEqual(set(body), {"rate"})                                     # цены не трогаем — только валюта и курс
+        self.assertTrue(body["rate"]["currency"]["meta"]["href"].endswith("/currency/usd"))
+        self.assertEqual(body["rate"]["value"], 470)
+        with mirror.db() as d:
+            self.assertEqual(d.run("SELECT cur, rate FROM ms_doc WHERE id='su5'", one=True), ("USD", 470))
+            self.assertAlmostEqual(d.run("SELECT price FROM ms_doc_line WHERE doc_id='su5'", one=True)[0], 7 * 470)   # позиция в тенге
+        r = self.c.post("/admin/api/warehouse/docs/su5/currency", headers=self.h, json={"cur": "KZT"}).get_json()
+        self.assertEqual(r["cur"], "")
+        self.assertTrue(self.put[-1][2]["rate"]["currency"]["meta"]["href"].endswith("/currency/kzt"))
+        self.assertNotIn("value", self.put[-1][2]["rate"])
+
+    def test_owner_only_and_validation(self):
+        self.assertEqual(self.c.post("/admin/api/warehouse/docs/su5/currency", json={"cur": "USD"}).status_code, 401)
+        self.assertEqual(self.c.post("/admin/api/warehouse/docs/su5/currency", headers=self.h, json={"cur": "USD", "rate": -1}).status_code, 400)
+        self.assertEqual(self.c.post("/admin/api/warehouse/docs/nope/currency", headers=self.h, json={"cur": "USD"}).status_code, 404)
+        self.assertEqual(self.put, [])

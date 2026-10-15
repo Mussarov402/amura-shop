@@ -2865,6 +2865,15 @@ def warehouse_stock():
 import whops  # noqa: E402
 
 
+def _rate_arg(v):
+    """Курс из формы: число > 0 или None (тогда — текущий курс валюты МойСклад)."""
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return None
+    return v if 0 < v < 100000 else None
+
+
 @bp.route("/admin/api/warehouse/ops", methods=["GET", "POST"])
 @need("warehouse")
 def warehouse_ops():
@@ -2878,7 +2887,8 @@ def warehouse_ops():
             kind = str(b.get("kind", ""))
             op = whops.create(kind, str(b.get("store", "")), b.get("lines") or [],
                               str(b.get("agent", "")), str(b.get("descr", "")), _fin_who(), str(b.get("store2", "")),
-                              demand_id=str(b.get("order", "")) if kind == "supply" else "", cur=str(b.get("cur", ""))[:3])
+                              demand_id=str(b.get("order", "")) if kind == "supply" else "", cur=str(b.get("cur", ""))[:3],
+                              rate=_rate_arg(b.get("rate")))
         except ValueError as e:
             return jsonify(ok=False, error=str(e)), 400
         return jsonify(ok=True, op=op)
@@ -3078,6 +3088,26 @@ def warehouse_docs():
     if t not in mirror.STOCK_DOCS:
         return jsonify(ok=False, error="Неизвестный вид документа"), 400
     return jsonify(ok=True, **mirror.wh_docs(t, off))
+
+
+@bp.post("/admin/api/warehouse/docs/<doc_id>/currency")
+@guard
+def warehouse_doc_currency(doc_id):
+    """Сменить валюту приёмки / возврата поставщику в МойСклад (только владелец): {"cur": "USD"|"KZT", "rate": 472.9 (необязательно)}.
+    Цифры цен не меняются — меняется валюта и курс документа."""
+    if not modules.enabled("warehouse"):
+        return jsonify(ok=False, error="Модуль «Склад» выключен"), 404
+    d = mirror.wh_doc(doc_id)
+    if not d:
+        return jsonify(ok=False, error="Документ не найден"), 404
+    b = request.get_json(silent=True) or {}
+    try:
+        r = whops.set_currency(d["type"], doc_id, str(b.get("cur", ""))[:3], b.get("rate"), _fin_who())
+    except ValueError as e:
+        return jsonify(ok=False, error=str(e)), 400
+    except Exception as e:
+        return jsonify(ok=False, error="МойСклад не принял: " + str(e)[:200]), 502
+    return jsonify(ok=True, **r)
 
 
 @bp.get("/admin/api/warehouse/docs/<doc_id>")

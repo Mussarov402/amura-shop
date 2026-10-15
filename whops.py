@@ -143,6 +143,43 @@ def demand_lines(demand_id, kind="salesreturn"):
             "cur": cur, "rate": rate}
 
 
+CUR_DOCS = ("supply", "purchasereturn")   # у каких документов МойСклад владелец может сменить валюту из системы
+
+
+def set_currency(kind, doc_id, cur, rate=None, who=""):
+    """Сменить валюту документа в МойСклад (владелец, явное действие): цифры цен остаются, меняется валюта и курс —
+    так исправляют приёмку, в которую долларовые цены внесли в тенговый документ. cur — USD/…; пусто или KZT — тенге.
+    PUT идемпотентен: повтор не создаёт ничего нового. Возвращает {cur, rate, number}."""
+    if kind not in CUR_DOCS:
+        raise ValueError("Валюту можно сменить только у приёмки или возврата поставщику")
+    cur = "" if (cur or "").upper() in ("", "KZT") else cur.upper()
+    mirror._load_cur()
+    if cur:
+        try:
+            rate = float(rate) if rate not in (None, "") else mirror.cur_rate(cur)
+        except (TypeError, ValueError):
+            raise ValueError("Курс — число")
+        if not rate or rate <= 0 or rate > 100000:
+            raise ValueError("Укажите курс")
+        cid = mirror.cur_id(cur)
+        if not cid:
+            raise ValueError(f"В МойСклад нет валюты {cur}")
+        body = {"rate": {"currency": oh.meta("currency", cid), "value": rate}}
+    else:
+        if not mirror._CUR["default"]:
+            raise ValueError("Не загружены валюты МойСклад — попробуйте через минуту")
+        rate, body = 1.0, {"rate": {"currency": oh.meta("currency", mirror._CUR["default"])}}
+    row = oh.ms("PUT", f"/entity/{kind}/{doc_id}", json=body, timeout=30)
+    s = (row.get("sum") or 0) / 100
+    with mirror.db() as d:                     # наша копия сразу видит новую валюту; позиции (в тенге) — пересчёт по новому курсу
+        old = (d.run("SELECT rate FROM ms_doc WHERE id=%s", (doc_id,), one=True) or [None])[0] or 1
+        k = rate / old
+        d.run("UPDATE ms_doc SET cur=%s, rate=%s, sum_cur=%s, sum=%s, paid=COALESCE(paid, 0)*%s WHERE id=%s", (cur, rate, s, s * rate, k, doc_id))
+        d.run("UPDATE ms_doc_line SET price=price*%s, sum=sum*%s WHERE doc_id=%s", (k, k, doc_id))
+    print(f"Склад: у документа {kind} №{row.get('name')} валюта сменена на {cur or 'KZT'} (курс {rate:g}){' — ' + who if who else ''}", flush=True)
+    return {"cur": cur, "rate": rate, "number": row.get("name") or "", "sum": round(s * rate), "orig": mirror.money_label(cur, s, rate)}
+
+
 def create_return(demand_id, lines, descr="", who="", kind="salesreturn"):
     """Возврат по документу: покупателя — по отгрузке, поставщику — по приёмке. Склад и контрагент — из документа,
     цены — как в нём, не больше, чем было в документе (за вычетом прежних возвратов — из системы и из МойСклад)."""
