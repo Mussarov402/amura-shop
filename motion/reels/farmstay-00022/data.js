@@ -1,0 +1,30 @@
+/* FarmStay Argan Oil Shampoo & Conditioner 2 в 1, 530 мл, арт. 00022 — розница amura.kz. Голос: Virale (ElevenLabs Sarah), темп ×1.15. Артикул голосом не читаем — только на экране. */
+window.REEL = {
+  product: { img: 'bottle.png', ratio: 654 / 2180 },
+  scenes: [
+    { type: 'hook', at: 0, lines: [
+      { at: 0, html: 'Волосы сухие<br>и <span class="lime">ломкие?</span>', top: 620, size: 100 },
+      { at: '@Секутся', html: '<span class="lime">Секутся?</span>', top: 700 },
+      { at: '@потеряли', html: 'Потеряли<br><span class="lime">блеск?</span>', top: 640 } ] },
+    { type: 'reveal', at: '@Знакомьтесь', kick: 'ЗНАКОМЬТЕСЬ', height: 1000, top: 280, caption: { text: 'шампунь + кондиционер 2 в 1', at: '@шампунь' } },
+    { type: 'facts', at: '@Аргановое-0.1', in: 'wipe',
+      cards: [{ label: 'аргановое масло · питание', value: 'Argan', at: '@Аргановое' },
+              { label: 'и жирные кислоты', value: 'Витамины', at: '@витаминами' }],
+      chips: [{ text: 'мягкие', at: '@мягкими' }, { text: 'блестящие', at: '@блестящими' }] },
+    { type: 'statement', at: '@Шампунь-0.1', in: 'whip', top: 700, size: 92,
+      html: 'Шампунь<br><mark>бережно очищает</mark>' },
+    { type: 'statement', at: '@кондиционер-0.1', in: 'zoom', top: 700, size: 92,
+      html: 'Кондиционер<br><mark>разглаживает</mark>' },
+    { type: 'statement', at: '@предотвращает-0.1', in: 'zoom', top: 660, size: 92,
+      html: 'Против<br><mark>ломкости</mark><br>и <mark>сечения</mark>' },
+    { type: 'statement', at: '@Подходит-0.1', in: 'zoom', top: 660, size: 84,
+      html: 'Для <mark>сухих</mark>,<br><mark>повреждённых</mark><br>и <mark>окрашенных</mark>' },
+    { type: 'statement', at: '@Большой-0.1', in: 'zoom', top: 640, size: 150,
+      html: '<mark>530</mark> мл<br><span style="font-size:64px">большой флакон</span>' },
+    { type: 'cta', at: '@Артикул-0.7', in: 'zoom', name: 'FarmStay<br>Argan Oil 2 в 1',
+      article: { code: '00022', at: '@Артикул' },
+      desc: { text: 'также в описании', at: '@он-0.05' },
+      profile: { text: 'Ссылка на магазин —<br><span class="lime">в шапке профиля</span>', at: '@Ссылка-0.05' },
+      search: { at: '@Введите-0.05', title: 'FarmStay Argan Oil<br>Shampoo & Conditioner' } },
+  ],
+};
