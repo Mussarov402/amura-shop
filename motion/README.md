@@ -93,3 +93,9 @@
 8. Готовый ролик — в Google Drive «AMURA — Креативы / 2. Ролики» и владельцу на «да». Голос и видео в git не храним.
 
 Пример: `reels/celimax-01330` — Celimax Retinal Shot First Essence Toner.
+
+## Remotion (второй движок, по желанию)
+
+Навыки Remotion для Claude Code лежат в `.claude/skills/remotion-*` (официальные, `npx skills add remotion-dev/skills`; взяты create, markup, render, captions, studio, docs).
+Remotion — ролики на React: `npx create-video --yes --blank <папка>`, превью `npx remotion studio`, рендер `npx remotion render`.
+Стиль и правила этого бренд-файла действуют и для роликов на Remotion. Лицензия Remotion: бесплатно для компаний до 3 человек, больше — платная лицензия компании (remotion.pro).
