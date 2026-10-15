@@ -541,6 +541,51 @@ def retry_edit(op):
     return send_edit(op)
 
 
+# ---------- единица измерения сразу у нескольких товаров (тот же путь, что правка карточки) ----------
+BULK_MAX = 100
+
+
+def uom_find(q, limit=200):
+    """Товары для массовой смены единицы: название или код содержит q (без модификаций и удалённых)."""
+    q = (q or "").strip().lower()
+    names = _uom_names()
+    with mirror.db() as d:
+        rows = d.run("SELECT id, code, name, uom, archived FROM ms_product WHERE kind='product' AND deleted=0", many=True) or []
+    # поиск в Python: LOWER() в SQLite не знает кириллицы
+    hit = [r for r in rows if q and (q in (r[2] or "").lower() or q == (r[1] or "").lower())]
+    hit.sort(key=lambda r: (r[2] or "").lower())
+    return {"total": len(hit), "items": [{"id": i, "code": c or "", "name": n or "", "uom": u or "", "uomName": names.get(u, ""),
+                                          "archived": bool(a)} for i, c, n, u, a in hit[:limit]]}
+
+
+def bulk_uom(ids, uom, who=""):
+    """Одна единица измерения для нескольких товаров: по каждому — cards.edit (очередь правок, одноимённая упаковка убирается).
+    Результат по каждому товару: sent / nothing / queued / error."""
+    ids = list(dict.fromkeys(str(i) for i in ids or [] if i))
+    if not ids:
+        raise ValueError("Выберите товары")
+    if len(ids) > BULK_MAX:
+        raise ValueError(f"За один раз — не больше {BULK_MAX} товаров")
+    if uom not in _uom_names():
+        raise ValueError("Выберите единицу измерения из списка")
+    out = []
+    for pid in ids:
+        c = card(pid)
+        name = (c or {}).get("name", "")
+        try:
+            if not c:
+                raise ValueError("Товар не найден")
+            r = edit(pid, {"uom": uom}, who)
+            out.append({"id": pid, "name": name, "status": r["status"], "error": r.get("error", "")})
+        except ValueError as e:
+            out.append({"id": pid, "name": name, "status": "error", "error": str(e)})
+        except Exception as e:                       # сбой одного товара не останавливает остальные
+            out.append({"id": pid, "name": name, "status": "error", "error": str(e)[:200]})
+    ok = sum(1 for x in out if x["status"] in ("sent", "nothing"))
+    print(f"Карточки: единица измерения у {len(out)} товаров — готово {ok}, с ошибкой/в очереди {len(out) - ok}", flush=True)
+    return out
+
+
 # ---------- новый товар ----------
 _meta = {}
 

@@ -3293,6 +3293,36 @@ def card_new_meta():
     return jsonify(ok=True, pending=cards.new_pending(), **m)
 
 
+@bp.get("/admin/api/cards/uom-find")
+@guard
+def card_uom_find():
+    """Массовая смена единицы измерения — поиск товаров и список единиц (только владелец)."""
+    off = _cards_on()
+    if off:
+        return off
+    try:
+        r = cards.uom_find(request.args.get("q", "")[:100])
+        return jsonify(ok=True, uoms=cards.uoms(), **r)
+    except Exception as e:
+        return jsonify(ok=False, error=f"МойСклад не отдал единицы измерения: {str(e)[:150]}"), 502
+
+
+@bp.post("/admin/api/cards/uom-bulk")
+@guard
+def card_uom_bulk():
+    """Одна единица измерения для нескольких товаров — только владелец; по каждому товару свой результат."""
+    off = _cards_on()
+    if off:
+        return off
+    b = request.get_json(silent=True) or {}
+    try:
+        return jsonify(ok=True, results=cards.bulk_uom(b.get("ids") or [], str(b.get("uom") or ""), _fin_who()))
+    except ValueError as e:
+        return jsonify(ok=False, error=str(e)), 400
+    except Exception as e:
+        return jsonify(ok=False, error=f"МойСклад не ответил: {str(e)[:150]}"), 502
+
+
 @bp.post("/admin/api/cards/new")
 @guard
 def card_new():
