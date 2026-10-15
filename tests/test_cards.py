@@ -229,6 +229,53 @@ class CardsTest(unittest.TestCase):
         with mirror.db() as d:
             d.run("DELETE FROM ms_product WHERE id='p2'")
 
+    def test_bulk_uom(self):
+        """Массовая смена единицы: поиск, по каждому товару свой результат, ошибка одного не мешает остальным, только владелец."""
+        packs = {"m1": [{"id": "k1", "uom": {"meta": {"href": "https://x/entity/uom/up"}}, "quantity": 1}], "m2": []}
+        sent = {}
+
+        def ms(method, path, params=None, json=None, **kw):
+            if path == "/entity/uom":
+                return {"rows": [{"id": "sht", "name": "шт"}, {"id": "up", "name": "уп"}]}
+            pid = path.rsplit("/", 1)[-1]
+            if method == "GET":
+                return {"id": pid, "packs": packs.get(pid, [])}
+            if method == "PUT":
+                if pid == "m3":
+                    raise RuntimeError("МойСклад 412: [3007] Упаковка уп повторяется")
+                sent[pid] = json
+                return {}
+            raise AssertionError(path)
+        oh.ms = ms
+        cards._meta.pop("uom", None)
+        with mirror.db() as d:
+            for i, u in (("m1", "sht"), ("m2", "sht"), ("m3", "sht"), ("m4", "up")):
+                d.run("INSERT INTO ms_product (id, kind, code, name, archived, deleted, uom) VALUES (%s, 'product', %s, %s, 0, 0, %s)",
+                      (i, "c" + i, f"Ekel Маска {i}", u))
+        try:
+            j = self.c.get("/admin/api/cards/uom-find?q=ekel маска", headers=self.h).get_json()
+            self.assertEqual((j["total"], [x["uomName"] for x in j["items"]]), (4, ["шт", "шт", "шт", "уп"]))
+            self.assertEqual([u["name"] for u in j["uoms"]], ["уп", "шт"])
+            self.assertEqual(self.c.get("/admin/api/cards/uom-find?q=", headers=self.h).get_json()["total"], 0)
+            r = self.c.post("/admin/api/cards/uom-bulk", headers=self.h, json={"ids": ["m1", "m2", "m3", "m4", "nope"], "uom": "up"}).get_json()
+            st = {x["id"]: x["status"] for x in r["results"]}
+            self.assertEqual(st, {"m1": "sent", "m2": "sent", "m3": "error", "m4": "nothing", "nope": "error"})
+            self.assertEqual(sent["m1"]["packs"], [])                     # упаковка «уп» убрана
+            self.assertNotIn("packs", sent["m2"])
+            self.assertIn("3007", next(x["error"] for x in r["results"] if x["id"] == "m3"))
+            for bad in ({"ids": [], "uom": "up"}, {"ids": ["m1"], "uom": "x"}, {"ids": [f"p{i}" for i in range(101)], "uom": "up"}):
+                self.assertEqual(self.c.post("/admin/api/cards/uom-bulk", headers=self.h, json=bad).status_code, 400)
+            old = admin.who
+            try:
+                admin.who = lambda: {"role": "staff", "perms": ["products", "warehouse"], "name": "С"}
+                self.assertEqual(self.c.post("/admin/api/cards/uom-bulk", json={"ids": ["m1"], "uom": "up"}).status_code, 403)
+                self.assertEqual(self.c.get("/admin/api/cards/uom-find?q=ekel").status_code, 403)
+            finally:
+                admin.who = old
+        finally:
+            with mirror.db() as d:
+                d.run("DELETE FROM ms_product WHERE id IN ('m1', 'm2', 'm3', 'm4')")
+
     def test_edit_validation_and_owner_only(self):
         for bad in ({"name": ""}, {"prices": {"Нет такой": 1}}, {"buy": -1}, {"barcodes": ["абв"]}, {"prices": {"Оптовая цена": "x"}}):
             self.assertEqual(self.c.post("/admin/api/cards/p1/edit", headers=self.h, json=bad).status_code, 400, bad)

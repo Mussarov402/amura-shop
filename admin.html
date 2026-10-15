@@ -145,7 +145,7 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 .cph{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:8px}.cpi{position:relative;aspect-ratio:3/4;border-radius:12px;overflow:hidden;background:#F1F4F2;display:flex;align-items:center;justify-content:center}
 .cpi img{width:100%;height:100%;object-fit:cover;cursor:zoom-in}.cpd{position:absolute;top:6px;right:6px;width:28px;height:28px;border:0;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;cursor:pointer}
 .cp1{position:absolute;left:6px;bottom:6px;background:var(--g);color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px}.cpq{padding:8px;text-align:center;font-size:13px}.cpa{cursor:pointer;border:2px dashed #CBD4CE;background:#fff;font-weight:700;color:#33403A}
-.cfe label{display:block;font-size:13px;color:#5B6B63;margin-bottom:8px}.cfe label input{display:block;width:100%;margin-top:4px;padding:10px 12px;border:1px solid #D9E0DB;border-radius:10px;font:inherit;color:#16201B;box-sizing:border-box}.cfe .srow input{padding:10px 12px;border:1px solid #D9E0DB;border-radius:10px;font:inherit}
+.cfe label{display:block;font-size:13px;color:#5B6B63;margin-bottom:8px}.cfe label input,.cfe label select{display:block;width:100%;margin-top:4px;padding:10px 12px;border:1px solid #D9E0DB;border-radius:10px;font:inherit;color:#16201B;box-sizing:border-box}.cfe .srow input{padding:10px 12px;border:1px solid #D9E0DB;border-radius:10px;font:inherit}
 </style><style id="eocss">.eo{background:#fff;width:100%;max-width:560px;max-height:92vh;overflow:auto;border-radius:18px 18px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom))}
 @media(min-width:801px){.eo{border-radius:0;margin:0;width:100%;max-width:none;height:100%;max-height:none;box-sizing:border-box;padding:28px max(28px,calc((100vw - 1000px)/2)) 40px}.eo .voa{max-width:none;display:flex;flex-wrap:wrap}.eo .voa button{flex:0 1 128px;min-width:96px}}   /* компьютер: заказ на весь экран, содержимое по центру; кнопки заказа — в одну строку */
 .eor{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid #EEF1EE}.nost{color:#C0392B;font-weight:600}.eolN{counter-reset:pos}.eolN>.eor::before{counter-increment:pos;content:counter(pos);flex:none;min-width:16px;font-size:12px;color:#8A968F;text-align:right}.eor:first-child{border-top:0}.eon{flex:1;min-width:0;font-size:14px}
@@ -458,8 +458,33 @@ const productCard=async(pid,done)=>{const ov=document.createElement("div");ov.cl
  draw();poll();loadPh().then(()=>{if(ov.isConnected)draw()})};
 /* Новый товар (только владелец): создаётся в МойСклад через очередь, затем открывается его карточка — добавить фото и видео */
 const canNew=()=>canCard()&&ME.role==="owner";
-const newBtn=()=>canNew()?`<button class="btn" data-newp style="margin-bottom:12px">＋ Новый товар</button>`:"";
-const bindNew=done=>document.querySelectorAll("[data-newp]").forEach(b=>b.onclick=()=>newProduct(done));
+const newBtn=()=>canNew()?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"><button class="btn" data-newp>＋ Новый товар</button><button class="btn ghost" data-uomb>Единица измерения…</button></div>`:"";
+const bindNew=done=>{document.querySelectorAll("[data-newp]").forEach(b=>b.onclick=()=>newProduct(done));document.querySelectorAll("[data-uomb]").forEach(b=>b.onclick=()=>uomBulk(done))};
+/* Единица измерения сразу у нескольких товаров (только владелец): найти → отметить → единица → применить; по каждому товару — результат */
+const uomBulk=done=>{const ov=document.createElement("div");ov.className="ovx";ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:flex-end;justify-content:center";document.body.appendChild(ov);
+ let ran=false;const close=()=>{ov.remove();if(ran&&done)done()};ov.onclick=e=>{if(e.target===ov)close()};
+ let q="",L=null,U=[],uom="",sel=new Set(),res=null,err="",busy=false;
+ const find=async()=>{err="";try{const r=await api("cards/uom-find?q="+encodeURIComponent(q));L=r;U=r.uoms||[];if(!uom)uom=(U.find(u=>u.name==="уп")||U[0]||{}).id||""}catch(e){err=e.message;L=null}draw()};
+ const uN=id=>(U.find(u=>u.id===id)||{}).name||"";
+ const draw=()=>{const it=L?L.items:[],all=it.length&&it.every(x=>sel.has(x.id));
+  ov.querySelector(".eo").innerHTML=`<div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><div style="font-weight:800;font-size:17px">Единица измерения</div><button class="btn ghost" id="ubx" aria-label="Закрыть">✕</button></div>
+  <div class="mut" style="margin:4px 0 10px">Найдите товары, отметьте нужные и выберите единицу. Упаковка в этой же единице, если есть, будет убрана — иначе МойСклад не примет.</div>
+  ${res?`<div class="card" style="margin-bottom:10px"><div style="font-weight:700;margin-bottom:6px">Готово ${res.filter(x=>x.status==="sent"||x.status==="nothing").length} из ${res.length}</div>${res.map(x=>`<div class="row" style="display:block"><div style="display:flex;justify-content:space-between;gap:10px"><span>${esc(x.name||x.id)}</span><b style="white-space:nowrap;color:${x.status==="sent"||x.status==="nothing"?"var(--g)":"var(--bad)"}">${x.status==="sent"?"✓ сохранено":x.status==="nothing"?"✓ уже так":x.status==="queued"?"в очереди":"ошибка"}</b></div>${x.error?`<div class="mut">${esc(x.error)}</div>`:""}</div>`).join("")}</div>`:""}
+  <div class="srow" style="margin-bottom:10px"><input id="ubq" placeholder="Название или код, например Ekel Mask" value="${esc(q)}" enterkeyhint="search"></div>
+  ${err?`<div class="b x" style="white-space:normal;margin-bottom:10px">${esc(err)}</div>`:""}
+  ${L&&q?`<div class="card" style="max-height:46vh;overflow:auto;margin-bottom:10px"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:4px"><span class="mut">Найдено: ${fmt(L.total)}${L.total>it.length?" (показаны первые "+it.length+")":""}</span>${it.length?`<button class="btn sm ghost" id="uba">${all?"Снять все":"Отметить все"}</button>`:""}</div>
+   ${it.map(x=>`<label class="row" style="gap:10px;cursor:pointer"><input type="checkbox" data-ubi="${esc(x.id)}"${sel.has(x.id)?" checked":""} style="width:20px;height:20px;flex:none"><div class="grow"><b>${esc(x.name)}</b><div class="mut">${x.code?"код "+esc(x.code)+" · ":""}сейчас: ${esc(x.uomName||"—")}${x.archived?" · в архиве":""}</div></div></label>`).join("")||'<div class="mut" style="padding:12px;text-align:center">Ничего не нашлось</div>'}</div>`:'<div class="mut" style="margin-bottom:10px">Введите название или код товара.</div>'}
+  <div class="cfe"><label>Новая единица<select id="ubu">${U.map(u=>`<option value="${esc(u.id)}"${u.id===uom?" selected":""}>${esc(u.name)}</option>`).join("")}</select></label></div>
+  <div style="display:flex;gap:8px;margin-top:10px"><button class="btn" id="ubg"${!sel.size||!uom||busy?" disabled":""}>${busy?"Сохраняю…":"Применить к "+sel.size+" "+(sel.size%10===1&&sel.size%100!==11?"товару":"товарам")}</button><button class="btn ghost" id="ubc">Закрыть</button></div>`;
+  $("#ubx").onclick=close;$("#ubc").onclick=close;
+  let t;const qi=$("#ubq");qi.oninput=()=>{clearTimeout(t);t=setTimeout(async()=>{q=qi.value.trim();await find();const i=$("#ubq");i.focus();i.setSelectionRange(i.value.length,i.value.length)},400)};
+  ov.querySelectorAll("[data-ubi]").forEach(c=>c.onchange=()=>{c.checked?sel.add(c.dataset.ubi):sel.delete(c.dataset.ubi);draw()});
+  if($("#uba"))$("#uba").onclick=()=>{it.forEach(x=>all?sel.delete(x.id):sel.add(x.id));draw()};
+  $("#ubu").onchange=e=>{uom=e.target.value};
+  $("#ubg").onclick=async()=>{if(!confirm("Сменить единицу на «"+uN(uom)+"» у "+sel.size+" товаров в МойСклад?"))return;busy=true;draw();
+   try{const r=await api("cards/uom-bulk",{method:"POST",body:JSON.stringify({ids:[...sel],uom})});res=r.results;ran=true;sel=new Set(res.filter(x=>x.status!=="sent"&&x.status!=="nothing").map(x=>x.id))}catch(e){alert(e.message)}
+   busy=false;await find()}};
+ ov.innerHTML='<div class="eo"></div>';find()};
 const newProduct=async done=>{const ov=document.createElement("div");ov.className="ovx";ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:flex-end;justify-content:center";document.body.appendChild(ov);
  const close=()=>ov.remove();ov.onclick=e=>{if(e.target===ov)close()};ov.innerHTML='<div class="eo"><div class="mut">Загружаю папки и виды цен из МойСклад…</div></div>';
  let M;try{M=await api("cards/new-meta")}catch(e){ov.querySelector(".eo").innerHTML='<div class="b x" style="white-space:normal">'+esc(e.message)+'</div><button class="btn ghost" style="margin-top:10px" id="npc">Закрыть</button>';$("#npc").onclick=close;return}
