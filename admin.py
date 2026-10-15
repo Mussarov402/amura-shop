@@ -3142,7 +3142,11 @@ def card_get(pid):
     c = cards.card(pid)
     if not c:
         return jsonify(ok=False, error="Товар не найден"), 404
-    return jsonify(ok=True, card=c)
+    try:
+        uoms = cards.uoms(c["uom"]) if c["kind"] == "product" else []
+    except Exception:                    # МойСклад не ответил — карточка открывается, единицу просто не показываем
+        uoms = []
+    return jsonify(ok=True, card=c, uoms=uoms)
 
 
 @bp.get("/admin/api/cards/<pid>/photos")

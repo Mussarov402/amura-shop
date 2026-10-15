@@ -103,7 +103,8 @@ def _schema(d):
                 "ALTER TABLE ms_doc ADD COLUMN sum_cur DOUBLE PRECISION",
                 # закупочная цена карточки: buy_raw — в валюте карточки (buy_cur, пусто — тенге); buy_price — в тенге по текущему курсу
                 "ALTER TABLE ms_product ADD COLUMN buy_raw DOUBLE PRECISION",
-                "ALTER TABLE ms_product ADD COLUMN buy_cur TEXT"):
+                "ALTER TABLE ms_product ADD COLUMN buy_cur TEXT",
+                "ALTER TABLE ms_product ADD COLUMN uom TEXT"):           # единица измерения товара (id uom МойСклад)
         try:
             d.run(col)
             d.c.commit()
@@ -244,10 +245,11 @@ def _parse(kind, row, now):
             row.get("code") or "", row.get("article") or "", row.get("name") or "",
             row.get("pathName") or "", 1 if row.get("archived") else 0,
             json.dumps(_prices(row), ensure_ascii=False), _buy(row)[0],
-            json.dumps(_barcodes(row), ensure_ascii=False), (row.get("updated") or "")[:23], 0, now, _buy(row)[1], _buy(row)[2])
+            json.dumps(_barcodes(row), ensure_ascii=False), (row.get("updated") or "")[:23], 0, now, _buy(row)[1], _buy(row)[2],
+            None if kind == "variant" else _href_id(row.get("uom")))
 
 
-_COLS = "id, kind, parent_id, code, article, name, folder, archived, prices, buy_price, barcodes, updated, deleted, seen, buy_raw, buy_cur"
+_COLS = "id, kind, parent_id, code, article, name, folder, archived, prices, buy_price, barcodes, updated, deleted, seen, buy_raw, buy_cur, uom"
 _ACOLS = "id, name, phone, email, inn, company_type, tags, archived, updated, deleted, seen"
 
 
@@ -380,6 +382,18 @@ def _cur_reload():
             d.run("UPDATE ms_sync SET cursor=%s, skip=0, full_from=%s WHERE entity=%s AND full_done>0", (_floor(t), time.time(), t))
         inbox.set_setting(d, "mirror_cur_v", CUR_V)
     print("Зеркало МойСклад: документы и товары будут перечитаны с валютой и курсом", flush=True)
+
+
+UOM_V = "1"   # версия загрузки единиц измерения: один раз перечитывает карточки товаров (лёгкий проход)
+
+
+def _uom_reload():
+    with db() as d:
+        if inbox.get_setting(d, "mirror_uom_v", "") == UOM_V:
+            return
+        d.run("UPDATE ms_sync SET cursor=%s, skip=0, full_from=%s WHERE entity='product' AND full_done>0", (_floor("product"), time.time()))
+        inbox.set_setting(d, "mirror_uom_v", UOM_V)
+    print("Зеркало МойСклад: товары будут перечитаны с единицами измерения", flush=True)
 
 
 def _lines_reload():
@@ -626,6 +640,7 @@ def tick():
         _base_reload()
         _shift_reload()
         _cur_reload()
+        _uom_reload()
         caught_all, parts, t0 = True, [], time.time()
         _net["fail"] = False
         for name, fn in (("store", sync_stores), ("currency", sync_currency), *((e, (lambda e=e: sync_entity(e))) for e in ENTITIES), ("stock", sync_stock), ("cost", sync_cost), ("money", sync_money)):

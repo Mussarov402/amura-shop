@@ -68,18 +68,18 @@ def enabled():
 def card(pid):
     """Данные товара из зеркала (быстро, без МойСклад) + видео + очередь фото."""
     with mirror.db() as d:
-        r = d.run("SELECT id, kind, code, article, name, folder, prices, buy_price, barcodes, archived, buy_raw, buy_cur FROM ms_product"
+        r = d.run("SELECT id, kind, code, article, name, folder, prices, buy_price, barcodes, archived, buy_raw, buy_cur, uom FROM ms_product"
                   " WHERE id=%s AND deleted=0",
                   (pid,), one=True)
         if not r:
             return None
         names = dict(d.run("SELECT id, name FROM ms_store", many=True) or [])
         stock = d.run("SELECT store_id, stock, reserve FROM ms_stock WHERE product_id=%s", (pid,), many=True) or []
-    i, kind, code, art, name, folder, prices, buy, bcs, arch, buy_raw, buy_cur = r
+    i, kind, code, art, name, folder, prices, buy, bcs, arch, buy_raw, buy_cur, uom = r
     return {"id": i, "kind": kind or "product", "code": code or "", "article": art or "", "name": name or "", "folder": folder or "",
             "prices": json.loads(prices or "{}"),
             # закупочная цена — в валюте карточки МойСклад (buyCur, пусто — тенге); buyKzt — в тенге по текущему курсу
-            "buy": round(buy_raw or 0, 2) if buy_cur else round(buy or 0), "buyCur": buy_cur or "", "buyKzt": round(buy or 0), "barcodes": json.loads(bcs or "[]"), "archived": bool(arch),
+            "buy": round(buy_raw or 0, 2) if buy_cur else round(buy or 0), "buyCur": buy_cur or "", "buyKzt": round(buy or 0), "barcodes": json.loads(bcs or "[]"), "archived": bool(arch), "uom": uom or "",
             "stock": sorted([{"store": names.get(s, s), "stock": a or 0, "reserve": b or 0} for s, a, b in stock if a or b], key=lambda x: x["store"]),
             "site": f"{oh.SITE_URL.rstrip('/')}/img/{i}.webp" if getattr(oh, "SITE_URL", "") else "",
             "video": video_info(i), "pending": pending(i), "edits": edits_pending(i)}
@@ -359,7 +359,7 @@ def delete_video(pid):
                     pass
 
 
-# ---------- правка карточки (название, артикул, цены, закупка, штрихкоды) — в МойСклад ----------
+# ---------- правка карточки (название, артикул, цены, закупка, штрихкоды, единица измерения) — в МойСклад ----------
 def _bc_type(v):
     return "ean13" if v.isdigit() and len(v) == 13 else "ean8" if v.isdigit() and len(v) == 8 else "code128"
 
@@ -417,6 +417,12 @@ def edit(pid, data, who=""):
                 bcs.append(b)
         if bcs != c["barcodes"]:
             ch["barcodes"] = bcs
+    if data.get("uom") and data["uom"] != c.get("uom"):
+        if c["kind"] == "variant":
+            raise ValueError("Единица измерения меняется в карточке основного товара")
+        if data["uom"] not in _uom_names():
+            raise ValueError("Выберите единицу измерения из списка")
+        ch["uom"] = data["uom"]
     if not ch:
         return {"status": "nothing"}
     op = str(uuid.uuid4())
@@ -467,6 +473,13 @@ def _edit_body(cur, ch):
     if "barcodes" in ch:
         old = {v: k for b in cur.get("barcodes") or [] for k, v in b.items() if isinstance(v, str)}
         body["barcodes"] = [{old.get(v, _bc_type(v)): v} for v in ch["barcodes"]]
+    if "uom" in ch:
+        body["uom"] = oh.meta("uom", ch["uom"])
+        # упаковка в той же единице МойСклад не допускает («[3007] Упаковка … повторяется») — такую упаковку убираем
+        packs = cur.get("packs") or []
+        keep = [p for p in packs if mirror._href_id(p.get("uom")) != ch["uom"]]
+        if len(keep) != len(packs):
+            body["packs"] = keep
     return body
 
 
@@ -511,6 +524,8 @@ def _apply_local(pid, ch):
             d.run("UPDATE ms_product SET prices=%s WHERE id=%s", (json.dumps(pr, ensure_ascii=False), pid))
         if "barcodes" in ch:
             d.run("UPDATE ms_product SET barcodes=%s WHERE id=%s", (json.dumps(ch["barcodes"], ensure_ascii=False), pid))
+        if "uom" in ch:
+            d.run("UPDATE ms_product SET uom=%s WHERE id=%s", (ch["uom"], pid))
 
 
 def edits_pending(pid):
@@ -528,6 +543,30 @@ def retry_edit(op):
 
 # ---------- новый товар ----------
 _meta = {}
+
+
+def _uom_names():
+    c = _meta.get("uom")
+    if not c or time.time() - c[0] > 600:
+        names, off = {}, 0
+        while True:
+            rows = oh.ms("GET", "/entity/uom", params={"limit": 1000, "offset": off}, timeout=30).get("rows") or []
+            names.update({x.get("id"): x.get("name") or "" for x in rows if x.get("id")})
+            if len(rows) < 1000:
+                break
+            off += 1000
+        c = (time.time(), names)
+        _meta["uom"] = c
+    return c[1]
+
+
+def uoms(extra=""):
+    """Единицы измерения для выбора в карточке: те, что уже стоят у товаров, + extra (в МойСклад их сотни; названия — кэш 10 минут)."""
+    names = _uom_names()
+    with mirror.db() as d:
+        used = {r[0] for r in d.run("SELECT DISTINCT uom FROM ms_product WHERE uom IS NOT NULL AND uom<>''", many=True) or []}
+    used |= {extra} if extra else set()
+    return sorted([{"id": i, "name": names[i]} for i in used if i in names], key=lambda u: u["name"])
 
 
 def new_meta():
