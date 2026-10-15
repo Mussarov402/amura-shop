@@ -1047,7 +1047,7 @@ def wh_doc(doc_id):
     i, t, n, m, s1, s2, a, sm, ap, ds, cu, sc, rt = r
     rt = rt or 1
     return {"id": i, "type": t, "number": n or "", "at": _alm(m), "store": names.get(s1, ""), "store2": names.get(s2, ""), "agent": a or "",
-            "sum": round(sm or 0), "applicable": bool(ap), "descr": ds or "", "cur": cu or "", "orig": money_label(cu, sc or 0, rt),
+            "sum": round(sm or 0), "applicable": bool(ap), "descr": ds or "", "cur": cu or "", "rate": rt, "orig": money_label(cu, sc or 0, rt),
             "lines": [{"name": nm or "(товар удалён)", "code": c or "", "qty": q or 0, "price": round(pr or 0), "sum": round(su or 0),
                        "orig": money_label(cu, (pr or 0) / rt)}            # цена в валюте документа
                       for nm, c, q, pr, su in lines]}
