@@ -128,6 +128,7 @@ function totalsHTML(f, t){
     ${PROMO_ON || PROMO ? `<div class="field" style="margin-top:10px"><label for="fPromo">Промокод</label><div style="display:flex;gap:8px"><input id="fPromo" autocapitalize="characters" autocomplete="off" placeholder="Если есть" value="${esc(PROMO ? PROMO.code : "")}" style="flex:1;min-width:0"><button class="btn ghost" id="promoBtn" type="button" style="width:auto;flex:none;padding:0 14px">${PROMO ? "Убрать" : "Применить"}</button></div><div class="kv" id="promoMsg" style="margin-top:4px">${PROMO ? (PROMO.discount > 0 ? `Скидка ${PROMO.discount}% учтена в цене` : "Промокод применён") : ""}</div></div>` : ""}
     <div class="err" id="rErr"></div>
     ${consentHTML("rAgree", CONSENT.cart)}
+    ${LEGAL() ? `<label class="rremember ragree"><input type="checkbox" id="rNews" ${CONSENT.news ? "checked" : ""}><span>Хочу получать новости и акции AMURA (SMS, e-mail, мессенджеры)</span></label>` : ""}
     <button type="button" class="btn rgo" id="rGo" ${LEGAL() && !CONSENT.cart ? 'aria-disabled="true"' : ""}>${login ? "Войти и заказать" : "Заказать"}</button>
     ${login ? `<div class="rhint mut">Чтобы оформить заказ, войдите или зарегистрируйтесь — по номеру телефона или через Telegram, без пароля</div>` : ""}`;
 }
@@ -135,7 +136,7 @@ function totalsHTML(f, t){
 /* согласие с офертой и политикой (требование юриста): галочка не отмечена по умолчанию, без неё «Заказать» и «Получить код» неактивны.
    Только на amura.kz (window.AMURA_LEGAL); на опте ничего этого нет */
 const LEGAL = () => !!window.AMURA_LEGAL;
-const CONSENT = { cart: false, auth: false };
+const CONSENT = { cart: false, auth: false, news: false };
 function consentHTML(id, on){
   if(!LEGAL()) return "";
   return `<label class="rremember ragree"><input type="checkbox" id="${id}" ${on ? "checked" : ""}><span>Я принимаю условия <a href="/shop/legal/offer.html" target="_blank" rel="noopener">оферты</a> и даю согласие на обработку персональных данных согласно <a href="/shop/legal/privacy.html" target="_blank" rel="noopener">Политике конфиденциальности</a>
@@ -349,6 +350,7 @@ $("#drawerBody").addEventListener("change", e => {
     document.querySelectorAll("#rGo, [data-rgo]").forEach(b => CONSENT.cart ? b.removeAttribute("aria-disabled") : b.setAttribute("aria-disabled", "true"));
     return;
   }
+  if(e.target.id === "rNews"){ CONSENT.news = e.target.checked; return; }   // необязательная — на оформление не влияет
   if(e.target.id === "rAll"){ if(e.target.checked) off.clear(); else lines().forEach(l => off.add(l.it.id)); saveOff(); renderRetailCart(); }
   const it = e.target.closest("[data-rsel]") && e.target.closest(".ritem");
   if(it){ e.target.checked ? off.delete(it.dataset.rid) : off.add(it.dataset.rid); saveOff(); renderRetailCart(); }
@@ -447,7 +449,7 @@ async function submit(){
     city: f.city || (AUTH.profile && AUTH.profile.city) || "Алматы", shipping: f.ship, address: f.address || "",
     items: t.ls.map(l => ({ id: l.it.id, qty: l.q, price: l.price })), clientTotal: t.total,
     orderKey: orderKey(), mode: "retail", ref: REF.code() || undefined, promo: PROMO ? PROMO.code : undefined,   // модуль «Источники»
-    consent: LEGAL() ? true : undefined,   // факт и время согласия сервер пишет в комментарий заказа
+    consent: LEGAL() ? true : undefined, news: LEGAL() ? CONSENT.news : undefined,   // факт и время согласия сервер пишет в комментарий заказа
     pvz: f.ship === "cdek" ? DLV.pvzSel : undefined, slot: f.ship === "courier" ? DLV.slotSel : undefined
   };
   const btns = [...document.querySelectorAll("#rGo, [data-rgo]")]; busy = true;
