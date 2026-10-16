@@ -168,6 +168,9 @@ class Orders(unittest.TestCase):
         res, st = self.order(shipping="cdek", pvz={"code": "ALM1", "address": "Абая 1"})   # в Алматы — пункт СДЭК тоже можно
         self.assertEqual(st, 200)
         self.assertEqual(res["total"], 3000 + 1500)
+        dl = self.posted[-1]["positions"][-1]                                     # доставка — позицией в заказе: сумма заказа = «Итого» = сумма оплаты
+        self.assertEqual((dl["price"], dl["assortment"]["meta"]["href"].rsplit("/", 1)[-1]), (150000, "dlv-1"))
+        self.assertEqual(sum(p["price"] * p["quantity"] for p in self.posted[-1]["positions"]) // 100, res["total"])
         res, st = self.order(city="Караганда", shipping="pickup")                     # самовывоз — только Алматы
         self.assertEqual(st, 400)
 
