@@ -1758,6 +1758,12 @@ def handle_owner_callback(cq):
 
 
 # ---------- профиль и история ----------
+def _ms_conflict(e):
+    """МойСклад 412 с кодом 3007: объект одновременно изменён другим запросом."""
+    t = str(e)
+    return t.startswith("МойСклад 412") and "3007" in t
+
+
 @bp.route("/me", methods=["GET", "PATCH", "OPTIONS"])
 def me():
     if request.method == "OPTIONS":
@@ -1770,12 +1776,27 @@ def me():
         name, city = str(d.get("name", "")).strip()[:80], str(d.get("city", "")).strip()[:80]
         if not name or not city:
             return jsonify(ok=False, error="Укажите имя и город"), 400
-        cur = ms("GET", f"/entity/counterparty/{cid}")
-        body = {"name": f"{name} ({city})", "actualAddress": city}
         ph = norm_phone(d.get("phone"))
-        if ph and not cur.get("phone"):          # телефон, подтверждённый SMS, не меняем
-            body["phone"] = "+" + ph
-        ms("PUT", f"/entity/counterparty/{cid}", json=body)
+
+        def put(cur):
+            body = {"name": f"{name} ({city})", "actualAddress": city}
+            if ph and not cur.get("phone"):          # телефон, подтверждённый SMS, не меняем
+                body["phone"] = "+" + ph
+            ms("PUT", f"/entity/counterparty/{cid}", json=body)
+        cur = ms("GET", f"/entity/counterparty/{cid}")
+        try:
+            put(cur)
+        except RuntimeError as e:
+            if not _ms_conflict(e):
+                raise
+            # 412 [3007] — контрагента в этот момент сохранял соседний запрос (телефон шлёт PATCH подряд): перечитываем и повторяем один раз
+            time.sleep(0.5)
+            try:
+                put(ms("GET", f"/entity/counterparty/{cid}"))
+            except RuntimeError as e2:
+                if not _ms_conflict(e2):
+                    raise
+                return jsonify(ok=False, error="Не удалось сохранить, попробуйте ещё раз"), 409
         if not cur.get("actualAddress") and notif_on("newclient"):        # первое заполнение профиля — сообщаем владельцу
             tg("sendMessage", chat_id=OWNER, text=f"🆕 Клиент на сайте: {name}, {city}" + (f", {cur.get('phone') or ('+' + ph if ph else '')}"))
     cp = ms("GET", f"/entity/counterparty/{cid}")
