@@ -51,6 +51,11 @@ class Consent(unittest.TestCase):
         self.assertNotIn(oh.CONSENT_TXT, self.order(consent=True))              # опт — без строки согласия
         self.assertNotIn(oh.CONSENT_TXT, self.order(mode="retail", consent="1"))  # только настоящая галочка
 
+    def test_pay_card_mark(self):
+        self.assertIn(oh.PAY_CARD_TXT, self.order(mode="retail", pay="card"))
+        self.assertNotIn(oh.PAY_CARD_TXT, self.order(mode="retail", pay="link"))
+        self.assertNotIn(oh.PAY_CARD_TXT, self.order(pay="card"))                 # опт — без метки
+
     def test_news_flag(self):
         import inbox
         with inbox.db() as d:

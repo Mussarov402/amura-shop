@@ -437,6 +437,9 @@ form.co{display:grid;gap:12px;padding-top:6px}
 .rpay{display:grid;grid-template-columns:28px minmax(0,1fr);gap:10px;align-items:start;background:var(--bg);border-radius:14px;padding:12px}
 .rpay svg{width:26px;height:26px;fill:none;stroke:var(--green-3);stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .rpay span{display:grid;gap:3px}.rpay small{font-size:12.5px;color:var(--muted)}
+.rpays{display:grid;gap:8px}.rpaym{cursor:pointer;border:1.5px solid transparent}.rpaym.on{border-color:var(--green-3)}
+.rpaym input{width:20px;height:20px;margin:2px 0 0;accent-color:var(--green-3)}
+.rpaynow{margin:8px 0 4px}.rpaid{background:var(--surface);border-radius:16px;padding:14px;margin-bottom:12px}.rpaid h3{margin:0;font-size:17px}.rpaid p{margin:2px 0 0;color:var(--muted)}
 .rtot{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px}
 .rtot span{font-size:20px;font-weight:800}.rtot b{font-size:22px;font-weight:800}
 .rrow{display:flex;justify-content:space-between;gap:10px;color:var(--muted);font-size:15px;padding:3px 0}
@@ -853,8 +856,9 @@ function skeletonGrid(n){
 }
 /* возврат со страницы оплаты Freedom Pay: ?pay=ok / ?pay=fail — сообщение и чистый адрес (оплату подтверждает сервер) */
 (() => { try{ const u = new URL(location.href), r = u.searchParams.get("pay"); if(!r) return;
-  u.searchParams.delete("pay"); history.replaceState(history.state, "", u.pathname + u.search + u.hash);
-  setTimeout(() => toast(r === "ok" ? "Оплата принята — спасибо! Статус обновится в «Моих заказах»" : "Оплата не прошла — попробуйте ещё раз или дождитесь ссылки от менеджера"), 800);
+  window.PAY_RET = { r, n: u.searchParams.get("n") || "" };   // розница: «Оплата получена, заказ передан в сборку» в «Моих заказах»
+  u.searchParams.delete("pay"); u.searchParams.delete("n"); history.replaceState(history.state, "", u.pathname + u.search + u.hash);
+  setTimeout(() => toast(r === "ok" ? "Оплата получена, заказ передан в сборку" : "Оплата не прошла — нажмите «Оплатить» в «Моих заказах» или дождитесь ссылки от менеджера"), 800);
 }catch{} })();
 /* ссылка на товар от источника: …/?ref=CODE#p/<id> — открыть карточку, когда каталог загрузится */
 function refProduct(){
@@ -2144,13 +2148,23 @@ function totalsHTML(f, t){
     <div class="err" id="rErr"></div>
     ${consentHTML("rAgree", CONSENT.cart)}
     ${LEGAL() ? `<label class="rremember ragree"><input type="checkbox" id="rNews" ${CONSENT.news ? "checked" : ""}><span>Хочу получать новости и акции AMURA (SMS, e-mail, мессенджеры)</span></label>` : ""}
-    <button type="button" class="btn rgo" id="rGo" ${LEGAL() && !CONSENT.cart ? 'aria-disabled="true"' : ""}>${login ? "Войти и заказать" : "Заказать"}</button>
+    <button type="button" class="btn rgo" id="rGo" ${LEGAL() && !CONSENT.cart ? 'aria-disabled="true"' : ""}>${goTxt(t, true)}</button>
     ${login ? `<div class="rhint mut">Чтобы оформить заказ, войдите или зарегистрируйтесь — по номеру телефона или через Telegram, без пароля</div>` : ""}`;
 }
 
 /* согласие с офертой и политикой (требование юриста): галочка не отмечена по умолчанию, без неё «Заказать» и «Получить код» неактивны.
    Только на amura.kz (window.AMURA_LEGAL); на опте ничего этого нет */
 const LEGAL = () => !!window.AMURA_LEGAL;
+/* оплата: «Картой сейчас» (по умолчанию) — заказ и сразу страница оплаты Freedom; «Ссылка от менеджера» — как раньше */
+let PAYM = "card";
+const payNow = () => !!window.CARD_PAY && PAYM === "card";
+const goTxt = (t, sum) => !AUTH.token ? "Войти и заказать" : payNow() ? "Заказать и оплатить" + (sum ? ` ${fmt(t.total)} ₸` : "") : "Заказать";
+function payHTML(){
+  if(!window.CARD_PAY) return `<div class="rpay">${CARD}<span><b>Оплата после подтверждения</b><small>Менеджер проверит наличие и пришлёт ссылку на оплату. Оплата картой на сайте — скоро.</small></span></div>`;
+  const opt = (id, title, note) => `<label class="rpay rpaym${PAYM === id ? " on" : ""}"><input type="radio" name="rPayM" value="${id}" ${PAYM === id ? "checked" : ""}><span><b>${title}</b><small>${note}</small></span></label>`;
+  return `<div class="rpays">${opt("card", "Картой сейчас", "Visa, Mastercard, Apple Pay, Google Pay — сразу после «Заказать», на защищённой странице Freedom Pay")}
+    ${opt("link", "Ссылка от менеджера", "Менеджер проверит наличие и пришлёт ссылку на оплату в WhatsApp")}</div>`;
+}
 const CONSENT = { cart: false, auth: false, news: false };
 function consentHTML(id, on){
   if(!LEGAL()) return "";
@@ -2229,10 +2243,10 @@ function stepCheckout(f){
         : `<div class="rlogin"><p>Войдите или зарегистрируйтесь, чтобы оформить заказ. Это быстро — по номеру телефона или через Telegram, без пароля.</p>
           <button type="button" class="btn ghost" data-rlogin>Войти или зарегистрироваться</button></div>`}</section>
       <section class="rcard"><h3>Способ оплаты</h3>
-        <div class="rpay">${CARD}<span><b>${window.CARD_PAY ? "Картой онлайн или по ссылке" : "Оплата после подтверждения"}</b><small>${window.CARD_PAY ? "Сразу после оформления — кнопка «Оплатить картой» (Visa, Mastercard, Apple Pay, Google Pay). Или менеджер пришлёт ссылку на оплату." : "Менеджер проверит наличие и пришлёт ссылку на оплату. Оплата картой на сайте — скоро."}</small></span></div></section>
+        ${payHTML()}</section>
     </div>
     <aside class="rcard rside" id="rTot">${totalsHTML(f, t)}</aside></div>
-    <div class="rfix" id="rFix"><button type="button" class="rfixb" data-rgo ${LEGAL() && !CONSENT.cart ? 'aria-disabled="true"' : ""}><span>${AUTH.token ? "Заказать" : "Войти и заказать"}</span><b>${fmt(t.total)} ₸</b></button></div>`;
+    <div class="rfix" id="rFix"><button type="button" class="rfixb" data-rgo ${LEGAL() && !CONSENT.cart ? 'aria-disabled="true"' : ""}><span>${goTxt(t)}</span><b>${fmt(t.total)} ₸</b></button></div>`;
 }
 function paint(){
   if(VIEW !== "cart" || !$("#rFix")) return;
@@ -2365,6 +2379,11 @@ $("#drawerBody").addEventListener("change", e => {
     document.querySelectorAll("#rGo, [data-rgo]").forEach(b => CONSENT.cart ? b.removeAttribute("aria-disabled") : b.setAttribute("aria-disabled", "true"));
     return;
   }
+  if(e.target.name === "rPayM"){
+    PAYM = e.target.value; document.querySelectorAll(".rpaym").forEach(l => l.classList.toggle("on", l.querySelector("input").checked));
+    const t = tot(form().ship), g = $("#rGo"), sp = $("#rFix .rfixb span");
+    if(g) g.textContent = goTxt(t, true); if(sp) sp.textContent = goTxt(t); return;
+  }
   if(e.target.id === "rNews"){ CONSENT.news = e.target.checked; return; }   // необязательная — на оформление не влияет
   if(e.target.id === "rAll"){ if(e.target.checked) off.clear(); else lines().forEach(l => off.add(l.it.id)); saveOff(); renderRetailCart(); }
   const it = e.target.closest("[data-rsel]") && e.target.closest(".ritem");
@@ -2398,7 +2417,14 @@ $("#drawerTitle").addEventListener("click", e => { if(e.target.closest("[data-rb
 function toLogin(){ try{ sessionStorage.setItem(WANT, "1"); }catch{} go("me"); }
 
 /* после заказа — как на WB: «Заказ оформлен», состав, доставка, что дальше; без WhatsApp и PDF — заказ уже у менеджера */
-function doneRetail(res, f, t){
+async function cardUrl(token){   // сумму считает сервер по заказу; здесь — только ссылка на страницу оплаты
+  let j;
+  try{ const r = await fetch(CONFIG.apiUrl + "/pay/card/init", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) }); j = await r.json(); }
+  catch{ throw new Error("Нет связи с сервером"); }
+  if(!j.ok || !j.url) throw new Error(j.error || "Оплата картой сейчас недоступна");
+  return j.url;
+}
+function doneRetail(res, f, t, payErr){
   const total = res.total || t.total, ph = String(f.phone || "").replace(/\D/g, "");
   const phone = ph.length === 11 ? `+${ph[0]} ${ph.slice(1, 4)} ${ph.slice(4, 7)} ${ph.slice(7, 9)} ${ph.slice(9)}` : (f.phone || "");
   const where = f.ship === "pickup" ? ((method("pickup") && method("pickup").note) || "Склад в Алматы")
@@ -2413,7 +2439,7 @@ function doneRetail(res, f, t){
       <li><b>${window.CARD_PAY ? "Оплатите картой — сейчас или по ссылке" : "Подтвердим и пришлём ссылку на оплату"}</b><span>${window.CARD_PAY ? "Кнопка ниже. Или напишем в WhatsApp на " + esc(phone) + " и пришлём ссылку" : `Напишем в WhatsApp на ${esc(phone)} — обычно в течение 15 минут в рабочее время`}</span></li>
       <li><b>${f.ship === "pickup" ? "Можно забирать" : "Доставка"}</b><span>${esc(f.ship === "pickup" ? "Сообщим, когда заказ будет собран" : when || "")}</span></li>
     </ol>
-    ${window.CARD_PAY && res.startToken ? `<button class="btn" id="rdCard" type="button">💳 Оплатить картой ${fmt(total)} ₸</button><div class="rhint mut" style="text-align:center;margin:6px 0 10px">Visa, Mastercard, Apple Pay, Google Pay · безопасная страница Freedom Pay</div><div class="err" id="rdErr"></div>` : ""}
+    ${window.CARD_PAY && res.startToken ? `<button class="btn" id="rdCard" type="button">💳 Оплатить картой ${fmt(total)} ₸</button><div class="rhint mut" style="text-align:center;margin:6px 0 10px">Visa, Mastercard, Apple Pay, Google Pay · безопасная страница Freedom Pay</div><div class="err" id="rdErr">${esc(payErr || "")}</div>` : ""}
     ${pushBoxHTML()}
     <div class="rcard rdone-d">
       <div class="rrow"><span>Получение</span><b>${esc(how)}</b></div>
@@ -2430,11 +2456,8 @@ function doneRetail(res, f, t){
   </div>`;
   if($("#rdCard")) $("#rdCard").onclick = async e => {   // оплата картой: сумму считает сервер по заказу, здесь — только переход на страницу оплаты
     const b = e.currentTarget, err = $("#rdErr"); b.disabled = true; b.textContent = "Открываем оплату…"; err.textContent = "";
-    try{
-      const r = await fetch(CONFIG.apiUrl + "/pay/card/init", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: res.startToken }) });
-      const j = await r.json(); if(!j.ok || !j.url) throw new Error(j.error || "Оплата картой сейчас недоступна");
-      location.href = j.url;
-    }catch(x){ err.textContent = x.message || "Нет связи с сервером"; b.disabled = false; b.textContent = `💳 Оплатить картой ${fmt(total)} ₸`; }
+    try{ location.href = await cardUrl(res.startToken); }
+    catch(x){ err.textContent = x.message || "Нет связи с сервером"; b.disabled = false; b.textContent = `💳 Оплатить картой ${fmt(total)} ₸`; }
   };
   $("#rdOrders").onclick = () => go("me");
   $("#rdShop").onclick = () => go("home");
@@ -2464,7 +2487,7 @@ async function submit(){
     city: f.city || (AUTH.profile && AUTH.profile.city) || "Алматы", shipping: f.ship, address: f.address || "",
     items: t.ls.map(l => ({ id: l.it.id, qty: l.q, price: l.price })), clientTotal: t.total,
     orderKey: orderKey(), mode: "retail", ref: REF.code() || undefined, promo: PROMO ? PROMO.code : undefined,   // модуль «Источники»
-    consent: LEGAL() ? true : undefined, news: LEGAL() ? CONSENT.news : undefined,   // факт и время согласия сервер пишет в комментарий заказа
+    consent: LEGAL() ? true : undefined, news: LEGAL() ? CONSENT.news : undefined, pay: window.CARD_PAY ? PAYM : undefined,   // факт и время согласия сервер пишет в комментарий заказа
     pvz: f.ship === "cdek" ? DLV.pvzSel : undefined, slot: f.ship === "courier" ? DLV.slotSel : undefined
   };
   const btns = [...document.querySelectorAll("#rGo, [data-rgo]")]; busy = true;
@@ -2482,10 +2505,16 @@ async function submit(){
       if(r.status === 401 && res.login){ setAuth("", null); toast("Войдите заново"); return toLogin(); }
       if(!r.ok || !res.ok) throw new Error(res.error || "Сервер не ответил");
     }
-    $("#drawerBody").parentElement.classList.remove("rwide", "rstep2");
-    doneRetail(res, { ...f, pvz: DLV.pvzSel, slot: DLV.slotSel, address: f.address || "" }, t);
+    const df = { ...f, pvz: DLV.pvzSel, slot: DLV.slotSel, address: f.address || "" };
     orderKeyVal = ""; DLV.slotSel = null; STEP = "cart";
     t.ls.forEach(l => delete cart[l.it.id]); save("amura-cart2", cart); renderCartCount(); render();   // заказанное убираем, остальное остаётся
+    let payErr = "";
+    if(payNow() && res.startToken && !res.demo){   // «Картой сейчас» — без промежуточного экрана сразу на страницу оплаты
+      btns.forEach(b => { if(b.isConnected) b.textContent = "Открываем оплату…"; });
+      try{ location.href = await cardUrl(res.startToken); return; }catch(x){ payErr = x.message; }
+    }
+    $("#drawerBody").parentElement.classList.remove("rwide", "rstep2");
+    doneRetail(res, df, t, payErr);
   }catch(ex){ err.textContent = (ex.message || "Ошибка") + ". Попробуйте ещё раз."; toast(ex.message || "Ошибка"); }
   finally{ busy = false; btns.forEach(b => { if(b.isConnected){ b.disabled = false; b.innerHTML = b.dataset.t; } }); }
 }
@@ -2575,10 +2604,27 @@ async function pushEnable(btn){
 }
 document.addEventListener("click", e => { const b = e.target.closest("[data-rpush]"); if(b) pushEnable(b); });
 
+/* «Мои заказы»: неоплаченный заказ, где выбрана карта, — кнопка «Оплатить»; после возврата с оплаты — «Оплата получена» */
+function payPaint(orders){
+  const panels = document.querySelectorAll("#orders .order");
+  const pr = window.PAY_RET, justPaid = pr && pr.r === "ok" ? pr.n : "";
+  (orders || []).forEach((o, i) => { const el = panels[i]; if(!el || !o.payCard || o.number === justPaid || el.querySelector("[data-rpaynow]")) return;
+    el.querySelector(".top + .top").insertAdjacentHTML("afterend", `<button type="button" class="btn rpaynow" data-rpaynow="${esc(o.payCard)}">💳 Оплатить ${fmt(o.sum)} ₸</button>`); });
+  if(justPaid !== "" && pr && !$("#rPaid")){
+    const box = $("#orders") || $("#meBody .panel");
+    if(box) box.insertAdjacentHTML("beforebegin", `<div class="rdone-h rpaid" id="rPaid">${CHECK_BIG}<div><h3>Оплата получена, заказ передан в сборку</h3>${pr.n ? `<p>Заказ № ${esc(pr.n)}</p>` : ""}</div></div>`);
+  }
+}
+document.addEventListener("click", async e => {
+  const b = e.target.closest("[data-rpaynow]"); if(!b) return;
+  const t = b.textContent; b.disabled = true; b.textContent = "Открываем оплату…";
+  try{ location.href = await cardUrl(b.dataset.rpaynow); }catch(x){ toast(x.message); b.disabled = false; b.textContent = t; }
+});
 const _paintMe = paintMe;
 paintMe = function(p, orders){
   _paintMe(p, orders); markRetail();
   trackPaint(orders);
+  payPaint(orders);
   const oh = $("#orders"); if(oh && orders && orders.length && !$("#meBody .rpush")) oh.insertAdjacentHTML("beforebegin", pushBoxHTML());
   let want = false; try{ want = sessionStorage.getItem(WANT) === "1"; }catch{}
   if(want && AUTH.token && p && p.name){ try{ sessionStorage.removeItem(WANT); }catch{} toast("Вы вошли — оформляем заказ"); NEXT = "checkout"; go("cart"); }

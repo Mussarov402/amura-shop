@@ -592,6 +592,7 @@ def save_consent(cid, how):
         inbox.set_setting(d, "consent:" + cid, json.dumps({"t": int(time.time()), "at": consent_time(), "how": how}, ensure_ascii=False))
 
 
+PAY_CARD_TXT = "Оплата: картой на сайте"   # клиент выбрал «Картой сейчас» — в «Моих заказах» у неоплаченного кнопка «Оплатить»
 NEWS_TXT = "Новости и акции AMURA (SMS, e-mail, мессенджеры)"
 
 
@@ -1058,7 +1059,8 @@ def order_core(d, key, ip, me, source="с сайта", panel=False):
             "description": f"Заказ {source}\n{name}, {contact}\nГород: {city}\nОтправка: {ship_name}" + _panel_comment(d, panel)
                            + (f"\nИсточник: {src['code']}" + (f" (промокод {src['promo']}, скидка {disc:g}%)" if disc else "") if src else "")
                            + (f"\n{CONSENT_TXT}: {consent_time()}" if retail and d.get("consent") is True else "")
-                           + (f"\n{NEWS_TXT}: {'да' if d['news'] else 'нет'}" if retail and isinstance(d.get("news"), bool) else ""),
+                           + (f"\n{NEWS_TXT}: {'да' if d['news'] else 'нет'}" if retail and isinstance(d.get("news"), bool) else "")
+                           + (f"\n{PAY_CARD_TXT}" if retail and d.get("pay") == "card" else ""),
             "positions": positions,
         })
     except Exception as e:
@@ -1889,7 +1891,17 @@ def me():
         orders.append({"number": o["name"], "date": datetime.strptime(o["moment"][:16], "%Y-%m-%d %H:%M").strftime("%d.%m.%Y"),
                        "status": (o.get("state") or {}).get("name", "Новый"), "sum": o["sum"] / 100,
                        "count": count, "items": items,
+                       "payCard": f"{o['name']}_{sign(o['name'])}" if (PAY_CARD_TXT in (o.get("description") or "") and (o.get("payedSum") or 0) < o["sum"]
+                                                                        and not re.search(r"отмен|возврат", (o.get("state") or {}).get("name", ""), re.I)) else "",
                        "pdfUrl": f"{PUBLIC_URL}/order/{o['name']}/pdf?t={sign(o['name'])}"})
+    try:                                             # уже оплачено картой (тест тоже) — «Оплатить» не показываем
+        import freedom
+        paid = freedom.paid_numbers([o["number"] for o in orders if o["payCard"]])
+        for o in orders:
+            if o["number"] in paid:
+                o["payCard"] = ""
+    except Exception as e:
+        print("Мои заказы: оплаты картой не проверены:", e, flush=True)
     try:                                             # отслеживание курьера Яндекса — только своих заказов
         import courier
         tr = courier.client_tracks(cid)

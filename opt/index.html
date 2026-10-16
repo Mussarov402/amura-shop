@@ -576,8 +576,9 @@ function skeletonGrid(n){
 }
 /* возврат со страницы оплаты Freedom Pay: ?pay=ok / ?pay=fail — сообщение и чистый адрес (оплату подтверждает сервер) */
 (() => { try{ const u = new URL(location.href), r = u.searchParams.get("pay"); if(!r) return;
-  u.searchParams.delete("pay"); history.replaceState(history.state, "", u.pathname + u.search + u.hash);
-  setTimeout(() => toast(r === "ok" ? "Оплата принята — спасибо! Статус обновится в «Моих заказах»" : "Оплата не прошла — попробуйте ещё раз или дождитесь ссылки от менеджера"), 800);
+  window.PAY_RET = { r, n: u.searchParams.get("n") || "" };   // розница: «Оплата получена, заказ передан в сборку» в «Моих заказах»
+  u.searchParams.delete("pay"); u.searchParams.delete("n"); history.replaceState(history.state, "", u.pathname + u.search + u.hash);
+  setTimeout(() => toast(r === "ok" ? "Оплата получена, заказ передан в сборку" : "Оплата не прошла — нажмите «Оплатить» в «Моих заказах» или дождитесь ссылки от менеджера"), 800);
 }catch{} })();
 /* ссылка на товар от источника: …/?ref=CODE#p/<id> — открыть карточку, когда каталог загрузится */
 function refProduct(){

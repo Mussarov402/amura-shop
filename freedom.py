@@ -125,6 +125,17 @@ def for_order(number):
     return [_row(r) for r in rows]
 
 
+def paid_numbers(numbers):
+    """Какие из заказов уже оплачены картой (в т.ч. тестом — такие в МойСклад не пишутся, а кнопка «Оплатить» не нужна)."""
+    numbers = [str(n) for n in numbers if n]
+    if not numbers:
+        return set()
+    with db() as d:
+        rows = d.run("SELECT DISTINCT number FROM card_pay WHERE status='paid' AND number IN (" + ",".join(["%s"] * len(numbers)) + ")",
+                     tuple(numbers), many=True) or []
+    return {r[0] for r in rows}
+
+
 def _set(pg_order, **f):
     with db() as d:
         d.run(f"UPDATE card_pay SET {', '.join(k + '=%s' for k in f)} WHERE pg_order=%s", (*f.values(), pg_order))
@@ -156,7 +167,7 @@ def init(number):
     params = {"pg_merchant_id": merchant(), "pg_order_id": pg_order, "pg_amount": str(amount), "pg_currency": "KZT",
               "pg_description": f"Заказ №{number} в AMURA", "pg_salt": secrets.token_hex(8), "pg_language": "ru",
               "pg_result_url": f"{oh.PUBLIC_URL}/pay/card/{RESULT_SCRIPT}", "pg_request_method": "POST",
-              "pg_success_url": f"{RETAIL_SITE}/?pay=ok#me", "pg_failure_url": f"{RETAIL_SITE}/?pay=fail#me",
+              "pg_success_url": f"{RETAIL_SITE}/?pay=ok&n={number}#me", "pg_failure_url": f"{RETAIL_SITE}/?pay=fail&n={number}#me",
               "pg_success_url_method": "GET", "pg_failure_url_method": "GET"}
     if METHOD:
         params["pg_payment_method"] = METHOD
@@ -305,14 +316,45 @@ def post_ms(pg_order):
     return by_pg_order(pg_order)
 
 
+PAID_STATE = "Подтвержден"      # статус заказа в МойСклад после оплаты картой: подтверждён, к сборке («Собран» ставит склад)
+
+
+def to_assembly(p):
+    """Оплачен — заказ «Новый» → «Подтвержден» (передан в сборку). Уже дальше по пути — не трогаем. Тест — тоже, с пометкой «ТЕСТ» в комментарии."""
+    if not p["orderId"]:
+        return False
+    md = oh.cached("ms_order_states", 3600, lambda: oh.ms("GET", "/entity/customerorder/metadata", timeout=15))
+    states = {s["meta"]["href"].rsplit("/", 1)[-1]: s for s in md.get("states", [])}
+    target = next((s for s in states.values() if s.get("name") == PAID_STATE), None)
+    o = oh.ms("GET", f"/entity/customerorder/{p['orderId']}", timeout=15)
+    cur = states.get(((o.get("state") or {}).get("meta") or {}).get("href", "").rsplit("/", 1)[-1], {}).get("name", "Новый")
+    if not target or cur != "Новый":
+        return False
+    body = {"state": {"meta": target["meta"]}}
+    if p["test"]:
+        body["description"] = ((o.get("description") or "") + f"\nТЕСТ: оплата картой Freedom Pay без списания, платёж №{p['paymentId']}")[:4000]
+    oh.ms("PUT", f"/entity/customerorder/{p['orderId']}", json=body, timeout=20)
+    try:
+        import admin
+        admin._olog(p["number"], f"Оплачен картой{' (ТЕСТ)' if p['test'] else ''} → статус «{PAID_STATE}»", who_name="Freedom Pay")
+    except Exception:
+        pass
+    oh._cache.pop("adm_orders", None)
+    return True
+
+
 def after_paid(pg_order):
     p = by_pg_order(pg_order)
     if not p:
         return
     if not p["test"]:                                                # тестовые платежи в МойСклад не пишем
         p = post_ms(pg_order) or p
+    try:
+        to_assembly(p)
+    except Exception as e:
+        print("Freedom Pay: статус заказа не сменён:", str(e)[:200], flush=True)
     text = (f"💳 Оплачен заказ № {p['number']} картой, {oh.fmt(p['amount'])} ₸{' (ТЕСТ, без списания)' if p['test'] else ''}\n"
-            f"Freedom Pay № {p['paymentId']}\nВыбейте чек в кассе Kaspi."
+            f"Freedom Pay № {p['paymentId']}\nЗаказ передан в сборку. Выбейте чек в кассе Kaspi."
             + (f"\n⚠️ В МойСклад платёж не записан: {p['msError']}" if p["msError"] else ""))
     try:
         oh.tg("sendMessage", chat_id=oh.OWNER, text=text)

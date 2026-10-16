@@ -41,7 +41,9 @@ class Freedom(unittest.TestCase):
             d.run("DELETE FROM card_pay")
         modules.update("cardpay", on=True)
         self.addCleanup(lambda: modules.update("cardpay", on=False))
-        self.sent, self.ms_posts, self.done = [], [], []
+        self.sent, self.ms_posts, self.done, self.puts = [], [], [], []
+        self.state = "s-new"
+        oh._cache.pop("ms_order_states", None)
         self.patch(freedom.requests, "post", lambda url, data=None, timeout=None: self.sent.append((url, dict(data))) or Resp(
             "<?xml version='1.0'?><response><pg_status>ok</pg_status><pg_payment_id>9001</pg_payment_id>"
             "<pg_redirect_url>https://pay.example/9001</pg_redirect_url></response>"))
@@ -56,6 +58,13 @@ class Freedom(unittest.TestCase):
                 return {"id": "pi", "name": "77"}
             if path.endswith("/accounts"):
                 return {"rows": []}
+            if path == "/entity/customerorder/metadata":
+                return {"states": [{"name": n, "meta": {"href": "https://x/state/" + i}} for n, i in (("Новый", "s-new"), ("Подтвержден", "s-ok"), ("Собран", "s-built"))]}
+            if path == "/entity/customerorder/o-uuid" and method == "GET":
+                return dict(ORDER, state={"meta": {"href": "https://x/state/" + self.state}})
+            if path == "/entity/customerorder/o-uuid" and method == "PUT":
+                self.puts.append(kw["json"])
+                return {}
             raise AssertionError(path)
         self.patch(oh, "ms", ms)
         self.patch(oh, "organization", lambda: "org-1")
@@ -104,6 +113,7 @@ class Freedom(unittest.TestCase):
         self.assertIn(b"<pg_status>ok</pg_status>", r.data)
         self.assertEqual(len(self.done), 1)                                                          # второй раз не учитываем
         self.assertEqual(freedom.for_order("1777")[0]["paymentId"], "9001")
+        self.assertEqual(freedom.paid_numbers(["1777", "1778"]), {"1777"})
 
     def test_bad_signature_and_amount(self):
         self.c.post("/pay/card/init", json={"token": "1777_" + oh.sign("1777")})
@@ -128,6 +138,18 @@ class Freedom(unittest.TestCase):
         self.assertEqual(len(self.ms_posts), 1)
         b = self.ms_posts[0]
         self.assertEqual((b["externalCode"], b["sum"], b["operations"][0]["meta"]["type"]), ("freedom-9001", 1250000, "customerorder"))
+
+    def test_paid_goes_to_assembly(self):
+        r = json.loads(self.c.post("/pay/card/init", json={"token": "1777_" + oh.sign("1777")}).data)
+        self.assertIn("pay=ok&n=1777", self.sent[-1][1]["pg_success_url"])
+        self.c.post("/pay/card/result", data=self.notify())
+        self.done[0]()
+        self.assertEqual(self.puts[-1]["state"]["meta"]["href"], "https://x/state/s-ok")             # оплачен → «Подтвержден» (к сборке)
+        self.assertIn("ТЕСТ", self.puts[-1]["description"])                                       # тестовый платёж — пометка в комментарии
+        self.puts.clear()
+        self.state = "s-built"                                                                     # уже собран — назад не переводим
+        freedom.to_assembly(freedom.by_pg_order("1777-1"))
+        self.assertEqual(self.puts, [])
 
     def test_off_by_default_and_without_keys(self):
         modules.update("cardpay", on=False)
