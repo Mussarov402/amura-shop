@@ -2,7 +2,9 @@
 В группу можно добавить любой диалог — Telegram, WhatsApp, Instagram, чат сайта — и отправить всем одно сообщение (текст, фото или файл).
 Ограничения мессенджеров: WhatsApp и Instagram разрешают писать первым только в течение 24 часов после последнего сообщения клиента —
 остальным рассылка не уходит (помечаются «пропущено» с причиной). Telegram и чат сайта — без ограничений.
+Клиентам розницы, снявшим галочку «новости и акции», рассылка не уходит (сервисные сообщения о заказе — как раньше).
 В тексте можно написать {имя} — подставится имя клиента."""
+import json
 import threading
 import time
 
@@ -60,12 +62,29 @@ def _contacts(d, ids=None):
     return d.run(sql + " ORDER BY c.last_at DESC LIMIT 3000", many=True) or []
 
 
-def _card(r):
+def declined(d):
+    """Номера клиентов розницы, снявших галочку «новости и акции» — рассылки им не шлём (сервисные сообщения о заказе идут как раньше)."""
+    out = set()
+    for k, v in d.run("SELECT key, value FROM setting WHERE key LIKE 'news:%%'", many=True) or []:
+        try:
+            if not json.loads(v).get("on"):
+                out.add(k[5:])
+        except Exception:
+            pass
+    return out
+
+
+NO_NEWS = "нет согласия на новости и акции"
+
+
+def _card(r, no=frozenset()):
     cid, name, username, chat, last = r
     ok, why = window(chat, last)
     ch = inbox.channel(chat)
+    if ch == "wa" and admin.wa.number(chat) in no:
+        ok, why = False, NO_NEWS
     return {"id": cid, "name": name or "Без имени", "username": username or "", "channel": ch,
-            "phone": admin.wa.number(chat) if ch == "wa" else "", "open": ok, "why": why}
+            "phone": admin.wa.number(chat) if ch == "wa" else "", "open": ok, "why": why, "nonews": why == NO_NEWS}
 
 
 @bp.get("/admin/api/inbox/contacts")
@@ -74,7 +93,8 @@ def contacts():
     """Все диалоги для выбора в группу: поиск по имени, @нику и номеру, фильтр по мессенджеру."""
     q, ch = request.args.get("q", "").strip().lower(), request.args.get("ch", "")
     with db() as d:
-        rows = [_card(r) for r in _contacts(d)]
+        no = declined(d)
+        rows = [_card(r, no) for r in _contacts(d)]
     if ch:
         rows = [r for r in rows if r["channel"] == ch]
     if q:
@@ -180,7 +200,8 @@ def groups():
     out = []
     with db() as d:
         for gid, name, at in d.run("SELECT id, name, at FROM grp ORDER BY at DESC", many=True) or []:
-            cards = [_card(r) for r in _contacts(d, _members(d, gid))]
+            no = declined(d)
+            cards = [_card(r, no) for r in _contacts(d, _members(d, gid))]
             chans = {}
             for c in cards:
                 chans[c["channel"]] = chans.get(c["channel"], 0) + 1
@@ -216,7 +237,8 @@ def group_get(gid):
         g = d.run("SELECT id, name FROM grp WHERE id=%s", (gid,), one=True)
         if not g:
             return jsonify(ok=False, error="Группа не найдена"), 404
-        members = sorted((_card(r) for r in _contacts(d, _members(d, gid))), key=lambda c: (not c["open"], c["name"].lower()))
+        no = declined(d)
+        members = sorted((_card(r, no) for r in _contacts(d, _members(d, gid))), key=lambda c: (not c["open"], c["name"].lower()))
         return jsonify(ok=True, group={"id": g[0], "name": g[1]}, members=members, broadcasts=_bcasts(d, gid))
 
 
@@ -304,10 +326,11 @@ def group_send(gid):
     with db() as d:
         if not d.run("SELECT id FROM grp WHERE id=%s", (gid,), one=True):
             return jsonify(ok=False, error="Группа не найдена"), 404
-        cards = [_card(r) for r in _contacts(d, _members(d, gid))]
+        no = declined(d)
+        cards = [_card(r, no) for r in _contacts(d, _members(d, gid))]
         if not cards:
             return jsonify(ok=False, error="В группе нет контактов"), 400
-        st = {c["id"]: "wait" if c["open"] else "tpl" if tpl and c["channel"] == "wa" else "skip" for c in cards}
+        st = {c["id"]: "wait" if c["open"] else "tpl" if tpl and c["channel"] == "wa" and not c["nonews"] else "skip" for c in cards}
         skipped = sum(v == "skip" for v in st.values())
         bid = d.run("INSERT INTO bcast (grp_id, text, file, by_name, at, total, skipped, state) VALUES (%s,%s,%s,%s,%s,%s,%s,'run')",
                     (gid, text, f["name"] if f else None, who.get("name", ""), time.time(), len(cards), skipped), ins=True)
