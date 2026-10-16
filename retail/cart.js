@@ -127,9 +127,25 @@ function totalsHTML(f, t){
     ${rest ? `<div class="rfree">До бесплатной доставки ещё <b>${fmt(rest)} ₸</b><i><b style="width:${Math.round(100 * t.goods / ff)}%"></b></i></div>` : ""}
     ${PROMO_ON || PROMO ? `<div class="field" style="margin-top:10px"><label for="fPromo">Промокод</label><div style="display:flex;gap:8px"><input id="fPromo" autocapitalize="characters" autocomplete="off" placeholder="Если есть" value="${esc(PROMO ? PROMO.code : "")}" style="flex:1;min-width:0"><button class="btn ghost" id="promoBtn" type="button" style="width:auto;flex:none;padding:0 14px">${PROMO ? "Убрать" : "Применить"}</button></div><div class="kv" id="promoMsg" style="margin-top:4px">${PROMO ? (PROMO.discount > 0 ? `Скидка ${PROMO.discount}% учтена в цене` : "Промокод применён") : ""}</div></div>` : ""}
     <div class="err" id="rErr"></div>
-    <button type="button" class="btn rgo" id="rGo">${login ? "Войти и заказать" : "Заказать"}</button>
-    ${window.AMURA_LEGAL ? `<div class="rterms">Нажимая «Заказать», вы принимаете условия <a href="/shop/legal/offer.html" target="_blank">оферты</a> и <a href="/shop/legal/privacy.html" target="_blank">политики конфиденциальности</a></div>` : ""}
+    ${consentHTML("rAgree", CONSENT.cart)}
+    <button type="button" class="btn rgo" id="rGo" ${LEGAL() && !CONSENT.cart ? 'aria-disabled="true"' : ""}>${login ? "Войти и заказать" : "Заказать"}</button>
     ${login ? `<div class="rhint mut">Чтобы оформить заказ, войдите или зарегистрируйтесь — по номеру телефона или через Telegram, без пароля</div>` : ""}`;
+}
+
+/* согласие с офертой и политикой (требование юриста): галочка не отмечена по умолчанию, без неё «Заказать» и «Получить код» неактивны.
+   Только на amura.kz (window.AMURA_LEGAL); на опте ничего этого нет */
+const LEGAL = () => !!window.AMURA_LEGAL;
+const CONSENT = { cart: false, auth: false };
+function consentHTML(id, on){
+  if(!LEGAL()) return "";
+  return `<label class="rremember ragree"><input type="checkbox" id="${id}" ${on ? "checked" : ""}><span>Я принимаю условия <a href="/shop/legal/offer.html" target="_blank" rel="noopener">оферты</a> и даю согласие на обработку персональных данных согласно <a href="/shop/legal/privacy.html" target="_blank" rel="noopener">Политике конфиденциальности</a>
+    <small class="ragree-h" id="${id}H" ${on ? "hidden" : ""}>Отметьте галочку, чтобы продолжить</small></span></label>`;
+}
+function consentNeed(id){   // нажали неактивную кнопку — подсвечиваем подсказку и галочку
+  const h = $("#" + id + "H"), box = $("#" + id);
+  if(h){ h.hidden = false; h.classList.add("bad"); }
+  if(box){ box.scrollIntoView({ block: "center", behavior: "smooth" }); box.focus(); }
+  toast("Отметьте согласие с офертой и политикой конфиденциальности");
 }
 
 const plTov = n => `${fmt(n)} ${plural(n, "товар", "товара", "товаров")}`;
@@ -200,7 +216,7 @@ function stepCheckout(f){
         <div class="rpay">${CARD}<span><b>${window.CARD_PAY ? "Картой онлайн или по ссылке" : "Оплата после подтверждения"}</b><small>${window.CARD_PAY ? "Сразу после оформления — кнопка «Оплатить картой» (Visa, Mastercard, Apple Pay, Google Pay). Или менеджер пришлёт ссылку на оплату." : "Менеджер проверит наличие и пришлёт ссылку на оплату. Оплата картой на сайте — скоро."}</small></span></div></section>
     </div>
     <aside class="rcard rside" id="rTot">${totalsHTML(f, t)}</aside></div>
-    <div class="rfix" id="rFix"><button type="button" class="rfixb" data-rgo><span>${AUTH.token ? "Заказать" : "Войти и заказать"}</span><b>${fmt(t.total)} ₸</b></button></div>`;
+    <div class="rfix" id="rFix"><button type="button" class="rfixb" data-rgo ${LEGAL() && !CONSENT.cart ? 'aria-disabled="true"' : ""}><span>${AUTH.token ? "Заказать" : "Войти и заказать"}</span><b>${fmt(t.total)} ₸</b></button></div>`;
 }
 function paint(){
   if(VIEW !== "cart" || !$("#rFix")) return;
@@ -328,6 +344,11 @@ function sheetClick(e){
 /* ---------- корзина: вкладки, интервалы, получатель, заказ ---------- */
 $("#drawerBody").addEventListener("change", e => {
   if(!$("#rFix")) return;
+  if(e.target.id === "rAgree"){
+    CONSENT.cart = e.target.checked; const h = $("#rAgreeH"); if(h){ h.hidden = CONSENT.cart; h.classList.remove("bad"); }
+    document.querySelectorAll("#rGo, [data-rgo]").forEach(b => CONSENT.cart ? b.removeAttribute("aria-disabled") : b.setAttribute("aria-disabled", "true"));
+    return;
+  }
   if(e.target.id === "rAll"){ if(e.target.checked) off.clear(); else lines().forEach(l => off.add(l.it.id)); saveOff(); renderRetailCart(); }
   const it = e.target.closest("[data-rsel]") && e.target.closest(".ritem");
   if(it){ e.target.checked ? off.delete(it.dataset.rid) : off.add(it.dataset.rid); saveOff(); renderRetailCart(); }
@@ -336,7 +357,7 @@ $("#drawerBody").addEventListener("click", e => {
   if(!$("#rFix") && !e.target.closest("[data-rlogin]")) return;
   if(e.target.closest("[data-rnext]")) return toCheckout();
   if(e.target.closest("[data-rback]")){ STEP = "cart"; renderRetailCart(); return; }
-  if(e.target.closest("[data-rgo]") || e.target.id === "rGo") return submit();
+  if(e.target.closest("[data-rgo]") || e.target.id === "rGo"){ if(LEGAL() && !CONSENT.cart) return consentNeed("rAgree"); return submit(); }
   const item = e.target.closest(".ritem");
   if(item && e.target.closest("[data-rbuy]")){ lines().forEach(l => l.it.id === item.dataset.rid ? off.delete(l.it.id) : off.add(l.it.id)); saveOff(); return toCheckout(); }
   if(item && e.target.closest("[data-rdel]")){ const it = byId(item.dataset.rid); if(it) setCartQty(it, 0); return; }
@@ -409,6 +430,7 @@ async function submit(){
   if(busy) return;
   const err = $("#rErr"), f = form(), t = tot(f.ship);
   const fail = (m, sel) => { err.textContent = m; toast(m); if(sel && $(sel)){ $(sel).focus(); $(sel).scrollIntoView({ block: "center", behavior: "smooth" }); } };
+  if(LEGAL() && !CONSENT.cart) return consentNeed("rAgree");
   if(!AUTH.token){ NEXT = "checkout"; return toLogin(); }
   if(!t.ls.length){ STEP = "cart"; return renderRetailCart(); }
   const digits = normPhone(String(f.phone).replace(/\D/g, ""));
@@ -425,6 +447,7 @@ async function submit(){
     city: f.city || (AUTH.profile && AUTH.profile.city) || "Алматы", shipping: f.ship, address: f.address || "",
     items: t.ls.map(l => ({ id: l.it.id, qty: l.q, price: l.price })), clientTotal: t.total,
     orderKey: orderKey(), mode: "retail", ref: REF.code() || undefined, promo: PROMO ? PROMO.code : undefined,   // модуль «Источники»
+    consent: LEGAL() ? true : undefined,   // факт и время согласия сервер пишет в комментарий заказа
     pvz: f.ship === "cdek" ? DLV.pvzSel : undefined, slot: f.ship === "courier" ? DLV.slotSel : undefined
   };
   const btns = [...document.querySelectorAll("#rGo, [data-rgo]")]; busy = true;
@@ -558,6 +581,13 @@ renderAuth = function(){
     send.insertAdjacentHTML("beforebegin", `<label class="rremember"><input type="checkbox" id="aRemember" ${remember() ? "checked" : ""}><span>Запомнить меня<small>Снимите на чужом телефоне — вход сбросится, когда закроете браузер</small></span></label>`);
     $("#aRemember").onchange = e => { try{ localStorage.setItem(REM, e.target.checked ? "1" : "0"); }catch{} };
   }
+  if(send && LEGAL() && !$("#aAgree")){   // согласие — до «Получить код» (и остаётся отмеченным на шаге с кодом)
+    send.insertAdjacentHTML("beforebegin", consentHTML("aAgree", CONSENT.auth));
+    const sync = () => CONSENT.auth ? send.removeAttribute("aria-disabled") : send.setAttribute("aria-disabled", "true");
+    sync();
+    $("#aAgree").onchange = e => { CONSENT.auth = e.target.checked; const h = $("#aAgreeH"); h.hidden = CONSENT.auth; h.classList.remove("bad"); sync(); };
+    $("#af").addEventListener("submit", e => { if(!CONSENT.auth){ e.preventDefault(); e.stopImmediatePropagation(); consentNeed("aAgree"); } }, true);
+  }
 };
 /* «Запомнить меня»: по умолчанию вход хранится на устройстве (180 дней); без галочки — только до закрытия браузера */
 const REM = "amura-r-remember";
@@ -572,6 +602,9 @@ if(!AUTH.token && !remember()){
 }
 const _api = api;
 api = async function(path, opts){
+  if(path === "/auth/sms/verify" && LEGAL() && CONSENT.auth && opts && opts.body){   // сервер запишет согласие клиенту
+    try{ opts = { ...opts, body: JSON.stringify({ ...JSON.parse(opts.body), consent: true }) }; }catch{}
+  }
   try{ return await _api(path, opts); }
   catch(e){ if(path === "/auth/sms/send" && /telegram/i.test(e.message)) throw new Error("Вход по SMS временно недоступен. Попробуйте позже или напишите нам в WhatsApp"); throw e; }
 };
