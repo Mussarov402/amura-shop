@@ -269,6 +269,7 @@ form.co{display:grid;gap:12px;padding-top:6px}
 .sheet .info{padding:26px;display:flex;flex-direction:column;gap:10px}
 .sheet .info h3{font-family:var(--display);font-weight:500;font-size:21px;line-height:1.25;margin:0}
 .sheet .desc{color:var(--ink);font-size:14px;line-height:1.6;white-space:pre-line}
+.sheet .inci{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}.sheet .inci summary{cursor:pointer;font-weight:700;font-size:15px;list-style:none;display:flex;justify-content:space-between;align-items:center}.sheet .inci summary::-webkit-details-marker{display:none}.sheet .inci summary::after{content:"+";font-size:20px;color:var(--muted)}.sheet .inci[open] summary::after{content:"−"}.sheet .inci .desc{margin-top:8px;font-size:13px}
 .sheet .desc.clip{max-height:9.6em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 60%,transparent)}
 .more-link{border:0;background:none;padding:0;color:var(--green-3);font-weight:700;font-size:14px;justify-self:start}
 .sec{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:10px 0 0;font-weight:800}
@@ -824,14 +825,14 @@ async function getJSON(url, ms, headers){
   try{ const r = await fetch(url, { cache: "no-cache", signal: ctl.signal, headers }); if(!r.ok) throw new Error(r.status); return await r.json(); }
   finally{ clearTimeout(t); }
 }
-const DESC = {};
+const DESC = {}, INCI = {};                   // описание и состав (INCI) — из catalog.json или /product/<id>, в живой каталог не входят
 let WS = false;                               // true — сервер отдал оптовые цены (клиент с тегом «опт»)
 function applyData(data){
   if(RETAIL) data = { ...data, wholesale: false, items: (data.items || []).map(i => ({ ...i,   // в выгрузке опт и розница — берём розницу
     ...("rtl" in i ? { opt: i.rtl, mid: 0, box: 0 } : {}), img: i.img && !/^(https?:)?\//.test(i.img) ? "/" + i.img : i.img })) };
   WS = !!data.wholesale;
   ALL = (data.items || []).filter(i => i.qty > 0 && i.opt > 0);
-  ALL.forEach(i => { if(typeof i.desc === "string") DESC[i.id] = i.desc; else if(i.id in DESC) i.desc = DESC[i.id]; });
+  ALL.forEach(i => { if(typeof i.desc === "string"){ DESC[i.id] = i.desc; INCI[i.id] = i.inci || ""; } else if(i.id in DESC){ i.desc = DESC[i.id]; i.inci = INCI[i.id] || ""; } });
   $("#meta").dataset.upd = data.updated || "";
   Object.keys(cart).forEach(id => { const it = byId(id); if(!it) delete cart[id]; else cart[id] = Math.min(cart[id], it.qty); });
   Object.keys(pick).forEach(id => { const it = byId(id); if(!it) delete pick[id]; else pick[id] = Math.min(pick[id], it.qty); });
@@ -881,7 +882,7 @@ async function boot(){
   }).catch(() => {});
   oprosLink();
   if(!okStatic && !okLive && !shown){ ALL = DEMO_ITEMS; DEMO = true; $("#demoBar").hidden = false; applyData({ items: DEMO_ITEMS }); render(); if(VIEW !== "home") go(VIEW, true); return; }
-  if(okStatic && okLive) getJSON(CONFIG.catalogUrl, 8000).then(d => { (d.items || []).forEach(i => { if(i.desc) DESC[i.id] = i.desc; }); ALL.forEach(i => { if(i.desc === undefined && i.id in DESC) i.desc = DESC[i.id]; }); cacheSave(); }).catch(() => {});
+  if(okStatic && okLive) getJSON(CONFIG.catalogUrl, 8000).then(d => { (d.items || []).forEach(i => { if(i.desc || i.inci){ DESC[i.id] = i.desc || ""; INCI[i.id] = i.inci || ""; } }); ALL.forEach(i => { if(i.desc === undefined && i.id in DESC){ i.desc = DESC[i.id]; i.inci = INCI[i.id]; } }); cacheSave(); }).catch(() => {});
   setInterval(() => { if(document.visibilityState === "visible") refreshLive(); }, CONFIG.refreshMs);
   document.addEventListener("visibilitychange", () => { if(document.visibilityState === "visible" && Date.now() - lastLive > 60000) refreshLive(); });
   syncFav();
@@ -1165,9 +1166,10 @@ function specsHTML(it){
 }
 function descHTML(it){
   if(it.desc === undefined && !DEMO) return `<div class="kv" id="descSlot">Загружаем описание…</div>`;
-  if(!it.desc) return `<div class="kv">Описание скоро появится.</div>`;
+  const inci = RETAIL && it.inci ? `<details class="inci"><summary>Состав</summary><div class="desc">${esc(it.inci)}</div></details>` : "";   // только розница (amura.kz); нет состава — блока нет
+  if(!it.desc) return `<div class="kv">Описание скоро появится.</div>${inci}`;
   const long = it.desc.length > 420;
-  return `<div class="desc${long ? " clip" : ""}" id="descText">${esc(it.desc)}</div>${long ? `<button type="button" class="more-link" id="descMore">Читать полностью</button>` : ""}`;
+  return `<div class="desc${long ? " clip" : ""}" id="descText">${esc(it.desc)}</div>${long ? `<button type="button" class="more-link" id="descMore">Читать полностью</button>` : ""}${inci}`;
 }
 function openProduct(it){
   $("#sheet").dataset.id = it.id; $("#sheet").classList.remove("opros");
@@ -1190,7 +1192,7 @@ function openProduct(it){
 }
 function bindDesc(){ const m = $("#descMore"); if(m) m.onclick = () => { $("#descText").classList.remove("clip"); m.remove(); }; }
 async function loadDesc(it){
-  try{ const j = await getJSON(`${CONFIG.apiUrl}/product/${encodeURIComponent(it.id)}`, 20000); it.desc = j.desc || ""; DESC[it.id] = it.desc; }
+  try{ const j = await getJSON(`${CONFIG.apiUrl}/product/${encodeURIComponent(it.id)}`, 20000); it.desc = j.desc || ""; it.inci = j.inci || ""; DESC[it.id] = it.desc; INCI[it.id] = it.inci; }
   catch{ it.desc = ""; }
   if($("#sheet").dataset.id === it.id && $("#descBox")){ $("#descBox").innerHTML = descHTML(it); bindDesc(); }
 }
