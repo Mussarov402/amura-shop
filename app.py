@@ -26,6 +26,10 @@ from checkout import bp as checkout_bp  # noqa: E402
 app.register_blueprint(checkout_bp)
 from reviews import bp as reviews_bp  # noqa: E402
 app.register_blueprint(reviews_bp)
+from freedom import bp as freedom_bp  # noqa: E402
+app.register_blueprint(freedom_bp)
+import freedom  # noqa: E402
+freedom.start()                   # оплаты картой, не записанные в МойСклад, — повтор в фоне
 from sources import bp as sources_bp  # noqa: E402
 app.register_blueprint(sources_bp)
 from wishes import bp as wishes_bp  # noqa: E402
