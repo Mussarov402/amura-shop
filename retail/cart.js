@@ -197,7 +197,7 @@ function stepCheckout(f){
         : `<div class="rlogin"><p>Войдите или зарегистрируйтесь, чтобы оформить заказ. Это быстро — по номеру телефона или через Telegram, без пароля.</p>
           <button type="button" class="btn ghost" data-rlogin>Войти или зарегистрироваться</button></div>`}</section>
       <section class="rcard"><h3>Способ оплаты</h3>
-        <div class="rpay">${CARD}<span><b>Оплата после подтверждения</b><small>Менеджер проверит наличие и пришлёт ссылку на оплату. Оплата картой на сайте — скоро.</small></span></div></section>
+        <div class="rpay">${CARD}<span><b>${window.CARD_PAY ? "Картой онлайн или по ссылке" : "Оплата после подтверждения"}</b><small>${window.CARD_PAY ? "Сразу после оформления — кнопка «Оплатить картой» (Visa, Mastercard, Apple Pay, Google Pay). Или менеджер пришлёт ссылку на оплату." : "Менеджер проверит наличие и пришлёт ссылку на оплату. Оплата картой на сайте — скоро."}</small></span></div></section>
     </div>
     <aside class="rcard rside" id="rTot">${totalsHTML(f, t)}</aside></div>
     <div class="rfix" id="rFix"><button type="button" class="rfixb" data-rgo><span>${AUTH.token ? "Заказать" : "Войти и заказать"}</span><b>${fmt(t.total)} ₸</b></button></div>`;
@@ -372,9 +372,10 @@ function doneRetail(res, f, t){
     <div class="rdone-h">${CHECK_BIG}<div><h3>Спасибо! Заказ № ${esc(res.number)}</h3><p>${plTov(t.count)} на ${fmt(total)} ₸</p></div></div>
     <ol class="rsteps">
       <li class="on"><b>Заказ принят</b><span>Товары зарезервированы за вами</span></li>
-      <li><b>Подтвердим и пришлём ссылку на оплату</b><span>Напишем в WhatsApp на ${esc(phone)} — обычно в течение 15 минут в рабочее время</span></li>
+      <li><b>${window.CARD_PAY ? "Оплатите картой — сейчас или по ссылке" : "Подтвердим и пришлём ссылку на оплату"}</b><span>${window.CARD_PAY ? "Кнопка ниже. Или напишем в WhatsApp на " + esc(phone) + " и пришлём ссылку" : `Напишем в WhatsApp на ${esc(phone)} — обычно в течение 15 минут в рабочее время`}</span></li>
       <li><b>${f.ship === "pickup" ? "Можно забирать" : "Доставка"}</b><span>${esc(f.ship === "pickup" ? "Сообщим, когда заказ будет собран" : when || "")}</span></li>
     </ol>
+    ${window.CARD_PAY && res.startToken ? `<button class="btn" id="rdCard" type="button">💳 Оплатить картой ${fmt(total)} ₸</button><div class="rhint mut" style="text-align:center;margin:6px 0 10px">Visa, Mastercard, Apple Pay, Google Pay · безопасная страница Freedom Pay</div><div class="err" id="rdErr"></div>` : ""}
     ${pushBoxHTML()}
     <div class="rcard rdone-d">
       <div class="rrow"><span>Получение</span><b>${esc(how)}</b></div>
@@ -386,9 +387,17 @@ function doneRetail(res, f, t){
       <div class="rrow"><span>Доставка</span><span>${t.dlv ? fmt(t.dlv) + " ₸" : "бесплатно"}</span></div>
       <div class="rtot"><span>Итого</span><b>${fmt(total)} ₸</b></div>
     </div>
-    <button class="btn" id="rdOrders" type="button">Мои заказы</button>
+    <button class="btn${window.CARD_PAY && res.startToken ? " ghost" : ""}" id="rdOrders" type="button">Мои заказы</button>
     <button class="btn ghost" id="rdShop" type="button">Продолжить покупки</button>
   </div>`;
+  if($("#rdCard")) $("#rdCard").onclick = async e => {   // оплата картой: сумму считает сервер по заказу, здесь — только переход на страницу оплаты
+    const b = e.currentTarget, err = $("#rdErr"); b.disabled = true; b.textContent = "Открываем оплату…"; err.textContent = "";
+    try{
+      const r = await fetch(CONFIG.apiUrl + "/pay/card/init", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: res.startToken }) });
+      const j = await r.json(); if(!j.ok || !j.url) throw new Error(j.error || "Оплата картой сейчас недоступна");
+      location.href = j.url;
+    }catch(x){ err.textContent = x.message || "Нет связи с сервером"; b.disabled = false; b.textContent = `💳 Оплатить картой ${fmt(total)} ₸`; }
+  };
   $("#rdOrders").onclick = () => go("me");
   $("#rdShop").onclick = () => go("home");
   scrollTo({ top: 0 });
