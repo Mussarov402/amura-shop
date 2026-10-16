@@ -136,15 +136,13 @@ function totalsHTML(f, t){
 /* согласие с офертой и политикой (требование юриста): галочка не отмечена по умолчанию, без неё «Заказать» и «Получить код» неактивны.
    Только на amura.kz (window.AMURA_LEGAL); на опте ничего этого нет */
 const LEGAL = () => !!window.AMURA_LEGAL;
-/* оплата: «Картой сейчас» (по умолчанию) — заказ и сразу страница оплаты Freedom; «Ссылка от менеджера» — как раньше */
-let PAYM = "card";
-const payNow = () => !!window.CARD_PAY && PAYM === "card";
+/* оплата: при включённой оплате картой — единственный способ «Картой онлайн»: заказ и сразу страница оплаты Freedom.
+   Выключена — как раньше (менеджер пришлёт ссылку) */
+const payNow = () => !!window.CARD_PAY;
 const goTxt = (t, sum) => !AUTH.token ? "Войти и заказать" : payNow() ? "Заказать и оплатить" + (sum ? ` ${fmt(t.total)} ₸` : "") : "Заказать";
 function payHTML(){
   if(!window.CARD_PAY) return `<div class="rpay">${CARD}<span><b>Оплата после подтверждения</b><small>Менеджер проверит наличие и пришлёт ссылку на оплату. Оплата картой на сайте — скоро.</small></span></div>`;
-  const opt = (id, title, note) => `<label class="rpay rpaym${PAYM === id ? " on" : ""}"><input type="radio" name="rPayM" value="${id}" ${PAYM === id ? "checked" : ""}><span><b>${title}</b><small>${note}</small></span></label>`;
-  return `<div class="rpays">${opt("card", "Картой сейчас", "Visa, Mastercard, Apple Pay, Google Pay — сразу после «Заказать», на защищённой странице Freedom Pay")}
-    ${opt("link", "Ссылка от менеджера", "Менеджер проверит наличие и пришлёт ссылку на оплату в WhatsApp")}</div>`;
+  return `<div class="rpay">${CARD}<span><b>Картой онлайн</b><small>Visa, Mastercard, Apple Pay, Google Pay — сразу после «Заказать и оплатить», на защищённой странице Freedom Pay</small></span></div>`;
 }
 const CONSENT = { cart: false, auth: false, news: false };
 function consentHTML(id, on){
@@ -360,11 +358,6 @@ $("#drawerBody").addEventListener("change", e => {
     document.querySelectorAll("#rGo, [data-rgo]").forEach(b => CONSENT.cart ? b.removeAttribute("aria-disabled") : b.setAttribute("aria-disabled", "true"));
     return;
   }
-  if(e.target.name === "rPayM"){
-    PAYM = e.target.value; document.querySelectorAll(".rpaym").forEach(l => l.classList.toggle("on", l.querySelector("input").checked));
-    const t = tot(form().ship), g = $("#rGo"), sp = $("#rFix .rfixb span");
-    if(g) g.textContent = goTxt(t, true); if(sp) sp.textContent = goTxt(t); return;
-  }
   if(e.target.id === "rNews"){ CONSENT.news = e.target.checked; return; }   // необязательная — на оформление не влияет
   if(e.target.id === "rAll"){ if(e.target.checked) off.clear(); else lines().forEach(l => off.add(l.it.id)); saveOff(); renderRetailCart(); }
   const it = e.target.closest("[data-rsel]") && e.target.closest(".ritem");
@@ -417,7 +410,7 @@ function doneRetail(res, f, t, payErr){
     <div class="rdone-h">${CHECK_BIG}<div><h3>Спасибо! Заказ № ${esc(res.number)}</h3><p>${plTov(t.count)} на ${fmt(total)} ₸</p></div></div>
     <ol class="rsteps">
       <li class="on"><b>Заказ принят</b><span>Товары зарезервированы за вами</span></li>
-      <li><b>${window.CARD_PAY ? "Оплатите картой — сейчас или по ссылке" : "Подтвердим и пришлём ссылку на оплату"}</b><span>${window.CARD_PAY ? "Кнопка ниже. Или напишем в WhatsApp на " + esc(phone) + " и пришлём ссылку" : `Напишем в WhatsApp на ${esc(phone)} — обычно в течение 15 минут в рабочее время`}</span></li>
+      <li><b>${window.CARD_PAY ? "Оплатите картой" : "Подтвердим и пришлём ссылку на оплату"}</b><span>${window.CARD_PAY ? "Кнопка ниже или «Мои заказы» → «Оплатить». После оплаты заказ сразу уходит в сборку" : `Напишем в WhatsApp на ${esc(phone)} — обычно в течение 15 минут в рабочее время`}</span></li>
       <li><b>${f.ship === "pickup" ? "Можно забирать" : "Доставка"}</b><span>${esc(f.ship === "pickup" ? "Сообщим, когда заказ будет собран" : when || "")}</span></li>
     </ol>
     ${window.CARD_PAY && res.startToken ? `<button class="btn" id="rdCard" type="button">💳 Оплатить картой ${fmt(total)} ₸</button><div class="rhint mut" style="text-align:center;margin:6px 0 10px">Visa, Mastercard, Apple Pay, Google Pay · безопасная страница Freedom Pay</div><div class="err" id="rdErr">${esc(payErr || "")}</div>` : ""}
@@ -468,7 +461,7 @@ async function submit(){
     city: f.city || (AUTH.profile && AUTH.profile.city) || "Алматы", shipping: f.ship, address: f.address || "",
     items: t.ls.map(l => ({ id: l.it.id, qty: l.q, price: l.price })), clientTotal: t.total,
     orderKey: orderKey(), mode: "retail", ref: REF.code() || undefined, promo: PROMO ? PROMO.code : undefined,   // модуль «Источники»
-    consent: LEGAL() ? true : undefined, news: LEGAL() ? CONSENT.news : undefined, pay: window.CARD_PAY ? PAYM : undefined,   // факт и время согласия сервер пишет в комментарий заказа
+    consent: LEGAL() ? true : undefined, news: LEGAL() ? CONSENT.news : undefined, pay: window.CARD_PAY ? "card" : undefined,   // факт и время согласия сервер пишет в комментарий заказа
     pvz: f.ship === "cdek" ? DLV.pvzSel : undefined, slot: f.ship === "courier" ? DLV.slotSel : undefined
   };
   const btns = [...document.querySelectorAll("#rGo, [data-rgo]")]; busy = true;

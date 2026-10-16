@@ -36,8 +36,6 @@
 .rpay{display:grid;grid-template-columns:28px minmax(0,1fr);gap:10px;align-items:start;background:var(--bg);border-radius:14px;padding:12px}
 .rpay svg{width:26px;height:26px;fill:none;stroke:var(--green-3);stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .rpay span{display:grid;gap:3px}.rpay small{font-size:12.5px;color:var(--muted)}
-.rpays{display:grid;gap:8px}.rpaym{cursor:pointer;border:1.5px solid transparent}.rpaym.on{border-color:var(--green-3)}
-.rpaym input{width:20px;height:20px;margin:2px 0 0;accent-color:var(--green-3)}
 .rpaynow{margin:8px 0 4px}.rpaid{background:var(--surface);border-radius:16px;padding:14px;margin-bottom:12px}.rpaid h3{margin:0;font-size:17px}.rpaid p{margin:2px 0 0;color:var(--muted)}
 .rtot{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px}
 .rtot span{font-size:20px;font-weight:800}.rtot b{font-size:22px;font-weight:800}
