@@ -2559,7 +2559,9 @@ def modules_admin():
             modules.update(str(b.get("id", "")), on=(bool(b["on"]) if "on" in b else None), src=b.get("source"))
         except KeyError:
             return jsonify(ok=False, error="Нет такого модуля"), 404
-    return jsonify(ok=True, modules=modules.listing())
+    import freedom      # «Оплата картой»: видно ли серверу ключи Freedom Pay (сами ключи не показываем)
+    keys = {"merchant": bool(freedom.merchant()), "secret": bool(freedom.secret()), "test": freedom.testing()}
+    return jsonify(ok=True, modules=modules.listing(), cardpayKeys=keys)
 
 
 @bp.get("/admin/api/finance")
