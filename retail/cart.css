@@ -116,6 +116,9 @@ input,select,textarea{font-size:16px!important}
 .rlegal a{color:var(--muted);text-decoration:none}.rlegal a:hover{color:var(--ink);text-decoration:underline}
 @media(max-width:760px){.rlegal{display:none}}      /* телефон: как в приложении WB — подвала нет; оферта и политика — в строке у «Заказать» */
 .rterms{font-size:12px;color:var(--muted);margin-top:8px;line-height:1.4}.rterms a{color:var(--muted)}
+.ragree{font-weight:500;font-size:13.5px;line-height:1.4;margin:10px 0 12px}.ragree a{color:var(--green-3);text-decoration:underline}
+.ragree .ragree-h.bad{color:#d33;font-weight:700}.ragree .ragree-h[hidden]{display:none}
+.btn[aria-disabled="true"],.rfixb[aria-disabled="true"]{opacity:.45;cursor:not-allowed}
 /* экран «Заказ оформлен» */
 .rdone{max-width:640px;margin:0 auto;gap:14px}
 .rdone-h{display:flex;gap:14px;align-items:center}

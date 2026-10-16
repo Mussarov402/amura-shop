@@ -566,6 +566,27 @@ def site_on(kind):
         return True
 
 
+CONSENT_TXT = "Согласие с офертой и политикой конфиденциальности"
+
+
+def consent_time():
+    return datetime.now(ALMATY).strftime("%d.%m.%Y %H:%M") + " (Алматы)"
+
+
+def save_consent(cid, how):
+    """Розница: клиент отметил «Я принимаю условия оферты…» — храним факт и время у клиента (наша база)."""
+    import inbox
+    with inbox.db() as d:
+        inbox.set_setting(d, "consent:" + cid, json.dumps({"t": int(time.time()), "at": consent_time(), "how": how}, ensure_ascii=False))
+
+
+def get_consent(cid):
+    import inbox
+    with inbox.db() as d:
+        v = inbox.get_setting(d, "consent:" + cid, "")
+    return json.loads(v) if v else None
+
+
 def set_site(kind, on):
     import inbox
     with inbox.db() as d:
@@ -999,7 +1020,8 @@ def order_core(d, key, ip, me, source="с сайта", panel=False):
             "agent": meta("counterparty", agent),
             "shipmentAddress": city,
             "description": f"Заказ {source}\n{name}, {contact}\nГород: {city}\nОтправка: {ship_name}" + _panel_comment(d, panel)
-                           + (f"\nИсточник: {src['code']}" + (f" (промокод {src['promo']}, скидка {disc:g}%)" if disc else "") if src else ""),
+                           + (f"\nИсточник: {src['code']}" + (f" (промокод {src['promo']}, скидка {disc:g}%)" if disc else "") if src else "")
+                           + (f"\n{CONSENT_TXT}: {consent_time()}" if retail and d.get("consent") is True else ""),
             "positions": positions,
         })
     except Exception as e:
@@ -1706,6 +1728,11 @@ def auth_sms_verify():
             "phone": "+" + phone, "description": "Клиент с сайта"})
     elif "сайт" not in (cp.get("tags") or []):
         ms("PUT", f"/entity/counterparty/{cp['id']}", json={"tags": sorted(set((cp.get("tags") or []) + ["сайт"]))})
+    if d.get("consent") is True:
+        try:
+            save_consent(cp["id"], "вход по SMS")
+        except Exception:
+            pass
     return jsonify(ok=True, token=make_token(cp["id"]), needProfile=new or not profile(cp)["city"])
 
 
