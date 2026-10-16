@@ -183,7 +183,7 @@ def init(number):
     if x.get("pg_status") != "ok" or not x.get("pg_redirect_url"):
         _set(pg_order, status="error", note=(x.get("pg_error_description") or x.get("pg_description") or r.text[:200])[:300])
         print("Freedom Pay: платёж не создан:", x.get("pg_error_code"), (x.get("pg_error_description") or "")[:200], flush=True)
-        raise ValueError("Оплата картой сейчас недоступна, попробуйте позже или дождитесь ссылки от менеджера")
+        raise ValueError("Оплата картой сейчас недоступна, попробуйте позже — кнопка «Оплатить» есть в «Моих заказах»")
     _set(pg_order, payment_id=x.get("pg_payment_id") or "")
     return x["pg_redirect_url"]
 
