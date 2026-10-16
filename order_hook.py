@@ -580,6 +580,30 @@ def save_consent(cid, how):
         inbox.set_setting(d, "consent:" + cid, json.dumps({"t": int(time.time()), "at": consent_time(), "how": how}, ensure_ascii=False))
 
 
+NEWS_TXT = "Новости и акции AMURA (SMS, e-mail, мессенджеры)"
+
+
+def save_news(phone, on, how):
+    """Розница: необязательная галочка «Хочу получать новости и акции» — храним по номеру (по нему же находим клиента в рассылках)."""
+    phone = norm_phone(phone)
+    if not phone:
+        return
+    import inbox
+    with inbox.db() as d:
+        inbox.set_setting(d, "news:" + phone, json.dumps({"on": bool(on), "t": int(time.time()), "at": consent_time(), "how": how}, ensure_ascii=False))
+
+
+def get_news(phone):
+    """None — клиент галочку не видел (опт, старые клиенты); иначе {"on": да/нет, "at": когда}."""
+    phone = norm_phone(phone)
+    if not phone:
+        return None
+    import inbox
+    with inbox.db() as d:
+        v = inbox.get_setting(d, "news:" + phone, "")
+    return json.loads(v) if v else None
+
+
 def get_consent(cid):
     import inbox
     with inbox.db() as d:
@@ -1021,7 +1045,8 @@ def order_core(d, key, ip, me, source="с сайта", panel=False):
             "shipmentAddress": city,
             "description": f"Заказ {source}\n{name}, {contact}\nГород: {city}\nОтправка: {ship_name}" + _panel_comment(d, panel)
                            + (f"\nИсточник: {src['code']}" + (f" (промокод {src['promo']}, скидка {disc:g}%)" if disc else "") if src else "")
-                           + (f"\n{CONSENT_TXT}: {consent_time()}" if retail and d.get("consent") is True else ""),
+                           + (f"\n{CONSENT_TXT}: {consent_time()}" if retail and d.get("consent") is True else "")
+                           + (f"\n{NEWS_TXT}: {'да' if d['news'] else 'нет'}" if retail and isinstance(d.get("news"), bool) else ""),
             "positions": positions,
         })
     except Exception as e:
@@ -1030,6 +1055,12 @@ def order_core(d, key, ip, me, source="с сайта", panel=False):
         return dict(ok=False, error="Не удалось сохранить заказ, менеджер уже получил его и свяжется с вами"), 502
 
     number = order["name"]
+    if retail and isinstance(d.get("news"), bool):
+        try:                                      # галочка не отмечена — прежнее «да» не снимаем (отказаться — через менеджера, в карточке клиента)
+            if d["news"] or get_news(phone) is None:
+                save_news(phone, d["news"], f"заказ № {number}")
+        except Exception as e:
+            print("Новости и акции: не сохранено:", e, flush=True)
     if site:
         try:
             import sources

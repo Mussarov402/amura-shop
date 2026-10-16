@@ -863,7 +863,26 @@ def client_card(cid):
         note = next((r for r in (d.run("SELECT text, author, at FROM client_note WHERE key=%s", (k,), one=True) for k in keys) if r), None)
     return jsonify(ok=True, client=info, orders=orders, stats={"count": len([o for o in orders if not re.search(r"отмен", o["state"], re.I)]),
                    "total": total, "paid": paid, "unpaid": max(0.0, total - paid), "balance": balance},
-                   chats=chats, note={"key": keys[0], "text": note[0] if note else "", "author": note[1] if note else "", "at": note[2] if note else 0})
+                   chats=chats, news=_news_of(info["phone"]), note={"key": keys[0], "text": note[0] if note else "", "author": note[1] if note else "", "at": note[2] if note else 0})
+
+
+def _news_of(phone):
+    try:
+        return oh.get_news(phone)
+    except Exception:
+        return None
+
+
+@bp.post("/admin/api/clients/news")
+@need("orders")
+def client_news():
+    """Согласие на новости и акции: менеджер отмечает или снимает по просьбе клиента."""
+    b = request.get_json(silent=True) or {}
+    phone = oh.norm_phone(b.get("phone"))
+    if not re.fullmatch(r"7\d{10}", phone):
+        return jsonify(ok=False, error="У клиента нет номера телефона"), 400
+    oh.save_news(phone, bool(b.get("on")), "менеджер: " + ((who() or {}).get("name") or ""))
+    return jsonify(ok=True, news=oh.get_news(phone))
 
 
 @bp.post("/admin/api/clients/note")

@@ -51,6 +51,49 @@ class Consent(unittest.TestCase):
         self.assertNotIn(oh.CONSENT_TXT, self.order(consent=True))              # опт — без строки согласия
         self.assertNotIn(oh.CONSENT_TXT, self.order(mode="retail", consent="1"))  # только настоящая галочка
 
+    def test_news_flag(self):
+        import inbox
+        with inbox.db() as d:
+            d.run("DELETE FROM setting WHERE key LIKE 'news:%%'")
+        self.assertIn(oh.NEWS_TXT + ": нет", self.order(mode="retail", consent=True, news=False))
+        self.assertFalse(oh.get_news("+7 701 234 56 78")["on"])
+        self.assertIn(oh.NEWS_TXT + ": да", self.order(mode="retail", consent=True, news=True))
+        self.assertTrue(oh.get_news("77012345678")["on"])
+        self.order(mode="retail", consent=True, news=False)                     # галочку не отметил — прежнее «да» не снимаем
+        self.assertTrue(oh.get_news("77012345678")["on"])
+        self.assertNotIn(oh.NEWS_TXT, self.order(news=True))                     # опт — без строки
+        self.assertIsNone(oh.get_news("77000000000"))
+
+    def test_broadcast_skips_declined(self):
+        import admin
+        import groups
+        import inbox
+        with inbox.db() as d:
+            d.run("DELETE FROM setting WHERE key LIKE 'news:%%'")
+        oh.save_news("77011112233", False, "тест")
+        oh.save_news("77019998877", True, "тест")
+        self.patch(groups.admin, "need", lambda p: (lambda f: f))
+        app = Flask(__name__)
+        self.patch(admin, "is_admin", lambda: True)
+        self.patch(admin, "who", lambda: {"role": "owner", "perms": [], "name": "Владелец"})
+        app.register_blueprint(groups.bp)
+        c = app.test_client()
+        sent = []
+        self.patch(inbox, "send_text", lambda chat, body: sent.append(chat) or "x")
+        self.patch(groups.threading, "Thread", lambda target, args, daemon: type("T", (), {"start": lambda s: target(*args)})())
+        self.patch(groups, "PAUSE", 0)
+        with groups.db() as d:
+            ids = []
+            for chat in ("wa:77011112233", "wa:77019998877", "wa:77015550000"):
+                d.run("DELETE FROM conv WHERE chat_id=%s", (chat,))
+                cid = d.run("INSERT INTO conv (chat_id, name, username, status, unread, last_at) VALUES (%s,%s,'','ai',0,%s)", (chat, "К", time.time()), ins=True)
+                d.run("INSERT INTO msg (conv_id, role, text, at) VALUES (%s,'client','привет',%s)", (cid, time.time()))
+                ids.append(cid)
+        g = json.loads(c.post("/admin/api/inbox/groups", json={"name": "Акция", "members": ids}).data)["id"]
+        r = json.loads(c.post(f"/admin/api/inbox/groups/{g}/send", data={"text": "Скидки!"}).data)
+        self.assertEqual((r["total"], r["skipped"]), (3, 1))
+        self.assertEqual(sorted(sent), ["wa:77015550000", "wa:77019998877"])   # отказавшемуся — не уходит, без отметки и согласным — как раньше
+
     def test_login_saves_consent(self):
         cp = {"id": "cid-77", "tags": ["сайт"], "name": "Тамирис", "phone": "+77011112233"}
         self.patch(oh, "cp_by_phone", lambda p: dict(cp))
