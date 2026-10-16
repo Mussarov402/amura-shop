@@ -636,12 +636,17 @@ def catalog_route():
     mn = 0 if request.args.get("mode") == "retail" else opt_min()   # минимальный заказ — только оптовый сайт
     if mn and session_cid() and min_exempt(session_cid()):         # вошёл постоянный покупатель — минимума для него нет
         mn = 0
-    ck = ("catjson", ws, closed, promo, mn)             # JSON и gzip собираются раз на обновление каталога, а не на каждого посетителя
+    try:
+        import freedom
+        card = request.args.get("mode") == "retail" and freedom.available()   # «Оплатить картой» — только розница, модуль включён и ключи есть
+    except Exception:
+        card = False
+    ck = ("catjson", ws, closed, promo, mn, card)             # JSON и gzip собираются раз на обновление каталога, а не на каждого посетителя
     hit = _cache.get(ck)
     if hit and hit[0] is data:
         body = hit[1]
     else:
-        raw = json.dumps({"updated": data["updated"], "wholesale": ws, "items": view_items(data["items"], ws)} | ({"closed": SITE_CLOSED} if closed else {}) | ({"promo": True} if promo else {}) | ({"minOrder": mn} if mn else {}),
+        raw = json.dumps({"updated": data["updated"], "wholesale": ws, "items": view_items(data["items"], ws)} | ({"closed": SITE_CLOSED} if closed else {}) | ({"promo": True} if promo else {}) | ({"minOrder": mn} if mn else {}) | ({"cardPay": True} if card else {}),
                          ensure_ascii=False, separators=(",", ":")).encode()
         body = (raw, gzip.compress(raw, 6))
         _cache[ck] = (data, body)

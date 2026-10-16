@@ -1003,7 +1003,33 @@ def order_detail(number):
                    feeRate=oh.FEE_RATE, hasFee=any(p["assortment"].get("name") == oh.FEE_NAME for p in pos),
                    store=(o.get("store") or {}).get("meta", {}).get("href", "").rstrip("/").rsplit("/", 1)[-1],
                    reserved=any((l["reserve"] or 0) > 0 for l in lines if l["type"] in RESERVABLE),
-                   shipOps=shipments.enabled(), demands=len(o.get("demands") or []), shipOp=shipments.for_order(o["id"]))
+                   shipOps=shipments.enabled(), demands=len(o.get("demands") or []), shipOp=shipments.for_order(o["id"]),
+                   cardPay=_card_pay(o["name"]))
+
+
+def _card_pay(number):
+    """Оплаты картой Freedom Pay по заказу (номер платежа — для споров); не записанные в МойСклад — ещё раз."""
+    try:
+        import freedom
+        rows = freedom.for_order(number)
+        if any(r["status"] == "paid" and not r["msPayment"] and not r["test"] for r in rows):
+            oh.notify_bg(freedom.retry_ms)
+        return rows
+    except Exception as e:
+        print("Оплата картой: не прочитана:", str(e)[:200], flush=True)
+        return []
+
+
+@bp.post("/admin/api/cardpay/<pg_order>/refund")
+@guard
+def card_refund(pg_order):
+    """Возврат делается вручную в кабинете Freedom Pay — здесь только отметка."""
+    import freedom
+    try:
+        freedom.mark_refund(pg_order, (who() or {}).get("name", ""))
+    except ValueError as e:
+        return jsonify(ok=False, error=str(e)), 400
+    return jsonify(ok=True)
 
 
 import shipments  # noqa: E402
