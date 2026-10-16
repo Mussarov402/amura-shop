@@ -298,6 +298,16 @@ def _brand(row):
     return (row.get("pathName") or "").split("/")[0].strip()
 
 
+ATTR_INCI = "Состав"          # доп. поле товара в МойСклад (текст): состав INCI, как на упаковке — блок «Состав» в карточке на сайте
+
+
+def _inci(row):
+    for a in row.get("attributes", []) or []:
+        if a.get("name") == ATTR_INCI:
+            return str(a.get("value") or "").strip()[:4000]
+    return ""
+
+
 def _img_index():
     try:
         return requests.get(f"{SITE_URL}/img/index.json", timeout=15).json()
@@ -377,7 +387,7 @@ def build_live(products):
     stock = _stock()
     imgs = cached("imgidx", 1800, _img_index)
     new_since = (datetime.now(ALMATY) - timedelta(days=21)).strftime("%Y-%m-%d")
-    items, descs, out = [], {}, []           # out — нет в наличии: только для заказов из системы AMURA, клиентам не уходит
+    items, descs, incis, out = [], {}, {}, []           # out — нет в наличии: только для заказов из системы AMURA, клиентам не уходит
     try:
         import admin
         hidden = admin.hidden_ids()          # товары, скрытые в панели управления
@@ -387,15 +397,15 @@ def build_live(products):
         _names[r["id"]] = (r.get("name", ""), r.get("code", ""))   # справочник названий для позиций заказов
         if r.get("_site"):                 # строка из catalog.json — цены уже готовы, обновляем только остаток
             qty = int(stock.get(r["id"], 0) or 0)
-            row = {k: v for k, v in r.items() if k not in ("_site", "desc")} | {"qty": qty}
+            row = {k: v for k, v in r.items() if k not in ("_site", "desc", "inci")} | {"qty": qty}
             (items if qty > 0 else out).append(row)
-            descs[r["id"]] = r.get("desc", "")
+            descs[r["id"]], incis[r["id"]] = r.get("desc", ""), r.get("inci", "")
             continue
         if r.get("code") == LOADER_CODE:
             continue
         qty = int(stock.get(r["id"], 0) or 0)
         opt, rtl = _price(r, PRICE_OPT), _price(r, PRICE_RTL)
-        descs[r["id"]] = (r.get("description") or "")[:4000]
+        descs[r["id"]], incis[r["id"]] = (r.get("description") or "")[:4000], _inci(r)
         if opt <= 0 and rtl <= 0:
             continue
         mid, box = _price(r, PRICE_MID), _price(r, PRICE_BOX)
@@ -412,7 +422,8 @@ def build_live(products):
     hid_items = [i for i in items if i["id"] in hidden]      # скрытые: клиентам не отдаются, видны только в панели
     items = [i for i in items if i["id"] not in hidden]
     _cache["descs"] = (time.time(), descs)
-    # описание не входит в живой каталог (он уходит клиентам каждые 3 минуты) — отдаётся по /product/<id>
+    _cache["incis"] = (time.time(), incis)
+    # описание и состав не входят в живой каталог (он уходит клиентам каждые 3 минуты) — отдаётся по /product/<id>
     return {"updated": datetime.now(ALMATY).strftime("%d.%m.%Y %H:%M"), "items": items, "hiddenItems": hid_items, "outItems": out}
 
 
@@ -510,16 +521,17 @@ def catalog():
 
 @bp.route("/product/<pid>")
 def product_route(pid):
-    """Описание товара для карточки (если его нет в catalog.json — например, товар добавлен после выгрузки)."""
-    descs = (_cache.get("descs") or (0, {}))[1]
+    """Описание и состав товара для карточки (если их нет в catalog.json — например, товар добавлен после выгрузки)."""
+    descs, incis = (_cache.get("descs") or (0, {}))[1], (_cache.get("incis") or (0, {}))[1]
     if pid not in descs:
         if not re.fullmatch(r"[0-9a-f-]{36}", pid):
             return jsonify(error="not found"), 404
         try:
-            descs[pid] = (ms("GET", f"/entity/product/{pid}").get("description") or "")[:4000]
+            p = ms("GET", f"/entity/product/{pid}")
+            descs[pid], incis[pid] = (p.get("description") or "")[:4000], _inci(p)
         except Exception:
             return jsonify(error="not found"), 404
-    resp = jsonify(desc=descs[pid])
+    resp = jsonify(desc=descs[pid], inci=incis.get(pid, ""))
     resp.headers["Cache-Control"] = "public, max-age=600"
     return resp
 

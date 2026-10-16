@@ -78,6 +78,14 @@ def brand_of(item):
     return (item.get("pathName") or "").split("/")[0].strip()
 
 
+def inci_of(item):
+    """Состав (INCI) — доп. поле товара «Состав» (текст)."""
+    for a in item.get("attributes", []) or []:
+        if a.get("name") == "Состав":
+            return str(a.get("value") or "").strip()[:4000]
+    return ""
+
+
 def box_qty(item):
     packs = item.get("packs") or []
     qtys = [int(p.get("quantity", 0)) for p in packs if p.get("quantity", 0) > 1]
@@ -173,6 +181,7 @@ def main():
             "code": it.get("code", ""),
             "article": it.get("article", ""),
             "desc": (it.get("description") or "")[:4000],
+            "inci": inci_of(it),
             "country": country_of(it, cmap),
             "barcode": barcode_of(it),
             "qty": qty,
