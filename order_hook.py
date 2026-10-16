@@ -857,9 +857,15 @@ _key_locks = {}               # ключ заказа -> [время, замок
 
 
 def _order_key(d):
+    """Повтор того же заказа (тот же ключ и тот же состав) — тот же ответ. Ключ тот же, но корзина, доставка или адрес
+    другие (клиент поменял корзину после сбоя связи) — это новый заказ, а не ответ по старому (иначе оплата ушла бы за старый)."""
     k = str(d.get("orderKey") or "")[:64]
     if k:
-        return "k:" + k
+        pvz = d.get("pvz") if isinstance(d.get("pvz"), dict) else {}
+        what = json.dumps([d.get("shipping"), d.get("city"), d.get("address"), pvz.get("code"), d.get("promo"), d.get("clientTotal"),
+                           sorted((str(p.get("id")), p.get("qty")) for p in (d.get("items") or []) if isinstance(p, dict))],
+                          ensure_ascii=False, default=str)
+        return "k:" + k + ":" + hashlib.sha1(what.encode()).hexdigest()[:12]
     raw = json.dumps([d.get("phone"), d.get("telegram"), d.get("shipping"),
                       sorted((str(p.get("id")), p.get("qty")) for p in (d.get("items") or []))])
     return "h:" + hashlib.sha1(raw.encode()).hexdigest()
