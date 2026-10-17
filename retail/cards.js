@@ -84,11 +84,11 @@ function addOne(it, from){
   cart[it.id] = q; save("amura-cart2", cart); renderCartCount(); refreshCard(it.id);
   fly(from);
 }
-["#grid", "#favGrid"].forEach(sel => $(sel).addEventListener("click", e => {
-  const btn = e.target.closest("[data-radd]"); if(!btn) return;
+document.addEventListener("click", e => {          // каталог, избранное и подборки «Вам может понравиться» (retail/recs.js)
+  const btn = e.target.closest("#grid [data-radd], #favGrid [data-radd], .rrec [data-radd]"); if(!btn) return;
   const card = btn.closest(".rpc"), it = card && byId(card.dataset.id); if(!it) return;
   addOne(it, card.querySelector(".thumb img") || card.querySelector(".thumb .ph"));
-}));
+});
 /* окно товара: «В корзину» — тоже полёт */
 $("#sheet").addEventListener("click", e => {
   if(!e.target.closest("[data-add]")) return;
