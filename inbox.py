@@ -107,18 +107,27 @@ def set_setting(d, key, value):
         d.run("INSERT INTO setting (key, value) VALUES (%s, %s)", (key, value))
 
 
-AI_CHANNELS = {"wa": "WhatsApp", "ig": "Instagram", "tg": "Telegram", "web": "Чат на сайте"}
+AI_CHANNELS = {"wa": "WhatsApp", "ig": "Instagram", "tg": "Telegram", "web": "Чат на сайте", "rweb": "Поддержка на amura.kz"}
+AI_OFF_BY_DEFAULT = {"rweb"}   # розница: ИИ знает оптовые цены — пока владелец не включит, отвечает менеджер
+
+
+def ai_key(chat):
+    """Ключ настройки ИИ для диалога: поддержка розничного сайта — отдельно от чата opt.amura.kz."""
+    return "rweb" if str(chat).startswith("web:r-") else channel(chat)
 
 
 def ai_on(d, chat=None):
     """ИИ включён в целом и (если указан диалог) для его канала; канал выключен — диалог сразу получает менеджер."""
     if not (bool(OPENAI_KEY) and get_setting(d, "ai_enabled", "1") == "1"):
         return False
-    return chat is None or get_setting(d, "ai_ch_" + channel(chat), "1") == "1"
+    if chat is None:
+        return True
+    k = ai_key(chat)
+    return get_setting(d, "ai_ch_" + k, "0" if k in AI_OFF_BY_DEFAULT else "1") == "1"
 
 
 def ai_channels(d):
-    return [{"key": k, "name": v, "on": get_setting(d, "ai_ch_" + k, "1") == "1"} for k, v in AI_CHANNELS.items()]
+    return [{"key": k, "name": v, "on": get_setting(d, "ai_ch_" + k, "0" if k in AI_OFF_BY_DEFAULT else "1") == "1"} for k, v in AI_CHANNELS.items()]
 
 
 # ---------- оформление заказа ИИ ----------
@@ -362,7 +371,8 @@ def send_pdf(chat, name, pdf, caption):
 
 
 def channel_name(chat):
-    return "WhatsApp" if wa.is_wa(chat) else "Instagram" if ig.is_ig(chat) else "Сайт" if str(chat).startswith("web:") else "Telegram"
+    return ("WhatsApp" if wa.is_wa(chat) else "Instagram" if ig.is_ig(chat) else "Поддержка amura.kz" if str(chat).startswith("web:r-")
+            else "Сайт" if str(chat).startswith("web:") else "Telegram")
 
 
 def channel(chat):
