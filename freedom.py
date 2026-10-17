@@ -11,6 +11,7 @@ Apple/Google Pay; pg_payment_method=bankcard — оплаты с мобильн�
 Выключено по умолчанию: модуль «Оплата картой» (cardpay) в настройках; без ключей кнопки нет.
 Подпись pg_sig: md5 строки «имя скрипта;значения параметров по алфавиту ключей;секретный ключ» (имя скрипта — последняя часть адреса)."""
 import hashlib
+import json
 import os
 import re
 import secrets
@@ -96,6 +97,10 @@ def db():
               " status TEXT DEFAULT 'new', payment_id TEXT DEFAULT '', created DOUBLE PRECISION, paid_at DOUBLE PRECISION DEFAULT 0,"
               " ms_payment TEXT DEFAULT '', ms_error TEXT DEFAULT '', note TEXT DEFAULT '', test INTEGER DEFAULT 0)")
         d.run("CREATE INDEX IF NOT EXISTS card_pay_number ON card_pay (number)")
+        # черновик оформления (розница, оплата картой): заказ в МойСклад создаётся только после оплаты.
+        # status: new — ждёт оплаты; paid — оплачен, заказ создаётся; ordered — заказ создан; failed — оплачен, заказ не создан (повтор в фоне)
+        d.run(f"CREATE TABLE IF NOT EXISTS card_draft (id {pk}, cid TEXT, data TEXT, total DOUBLE PRECISION, created DOUBLE PRECISION,"
+              " status TEXT DEFAULT 'new', number TEXT DEFAULT '', order_id TEXT DEFAULT '', error TEXT DEFAULT '', tries INTEGER DEFAULT 0)")
         d.c.commit()
         _ready[0] = True
     return d
@@ -147,37 +152,96 @@ def _order(number):
     return rows[0] if rows else None
 
 
-def init(number):
-    """Платёж по заказу: сумма — из МойСклад (браузеру не доверяем). Возвращает ссылку на страницу оплаты Freedom."""
+# ---------- черновик: заказ появляется в МойСклад только после оплаты ----------
+DRAFT_TTL = 86400                 # неоплаченный черновик живёт сутки («Ожидает оплаты» в «Моих заказах»)
+DCOLS = "id, cid, data, total, created, status, number, order_id, error, tries"
+_draft_lock = threading.Lock()
+
+
+def _drow(r):
+    x = dict(zip(DCOLS.split(", "), r))
+    x["data"] = json.loads(x["data"] or "{}")
+    x["total"] = round(x["total"] or 0)
+    return x
+
+
+def save_draft(cid, data):
+    with db() as d:
+        return d.run("INSERT INTO card_draft (cid, data, total, created, status) VALUES (%s, %s, %s, %s, 'new')",
+                     (cid or "", json.dumps(data, ensure_ascii=False), data["total"], time.time()), ins=True)
+
+
+def get_draft(did):
+    with db() as d:
+        r = d.run(f"SELECT {DCOLS} FROM card_draft WHERE id=%s", (int(did),), one=True)
+    return _drow(r) if r else None
+
+
+def _dset(did, **f):
+    with db() as d:
+        d.run("UPDATE card_draft SET " + ", ".join(f"{k}=%s" for k in f) + " WHERE id=%s", (*f.values(), int(did)))
+
+
+def draft_token(did):
+    return f"D{did}_{oh.sign('D' + str(did))}"
+
+
+def my_drafts(cid):
+    """«Мои заказы»: неоплаченные черновики за сутки — «Ожидает оплаты» с кнопкой «Оплатить»."""
+    if not cid:
+        return []
+    with db() as d:
+        rows = d.run(f"SELECT {DCOLS} FROM card_draft WHERE cid=%s AND status='new' AND created>%s ORDER BY created DESC LIMIT 10",
+                     (cid, time.time() - DRAFT_TTL), many=True) or []
+    return [_drow(r) for r in rows]
+
+
+def _pay_target(number):
+    """(сумма, id заказа МойСклад, id покупателя) — по черновику «D<id>» или по заказу МойСклад."""
+    if str(number).startswith("D"):
+        dr = get_draft(int(str(number)[1:]))
+        if not dr:
+            raise ValueError("Заказ не найден")
+        if dr["status"] != "new":
+            raise ValueError("Заказ уже оплачен")
+        if time.time() - dr["created"] > DRAFT_TTL:
+            raise ValueError("Время на оплату истекло — оформите заказ заново")
+        return dr["total"], "", dr["cid"]
     o = _order(number)
     if not o:
         raise ValueError("Заказ не найден")
     if not (o.get("description") or "").startswith(oh.RETAIL_MARK):
         raise ValueError("Оплата картой — только для заказов с розничного сайта")
-    amount = round((o.get("sum") or 0) / 100)
     if (o.get("payedSum") or 0) >= (o.get("sum") or 0) > 0:
         raise ValueError("Заказ уже оплачен")
+    agent = (((o.get("agent") or {}).get("meta") or {}).get("href") or "").rsplit("/", 1)[-1]
+    return round((o.get("sum") or 0) / 100), o.get("id") or "", agent
+
+
+def init(number):
+    """Платёж по заказу или черновику: сумма — из МойСклад / черновика (браузеру не доверяем). Возвращает ссылку на страницу оплаты Freedom."""
+    amount, order_id, agent = _pay_target(number)
     if amount <= 0:
         raise ValueError("Сумма заказа не определена")
     with db() as d:
         if d.run("SELECT 1 FROM card_pay WHERE number=%s AND status='paid'", (str(number),), one=True):
             raise ValueError("Заказ уже оплачен")
         n = (d.run("SELECT COUNT(*) FROM card_pay WHERE number=%s", (str(number),), one=True) or [0])[0]
-    pg_order = f"{number}-{n + 1}"                                 # каждая попытка — свой номер у Freedom, заказ один
+    pg_order = f"{number}-{n + 1}"
+    back = draft_token(str(number)[1:]) if str(number).startswith("D") else number   # черновик: сайт по подписи узнаёт номер заказа после оплаты                                 # каждая попытка — свой номер у Freedom, заказ один
     params = {"pg_merchant_id": merchant(), "pg_order_id": pg_order, "pg_amount": str(amount), "pg_currency": "KZT",
-              "pg_description": f"Заказ №{number} в AMURA", "pg_salt": secrets.token_hex(8), "pg_language": "ru",
+              "pg_description": "Заказ в AMURA" if str(number).startswith("D") else f"Заказ №{number} в AMURA", "pg_salt": secrets.token_hex(8), "pg_language": "ru",
               "pg_result_url": f"{oh.PUBLIC_URL}/pay/card/{RESULT_SCRIPT}", "pg_request_method": "POST",
-              "pg_success_url": f"{RETAIL_SITE}/?pay=ok&n={number}#me", "pg_failure_url": f"{RETAIL_SITE}/?pay=fail&n={number}#me",
+              "pg_success_url": f"{RETAIL_SITE}/?pay=ok&n={back}#me", "pg_failure_url": f"{RETAIL_SITE}/?pay=fail&n={back}#me",
               "pg_success_url_method": "GET", "pg_failure_url_method": "GET"}
     if METHOD:
         params["pg_payment_method"] = METHOD
     if testing():
         params["pg_testing_mode"] = "1"
     params["pg_sig"] = sign("init_payment.php", params)
-    agent = (((o.get("agent") or {}).get("meta") or {}).get("href") or "").rsplit("/", 1)[-1]
     with db() as d:
         d.run(f"INSERT INTO card_pay ({COLS}) VALUES (%s, %s, %s, %s, %s, 'new', '', %s, 0, '', '', '', %s)",
-              (pg_order, str(number), o.get("id") or "", agent, amount, time.time(), 1 if testing() else 0))
+              (pg_order, str(number), order_id, agent, amount, time.time(), 1 if testing() else 0))
     r = requests.post(f"{API}/init_payment.php", data=params, timeout=20)
     x = _xml(r.text)
     if x.get("pg_status") != "ok" or not x.get("pg_redirect_url"):
@@ -234,6 +298,8 @@ def handle_result(params):
             oh.alert("cardpay", f"оплата картой по заказу № {p['number']}: сумма {amount:.0f} ₸ вместо {p['amount']} ₸ — проверьте в кабинете Freedom")
             return "rejected", "amount mismatch"
         _set(pg_order, status="paid", payment_id=pay_id, paid_at=time.time())
+        if p["number"].startswith("D"):                              # черновик оплачен — «Ожидает оплаты» больше не показываем
+            _dset(int(p["number"][1:]), status="paid")
     oh.notify_bg(lambda: after_paid(pg_order))
     return "ok", "accepted"
 
@@ -245,6 +311,20 @@ def result_url():
     if status == "rejected" and str(params.get("pg_can_reject")) != "1" and descr == "amount mismatch":
         status = "ok"                                                # отказ невозможен — платёж уже прошёл, разберёмся вручную
     return _answer(status, descr)
+
+
+@bp.route("/pay/card/status", methods=["POST", "OPTIONS"])
+def status_route():
+    """Сайт после оплаты: заказ по черновику создаётся за секунды — номер подтягиваем отсюда."""
+    if request.method == "OPTIONS":
+        return "", 204
+    number, _, tok = str((request.get_json(silent=True) or {}).get("token") or "").partition("_")
+    if not number.startswith("D") or not number[1:].isdigit() or not secrets.compare_digest(tok, oh.sign(number)):
+        return jsonify(ok=False, error="Заказ не найден"), 404
+    dr = get_draft(int(number[1:]))
+    if not dr:
+        return jsonify(ok=False, error="Заказ не найден"), 404
+    return jsonify(ok=True, status=dr["status"], number=dr["number"])
 
 
 @bp.route("/pay/card/init", methods=["POST", "OPTIONS"])
@@ -343,10 +423,48 @@ def to_assembly(p):
     return True
 
 
+def order_draft(pg_order):
+    """Оплачен черновик — создаём заказ в МойСклад (сразу «Подтвержден»). Повтор — не создаёт второй заказ.
+    Не вышло (нет товара, МойСклад не ответил) — деньги не теряем: тревога владельцу один раз, повтор в фоне. Возвращает (ok, причина)."""
+    p = by_pg_order(pg_order)
+    did = int(p["number"][1:])
+    with _draft_lock:
+        dr = get_draft(did)
+        if not dr:
+            return False, "черновик не найден"
+        if dr["status"] == "ordered":
+            _set(pg_order, number=dr["number"], order_id=dr["order_id"])
+            return True, ""
+        data = dr["data"]
+        md = oh.cached("ms_order_states", 3600, lambda: oh.ms("GET", "/entity/customerorder/metadata", timeout=15))
+        st = next((x for x in md.get("states", []) if x.get("name") == PAID_STATE), None)
+        note = f"Оплачено картой Freedom Pay, платёж №{p['paymentId']}" + (" — ТЕСТ, без списания" if p["test"] else "")
+        try:
+            res, code = oh.order_core(data["d"], f"draft-{did}", "", dr["cid"],
+                                      paid={k: data[k] for k in ("lines", "dlv", "shipName", "total")} | {"note": note, "state": st and st["meta"]})
+        except Exception as e:
+            res, code = {"error": str(e)[:300]}, 500
+        if code == 200:
+            _dset(did, status="ordered", number=str(res["number"]), order_id=res.get("orderId", ""), error="")
+            _set(pg_order, number=str(res["number"]), order_id=res.get("orderId", ""))
+            return True, ""
+        why = res.get("error") or "ошибка"
+        _dset(did, status="failed", error=why[:300], tries=dr["tries"] + 1)
+    if dr["tries"] == 0:                                           # тревога — один раз, дальше молча пробуем в фоне
+        oh.alert("cardpay", f"оплата картой получена ({oh.fmt(p['amount'])} ₸{', ТЕСТ' if p['test'] else ''}, Freedom № {p['paymentId']}), "
+                            f"но заказ не создан: {why}. Пробую ещё раз каждые 10 минут; возврат — в кабинете Freedom")
+    return False, why
+
+
 def after_paid(pg_order):
     p = by_pg_order(pg_order)
     if not p:
         return
+    if p["number"].startswith("D"):                                 # оплачен черновик — теперь создаём заказ
+        ok, why = order_draft(pg_order)
+        if not ok:
+            return
+        p = by_pg_order(pg_order)
     if not p["test"]:                                                # тестовые платежи в МойСклад не пишем
         p = post_ms(pg_order) or p
     try:
@@ -365,6 +483,18 @@ def after_paid(pg_order):
         push.notify(f"💳 Оплачен заказ № {p['number']}", f"{oh.fmt(p['amount'])} ₸ картой — выбейте чек в кассе Kaspi", "/admin#orders", perm="orders", tag=f"pay{p['number']}")
     except Exception as e:
         print("Push об оплате:", e, flush=True)
+
+
+def retry_drafts():
+    """Оплаченные черновики, по которым заказ не создался, — ещё раз (до 3 суток)."""
+    with db() as d:
+        rows = d.run("SELECT p.pg_order FROM card_draft c JOIN card_pay p ON p.number='D' || c.id WHERE c.status='failed' "
+                     "AND p.status='paid' AND c.created>%s", (time.time() - 3 * 86400,), many=True) or []
+    for (pg,) in rows:
+        try:
+            after_paid(pg)
+        except Exception as e:
+            print("Freedom Pay: повтор заказа по оплате:", str(e)[:200], flush=True)
 
 
 def retry_ms():
@@ -391,6 +521,7 @@ def _loop():
         try:
             if keys_set():
                 retry_ms()
+                retry_drafts()
         except Exception as e:
             print("Freedom Pay: повтор записи в МойСклад:", str(e)[:200], flush=True)
 

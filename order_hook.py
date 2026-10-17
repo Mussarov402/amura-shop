@@ -596,6 +596,15 @@ PAY_CARD_TXT = "Оплата: картой на сайте"   # клиент в�
 NEWS_TXT = "Новости и акции AMURA (SMS, e-mail, мессенджеры)"
 
 
+def pay_first_on():
+    """Розница: заказ создаётся только после оплаты картой — когда оплата картой включена и ключи вписаны."""
+    try:
+        import freedom
+        return freedom.available()
+    except Exception:
+        return False
+
+
 def save_news(phone, on, how):
     """Розница: необязательная галочка «Хочу получать новости и акции» — храним по номеру (по нему же находим клиента в рассылках)."""
     phone = norm_phone(phone)
@@ -933,10 +942,12 @@ def _panel_comment(d, panel):
     return f"\nКомментарий: {c}" if c else ""
 
 
-def order_core(d, key, ip, me, source="с сайта", panel=False):
+def order_core(d, key, ip, me, source="с сайта", panel=False, paid=None):
     """Создание заказа в МойСклад (общее для сайта, ИИ-продажника и панели). Возвращает (словарь, http-статус).
-    panel=True: заказ создаёт менеджер — без лимита частоты, оптовые цены, менеджер может задать свою цену."""
-    if not panel and too_many(ip):
+    panel=True: заказ создаёт менеджер — без лимита частоты, оптовые цены, менеджер может задать свою цену.
+    Розница с оплатой картой (payFirst): сначала только черновик у нас и оплата; заказ в МойСклад — после оплаты,
+    повторным вызовом с paid=черновик (цены, доставка и итог — как на момент оплаты, остаток проверяется заново)."""
+    if not panel and not paid and too_many(ip):
         return dict(ok=False, error="Слишком много заказов подряд, подождите 10 минут"), 429
     name = str(d.get("name", "")).strip()[:80]
     city = str(d.get("city", "")).strip()[:80]
@@ -982,7 +993,16 @@ def order_core(d, key, ip, me, source="с сайта", panel=False):
             cat = panel_catalog()
         except Exception as e:
             print("Заказ из системы: полный каталог не получен:", str(e)[:200], flush=True)
-    for p in (d.get("items") or [])[:1000 if panel else 200]:
+    if paid:                                                        # оплачено — состав и цены из черновика, остаток проверяем сейчас
+        short = []
+        for l in paid["lines"]:
+            stock = int((cat.get(l["id"]) or {}).get("qty") or 0)
+            if stock < l["qty"]:
+                short.append(f"{l['name']}: нужно {l['qty']}, в наличии {max(stock, 0)}")
+            lines.append({"id": l["id"], "name": l["name"], "qty": l["qty"], "price": l["price"], "reserve": min(l["qty"], max(stock, 0))})
+        if short:
+            return dict(ok=False, error="Не хватает товара — " + "; ".join(short), short=True), 409
+    for p in ([] if paid else (d.get("items") or [])[:1000 if panel else 200]):
         item = cat.get(str(p.get("id")))
         qty = int(p.get("qty") or 0)
         if not item or qty <= 0:
@@ -1025,7 +1045,9 @@ def order_core(d, key, ip, me, source="с сайта", panel=False):
     if goods < mn:
         return dict(ok=False, error=f"Минимальный заказ для новых покупателей — {fmt(mn)} ₸. Добавьте товаров ещё на {fmt(mn - goods)} ₸"), 400
     dlv = 0
-    if retail:                                   # розница: цена доставки — по настройкам, считаем здесь (как на WB)
+    if retail and paid:                          # оплачено — доставка как в черновике
+        dlv, ship_name = paid["dlv"], paid["shipName"]
+    elif retail:                                 # розница: цена доставки — по настройкам, считаем здесь (как на WB)
         import checkout
         dlv, ship_name, err = checkout.order_delivery(d, ship, city, goods)
         if err:
@@ -1044,6 +1066,14 @@ def order_core(d, key, ip, me, source="с сайта", panel=False):
     loader = LOADER_PRICE if need_loader else 0
     fee = 0 if retail else int((goods + loader) * FEE_RATE + 0.5)  # как Math.round на сайте; рознице комиссию не берём
     total = goods + loader + fee + dlv
+    if paid and total != paid["total"]:
+        return dict(ok=False, error=f"Сумма заказа {fmt(total)} ₸ не совпала с оплатой {fmt(paid['total'])} ₸"), 409
+    if retail and not paid and d.get("payFirst") is True and pay_first_on():
+        import freedom                            # оплата картой: в МойСклад пока ничего не пишем — черновик и сразу оплата
+        did = freedom.save_draft(me, {"d": {k: v for k, v in d.items() if not str(k).startswith("_")}, "key": key,
+                                       "lines": [{k: l[k] for k in ("id", "name", "qty", "price")} for l in lines],
+                                       "dlv": dlv, "shipName": ship_name, "total": total, "name": name, "city": city})
+        return dict(ok=True, draft=did, total=total, payToken=freedom.draft_token(did)), 200
 
     try:
         agent = me or find_or_create_agent(name, phone, telegram, city)
@@ -1066,8 +1096,10 @@ def order_core(d, key, ip, me, source="с сайта", panel=False):
                            + (f"\nИсточник: {src['code']}" + (f" (промокод {src['promo']}, скидка {disc:g}%)" if disc else "") if src else "")
                            + (f"\n{CONSENT_TXT}: {consent_time()}" if retail and d.get("consent") is True else "")
                            + (f"\n{NEWS_TXT}: {'да' if d['news'] else 'нет'}" if retail and isinstance(d.get("news"), bool) else "")
-                           + (f"\n{PAY_CARD_TXT}" if retail and d.get("pay") == "card" else ""),
+                           + (f"\n{PAY_CARD_TXT}" if retail and d.get("pay") == "card" else "")
+                           + (f"\n{paid['note']}" if paid and paid.get("note") else ""),
             "positions": positions,
+            **({"state": {"meta": paid["state"]}} if paid and paid.get("state") else {}),   # оплачен — сразу «Подтвержден» (к сборке)
         })
     except Exception as e:
         # МойСклад упал — заказ всё равно не теряем: шлём владельцу
@@ -1133,7 +1165,7 @@ def order_core(d, key, ip, me, source="с сайта", panel=False):
             notify_staff(f"x{number}", text)
         notify_bg(notify_express)
 
-    return dict(ok=True, number=number, total=total, startToken=f"{number}_{tok}",
+    return dict(ok=True, number=number, orderId=order.get("id", ""), total=total, startToken=f"{number}_{tok}",
                 pdfUrl=f"{PUBLIC_URL}/order/{number}/pdf?t={tok}", _data=data), 200
 
 
@@ -1900,6 +1932,16 @@ def me():
                        "payCard": f"{o['name']}_{sign(o['name'])}" if (PAY_CARD_TXT in (o.get("description") or "") and (o.get("payedSum") or 0) < o["sum"]
                                                                         and not re.search(r"отмен|возврат", (o.get("state") or {}).get("name", ""), re.I)) else "",
                        "pdfUrl": f"{PUBLIC_URL}/order/{o['name']}/pdf?t={sign(o['name'])}"})
+    try:                                             # розница с оплатой картой: неоплаченные черновики — «Ожидает оплаты» (сутки)
+        import freedom
+        for dr in freedom.my_drafts(cid):
+            ls = dr["data"].get("lines") or []
+            orders.insert(0, {"number": "", "draft": dr["id"], "date": datetime.fromtimestamp(dr["created"], ALMATY).strftime("%d.%m.%Y"),
+                              "status": "Ожидает оплаты", "sum": dr["total"], "count": sum(l["qty"] for l in ls),
+                              "items": [{"id": l["id"], "name": l["name"], "qty": l["qty"], "price": l["price"]} for l in ls],
+                              "payCard": freedom.draft_token(dr["id"]), "pdfUrl": ""})
+    except Exception as e:
+        print("Мои заказы: черновики не получены:", e, flush=True)
     try:                                             # уже оплачено картой (тест тоже) — «Оплатить» не показываем
         import freedom
         paid = freedom.paid_numbers([o["number"] for o in orders if o["payCard"]])
