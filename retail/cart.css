@@ -192,3 +192,5 @@ input,select,textarea{font-size:16px!important}
 .mo-it{display:grid;grid-template-columns:48px minmax(0,1fr) auto;gap:10px;align-items:center;padding:6px 0}.mo-it .mo-p{width:48px;height:62px}
 .mo-it small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px}.mo-ship{margin-bottom:8px}
 .mo-act{display:grid;gap:8px}@media(min-width:760px){.mo-act{grid-template-columns:1fr 1fr}}.mo-act a.btn{text-align:center;text-decoration:none}
+.rpaid-n{display:inline-block;width:110px;height:1em;vertical-align:middle;border-radius:6px;background:linear-gradient(90deg,var(--bg),var(--line),var(--bg));background-size:200% 100%;animation:rpn 1.2s linear infinite}
+@keyframes rpn{to{background-position:-200% 0}}
