@@ -34,6 +34,8 @@ from sources import bp as sources_bp  # noqa: E402
 app.register_blueprint(sources_bp)
 from wishes import bp as wishes_bp  # noqa: E402
 app.register_blueprint(wishes_bp)
+from hits import bp as hits_bp  # noqa: E402
+app.register_blueprint(hits_bp)
 from analytics import bp as analytics_bp  # noqa: E402
 app.register_blueprint(analytics_bp)
 from retail_stats import bp as retail_stats_bp  # noqa: E402
