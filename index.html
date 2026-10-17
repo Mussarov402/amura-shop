@@ -2500,7 +2500,9 @@ async function submit(){
     orderKeyVal = ""; DLV.slotSel = null; STEP = "cart";
     t.ls.forEach(l => delete cart[l.it.id]); save("amura-cart2", cart); renderCartCount(); render();   // заказанное убираем, остальное остаётся
     let payErr = "";
-    if(payNow() && res.startToken && !res.demo){   // «Картой сейчас» — без промежуточного экрана сразу на страницу оплаты
+    if(res.total && Math.round(res.total) !== Math.round(t.total))   // сумма заказа не совпала с «Итого» в корзине — на оплату не ведём, показываем заказ
+      payErr = `Сумма заказа — ${fmt(res.total)} ₸, а в корзине было ${fmt(t.total)} ₸. Проверьте заказ в «Моих заказах»; оплата спишет ${fmt(res.total)} ₸`;
+    if(payNow() && res.startToken && !res.demo && !payErr){   // «Картой онлайн» — без промежуточного экрана сразу на страницу оплаты
       btns.forEach(b => { if(b.isConnected) b.textContent = "Открываем оплату…"; });
       try{ location.href = await cardUrl(res.startToken); return; }catch(x){ payErr = x.message; }
     }
