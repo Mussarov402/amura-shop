@@ -21,7 +21,7 @@
   for(var k in d) if(localStorage.getItem(k) === null) localStorage.setItem(k, d[k]);
   history.replaceState(null, "", location.pathname + location.search + (m[2] ? "#" + decodeURIComponent(m[2]) : ""));
 }catch(e){} })();
-if(window.AMURA_RETAIL) document.documentElement.classList.add("retail");   /* розница: без ряда брендов и свайпа каталога */</script>
+if(window.AMURA_RETAIL) document.documentElement.classList.add("retail");   /* розница: без ряда брендов, каталог свайпом не открывается */</script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>AMURA — корейская косметика</title>
 <meta name="description" content="Оригинальная корейская косметика с доставкой по Алматы и Казахстану.">
@@ -1166,9 +1166,8 @@ function openCatalog(){
     + `<button type="button" class="coop-l" data-coop>🤝 ${RETAIL ? "Сотрудничество: опт и продавцам" : "Стать продавцом на AMURA"}</button>`;
   $("#catPanel").classList.add("open"); $("#catPanel").setAttribute("aria-hidden", "false"); $("#scrim").classList.add("open");
 }
-/* телефон: свайп слева направо — открыть каталог, справа налево по панели — закрыть */
+/* телефон: свайп слева направо — открыть каталог (только опт), справа налево по панели — закрыть */
 (() => {
-  if(RETAIL) return;                            // розница: свайп каталога убран (мешал листать «Хиты» и баннеры), каталог — кнопкой ☰
   let sx = 0, sy = 0, t0 = 0, ok = false;
   const skip = el => el.closest(".brands, .bTrack, input, textarea, select, .stepper, .tiers, #modal.open");
   addEventListener("touchstart", e => {
@@ -1181,7 +1180,7 @@ function openCatalog(){
     const p = e.changedTouches[0], dx = p.clientX - sx, dy = p.clientY - sy;
     if(Date.now() - t0 > 700 || Math.abs(dx) < 70 || Math.abs(dy) > Math.abs(dx) * 0.5) return;   // только быстрый горизонтальный свайп
     const open = $("#catPanel").classList.contains("open");
-    if(dx > 0 && !open && !$("#modal").classList.contains("open")) openCatalog();
+    if(dx > 0 && !open && !RETAIL && !$("#modal").classList.contains("open")) openCatalog();   // розница: каталог свайпом не открываем (мешал листать ленты), только закрываем
     else if(dx < 0 && open) closeAll();
   }, { passive: true });
 })();
