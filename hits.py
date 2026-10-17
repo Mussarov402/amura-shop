@@ -1,6 +1,6 @@
 """«Хиты продаж» на розничном сайте (amura.kz), как у WB/Ozon: лента под баннерами и сортировка «Популярные».
-Рейтинг — продажи за 30 дней в штуках из нашей копии МойСклад: розница (заказы с розничного сайта и чеки кассы) с весом 1,
-остальные отгрузки (опт) с весом 0,2 — чтобы при малом числе розничных продаж витрина не пустовала.
+Рейтинг — продажи за 30 дней в штуках из нашей копии МойСклад, только заказы с клиентского сайта amura.kz
+(«Заказ с розничного сайта»). Касса не считается — через неё пробиваются и оптовые заказы, опт тоже не считается (решение владельца 17.10).
 Только товары в наличии и не скрытые (берём из живого каталога). Пересчёт раз в сутки (или «Пересчитать» в системе AMURA).
 Владелец закрепляет товары в «Хитах» и исключает их вручную: «Товары → Баннеры → Хиты продаж»."""
 import json
@@ -18,7 +18,6 @@ bp = Blueprint("hits", __name__)
 MSK = timezone(timedelta(hours=3))
 TOP = 20                     # сколько товаров в ленте «Хиты продаж»
 POP = 400                    # сколько товаров с рейтингом отдаём сайту для сортировки «Популярные»
-W_OTHER = 0.2                # вес оптовых отгрузок
 TTL = 86400
 
 
@@ -36,18 +35,15 @@ def _put(key, ids):
 
 
 def sales(days=30, now=None):
-    """{id товара: баллы} за days дней: розница ×1, прочие отгрузки ×0,2."""
+    """{id товара: штук} за days дней — только заказы с клиентского сайта."""
     since = ((now or datetime.now(MSK)) - timedelta(days=days)).astimezone(MSK).strftime("%Y-%m-%d %H:%M:%S")
     score = {}
     with mirror.db() as d:
-        rows = d.run("SELECT l.product_id, x.type, x.descr, SUM(l.qty) FROM ms_doc_line l JOIN ms_doc x ON x.id = l.doc_id "
-                     "WHERE x.deleted = 0 AND x.moment >= %s AND x.type IN ('customerorder', 'retaildemand', 'demand') "
-                     "GROUP BY l.product_id, x.type, x.descr", (since,), many=True) or []
-    for pid, typ, descr, qty in rows:
-        retail = typ == "retaildemand" or (typ == "customerorder" and descr == oh.RETAIL_MARK)
-        if typ == "customerorder" and not retail:
-            continue                                     # оптовые заказы считаем по отгрузкам, не дважды
-        score[pid] = score.get(pid, 0) + (qty or 0) * (1 if retail else W_OTHER)
+        rows = d.run("SELECT l.product_id, SUM(l.qty) FROM ms_doc_line l JOIN ms_doc x ON x.id = l.doc_id "
+                     "WHERE x.deleted = 0 AND x.moment >= %s AND x.type = 'customerorder' AND x.descr = %s "
+                     "GROUP BY l.product_id", (since, oh.RETAIL_MARK), many=True) or []
+    for pid, qty in rows:
+        score[pid] = score.get(pid, 0) + (qty or 0)
     return score
 
 

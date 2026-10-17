@@ -162,3 +162,75 @@ def analytics_view():
         names = {}
     r["sources"] = [{"code": c, "name": names.get(c, c)} for c in r["sources"]]
     return jsonify(ok=True, **r)
+
+
+def product_report(pid, days=7, now=None):
+    """Аналитика одной карточки за период и прошлый такой же период: воронка, по дням, по источникам. Только чтение."""
+    end = (now or datetime.now(ALMATY)).astimezone(ALMATY)
+    days = max(1, days)
+    start = end - timedelta(days=days - 1)
+    since, prev = start.strftime("%Y-%m-%d"), (start - timedelta(days=days)).strftime("%Y-%m-%d")
+    with db() as d:
+        pr = d.run("SELECT day, src, SUM(views), SUM(carts) FROM an_prod WHERE pid=%s AND day>=%s GROUP BY day, src", (pid, prev), many=True) or []
+        ol = d.run("SELECT day, src, SUM(qty), SUM(sum), COUNT(DISTINCT number) FROM an_oline WHERE pid=%s AND day>=%s GROUP BY day, src",
+                   (pid, prev), many=True) or []
+    zero = lambda: {"views": 0, "carts": 0, "qty": 0, "sum": 0, "orders": 0}
+    cur, old, daily, srcs = zero(), zero(), {}, {}
+    for i in range(days):
+        daily[(start + timedelta(days=i)).strftime("%Y-%m-%d")] = zero()
+    for day, src, v, c in pr:
+        t = cur if day >= since else old
+        t["views"] += int(v or 0)
+        t["carts"] += int(c or 0)
+        if day >= since:
+            dd = daily.setdefault(day, zero())
+            dd["views"] += int(v or 0)
+            dd["carts"] += int(c or 0)
+            x = srcs.setdefault(src or "", zero())
+            x["views"] += int(v or 0)
+            x["carts"] += int(c or 0)
+    for day, src, q, sm, n in ol:
+        t = cur if day >= since else old
+        t["qty"] += int(q or 0)
+        t["sum"] += round(sm or 0)
+        t["orders"] += int(n or 0)
+        if day >= since:
+            dd = daily.setdefault(day, zero())
+            dd["qty"] += int(q or 0)
+            dd["sum"] += round(sm or 0)
+            x = srcs.setdefault(src or "", zero())
+            x["qty"] += int(q or 0)
+            x["sum"] += round(sm or 0)
+            x["orders"] += int(n or 0)
+    conv = lambda t: {"toCart": round(100 * t["carts"] / t["views"], 1) if t["views"] else None,
+                      "toOrder": round(100 * t["orders"] / t["carts"], 1) if t["carts"] else None}
+    try:
+        it = oh.panel_catalog().get(pid) or {}
+    except Exception:
+        it = {}
+    return {"item": {"id": pid, "name": it.get("name") or (oh._names.get(pid) or ("Товар снят с сайта",))[0], "brand": it.get("brand") or "",
+                     "code": it.get("code") or "", "article": it.get("article") or "", "img": f"{oh.SITE_URL}/{it['img']}" if it.get("img") else ""},
+            "cur": cur | conv(cur), "prev": old | conv(old), "since": since,
+            "daily": [{"day": k} | v for k, v in sorted(daily.items()) if k >= since],
+            "sources": sorted(({"code": k} | v for k, v in srcs.items()), key=lambda x: (-x["views"], -x["sum"]))}
+
+
+@bp.get("/admin/api/analytics/product/<pid>")
+@admin.guard
+def analytics_product(pid):
+    if not on():
+        return jsonify(ok=False, error="Модуль «Аналитика» выключен"), 404
+    try:
+        days = int(request.args.get("days", "7"))
+    except ValueError:
+        days = 7
+    r = product_report(str(pid)[:40], days if days in (1, 7, 30) else 7)
+    try:
+        import sources
+        names = {s["code"]: s["name"] for s in sources.all_sources()} if sources.on() else {}
+    except Exception:
+        names = {}
+    for x in r["sources"]:
+        x["name"] = names.get(x["code"], x["code"]) if x["code"] else "Без источника"
+    return jsonify(ok=True, **r)
+
