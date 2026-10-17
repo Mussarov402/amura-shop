@@ -1,13 +1,8 @@
-"""«Нет на сайте»: какие товары МойСклад не видит покупатель на amura.kz / opt.amura.kz и почему, плюс кнопка «Выгрузить на сайт сейчас».
-
-Правда о витрине (что реально отсекает товар):
-- выгрузка catalog.json (export_catalog.py): только товары (не модификации), не в архиве, с остатком > 0, с розничной или оптовой ценой,
-  не служебный код (SKIP_CODES);
-- живой каталог сервера (order_hook.build_live): остаток пересчитывается сейчас, скрытые в системе AMURA («Сайт: скрыт») убираются,
-  изменённые в МойСклад после выгрузки подхватываются сразу, но без фото (фото — только после выгрузки);
-- сайт показывает товар, если остаток > 0 и есть цена своего сайта: розница — розничная, опт — оптовая.
-Нет фото — товар всё равно виден (с заглушкой), поэтому это отдельный список «На сайте без фото».
-Данные — копия МойСклад (ms_product) + живой каталог + свежие остатки. Только чтение; выгрузку запускает GitHub Actions."""
+"""«Оприходовано, ещё не на сайте» (Товары → «Товары»): товары с остатком в МойСклад (обычно после приёмки или оприходования),
+которых нет в текущей выгрузке catalog.json или там остаток 0, и кнопка «Выгрузить на сайт сейчас» (GitHub Actions, catalog.yml).
+Правила витрины не меняем. Если товар и после выгрузки не выйдет из-за фильтров export_catalog.py — короткая пометка у строки
+(«не выйдет: нет цены» / «в архиве» / «служебный код»; скрытый в системе AMURA — «скрыт в витрине»).
+Данные — копия МойСклад (ms_product), свежие остатки и catalog.json с сайта. Только чтение."""
 import json
 import os
 import time
@@ -25,8 +20,6 @@ REPO = os.environ.get("GH_REPO", "Mussarov402/amura-shop")
 WORKFLOW = "catalog.yml"
 GH = "https://api.github.com"
 ALMATY = timezone(timedelta(hours=5))
-REASONS = {"new": "Новый — ещё не выгружен", "stock": "Нет остатка", "price": "Нет цены", "rtl": "Нет розничной цены — не виден на amura.kz",
-           "opt": "Нет оптовой цены — не виден на opt.amura.kz", "hidden": "Скрыт в витрине", "archived": "В архиве", "skip": "Служебный код"}
 COOLDOWN = 120
 _last_dispatch = [0.0]
 
@@ -35,50 +28,43 @@ def _skip_codes():
     return {oh.LOADER_CODE, "00308"}                          # как SKIP_CODES в export_catalog.py («Услуга грузчика»)
 
 
-def report(products=None, live=None, stock=None, hidden=None):
-    """{counts, rows, noPhoto}. rows — товары, которых нет хотя бы на одном сайте, с причиной."""
+def _exported():
+    """{id: остаток} из текущего catalog.json на сайте (кэш 2 минуты)."""
+    def load():
+        r = requests.get(f"{oh.SITE_URL}/catalog.json", timeout=20, headers={"Cache-Control": "no-cache"})
+        r.raise_for_status()
+        return {i["id"]: int(i.get("qty") or 0) for i in r.json().get("items", [])}
+    return oh.cached("exported_qty", 120, load)
+
+
+def pending(products=None, exported=None, stock=None, hidden=None, live=None):
+    """Товары с остатком, которых нет в catalog.json (или там 0). У строки note — почему не выйдет и после выгрузки."""
     if products is None:
         with mirror.db() as d:
-            products = [dict(zip(("id", "code", "article", "name", "archived", "prices", "updated"), r)) for r in
-                        d.run("SELECT id, code, article, name, archived, prices, updated FROM ms_product WHERE kind='product' AND deleted=0",
-                              many=True) or []]
-    live = live if live is not None else oh.live()
+            products = [dict(zip(("id", "code", "name", "archived", "prices"), r)) for r in
+                        d.run("SELECT id, code, name, archived, prices FROM ms_product WHERE kind='product' AND deleted=0", many=True) or []]
+    exported = exported if exported is not None else _exported()
     stock = stock if stock is not None else oh.cached("nos_stock", 60, oh._stock)
     hidden = hidden if hidden is not None else admin.hidden_ids()
-    skip = _skip_codes()
-    site = {i["id"]: i for i in live.get("items", [])}
-    rows, counts, nophoto = [], {k: 0 for k in REASONS}, []
+    live = live if live is not None else oh.live()
+    imgs = {i["id"]: i.get("img") for i in live.get("items", []) + live.get("hiddenItems", []) + live.get("outItems", [])}
+    skip, rows = _skip_codes(), []
     for p in products:
-        pid, pr = p["id"], p["prices"] if isinstance(p["prices"], dict) else json.loads(p["prices"] or "{}")
-        rtl, opt = int(pr.get(oh.PRICE_RTL) or 0), int(pr.get(oh.PRICE_OPT) or 0)
+        pid = p["id"]
         qty = int(stock.get(pid, 0) or 0)
-        it = site.get(pid)
-        if it:                                               # на сайте — но, может быть, не на обоих
-            if not it.get("img"):
-                nophoto.append({"id": pid, "name": p["name"], "code": p["code"] or "", "qty": qty})
-            for k, ok in (("rtl", (it.get("rtl") or 0) > 0), ("opt", (it.get("opt") or 0) > 0)):   # цены — как видит витрина сейчас
-                if not ok:
-                    counts[k] += 1
-                    rows.append({"id": pid, "name": p["name"], "code": p["code"] or "", "qty": qty, "reason": k})
+        if qty <= 0 or exported.get(pid, 0) > 0:
             continue
-        if (p["code"] or "") in skip:
-            r = "skip"
-        elif p.get("archived"):
-            r = "archived"
-        elif pid in hidden:
-            r = "hidden"
-        elif qty <= 0:
-            r = "stock"
-        elif rtl <= 0 and opt <= 0:
-            r = "price"
-        else:
-            r = "new"                                          # всё есть, но витрина его ещё не видит — ждёт выгрузки
-        counts[r] += 1
-        rows.append({"id": pid, "name": p["name"], "code": p["code"] or "", "qty": qty, "reason": r, "updated": (p.get("updated") or "")[:16]})
-    order = list(REASONS)
-    rows.sort(key=lambda x: (order.index(x["reason"]), -x["qty"], x["name"]))
-    actionable = sum(counts[k] for k in ("new", "price", "rtl", "opt", "hidden"))   # с остатком, но не видны — то, что можно поправить
-    return {"counts": counts, "reasons": REASONS, "actionable": actionable, "rows": rows, "noPhoto": nophoto[:500]}
+        pr = p["prices"] if isinstance(p["prices"], dict) else json.loads(p["prices"] or "{}")
+        note = ("служебный код" if (p["code"] or "") in skip else "в архиве" if p.get("archived")
+                else "нет цены" if int(pr.get(oh.PRICE_RTL) or 0) <= 0 and int(pr.get(oh.PRICE_OPT) or 0) <= 0
+                else "скрыт в витрине" if pid in hidden else "")
+        if note == "служебный код":
+            continue                                         # «Услуга грузчика» — не товар витрины
+        img = imgs.get(pid)
+        rows.append({"id": pid, "name": p["name"], "code": p["code"] or "", "qty": qty, "note": note,
+                     "img": f"{oh.SITE_URL}/{img}" if img else ""})
+    rows.sort(key=lambda x: (bool(x["note"]), x["name"]))
+    return rows
 
 
 # ---------- выгрузка на сайт: GitHub Actions (catalog.yml) ----------
@@ -116,12 +102,11 @@ def last_run():
 @admin.guard
 def not_on_site():
     try:
-        r = report()
+        rows = pending()
     except Exception as e:
-        return jsonify(ok=False, error="Копия МойСклад или каталог сейчас недоступны: " + str(e)[:150]), 503
-    rows = r.pop("rows")
-    return jsonify(ok=True, **r, rows=rows[:1500], total=len(rows), siteUpdated=oh._cache.get("site_updated", ""), mirror=mirror.enabled(),
-                   key=bool(gh_token()), run=last_run())
+        return jsonify(ok=False, error="Каталог или копия МойСклад сейчас недоступны: " + str(e)[:150]), 503
+    return jsonify(ok=True, rows=rows[:500], total=len(rows), key=bool(gh_token()), run=last_run(),
+                   wait=max(0, int(COOLDOWN - (time.time() - _last_dispatch[0]))))
 
 
 @bp.get("/admin/api/catalog/publish")

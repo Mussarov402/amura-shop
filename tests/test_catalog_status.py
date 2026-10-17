@@ -1,5 +1,5 @@
-"""«Нет на сайте»: причины совпадают с правилами витрины (архив, скрыт, нет остатка, нет цены, служебный код, ещё не выгружен,
-нет розничной/оптовой цены для своего сайта), «без фото» — отдельно (товар виден); «Выгрузить сейчас» — ключ, раз в 2 минуты, вызов GitHub."""
+"""«Оприходовано, ещё не на сайте»: остаток есть, а в catalog.json нет (или там 0); пометка «не выйдет: …» только по фильтрам выгрузки;
+«Выгрузить сейчас» — ключ, раз в 2 минуты, вызов GitHub, только владелец."""
 import json
 import os
 import sys
@@ -15,13 +15,13 @@ import admin  # noqa: E402
 import catalog_status as cs  # noqa: E402
 
 R, O = "Розничная цена", "Оптовая цена"
-P = lambda pid, code="", archived=0, prices=None: {"id": pid, "code": code, "article": "", "name": "Товар " + pid, "archived": archived,
-                                                    "prices": json.dumps(prices if prices is not None else {R: 1500, O: 1000}), "updated": "2026-10-17 10:00:00"}
-PRODUCTS = [P("ok"), P("nophoto"), P("nortl", prices={O: 1000}), P("noopt", prices={R: 1500}), P("new"), P("zero"), P("arch", archived=1),
-            P("hid"), P("noprice", prices={}), P("load", code="00308")]
-LIVE = {"items": [{"id": "ok", "img": "img/ok.webp", "rtl": 1500, "opt": 1000}, {"id": "nophoto", "img": None, "rtl": 1500, "opt": 1000},
-                  {"id": "nortl", "img": "x", "rtl": 0, "opt": 1000}, {"id": "noopt", "img": "x", "rtl": 1500, "opt": 0}]}
-STOCK = {k: 5 for k in ("ok", "nophoto", "nortl", "noopt", "new", "arch", "hid", "noprice", "load")}
+P = lambda pid, code="", archived=0, prices=None: {"id": pid, "code": code, "name": "Товар " + pid, "archived": archived,
+                                                    "prices": json.dumps(prices if prices is not None else {R: 1500, O: 1000})}
+PRODUCTS = [P("onsite"), P("new"), P("zero_in_cat"), P("noprice", prices={}), P("arch", archived=1), P("hid"), P("load", code="00308"),
+            P("nostock")]
+EXPORTED = {"onsite": 4, "zero_in_cat": 0}
+STOCK = {"onsite": 4, "new": 6, "zero_in_cat": 3, "noprice": 2, "arch": 1, "hid": 2, "load": 99}
+LIVE = {"items": [{"id": "onsite", "img": "img/onsite.webp"}], "hiddenItems": [], "outItems": [{"id": "zero_in_cat", "img": "img/z.webp"}]}
 
 
 class Resp:
@@ -34,13 +34,12 @@ class Resp:
 
 
 class CatalogStatus(unittest.TestCase):
-    def test_reasons(self):
-        r = cs.report(PRODUCTS, LIVE, STOCK, {"hid"})
-        got = {x["id"]: x["reason"] for x in r["rows"]}
-        self.assertEqual(got, {"nortl": "rtl", "noopt": "opt", "new": "new", "zero": "stock", "arch": "archived", "hid": "hidden",
-                               "noprice": "price", "load": "skip"})
-        self.assertEqual([x["id"] for x in r["noPhoto"]], ["nophoto"])                    # без фото — виден, отдельный список
-        self.assertEqual(r["actionable"], 5)                                              # new, price, rtl, opt, hidden
+    def test_pending(self):
+        rows = cs.pending(PRODUCTS, EXPORTED, STOCK, {"hid"}, LIVE)
+        got = {x["id"]: x["note"] for x in rows}
+        self.assertEqual(got, {"new": "", "zero_in_cat": "", "noprice": "нет цены", "arch": "в архиве", "hid": "скрыт в витрине"})
+        self.assertEqual([x["id"] for x in rows][:2], ["new", "zero_in_cat"])          # сначала те, что выйдут после выгрузки
+        self.assertTrue(next(x for x in rows if x["id"] == "zero_in_cat")["img"].endswith("/img/z.webp"))
 
     def test_publish(self):
         old = admin.who
