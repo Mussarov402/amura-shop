@@ -94,3 +94,19 @@ def update(mid, on=None, src=None):
             inbox.set_setting(d, _key(mid), "1" if on else "0")
         if src is not None and src in REGISTRY[mid]["sources"]:
             inbox.set_setting(d, _key(mid, "_src"), src)
+
+
+def simplify_1017():
+    """Решение владельца 17.10.2026: учёт — в МойСклад, система AMURA — простой кабинет продавца.
+    Один раз выключаем разделы-дубли МойСклад («Финансы» с «Деньгами»/«Отчётами», «Склад»), если владелец их сам не переключал.
+    Включить обратно — «Настройки → Модули». Вызывается только на сервере (app.py), в тестах — нет."""
+    try:
+        with inbox.db() as d:
+            if inbox.get_setting(d, "mod_simplify_1017", "") == "1":
+                return
+            for mid in ("finance", "warehouse"):
+                if inbox.get_setting(d, _key(mid), "") == "":
+                    inbox.set_setting(d, _key(mid), "0")
+            inbox.set_setting(d, "mod_simplify_1017", "1")
+    except Exception as e:
+        print("Модули: упрощение меню не применено:", e, flush=True)

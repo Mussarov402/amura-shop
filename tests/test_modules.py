@@ -114,5 +114,18 @@ class ModulesTest(unittest.TestCase):
         self.c.put("/admin/api/modules", headers=self.h, json={"id": "warehouse", "on": False})
         self.assertEqual(self.c.get("/admin/api/warehouse", headers=self.h).status_code, 404)
 
+    def test_simplify_1017_once_and_respects_owner(self):
+        self.c.put("/admin/api/modules", headers=self.h, json={"id": "warehouse", "on": True})   # владелец сам включил — не трогаем
+        with inbox.db() as d:
+            d.run("DELETE FROM setting WHERE key=%s", ("mod_finance",))
+            d.run("DELETE FROM setting WHERE key=%s", ("mod_simplify_1017",))
+        modules.simplify_1017()
+        self.assertFalse(modules.enabled("finance"))
+        self.assertTrue(modules.enabled("warehouse"))
+        self.c.put("/admin/api/modules", headers=self.h, json={"id": "finance", "on": True})
+        modules.simplify_1017()                                                    # второй раз — ничего не меняет
+        self.assertTrue(modules.enabled("finance"))
+
+
 if __name__ == "__main__":
     unittest.main()
