@@ -433,7 +433,7 @@ function doneRetail(res, f, t, payErr){
     try{ location.href = await cardUrl(res.startToken); }
     catch(x){ err.textContent = x.message || "Нет связи с сервером"; b.disabled = false; b.textContent = `💳 Оплатить картой ${fmt(total)} ₸`; }
   };
-  $("#rdOrders").onclick = () => go("me");
+  $("#rdOrders").onclick = () => openOrders();
   $("#rdShop").onclick = () => go("home");
   scrollTo({ top: 0 });
 }
@@ -448,7 +448,7 @@ function pendingRetail(res, t, err){
     <button class="btn ghost" id="rdOrders" type="button">Мои заказы</button></div>`;
   $("#rdCard").onclick = async e => { const b = e.currentTarget; b.disabled = true; b.textContent = "Открываем оплату…"; $("#rdErr").textContent = "";
     try{ location.href = await cardUrl(res.payToken); }catch(x){ $("#rdErr").textContent = x.message; b.disabled = false; b.textContent = `💳 Оплатить картой ${fmt(res.total || t.total)} ₸`; } };
-  $("#rdOrders").onclick = () => go("me");
+  $("#rdOrders").onclick = () => openOrders();
   scrollTo({ top: 0 });
 }
 const CHECK_BIG = '<svg class="rdone-ok" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="22"/><path d="M14 24.5l7 7 13-14"/></svg>';
@@ -644,11 +644,11 @@ async function paidScreen(pr){
   }
 }
 document.addEventListener("click", e => {
-  if(e.target.closest("[data-paid-orders]")){ const pr = window.PAY_RET; if(pr) pr.shown = "done"; renderMe(); }
+  if(e.target.closest("[data-paid-orders]")){ const pr = window.PAY_RET; if(pr) pr.shown = "done"; MO.page = "orders"; renderMe(); try{ history.replaceState(null, "", "#orders"); }catch{} }
   if(e.target.closest("[data-paid-shop]")){ const pr = window.PAY_RET; if(pr) pr.shown = "done"; go("home"); }
 });
 /* ---------- «Мои заказы» как у WB: карточки с фото, понятный статус, вкладки Активные / Завершённые, экран заказа ---------- */
-const MO = { p: null, orders: null, tab: "active" };
+const MO = { p: null, orders: null, tab: "active", page: location.hash === "#orders" ? "orders" : "", keep: location.hash === "#orders" };
 function moStatus(o){
   const s = o.status || "", pick = /самовывоз/i.test(o.ship || "");
   if(o.draft) return ["Ожидает оплаты", "wait"];
@@ -689,6 +689,7 @@ function moOpen(i){
   const o = MO.orders[i]; if(!o) return;
   const [st, tone] = moStatus(o), goods = (o.items || []).reduce((s, it) => s + it.qty * it.price, 0);
   $("#meTitle").innerHTML = moTitle(o);
+  const mb = $("#viewMe .mo-top"); if(mb) mb.hidden = true;            // в заказе своя кнопка «← Мои заказы»
   $("#meBody").innerHTML = `<div class="mo-det"><button type="button" class="back mo-back" data-mo-back>← Мои заказы</button>
     <section class="rcard"><div class="mo-h"><span class="mo-chip ${tone}">${st}</span><span class="mo-d">от ${esc(o.date)}</span></div>
       ${o.track ? trackHTML(o.track) : ""}
@@ -725,25 +726,70 @@ document.addEventListener("keydown", e => { const c = e.key === "Enter" && e.tar
 const _paintMe = paintMe;
 paintMe = function(p, orders){
   _paintMe(p, orders); markRetail();
-  supportEntry();
   MO.p = p; MO.orders = orders;
   if(orders && orders.length && !orders.some(o => !moDone(o))) MO.tab = "done";
-  moList();
-  trackPaint(orders);
-  payPaint(orders);
-  const oh = $("#orders"); if(oh && orders && orders.length && !$("#meBody .rpush")) oh.insertAdjacentHTML("beforebegin", pushBoxHTML());
+  const top = $("#viewMe .back[data-home]"), ord = MO.page === "orders";   // на экране заказов вместо «← В каталог» — «← Назад» в «Я»
+  if(top) top.hidden = ord;
+  const mb = $("#viewMe .mo-top"); if(mb && !ord) mb.remove();
+  if(ord && !mb) $("#meTitle").insertAdjacentHTML("beforebegin", '<button type="button" class="back mo-top" data-mo-home>← Назад</button>');
+  else if(ord) mb.hidden = false;
+  if(MO.page === "orders") moPage(); else { moEntry(); supportEntry(); }
   let want = false; try{ want = sessionStorage.getItem(WANT) === "1"; }catch{}
   if(want && AUTH.token && p && p.name){ try{ sessionStorage.removeItem(WANT); }catch{} toast("Вы вошли — оформляем заказ"); NEXT = "checkout"; go("cart"); }
 };
 
+/* «Мои заказы» — отдельный экран amura.kz/#orders (как на WB): «← Назад» и системный «назад» — в «Я»; ниже «Вам может понравиться».
+   В «Я» — только пункт «Мои заказы» со счётчиком активных */
+function moEntry(){
+  const box = $("#orders"); if(!box) return;
+  const h = box.previousElementSibling; if(h && h.classList.contains("page-h")) h.remove();
+  const n = MO.orders ? MO.orders.filter(o => !moDone(o)).length : 0, m = n % 10, hh = n % 100;
+  const sub = !MO.orders ? "Загружаем…" : n ? `${n} ${m === 1 && hh !== 11 ? "активный" : "активных"} · в работе` : MO.orders.length ? "Все заказы получены" : "Заказов пока нет";
+  box.remove();
+  const html = `<button type="button" class="rsup rmo" data-mo-page><span class="rsup-i" aria-hidden="true">📦</span><span><b>Мои заказы</b><small>${sub}</small></span>${n ? `<em class="rmo-n">${n}</em>` : ""}<span class="rsup-a" aria-hidden="true">›</span></button>`;
+  const prof = $("#meBody #profile"); if(prof) prof.insertAdjacentHTML("afterend", html); else $("#meBody").insertAdjacentHTML("afterbegin", html);
+}
+function moPage(){
+  $("#meTitle").textContent = "Мои заказы";
+  $("#meBody").innerHTML = `<div class="list" id="orders"><div class="kv">Загружаем…</div></div>`;
+  moList(); trackPaint(MO.orders); payPaint(MO.orders);
+  const oh = $("#orders"); if(oh && MO.orders && MO.orders.length) oh.insertAdjacentHTML("beforebegin", pushBoxHTML());
+}
+function openOrders(){
+  MO.page = "orders";
+  if(VIEW === "me" && MO.p){
+    try{ history.pushState({ mo: 1 }, "", "#orders"); }catch{}
+    paintMe(MO.p, MO.orders); scrollTo({ top: 0 });
+  } else { MO.keep = true; go("me"); }
+}
+window.moExclude = () => MO.page === "orders" && MO.orders ? MO.orders.filter(o => !moDone(o)).flatMap(o => (o.items || []).map(i => i.id)) : null;
+const _goMo = go;      // уход в другой раздел или нажатие «Я» — снова кабинет; открытие #orders — экран заказов
+go = function(v){
+  if(!MO.keep) MO.page = ""; MO.keep = false;
+  const r = _goMo.apply(this, arguments);
+  if(v === "me" && MO.page === "orders") try{ history.replaceState(history.state, "", "#orders"); }catch{}
+  return r;
+};
+addEventListener("popstate", () => {
+  if(VIEW !== "me" || !MO.p) return;
+  const want = location.hash === "#orders" ? "orders" : "";
+  if(want !== MO.page){ MO.page = want; paintMe(MO.p, MO.orders); scrollTo({ top: 0 }); }
+});
+document.addEventListener("click", e => {
+  if(e.target.closest("[data-mo-page]")) return openOrders();
+  if(e.target.closest("[data-mo-home]")){ if(history.state && history.state.mo) history.back(); else { MO.page = ""; paintMe(MO.p, MO.orders); try{ history.replaceState(null, "", "#me"); }catch{} scrollTo({ top: 0 }); } }
+});
+if(MO.keep && typeof go === "function") setTimeout(() => { if(MO.page === "orders" && VIEW !== "me"){ MO.keep = true; go("me", true); } }, 0);   // открыли amura.kz/#orders
+
 /* «Поддержка» в кабинете — только после входа: чат «Поддержка AMURA», отвечает ИИ по правилам поддержки или менеджер */
 function supportEntry(){
-  if(!$("#meBody") || $("#meBody .rsup")) return;
+  if(!$("#meBody") || $("#meBody [data-support]")) return;
   const prof = $("#meBody #profile"), at = $("#meBody [data-coop]") || $("#meBody #logout");
   const html = `<button type="button" class="rsup" data-support><span class="rsup-i" aria-hidden="true">💬</span><span><b>Поддержка</b><small>Вопрос о заказе, доставке, оплате или товаре — ответим в чате</small></span><span class="rsup-a" aria-hidden="true">›</span></button>`;
-  if(prof) prof.insertAdjacentHTML("afterend", html);                // сразу под профилем — не искать под списком заказов
+  const after = $("#meBody .rmo") || prof;                         // под «Моими заказами», иначе сразу под профилем
+  if(after) after.insertAdjacentHTML("afterend", html);
   else if(at) at.insertAdjacentHTML("beforebegin", html); else $("#meBody").insertAdjacentHTML("beforeend", html);
-  $("#meBody .rsup").onclick = () => { if(window.openSupport) openSupport(""); };
+  $("#meBody [data-support]").onclick = () => { if(window.openSupport) openSupport(""); };
 }
 renderCart = renderRetailCart;
 const _shipName = dlvShipName;
