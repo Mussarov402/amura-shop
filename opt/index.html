@@ -58,6 +58,8 @@ header.top{position:sticky;top:0;z-index:20;background:#0E3B2C;color:#F2F5F3;pad
 .search{flex:1;display:flex;background:#fff;border-radius:12px;overflow:hidden;min-width:0}
 .search input{flex:1;min-width:0;border:0;padding:11px 14px;font-size:15px;color:#16201B;background:transparent}
 .search input:focus{outline:none}
+.search input::-webkit-search-cancel-button{-webkit-appearance:none}.qx{border:0;background:none;color:#8A968F;font-size:16px;padding:0 12px;cursor:pointer}.qx[hidden]{display:none}
+html.qon #viewHome .hero{display:none}   /* идёт поиск — баннеры скрыты, результат сразу под строкой, как на WB */
 .count{background:var(--brass);color:#1b1408;border-radius:99px;font-size:12px;font-weight:800;min-width:20px;height:20px;display:inline-grid;place-items:center;padding:0 6px}
 .brandsBar{background:#0E3B2C}
 .brands{display:flex;gap:6px;overflow-x:auto;padding:0 0 12px;scrollbar-width:none}
@@ -156,7 +158,7 @@ select{font-size:14px;background:var(--surface);border:1px solid var(--line);bor
 .btn.tg{background:#229ED9}
 .btn.wa{background:#1FA855}
 .btn:disabled{opacity:.6;cursor:wait}
-.more{display:block;margin:28px auto 56px;border:1.5px solid var(--green);color:var(--green-3);background:transparent;font-weight:700;border-radius:12px;padding:12px 28px}
+.more[hidden]{display:none}.more{display:block;margin:28px auto 56px;border:1.5px solid var(--green);color:var(--green-3);background:transparent;font-weight:700;border-radius:12px;padding:12px 28px}
 
 /* кнопка «Каталог» и боковая панель брендов — как на WB */
 .catBtn{flex:none;display:flex;align-items:center;gap:8px;border:0;background:#1F5A44;color:#fff;font-weight:700;font-size:15px;padding:10px 16px;border-radius:12px}
@@ -370,7 +372,7 @@ form.co{display:grid;gap:12px;padding-top:6px}
       <span class="brk" aria-hidden="true"></span>
       <button type="button" class="catBtn" id="catBtn" aria-label="Каталог брендов" aria-controls="catPanel"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Каталог</span></button>
       <form class="search" id="searchForm" role="search">
-        <input id="q" type="search" placeholder="Бренд, товар или артикул" aria-label="Поиск">
+        <input id="q" type="search" placeholder="Бренд, товар или артикул" aria-label="Поиск" enterkeyhint="search" autocomplete="off" autocorrect="off" spellcheck="false"><button type="button" class="qx" id="qx" aria-label="Очистить поиск" hidden>✕</button>
       </form>
       <nav class="topnav" aria-label="Разделы">
         <button type="button" data-view="fav"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-9.2-9.4C1.6 7.6 3.9 4.5 7.2 4.5c2 0 3.4 1.1 4.8 2.8 1.4-1.7 2.8-2.8 4.8-2.8 3.3 0 5.6 3.1 4.4 6.6-1.7 4.8-9.2 9.4-9.2 9.4Z"/></svg><span class="count" id="favCount2" hidden>0</span></span><span>Избранное</span></button>
@@ -675,6 +677,7 @@ function filtered(){
   return list;
 }
 function render(){
+  if(window.qSync) window.qSync();
   const list = filtered();
   const part = list.slice(0, st.shown);
   $("#title").textContent = st.q ? `Поиск: «${st.q}»` : (st.brand || "Весь каталог");
@@ -890,7 +893,18 @@ $("#catClose").onclick = closeAll;
 $("#catList").addEventListener("click", e => { const b = e.target.closest("[data-b]"); if(!b) return; closeAll(); st.q = ""; $("#q").value = ""; selectBrand(b.dataset.b); });
 document.querySelectorAll("[data-home]").forEach(b => b.onclick = () => go("home"));
 let qt; $("#q").addEventListener("input", e => { if(VIEW !== "home") return; clearTimeout(qt); qt = setTimeout(() => { st.q = e.target.value.trim(); st.shown = PAGE; render(); }, 200); });
-$("#searchForm").onsubmit = e => { e.preventDefault(); if(VIEW !== "home") go("home"); st.q = $("#q").value.trim(); st.shown = PAGE; render(); $("#q").blur(); };   // поиск из корзины/кабинета ведёт в каталог
+/* код, артикул или штрихкод ровно одного товара — по «Найти» сразу его карточка (без учёта регистра, пробелов и нулей впереди) */
+const codeKey = v => String(v || "").toLowerCase().replace(/\s+/g, "").replace(/^0+(?=.)/, "");
+function exactItem(q){
+  const k = codeKey(q); if(!k || k.length < 3) return null;
+  const hit = ALL.filter(i => [i.code, i.article, i.barcode].some(v => v && codeKey(v) === k));
+  return hit.length === 1 ? hit[0] : null;
+}
+$("#searchForm").onsubmit = e => { e.preventDefault(); if(VIEW !== "home") go("home"); st.q = $("#q").value.trim(); st.shown = PAGE; render(); $("#q").blur();
+  const it = exactItem(st.q); if(it) openProduct(it); };   // поиск из корзины/кабинета ведёт в каталог
+const qSync = window.qSync = () => { $("#qx").hidden = !$("#q").value; document.documentElement.classList.toggle("qon", !!st.q); };
+$("#q").addEventListener("input", qSync);
+$("#qx").onclick = () => { $("#q").value = ""; qSync(); $("#q").focus(); if(st.q){ st.q = ""; st.shown = PAGE; render(); } };   // поиск из корзины/кабинета ведёт в каталог
 $("#sort").onchange = e => { st.sort = e.target.value; render(); };
 function showMore(){
   const list = filtered(); if(list.length <= st.shown) return;
