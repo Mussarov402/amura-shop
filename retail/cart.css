@@ -199,3 +199,10 @@ input,select,textarea{font-size:16px!important}
 .rsup + [data-coop]{margin-top:10px!important}#profile + .rsup{margin-top:12px}
 .rmo{margin-top:12px}.rmo-n{margin-left:auto;min-width:22px;height:22px;border-radius:11px;background:var(--green-2);color:#fff;font:700 12px/22px system-ui,sans-serif;font-style:normal;text-align:center;padding:0 6px}.rmo .rmo-n + .rsup-a{margin-left:6px}
 #profile + .rmo + .rsup{margin-top:10px}
+/* «Я»: «Вы смотрели» — лента на телефоне, ряд на компьютере; экран со всеми просмотренными */
+.rfav{margin-top:10px}.rseen{margin-top:14px}
+.rseen-h{border:0;background:none;padding:0;margin:0 0 10px;font:inherit;font-family:var(--display);font-weight:500;font-size:19px;color:var(--ink);cursor:pointer}.rseen-h span{color:var(--muted)}
+.rseen-row.grid{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(140px,42%);grid-template-columns:none;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;padding-bottom:4px}
+.rseen-row.grid::-webkit-scrollbar{display:none}.rseen-row .card{scroll-snap-align:start}
+@media(min-width:760px){.rseen-row.grid{grid-auto-columns:minmax(170px,30%)}}
+.rseen + .rsup{margin-top:14px}.rseen-clr{width:100%;margin-top:16px}
