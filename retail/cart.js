@@ -699,7 +699,7 @@ function moOpen(i){
       <div class="rrow"><span>Товары</span><span>${fmt(goods)} ₸</span></div>
       <div class="rrow"><span>Доставка</span><span class="${o.extra ? "" : "free"}">${o.extra ? fmt(o.extra) + " ₸" : "бесплатно"}</span></div>
       <div class="rtot"><span>Итого</span><b>${fmt(o.sum)} ₸</b></div></section>
-    <div class="mo-act"><button type="button" class="btn" data-mo-repeat="${i}">Повторить заказ</button>${wa ? `<a class="btn ghost" href="${esc(wa)}" target="_blank" rel="noopener">Написать нам</a>` : ""}</div>
+    <div class="mo-act"><button type="button" class="btn" data-mo-repeat="${i}">Повторить заказ</button>${wa ? `<a class="btn ghost" href="${esc(wa)}" target="_blank" rel="noopener">Написать в поддержку в WhatsApp</a>` : ""}</div>
   </div>`;
   scrollTo({ top: 0 });
 }
