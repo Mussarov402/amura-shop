@@ -270,6 +270,10 @@ form.co{display:grid;gap:12px;padding-top:6px}
 .sheet .info h3{font-family:var(--display);font-weight:500;font-size:21px;line-height:1.25;margin:0}
 .sheet .desc{color:var(--ink);font-size:14px;line-height:1.6;white-space:pre-line}
 .sheet .inci{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}.sheet .inci summary{cursor:pointer;font-weight:700;font-size:15px;list-style:none;display:flex;justify-content:space-between;align-items:center}.sheet .inci summary::-webkit-details-marker{display:none}.sheet .inci summary::after{content:"+";font-size:20px;color:var(--muted)}.sheet .inci[open] summary::after{content:"−"}.sheet .inci .desc{margin-top:8px;font-size:13px}
+.coop{display:grid;gap:10px;margin:12px 0}@media(min-width:760px){.coop{grid-template-columns:repeat(auto-fit,minmax(0,1fr))}}
+.coop-c{border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:8px}.coop-c.on{border-color:var(--green-3)}.coop-c h4{margin:0;font-size:16px}.coop-c p{margin:0;flex:1}.coop-c .btn{text-align:center;text-decoration:none}
+.coop-f{border-top:1px solid var(--line);padding-top:14px;position:relative}.coop-ok{display:flex;gap:10px;align-items:flex-start;font-size:13.5px;line-height:1.4;margin:6px 0 10px}.coop-ok input{width:20px;height:20px;flex:none;margin-top:1px;accent-color:var(--green-3)}.coop-ok a{color:var(--green-3)}
+.catList .coop-l{border-top:1px solid var(--line);margin-top:6px;color:var(--green-3);font-weight:700}
 .sheet .desc.clip{max-height:9.6em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 60%,transparent)}
 .more-link{border:0;background:none;padding:0;color:var(--green-3);font-weight:700;font-size:14px;justify-self:start}
 .sec{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:10px 0 0;font-weight:800}
@@ -909,7 +913,7 @@ async function boot(){
   if(PROMO) fetch(CONFIG.apiUrl + "/ref/promo?retail=1&code=" + encodeURIComponent(PROMO.code)).then(r => r.json()).then(j => {   // промокод могли убрать или сменить скидку
     PROMO = j.ok ? { code: j.code, discount: j.discount || 0 } : null; save("amura-promo", PROMO); if(VIEW === "cart") renderCart();
   }).catch(() => {});
-  oprosLink();
+  oprosLink(); coopLink();
   if(!okStatic && !okLive && !shown){ ALL = DEMO_ITEMS; DEMO = true; $("#demoBar").hidden = false; applyData({ items: DEMO_ITEMS }); render(); if(VIEW !== "home") go(VIEW, true); return; }
   if(okStatic && okLive) getJSON(CONFIG.catalogUrl, 8000).then(d => { (d.items || []).forEach(i => { if(i.desc || i.inci){ DESC[i.id] = i.desc || ""; INCI[i.id] = i.inci || ""; } }); ALL.forEach(i => { if(i.desc === undefined && i.id in DESC){ i.desc = DESC[i.id]; i.inci = INCI[i.id]; } }); cacheSave(); }).catch(() => {});
   setInterval(() => { if(document.visibilityState === "visible") refreshLive(); }, CONFIG.refreshMs);
@@ -1149,7 +1153,8 @@ function openCatalog(){
   const counts = {}; ALL.forEach(i => { if(i.brand) counts[i.brand] = (counts[i.brand] || 0) + 1; });
   const names = Object.keys(counts).sort((a,b) => a.localeCompare(b, "ru"));
   $("#catList").innerHTML = `<button type="button" data-b="" aria-current="${!st.brand}">Все товары<small>${fmt(ALL.length)}</small></button>`
-    + names.map(b => `<button type="button" data-b="${esc(b)}" aria-current="${st.brand === b}">${esc(b)}<small>${fmt(counts[b])}</small></button>`).join("");
+    + names.map(b => `<button type="button" data-b="${esc(b)}" aria-current="${st.brand === b}">${esc(b)}<small>${fmt(counts[b])}</small></button>`).join("")
+    + `<button type="button" class="coop-l" data-coop>🤝 ${RETAIL ? "Сотрудничество: опт и продавцам" : "Стать продавцом на AMURA"}</button>`;
   $("#catPanel").classList.add("open"); $("#catPanel").setAttribute("aria-hidden", "false"); $("#scrim").classList.add("open");
 }
 /* телефон: свайп слева направо — открыть каталог, справа налево по панели — закрыть */
@@ -1573,6 +1578,57 @@ function closeAll(){ $("#modal").classList.remove("open"); $("#scrim").classList
 $("#scrim").onclick = closeAll;
 /* ===== Анкета «Пожелания» (amura.kz/#opros, opt.amura.kz/#opros): что хотят видеть покупатели. Модуль «Пожелания клиентов» в системе AMURA.
    Без скидок и промокодов за ответ; имя и телефон — по желанию. */
+/* «Сотрудничество»: розница — «Стать оптовиком» и «Стать продавцом на AMURA», опт — только «Стать продавцом». Только заявки (модуль в системе AMURA) */
+const LEGAL_URL = RETAIL ? "/shop/legal/" : "https://amura.kz/shop/legal/";
+async function openCoop(kind){
+  let mn = 0; try{ const j = await (await fetch(CONFIG.apiUrl + "/partners/info")).json(); if(!j.ok){ toast("Раздел сейчас недоступен"); return; } mn = j.optMin || 0; }catch{ toast("Нет связи с сервером"); return; }
+  const card = (k, h, p, extra) => `<div class="coop-c${kind === k ? " on" : ""}"><h4>${h}</h4><p class="kv">${p}</p>${extra || ""}<button type="button" class="btn${kind === k ? "" : " ghost"}" data-ck="${k}">Оставить заявку</button></div>`;
+  const opt = RETAIL ? card("opt", "Стать оптовиком", `Оптовые цены для магазинов, салонов и перепродажи${mn ? `, заказ от ${fmt(mn)} ₸` : ""}. Доставка по всему Казахстану.`,
+    '<a class="btn ghost" href="https://opt.amura.kz" target="_blank" rel="noopener" style="margin-bottom:8px">Перейти на оптовый сайт</a>') : "";
+  const sel = card("seller", "Стать продавцом на AMURA", "Скоро откроем продажу для партнёров на amura.kz. Оставьте заявку — свяжемся первыми.");
+  const fld = (id, l, extra) => `<div class="field"><label for="${id}">${l}</label>${extra}</div>`;
+  const form = !kind ? "" : `<form class="co coop-f" id="coopF" novalidate>
+    <h4 style="margin:0 0 8px">${kind === "opt" ? "Заявка: стать оптовиком" : "Заявка: стать продавцом"}</h4>
+    ${fld("cName", "Имя", '<input id="cName" autocomplete="name">')}
+    ${fld("cPhone", "Телефон", '<input id="cPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+7 7__ ___ __ __">')}
+    ${fld("cCity", "Город", '<input id="cCity" autocomplete="address-level2">')}
+    ${fld("cShop", "Магазин или Instagram — необязательно", '<input id="cShop" placeholder="@shop или название">')}
+    ${kind === "seller" ? fld("cWhat", "Что продаёте", '<input id="cWhat" placeholder="Например: корейская косметика, уход за волосами">')
+      + fld("cLegal", "Есть ли ИП или ТОО", '<select id="cLegal"><option value="">Выберите</option><option>ИП</option><option>ТОО</option><option>Пока нет</option></select>') : ""}
+    ${fld("cCom", "Комментарий — необязательно", '<textarea id="cCom" rows="3" style="width:100%;border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:11px 12px;resize:vertical"></textarea>')}
+    <input type="text" name="website" id="cWeb" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
+    <label class="coop-ok"><input type="checkbox" id="cOk"><span>Я даю согласие на обработку персональных данных согласно <a href="${LEGAL_URL}privacy.html" target="_blank" rel="noopener">Политике конфиденциальности</a></span></label>
+    <div class="err" id="cErr"></div><button class="btn" type="submit" id="cSend">Отправить заявку</button></form>`;
+  $("#sheet").dataset.id = ""; $("#sheet").classList.add("opros");
+  $("#sheet").innerHTML = `<button class="x" id="closeModal" aria-label="Закрыть">×</button><div class="info" id="coopBox">
+    <h3>Сотрудничество</h3><p class="kv">${RETAIL ? "Закупайте у нас оптом или продавайте свои товары на AMURA." : "Продавайте свои товары на AMURA — розничном сайте amura.kz."}</p>
+    <div class="coop">${opt}${sel}</div>${form}</div>`;
+  $("#modal").classList.add("open"); $("#scrim").classList.add("open"); $("#closeModal").onclick = closeAll;
+  if(kind){ const pr = AUTH.profile || {}; if(pr.name) $("#cName").value = pr.name; if(pr.phone) $("#cPhone").value = "+" + pr.phone; if(pr.city) $("#cCity").value = pr.city;
+    $("#coopF").scrollIntoView({ block: "start", behavior: "smooth" }); }
+  $("#coopBox").onclick = e => { const b = e.target.closest("[data-ck]"); if(b) openCoop(b.dataset.ck); };
+  if(!kind) return;
+  $("#cOk").onchange = () => { $("#cErr").textContent = ""; };
+  $("#coopF").onsubmit = async e => {
+    e.preventDefault();
+    const err = $("#cErr"), v = id => ($(id) ? $(id).value.trim() : "");
+    const body = { kind, name: v("#cName"), phone: normPhone(v("#cPhone").replace(/\D/g, "")), city: v("#cCity"), shop: v("#cShop"), what: v("#cWhat"),
+      legal: v("#cLegal"), comment: v("#cCom"), website: v("#cWeb"), consent: $("#cOk").checked, site: RETAIL ? "rtl" : "opt" };
+    if(!body.name || !/^7\d{10}$/.test(body.phone) || !body.city){ err.textContent = "Укажите имя, телефон (+7 7__ ___ __ __) и город"; return; }
+    if(kind === "seller" && !body.what){ err.textContent = "Напишите, что вы продаёте"; return; }
+    if(!body.consent){ err.textContent = "Отметьте согласие на обработку персональных данных"; return; }
+    const btn = $("#cSend"); btn.disabled = true; btn.textContent = "Отправляем…"; err.textContent = "";
+    try{
+      const j = await (await fetch(CONFIG.apiUrl + "/partners/apply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json();
+      if(!j.ok) throw new Error(j.error || "Не получилось отправить");
+      $("#coopBox").innerHTML = `<h3>Спасибо, заявка отправлена 💚</h3><p>Мы свяжемся с вами по номеру +${esc(body.phone)} в ближайшее время.</p><button class="btn" type="button" id="cDone">Вернуться в каталог</button>`;
+      $("#cDone").onclick = closeAll;
+    }catch(x){ err.textContent = x.message || "Нет связи с сервером"; btn.disabled = false; btn.textContent = "Отправить заявку"; }
+  };
+}
+document.addEventListener("click", e => { const b = e.target.closest("[data-coop]"); if(!b) return; e.preventDefault(); closeAll(); openCoop(""); });
+function coopLink(){ if(location.hash === "#coop"){ history.replaceState(history.state, "", location.pathname + location.search); openCoop(""); } }
+addEventListener("hashchange", coopLink);
 async function openOpros(){
   try{ const j = await (await fetch(CONFIG.apiUrl + "/wish")).json(); if(!j.ok) return; }catch{ return; }
   const brands = [...new Set(ALL.map(i => i.brand).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ru"));
@@ -1673,7 +1729,8 @@ function paintMe(p, orders){
           <details><summary>${fmt(o.count)} шт · ${o.items.length} ${o.items.length === 1 ? "товар" : "товаров"}</summary><ul>${o.items.map(it => `<li>${esc(it.name)} — ${fmt(it.qty)} × ${fmt(it.price)} ₸</li>`).join("")}</ul></details>
           <div class="row">${o.pdfUrl ? `<button class="btn ghost" type="button" data-pdf="${i}">Скопировать PDF</button>` : ""}<button class="btn" type="button" data-repeat="${i}">Повторить заказ</button></div>
         </div>`).join("")}</div>
-    <button class="btn ghost" type="button" id="logout" style="margin-top:22px">Выйти</button>`;
+    <button class="btn ghost" type="button" data-coop style="margin-top:22px">🤝 ${RETAIL ? "Стать оптовиком или продавцом" : "Стать продавцом на AMURA"}</button>
+    <button class="btn ghost" type="button" id="logout" style="margin-top:10px">Выйти</button>`;
   document.querySelectorAll("[data-pdf]").forEach(b => b.onclick = () => { const o = orders[+b.dataset.pdf]; sharePdf(o.pdfUrl, o.number, b); });
   $("#logout").onclick = () => { setAuth("", null); renderMe(); };
   $("#editProfile").onclick = () => editProfile(p);
@@ -1940,7 +1997,7 @@ boot();
   if(st.token){ poll(); schedule(); }
 })();
 </script>
-<footer class="rlegal"><nav><a href="/shop/legal/offer.html">Оферта</a><a href="/shop/legal/privacy.html">Конфиденциальность</a><a href="/shop/legal/delivery.html">Доставка и оплата</a><a href="/shop/legal/returns.html">Возврат и обмен</a><a href="/shop/legal/contacts.html">Контакты</a></nav><div>ИП «AMURA» · ИИН 030202500244 · Оплата картами Visa и Mastercard</div></footer>
+<footer class="rlegal"><nav><a href="/shop/legal/offer.html">Оферта</a><a href="/shop/legal/privacy.html">Конфиденциальность</a><a href="/shop/legal/delivery.html">Доставка и оплата</a><a href="/shop/legal/returns.html">Возврат и обмен</a><a href="/shop/legal/contacts.html">Контакты</a><a href="/#coop" data-coop>Сотрудничество</a></nav><div>ИП «AMURA» · ИИН 030202500244 · Оплата картами Visa и Mastercard</div></footer>
 <script>window.AMURA_LEGAL = true;</script>
 <script>
 /* Розничный сайт: карточки товаров как на WB и «полёт» товара в корзину.
