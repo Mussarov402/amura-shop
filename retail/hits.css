@@ -6,3 +6,4 @@
 .rrec-h{font-family:var(--display);font-weight:500;font-size:21px;margin:0 0 12px}
 .rrec-more{height:1px}.rrec-empty{margin:0 0 4px}
 @media(max-width:760px){.rrec-sec.insheet{padding:26px 16px 0}.rrec-sec.incart{padding-bottom:150px}}
+.sheet .rrec .rpc .fav{top:8px;right:8px;left:auto}   /* в «Похожих» сердечко справа, как в каталоге (у фото товара — слева) */
