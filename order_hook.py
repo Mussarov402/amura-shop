@@ -1670,10 +1670,13 @@ def make_token(cid):
 
 def session_cid():
     h = request.headers.get("Authorization", "")
-    if not h.startswith("Bearer "):
-        return None
+    return token_cid(h[7:]) if h.startswith("Bearer ") else None
+
+
+def token_cid(tok):
+    """Контрагент по токену входа покупателя (кабинет на сайте); None — токен неверный или истёк."""
     try:
-        body, sig = h[7:].split(".")
+        body, sig = str(tok or "").split(".")
         if not hmac.compare_digest(sig, hmac.new(ORDER_SECRET, body.encode(), hashlib.sha256).hexdigest()[:32]):
             return None
         data = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
@@ -2013,6 +2016,11 @@ def me():
         if not cur.get("actualAddress") and notif_on("newclient"):        # первое заполнение профиля — сообщаем владельцу
             tg("sendMessage", chat_id=OWNER, text=f"🆕 Клиент на сайте: {name}, {city}" + (f", {cur.get('phone') or ('+' + ph if ph else '')}"))
     cp = ms("GET", f"/entity/counterparty/{cid}")
+    return jsonify(ok=True, profile=profile(cp), orders=client_orders(cid))
+
+
+def client_orders(cid):
+    """Заказы покупателя для «Моих заказов» и ИИ поддержки amura.kz: последние 30, черновики «Ожидает оплаты», отслеживание курьера."""
     orders = []
     rows = ms("GET", "/entity/customerorder", params={
         "filter": f"agent={API}/entity/counterparty/{cid}", "order": "moment,desc", "limit": 30,
@@ -2061,7 +2069,7 @@ def me():
                 o["track"] = tr[o["number"]]
     except Exception as e:
         print("Кабинет: отслеживание", str(e)[:200], flush=True)
-    return jsonify(ok=True, profile=profile(cp), orders=orders)
+    return orders
 
 
 @bp.route("/me/push", methods=["GET", "POST", "OPTIONS"])

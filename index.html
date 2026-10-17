@@ -1970,6 +1970,7 @@ boot();
     schedule();
   }
   btn.onclick = () => show(true);
+  const auth = () => R && typeof AUTH !== "undefined" && AUTH.token || "";   // розница: вошёл в кабинет — ИИ поддержки видит его заказы
   window.openSupport = text => {                     // «Написать в поддержку» в «Моих заказах»: вопрос уже с номером заказа
     const p = (typeof AUTH !== "undefined" && AUTH.profile) || {};
     if(!$c("chName").value && p.name) $c("chName").value = p.name;
@@ -1989,10 +1990,10 @@ boot();
       msgs.push({ me: true, text: file ? (text || "") + (file.type === "application/pdf" ? "\n📄 " + file.name : "\n📷 Фото") : text, at: 0 }); draw();
       let r;
       if(file){
-        const fd = new FormData(); fd.append("token", st.token); fd.append("text", text); fd.append("name", st.name); fd.append("phone", st.phone); fd.append("file", file);
+        const fd = new FormData(); fd.append("token", st.token); fd.append("text", text); fd.append("name", st.name); fd.append("phone", st.phone); fd.append("file", file); if(auth()) fd.append("auth", auth());
         r = await fetch(API + "/chat/send", { method: "POST", body: fd });
       } else {
-        r = await fetch(API + "/chat/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: st.token, text, name: st.name, phone: st.phone }) });
+        r = await fetch(API + "/chat/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: st.token, text, name: st.name, phone: st.phone, ...(auth() ? { auth: auth() } : {}) }) });
       }
       const j = await r.json().catch(() => ({}));
       if(!r.ok || !j.ok) throw new Error(j.error || "Не отправлено, попробуйте ещё раз");
