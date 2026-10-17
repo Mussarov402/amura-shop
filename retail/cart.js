@@ -603,32 +603,49 @@ document.addEventListener("click", e => { const b = e.target.closest("[data-rpus
 
 /* «Мои заказы»: неоплаченный заказ, где выбрана карта, — кнопка «Оплатить»; после возврата с оплаты — «Оплата получена» */
 function payPaint(orders){
-  const pr = window.PAY_RET, justPaid = pr && pr.r === "ok" ? pr.n : "", draft = /^D\d+_/.test(justPaid);
-  if(justPaid !== "" && pr && !$("#rPaid")){
-    const box = $("#orders") || $("#meBody .panel"), num = draft ? (pr.num || "") : pr.n;
-    if(box) box.insertAdjacentHTML("beforebegin", `<div class="rdone-h rpaid" id="rPaid">${CHECK_BIG}<div><h3>${draft && !num ? "Оплата получена, оформляем заказ…" : "Оплата получена, заказ передан в сборку"}</h3><p id="rPaidN">${num ? `Заказ № ${esc(num)}` : pr.fail ? esc(pr.fail) : ""}</p></div></div>`);
-    if(draft && !num && !pr.polling) pollDraft(pr);
-  }
+  const pr = window.PAY_RET;
+  if(!pr || pr.r !== "ok" || pr.shown === "done") return;      // «Мои заказы» перерисовались (загрузка) — экран оплаты остаётся
+  if(pr.draw) pr.draw(); else { pr.shown = true; paidScreen(pr); }
 }
-/* после оплаты черновика заказ создаётся за секунды — подтягиваем номер и обновляем «Мои заказы» */
-async function pollDraft(pr){
-  pr.polling = true;
-  for(let i = 0; i < 20; i++){
-    await new Promise(r => setTimeout(r, i < 5 ? 1500 : 4000));
+/* вернулись с оплаты — экран «Спасибо! Заказ оплачен» (как у WB): состав и сумма сразу, номер заказа подставляется, когда появится */
+async function paidScreen(pr){
+  const draft = /^D\d+_/.test(pr.n);
+  let info = { number: draft ? "" : pr.n };
+  const draw = pr.draw = () => {
+    const o = !draft && MO.orders ? MO.orders.find(x => x.number === pr.n) : null;
+    if(o) info = { number: o.number, total: o.sum, ship: o.ship, dlv: o.extra, items: o.items };
+    if(VIEW !== "me" || !pr.shown) return;
+    const its = info.items || [], cnt = its.reduce((s, it) => s + it.qty, 0);
+    $("#meTitle").textContent = "Заказ оплачен";
+    $("#meBody").innerHTML = `<div class="done rdone">
+      <div class="rdone-h">${CHECK_BIG}<div><h3>Спасибо! Заказ оплачен</h3><p>${info.number ? `Заказ № ${esc(info.number)}` : `<span class="rpaid-n"></span>`}${info.total ? ` · ${fmt(info.total)} ₸` : ""}</p></div></div>
+      <ol class="rsteps">
+        <li class="on"><b>Оплата получена</b><span>Списали ${info.total ? fmt(info.total) + " ₸ " : ""}с вашей карты</span></li>
+        <li class="on"><b>Передали в сборку</b><span>Соберём и сообщим, когда заказ будет в пути</span></li>
+        <li><b>${/самовывоз/i.test(info.ship || "") ? "Можно забирать" : "Доставка"}</b><span>${esc(info.ship || "")}</span></li>
+      </ol>
+      ${its.length ? `<div class="rcard rdone-d"><div class="mo-ths">${its.slice(0, 6).map(it => moPic(it, "mo-t")).join("")}</div>
+        <div class="rrow"><span>${plTov(cnt)}</span><span>${fmt(its.reduce((s, it) => s + it.qty * it.price, 0))} ₸</span></div>
+        <div class="rrow"><span>Доставка</span><span>${info.dlv ? fmt(info.dlv) + " ₸" : "бесплатно"}</span></div>
+        <div class="rtot"><span>Итого</span><b>${fmt(info.total)} ₸</b></div></div>` : ""}
+      ${pr.fail ? `<div class="kv">${esc(pr.fail)}</div>` : ""}
+      <button class="btn" type="button" data-paid-orders>Мои заказы</button>
+      <button class="btn ghost" type="button" data-paid-shop>Продолжить покупки</button></div>`;
+  };
+  draw();
+  if(!draft) return;
+  for(let i = 0; i < 20 && !info.number && !pr.fail; i++){   // номер заказа появляется за секунды после оплаты
     try{
       const r = await fetch(CONFIG.apiUrl + "/pay/card/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: pr.n }) });
       const j = await r.json();
-      if(j.number){ pr.num = j.number; break; }
-      if(j.status === "failed"){ pr.fail = "Оплата получена. Менеджер оформит заказ вручную и свяжется с вами"; break; }
+      if(j.ok){ info = { ...j }; if(j.status === "failed") pr.fail = "Заказ оформит менеджер и свяжется с вами — оплата уже у нас"; draw(); }
     }catch{}
+    if(!info.number && !pr.fail) await new Promise(r => setTimeout(r, i < 5 ? 1500 : 4000));
   }
-  const el = $("#rPaid"); if(el) el.remove();
-  if(VIEW === "me") renderMe();
 }
-document.addEventListener("click", async e => {
-  const b = e.target.closest("[data-rpaynow]"); if(!b) return;
-  const t = b.textContent; b.disabled = true; b.textContent = "Открываем оплату…";
-  try{ location.href = await cardUrl(b.dataset.rpaynow); }catch(x){ toast(x.message); b.disabled = false; b.textContent = t; }
+document.addEventListener("click", e => {
+  if(e.target.closest("[data-paid-orders]")){ const pr = window.PAY_RET; if(pr) pr.shown = "done"; renderMe(); }
+  if(e.target.closest("[data-paid-shop]")){ const pr = window.PAY_RET; if(pr) pr.shown = "done"; go("home"); }
 });
 /* ---------- «Мои заказы» как у WB: карточки с фото, понятный статус, вкладки Активные / Завершённые, экран заказа ---------- */
 const MO = { p: null, orders: null, tab: "active" };
