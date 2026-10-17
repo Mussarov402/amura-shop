@@ -770,6 +770,28 @@ def set_opt_min(v):
     _cache.pop("optmin", None)
 
 
+RTL_MAX_DEFAULT = 5                        # розница: не больше стольких штук одного товара в заказе (от перекупов; решение владельца 17.10)
+
+
+def rtl_max():
+    """Сколько штук одного товара можно заказать на amura.kz (0 — без ограничения). Меняется в «Настройках → Сайты» (кэш 15 с)."""
+    def get():
+        import inbox
+        with inbox.db() as d:
+            return max(0, int(float(inbox.get_setting(d, "rtl_max_qty", str(RTL_MAX_DEFAULT)) or 0)))
+    try:
+        return cached("rtlmax", 15, get)
+    except Exception:
+        return RTL_MAX_DEFAULT
+
+
+def set_rtl_max(v):
+    import inbox
+    with inbox.db() as d:
+        inbox.set_setting(d, "rtl_max_qty", str(max(0, int(v))))
+    _cache.pop("rtlmax", None)
+
+
 @bp.route("/catalog")
 def catalog_route():
     try:
@@ -788,6 +810,7 @@ def catalog_route():
     except Exception:
         promo = False
     mn = 0 if request.args.get("mode") == "retail" else opt_min()   # минимальный заказ — только оптовый сайт
+    mx = rtl_max() if request.args.get("mode") == "retail" else 0    # розница: не больше N шт одного товара
     if mn and session_cid() and min_exempt(session_cid()):         # вошёл постоянный покупатель — минимума для него нет
         mn = 0
     try:
@@ -803,12 +826,12 @@ def catalog_route():
             hits = {"hits": h["hits"], "pop": h["pop"]} if h["pop"] else {}
         except Exception:
             hits = {}
-    ck = ("catjson", ws, closed, promo, mn, card, len(json.dumps(hits)) and hash(json.dumps(hits)))   # JSON и gzip — раз на обновление каталога
+    ck = ("catjson", ws, closed, promo, mn, mx, card, len(json.dumps(hits)) and hash(json.dumps(hits)))   # JSON и gzip — раз на обновление каталога
     hit = _cache.get(ck)
     if hit and hit[0] is data:
         body = hit[1]
     else:
-        raw = json.dumps({"updated": data["updated"], "wholesale": ws, "items": view_items(data["items"], ws)} | ({"closed": SITE_CLOSED} if closed else {}) | ({"promo": True} if promo else {}) | ({"minOrder": mn} if mn else {}) | ({"cardPay": True} if card else {}) | hits,
+        raw = json.dumps({"updated": data["updated"], "wholesale": ws, "items": view_items(data["items"], ws)} | ({"closed": SITE_CLOSED} if closed else {}) | ({"promo": True} if promo else {}) | ({"minOrder": mn} if mn else {}) | ({"maxQty": mx} if request.args.get("mode") == "retail" else {}) | ({"cardPay": True} if card else {}) | hits,
                          ensure_ascii=False, separators=(",", ":")).encode()
         body = (raw, gzip.compress(raw, 6))
         _cache[ck] = (data, body)
@@ -1083,6 +1106,7 @@ def order_core(d, key, ip, me, source="с сайта", panel=False, paid=None):
         source = RETAIL_SOURCE
     ws = True if panel else (False if retail else is_wholesale(me))
     lines = []
+    mx = rtl_max() if retail else 0
     if panel:                                                       # менеджер может добавить и товар, которого нет в наличии
         try:
             cat = panel_catalog()
@@ -1103,6 +1127,8 @@ def order_core(d, key, ip, me, source="с сайта", panel=False, paid=None):
         if not item or qty <= 0:
             continue
         stock = int(item.get("qty") or 0)
+        if mx and qty > mx:                                         # розница: не больше N шт одного товара (перекупы, конкуренты)
+            return dict(ok=False, error=f"Не больше {mx} шт одного товара в заказе: {item['name']}"), 400
         if not panel:
             qty = min(qty, stock)
         price = unit_price(item, qty, ws)
