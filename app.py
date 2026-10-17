@@ -50,6 +50,28 @@ import courier  # noqa: E402
 courier.start_poller()            # статусы курьера Яндекса — в фоне, для «Моих заказов» на сайте
 
 
+SLOW_SEC = 3.0                     # запросы системы AMURA дольше этого — в лог «SLOW <путь> <мс>» (ищем, что тормозит)
+
+
+@app.before_request
+def _t0():
+    from flask import g
+    import time
+    g.t0 = time.time()
+
+
+@app.after_request
+def _slow(resp):
+    from flask import g
+    import time
+    t0 = g.get("t0")
+    if t0 and request.path.startswith("/admin/api/"):
+        ms = (time.time() - t0) * 1000
+        if ms >= SLOW_SEC * 1000:
+            print(f"SLOW {request.method} {request.path} {ms:.0f} мс ({resp.status_code})", flush=True)
+    return resp
+
+
 @app.get("/")
 def health():
     if request.host.lower().startswith("admin."):   # admin.amura.kz открывает панель сразу
