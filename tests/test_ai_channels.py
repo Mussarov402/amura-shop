@@ -26,13 +26,13 @@ class AiChannelsTest(unittest.TestCase):
             self.assertTrue(inbox.ai_on(d))
             self.assertFalse(inbox.ai_on(d, "web:abc12345"))
             self.assertTrue(inbox.ai_on(d, "123456789"))               # Telegram — включён по умолчанию
-            self.assertEqual({c["key"]: c["on"] for c in inbox.ai_channels(d)}, {"wa": True, "ig": True, "tg": True, "web": False, "rweb": False})
+            self.assertEqual({c["key"]: c["on"] for c in inbox.ai_channels(d)}, {"wa": True, "ig": True, "tg": True, "web": False, "rweb": True})
             inbox.set_setting(d, "ai_enabled", "0")                      # общий выключатель главнее
             self.assertFalse(inbox.ai_on(d, "123456789"))
             inbox.set_setting(d, "ai_enabled", "1")
 
     def test_retail_support(self):
-        """Поддержка amura.kz — свой токен «r-…», ИИ по умолчанию выключен (отвечает менеджер), чат opt.amura.kz не задевает."""
+        """Поддержка amura.kz — свой токен «r-…», своя настройка ИИ, чат opt.amura.kz не задевает."""
         import webchat
         inbox.OPENAI_KEY = "k"
         tok = webchat.new_token(retail=True)
@@ -44,11 +44,11 @@ class AiChannelsTest(unittest.TestCase):
         with inbox.db() as d:
             inbox.set_setting(d, "ai_enabled", "1")
             inbox.set_setting(d, "ai_ch_web", "1")
-            self.assertTrue(inbox.ai_on(d, "web:abc12345"))
+            self.assertTrue(inbox.ai_on(d, chat))                       # поддержка amura.kz — ИИ по своим правилам, включён
+            inbox.set_setting(d, "ai_ch_rweb", "0")                    # можно выключить отдельно от чата opt.amura.kz
             self.assertFalse(inbox.ai_on(d, chat))
-            inbox.set_setting(d, "ai_ch_rweb", "1")                    # владелец включил ИИ в «Настройках ИИ»
-            self.assertTrue(inbox.ai_on(d, chat))
-            inbox.set_setting(d, "ai_ch_rweb", "0")
+            self.assertTrue(inbox.ai_on(d, "web:abc12345"))
+            inbox.set_setting(d, "ai_ch_rweb", "1")
 
 
 if __name__ == "__main__":

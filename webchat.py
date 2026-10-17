@@ -60,9 +60,26 @@ def db():
     if not _ready[0]:
         blob = "BYTEA" if inbox.PG else "BLOB"
         d.run(f"CREATE TABLE IF NOT EXISTS webchat_file (id TEXT PRIMARY KEY, chat_id TEXT, mime TEXT, name TEXT, data {blob}, at DOUBLE PRECISION)")
+        d.run("CREATE TABLE IF NOT EXISTS webchat_client (chat_id TEXT PRIMARY KEY, cid TEXT, at DOUBLE PRECISION)")
         d.c.commit()
         _ready[0] = True
     return d
+
+
+def bind_client(chat, cid):
+    """Покупатель вошёл в кабинет amura.kz — диалог поддержки знает его (ИИ видит только его заказы)."""
+    with db() as d:
+        if d.run("SELECT 1 FROM webchat_client WHERE chat_id=%s", (chat,), one=True):
+            d.run("UPDATE webchat_client SET cid=%s, at=%s WHERE chat_id=%s", (cid, time.time(), chat))
+        else:
+            d.run("INSERT INTO webchat_client (chat_id, cid, at) VALUES (%s,%s,%s)", (chat, cid, time.time()))
+
+
+def client_of(chat):
+    """id контрагента покупателя, который пишет в поддержку amura.kz из кабинета; None — не вошёл."""
+    with db() as d:
+        r = d.run("SELECT cid FROM webchat_client WHERE chat_id=%s", (str(chat),), one=True)
+    return r[0] if r else None
 
 
 def store(chat, data, mime, name):
@@ -158,6 +175,9 @@ def send():
         who += f" +{phone}"
     if is_retail(chat):
         who += " · amura.kz"
+        cid = oh.token_cid(form.get("auth")) if form.get("auth") else None
+        if cid:
+            bind_client(chat, cid)
     import inbox
     threading.Thread(target=inbox.on_client_message, args=(chat, {"first_name": who, "username": ""}, text),
                      kwargs={"photo": photo}, daemon=True).start()

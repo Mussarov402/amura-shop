@@ -31,6 +31,95 @@ DEFAULT_RULES = """Ты — менеджер по продажам оптово�
 Заказ можно оформить прямо в этом чате (см. раздел «Оформление заказа») или клиент оформит его сам на сайте."""
 
 
+RETAIL_RULES = """Ты — служба поддержки розничного интернет-магазина корейской косметики AMURA (amura.kz, склад в Алматы, доставка по Казахстану). Тебе пишут покупатели, обычно из «Моих заказов» на сайте.
+Тон вежливый, спокойный и тёплый, на «вы», без смайликов и лишних комплиментов. Здоровайся «Здравствуйте». Отвечай на языке покупателя (русский или казахский). Ничего не выдумывай: цены и наличие — только из каталога, статус заказа — только из инструмента my_orders, остальное — из этих правил.
+
+# Доставка
+- По Алматы в течение дня — курьер Яндекс Доставки в выбранное окно (например, 10:00–14:00 или 14:00–18:00). Стоимость видна в корзине; от определённой суммы заказа — бесплатно.
+- Express по Алматы — курьер выезжает сразу после сборки, доставка за 1–2 часа, платно.
+- Пункт выдачи или постамат СДЭК: по Алматы 1–2 дня, по Казахстану обычно 2–5 дней. Когда посылка придёт, СДЭК пришлёт SMS с кодом; посылка хранится в пункте 7 дней.
+- Самовывоз бесплатно: г. Алматы, ул. Северное кольцо, 7а, ТЦ «Байсат», цокольный этаж, бутик «Зелёный 43», вторник–суббота 10:00–18:00, понедельник и воскресенье — выходной. Когда заказ готов, мы сообщаем.
+- Точная стоимость и срок доставки видны в корзине до оформления.
+
+# Оплата
+Оплата на сайте банковской картой Visa или Mastercard через Freedom Pay, в тенге, с подтверждением 3-D Secure. Данные карты магазин не получает. Чек приходит ссылкой в SMS или на почту. Если заказ «Ожидает оплаты» — его можно оплатить в «Моих заказах» кнопкой «Оплатить».
+
+# Возврат и обмен
+- Брак: можно заявить в течение срока годности — попроси фото товара и упаковки и номер заказа, передай менеджеру. Заменим товар или вернём деньги, включая доставку; обратную доставку оплачиваем мы.
+- Повреждён при доставке, не тот товар, чего-то не хватает: если обнаружилось после получения — нужно непрерывное видео распаковки (без него претензии по упаковке, недовложению и пересорту не принимаются). Попроси номер заказа и видео, передай менеджеру.
+- Косметика надлежащего качества обмену и возврату не подлежит (п. 1 ст. 30 Закона РК «О защите прав потребителей») — скажи это мягко.
+- Деньги возвращаются на ту же карту за 1–10 рабочих дней, в зависимости от банка.
+
+# Когда звать менеджера
+Брак, повреждение, недовложение, возврат денег, изменение или отмена заказа, смена адреса или времени доставки, вопросы об оплате, которая не прошла или списалась дважды, жалобы, просьба живого человека, всё, чего нет в этих правилах и в данных. Коротко скажи, что передаёшь менеджеру, и добавь в самом конце ответа метку """ + HANDOFF + """.
+
+# Заказы
+Заказ покупатель оформляет сам на сайте amura.kz (корзина → «Заказать», оплата картой). В чате заказы не оформляй — предложи добавить товар в корзину на сайте.
+Про свой заказ («где заказ», «когда привезут», «оплачен ли») вызови my_orders и ответь по нему: статус, способ получения, для курьера — ссылка «где курьер», если она есть. Если my_orders говорит, что покупатель не вошёл в кабинет, — попроси войти на сайте и написать из «Моих заказов» или назвать номер заказа и передай менеджеру.
+Про чужие заказы и чужие данные ничего не сообщай.
+
+# Цены
+Называй только розничную цену из каталога («2 750 ₸»). Оптовые цены, «опт», «от 10 штук», «короб» не упоминай. Скидок и промокодов не обещай — только через менеджера. Если покупатель спрашивает про опт, скажи, что для оптовиков есть сайт opt.amura.kz."""
+
+RETAIL_STYLE = """# Как писать покупателю
+Пиши коротко и по-человечески, как сотрудник поддержки в мессенджере. Никакой разметки (**, #) и никаких id. Отвечай прямо на вопрос, без «Вот информация:». Список (с новой строки, через дефис) — только когда пунктов три и больше. Не заканчивай шаблонами вроде «Если у вас есть вопросы, дайте знать!»."""
+
+MY_ORDERS_TOOL = {"type": "function", "function": {
+    "name": "my_orders",
+    "description": "Заказы покупателя, который пишет в поддержку (только если он вошёл в кабинет на сайте): номер, дата, статус, сумма, оплата, способ получения, отслеживание курьера.",
+    "parameters": {"type": "object", "properties": {"number": {"type": "string", "description": "номер заказа, если покупатель его назвал"}}}}}
+
+
+def _rtl_status(o):
+    """Статус заказа так, как его видит покупатель в «Моих заказах» (как moStatus в retail/cart.js)."""
+    s, pick = o.get("status") or "", bool(re.search(r"самовывоз", o.get("ship") or "", re.I))
+    if o.get("draft"):
+        return "Ожидает оплаты"
+    if re.search(r"отмен", s, re.I):
+        return "Отменён"
+    if re.search(r"возврат", s, re.I):
+        return "Возврат"
+    if re.search(r"доставлен", s, re.I):
+        return "Получен"
+    if re.search(r"отгруж", s, re.I):
+        return "Получен" if pick else "Передан в доставку"
+    if re.search(r"собран", s, re.I):
+        return "Готов к выдаче" if pick else "Собирается"
+    if re.search(r"подтвержд", s, re.I):
+        return "Оплачен, собирается" if o.get("paid") else "Собирается"
+    if o.get("payCard"):
+        return "Ожидает оплаты"
+    return "Оплачен" if o.get("paid") else "Принят"
+
+
+def my_orders_text(ctx, number=""):
+    """Ответ инструмента my_orders: заказы только этого покупателя (вошёл в кабинет amura.kz)."""
+    if ctx is None:
+        return ("ТЕСТОВЫЙ РЕЖИМ: заказ № 01234 от 17.10.2026 — Передан в доставку; курьер по Алматы — Туркебаева 63; сумма 10 890 ₸, оплачен; "
+                "товары: Anua Heartleaf 77% Soothing Toner — 1 шт.")
+    import webchat
+    cid = webchat.client_of(ctx.get("chat"))
+    if not cid:
+        return "Покупатель не вошёл в кабинет на сайте — его заказы не видны. Попроси войти на amura.kz и написать из «Моих заказов» или назвать номер заказа; с номером передай менеджеру (метка " + HANDOFF + ")."
+    orders = oh.client_orders(cid)
+    num = re.sub(r"\D", "", str(number or ""))
+    if not orders:
+        return "У покупателя нет заказов на сайте."
+    head = ""
+    if num:
+        mine = [o for o in orders if re.sub(r"\D", "", o.get("number") or "") == num]
+        head = "" if mine else f"Заказа № {num} среди заказов этого покупателя нет — о чужих заказах ничего не сообщай. Его заказы:\n"
+        orders = mine or orders
+    rows = []
+    for o in orders[:8]:
+        t = o.get("track") or {}
+        rows.append(f"- № {o.get('number') or '(не оплачен, черновик)'} от {o['date']}: {_rtl_status(o)}"
+                    + (f" ({t['label']})" if t.get("label") else "") + (f", где курьер: {t['link']}" if t.get("link") else "")
+                    + f"; получение: {o.get('ship') or '—'}; сумма {oh.fmt(o['sum'])} ₸, {'оплачен' if o.get('paid') else 'не оплачен'}; "
+                    + "товары: " + ", ".join(f"{i['name']} — {i['qty']} шт" for i in (o.get("items") or [])[:6]))
+    return head + "\n".join(rows)
+
+
 def clean_reply(t):
     """Убирает разметку и служебные id, которых клиент видеть не должен."""
     t = re.sub(r"\s*\[id=[^\]]*\]", "", t or "")
@@ -108,7 +197,7 @@ def set_setting(d, key, value):
 
 
 AI_CHANNELS = {"wa": "WhatsApp", "ig": "Instagram", "tg": "Telegram", "web": "Чат на сайте", "rweb": "Поддержка на amura.kz"}
-AI_OFF_BY_DEFAULT = {"rweb"}   # розница: ИИ знает оптовые цены — пока владелец не включит, отвечает менеджер
+AI_OFF_BY_DEFAULT = set()     # каналы, где ИИ по умолчанию выключен (поддержка amura.kz отвечает по своим правилам — RETAIL_RULES)
 
 
 def ai_key(chat):
@@ -283,8 +372,10 @@ def brand_list(items):
     return ", ".join(sorted({i.get("brand") for i in items if i.get("brand")}, key=str.lower))[:2500]
 
 
-def product_context(text, limit=8):
+def product_context(text, limit=8, retail=False):
     items = catalog_items()
+    if items is not None and retail:
+        items = [i for i in items if i.get("rtl")]          # на amura.kz — только товары с розничной ценой
     if items is None:
         return "Каталог сейчас не загрузился. Скажи клиенту, что уточнишь наличие и цену, и передай менеджеру (метка " + HANDOFF + ")."
     ws = oh.PUBLIC_WHOLESALE
@@ -303,7 +394,9 @@ def product_context(text, limit=8):
     rows = []
     for _, i in scored[:limit]:
         p = f"розница {oh.fmt(i.get('rtl', 0))} ₸"
-        if ws:
+        if retail:
+            p = f"{oh.fmt(i.get('rtl', 0))} ₸"
+        elif ws:
             p = f"опт {oh.fmt(i.get('opt', 0))} ₸" + (f", от 10 шт {oh.fmt(i['mid'])} ₸" if i.get("mid") else "") + (f", короб ({i['boxQty']} шт) {oh.fmt(i['box'])} ₸" if i.get("box") else "") + f", розница {oh.fmt(i.get('rtl', 0))} ₸"
         grp = f"; группа: {i['group']}" if i.get("group") else ""
         rows.append(f"- {i['name']} ({i.get('brand') or '—'}{grp}) [id={i['id']}]: {p}; в наличии")
@@ -414,15 +507,24 @@ def photo_data_url(file_id):
     return "data:image/jpeg;base64," + base64.b64encode(data).decode()
 
 
-def ai_reply(d, history, text, photo=None, ctx=None):
-    """Ответ ИИ; возвращает (текст, нужен_менеджер). ctx — данные чата для оформления заказов (None — пробный чат)."""
-    rules = get_setting(d, "rules", DEFAULT_RULES)
-    kb = "\n\n".join(f"## {t}\n{b}" for t, b in d.run("SELECT title, body FROM kb ORDER BY id", many=True))
+def ai_reply(d, history, text, photo=None, ctx=None, retail=False):
+    """Ответ ИИ; возвращает (текст, нужен_менеджер). ctx — данные чата для оформления заказов (None — пробный чат).
+    retail — поддержка amura.kz: свои правила (RETAIL_RULES), только розничные цены, без оформления заказов, со статусом своих заказов."""
+    retail = retail or bool(ctx and ctx.get("retail"))
     recent = " ".join([text or ""] + [x for r_, x in history[-6:] if r_ == "client"][-2:])      # слова текущего и двух прошлых сообщений клиента (текущее — первым)
     cat = catalog_items()
-    brands = brand_list(cat) if cat else ""
-    order_rules = ORDER_RULES.replace("SITE_LINK", oh.SITE_URL or "https://mussarov402.github.io/amura-shop")
-    system = f"{rules}\n\n{order_rules}\n\n{MEDIA_RULES}\n\n{STYLE_RULES}\n\n{PRICE_RULES}\n\n{SEARCH_RULES}\n\n# Бренды в каталоге\n{brands or '(каталог не загружен)'}\n\n# База знаний\n{kb or '(пока пусто)'}\n\n# Товары из каталога по запросу клиента\n{product_context(recent)}"
+    brands = brand_list([i for i in cat if i.get("rtl")] if retail else cat) if cat else ""
+    if retail:                                    # база знаний — про опт, в поддержку розницы не идёт
+        rules = get_setting(d, "rules_rtl", RETAIL_RULES)
+        system = (f"{rules}\n\n{MEDIA_RULES}\n\n{RETAIL_STYLE}\n\n{SEARCH_RULES}\n\n# Бренды в каталоге\n{brands or '(каталог не загружен)'}"
+                  f"\n\n# Товары из каталога по запросу покупателя\n{product_context(recent, retail=True)}")
+        tools = [SEARCH_TOOL, MY_ORDERS_TOOL]
+    else:
+        rules = get_setting(d, "rules", DEFAULT_RULES)
+        kb = "\n\n".join(f"## {t}\n{b}" for t, b in d.run("SELECT title, body FROM kb ORDER BY id", many=True))
+        order_rules = ORDER_RULES.replace("SITE_LINK", oh.SITE_URL or "https://mussarov402.github.io/amura-shop")
+        system = f"{rules}\n\n{order_rules}\n\n{MEDIA_RULES}\n\n{STYLE_RULES}\n\n{PRICE_RULES}\n\n{SEARCH_RULES}\n\n# Бренды в каталоге\n{brands or '(каталог не загружен)'}\n\n# База знаний\n{kb or '(пока пусто)'}\n\n# Товары из каталога по запросу клиента\n{product_context(recent)}"
+        tools = ORDER_TOOL
     msgs = [{"role": "system", "content": system}]
     for role, t in history[-12:]:
         msgs.append({"role": "user" if role == "client" else "assistant", "content": t})
@@ -437,7 +539,7 @@ def ai_reply(d, history, text, photo=None, ctx=None):
         r = requests.post("https://api.openai.com/v1/chat/completions", timeout=45,
                           headers={"Authorization": f"Bearer {OPENAI_KEY}"},
                           json={"model": OPENAI_MODEL, "messages": msgs, "temperature": 0.3, "max_tokens": 600,
-                                "tools": ORDER_TOOL})
+                                "tools": tools})
         if r.status_code >= 400:
             raise RuntimeError(f"OpenAI {r.status_code}: {r.text[:200]}")
         m = r.json()["choices"][0]["message"]
@@ -451,8 +553,9 @@ def ai_reply(d, history, text, photo=None, ctx=None):
             try:
                 a_ = json.loads(c["function"]["arguments"] or "{}")
                 fn = c["function"]["name"]
-                res = (run_create_order(a_, ctx, history) if fn == "create_order"
-                       else product_context(str(a_.get("query", "")), limit=15) if fn == "search_catalog" else "Неизвестный инструмент")
+                res = (run_create_order(a_, ctx, history) if fn == "create_order" and not retail
+                       else product_context(str(a_.get("query", "")), limit=15, retail=retail) if fn == "search_catalog"
+                       else my_orders_text(ctx, a_.get("number", "")) if fn == "my_orders" and retail else "Неизвестный инструмент")
             except Exception as e:
                 print("ИИ-заказ:", e, flush=True)
                 oh.alert("aiorder", f"ИИ не смог оформить заказ: {str(e)[:250]}", every=300)
@@ -650,7 +753,8 @@ def on_client_message(chat, user, text, photo=None, voice=None, pdf=None, media=
             return
         try:
             with db() as d:                       # без общей блокировки: ответ ИИ и заказ могут занять до минуты
-                reply, hand = ai_reply(d, hist, text, photo, ctx={"chat": chat, "username": user.get("username", ""), "channel": channel_name(chat)})
+                reply, hand = ai_reply(d, hist, text, photo, ctx={"chat": chat, "username": user.get("username", ""), "channel": channel_name(chat),
+                                                                  "retail": str(chat).startswith("web:r-")})
         except Exception as e:
             print("ИИ не ответил:", e, flush=True)
             oh.alert("ai", f"ИИ не ответил клиенту {name}: {str(e)[:200]}. Диалог передан менеджеру.", every=600)
