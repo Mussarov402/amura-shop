@@ -662,6 +662,11 @@ body.rpage .sheet .act .hint:empty{display:none}
 /* главная розницы: «Подобрали для вас» → «Популярное сейчас» (заголовок внутри ленты); метка «Хит» на фото */
 .rfy-h{grid-column:1/-1;font-family:var(--display);font-weight:500;font-size:21px;margin:18px 0 2px}
 .thumb[data-hit]::after{content:"Хит";position:absolute;left:8px;bottom:8px;background:#E8432B;color:#fff;font-size:11px;font-weight:800;padding:3px 8px;border-radius:6px;letter-spacing:.02em}
+/* «Похожие товары» и «Вам может понравиться» на остальных экранах (retail/recs.js) */
+.rrec-sec{margin:26px 0 8px}.rrec-sec.insheet{grid-column:1/-1;position:relative;z-index:1;background:var(--surface);margin:0;padding-top:26px}   /* закрывает закреплённое фото товара */
+.rrec-h{font-family:var(--display);font-weight:500;font-size:21px;margin:0 0 12px}
+.rrec-more{height:1px}.rrec-empty{margin:0 0 4px}
+@media(max-width:760px){.rrec-sec.insheet{padding:26px 16px 0}.rrec-sec.incart{padding-bottom:150px}}
 </style>
 </head>
 <body>
@@ -2101,11 +2106,11 @@ function addOne(it, from){
   cart[it.id] = q; save("amura-cart2", cart); renderCartCount(); refreshCard(it.id);
   fly(from);
 }
-["#grid", "#favGrid"].forEach(sel => $(sel).addEventListener("click", e => {
-  const btn = e.target.closest("[data-radd]"); if(!btn) return;
+document.addEventListener("click", e => {          // каталог, избранное и подборки «Вам может понравиться» (retail/recs.js)
+  const btn = e.target.closest("#grid [data-radd], #favGrid [data-radd], .rrec [data-radd]"); if(!btn) return;
   const card = btn.closest(".rpc"), it = card && byId(card.dataset.id); if(!it) return;
   addOne(it, card.querySelector(".thumb img") || card.querySelector(".thumb .ph"));
-}));
+});
 /* окно товара: «В корзину» — тоже полёт */
 $("#sheet").addEventListener("click", e => {
   if(!e.target.closest("[data-add]")) return;
@@ -3193,7 +3198,8 @@ if(location.hash.startsWith(PH)){
       (история только на устройстве, на сервер не уходит); купленное и то, что уже в корзине, не повторяем;
    3) после ~20 карточек — «Популярное сейчас»: остальные товары по популярности.
    Внутри блоков лёгкое перемешивание — своё у каждого посетителя, но одно и то же в течение сессии.
-   В поиске и в бренде — обычный список с сортировкой («Популярные» по умолчанию). Метка «Хит» на карточке. Только розница. */
+   В поиске и в бренде — обычный список с сортировкой («Популярные» по умолчанию). Метка «Хит» на карточке. Только розница.
+   Та же подборка (window.recsFor) — в «Вам может понравиться» на остальных экранах (retail/recs.js). */
 (function(){
 if(!window.AMURA_RETAIL) return;
 let HITS = [], POP = new Map();
@@ -3234,7 +3240,7 @@ function taste(){                                  // вес бренда и г�
   return w;
 }
 let FEED = null;                                   // id первого товара «Популярного сейчас»
-function forYou(list){
+function rank(list){                               // [подборка: хиты + личное, остальное по популярности]
   const hs = HSET(), skip = new Set([...Object.keys(cart), ...load(BOUGHT, [])]), w = taste();
   const hits = HITS.map(byId).filter(it => it && list.includes(it)).sort((a, b) => (HITS.indexOf(a.id) + 3 * noise(a.id)) - (HITS.indexOf(b.id) + 3 * noise(b.id)));
   const score = it => (w.b.get(it.brand) || 0) + (w.g.get(it.group) || 0);
@@ -3243,9 +3249,16 @@ function forYou(list){
   const top = [...hits, ...mine].slice(0, FIRST), used = new Set(top.map(it => it.id));
   const rest = list.filter(it => !used.has(it.id)).sort((a, b) => popRank(a) * (0.85 + 0.3 * noise(a.id)) - popRank(b) * (0.85 + 0.3 * noise(b.id)));
   if(top.length < FIRST){ const n = FIRST - top.length; top.push(...rest.splice(0, n)); }   // новый посетитель: хиты, затем популярные
+  return [top, rest];
+}
+function forYou(list){
+  const [top, rest] = rank(list);
   FEED = rest.length ? rest[0].id : null;
   return [...top, ...rest];
 }
+/* «Вам может понравиться» в карточке товара, избранном, корзине, кабинете и после заказа (retail/recs.js) — та же подборка без того, что уже на экране */
+window.recsFor = exclude => { const ex = new Set(exclude || []); return rank(ALL.filter(it => !ex.has(it.id))).flat(); };
+window.popRank = popRank;
 
 const home = () => !st.q && !st.brand && st.sort === "pop";   // главная — подборка; поиск, бренд и баннер «Новинки» — обычный список с сортировкой
 const sel = $("#sort");
@@ -3284,6 +3297,84 @@ new MutationObserver(() => mark()).observe(grid, { childList: true });
 /* метка «Хит» на карточке (CSS), без изменения разметки карточки */
 const _card = cardHTML;
 cardHTML = function(it){ const h = _card.apply(this, arguments); return HSET().has(it.id) ? h.replace('class="thumb" data-open', 'class="thumb" data-open data-hit') : h; };
+})();
+/* Розничный сайт: товары на каждом экране, как на WB. Подборка одна — window.recsFor (retail/hits.js): хиты,
+   потом личное по истории в браузере, потом популярное; на каждом экране без того, что уже на нём.
+   - товар: «Похожие товары» (тот же бренд или группа) и «Вам может понравиться» ниже описания и отзывов;
+   - «Избранное», «Корзина» (и «Спасибо за заказ»), «Я» (и «Заказ оплачен») — «Вам может понравиться» внизу.
+   Карточки как в каталоге, подгрузка по 12 при прокрутке. Только розница. */
+(function(){
+if(!window.AMURA_RETAIL || !window.recsFor) return;
+const STEP = 12, MAX = 240, SIMILAR = 12;
+
+function block(title, items, opts = {}){
+  const sec = document.createElement("section");
+  sec.className = "rrec-sec" + (opts.cls ? " " + opts.cls : "");
+  sec.innerHTML = `<h2 class="rrec-h">${esc(title)}</h2><div class="grid rrec"></div><div class="rrec-more" aria-hidden="true"></div>`;
+  const g = sec.querySelector(".rrec"), L = items.slice(0, opts.max || MAX);
+  let n = 0, io = null;
+  const more = () => {
+    if(n >= L.length) return;
+    g.insertAdjacentHTML("beforeend", L.slice(n, n + STEP).map(cardHTML).join("")); n += STEP;
+    if(n >= L.length && io) io.disconnect();
+  };
+  more();
+  if(L.length > STEP){ io = new IntersectionObserver(es => { if(es.some(e => e.isIntersecting)) more(); }, { root: opts.root || null, rootMargin: "600px" }); io.observe(sec.querySelector(".rrec-more")); }
+  if(!opts.root){ g.addEventListener("click", onBuyClick); g.addEventListener("change", onBuyChange); }   // в окне товара клики ловит #sheet
+  return sec;
+}
+const MAY = "Вам может понравиться";
+
+/* товар: похожие и подборка — в конце страницы товара */
+const _open = openProduct;
+openProduct = function(it){
+  const r = _open.apply(this, arguments);
+  const sh = $("#sheet");
+  if(it && sh && ALL.length){
+    const sim = ALL.filter(x => x.id !== it.id && (x.brand === it.brand || (it.group && x.group === it.group)))
+      .sort((a, b) => (b.brand === it.brand) - (a.brand === it.brand) || popRank(a) - popRank(b)).slice(0, SIMILAR);
+    if(sim.length) sh.appendChild(block("Похожие товары", sim, { root: sh, cls: "insheet" }));
+    sh.appendChild(block(MAY, recsFor([it.id, ...sim.map(x => x.id)]), { root: sh, cls: "insheet" }));
+  }
+  return r;
+};
+
+/* экраны «Избранное», «Корзина», «Я»: блок после содержимого; пересобираем, только когда изменилось то, что исключаем */
+function place(host, key, exclude, cls){
+  if(!host || !ALL.length) return;
+  let sec = host.nextElementSibling && host.nextElementSibling.classList.contains("rrec-sec") ? host.nextElementSibling : null;
+  if(key === null){ if(sec) sec.remove(); return; }
+  if(sec && sec.dataset.key === key) return;
+  const nb = block(MAY, recsFor(exclude), { cls });
+  nb.dataset.key = key;
+  if(sec) sec.replaceWith(nb); else host.after(nb);
+}
+const ids = o => Object.keys(o).sort().join(",");
+function favRecs(){
+  const note = $("#favNote");
+  if(!FAV.length && note) note.innerHTML = '<p class="kv rrec-empty">В избранном пока ничего нет</p>';
+  place($("#favGrid"), "f:" + FAV.join(","), FAV);
+}
+function cartRecs(){
+  const body = $("#drawerBody"); if(!body) return;
+  const checkout = body.parentElement.classList.contains("rstep2") && !body.querySelector(".rdone");   // оформление — без подборки
+  const done = body.querySelector(".rdone");
+  place(body, checkout ? null : (done ? "d:" : "c:") + ids(cart), Object.keys(cart), "incart");
+}
+function meRecs(){ place($("#meBody"), "m", [], "inme"); }
+const NOW = { fav: favRecs, cart: cartRecs, me: meRecs };
+
+const _fav = renderFav;
+renderFav = function(){ const r = _fav.apply(this, arguments); favRecs(); return r; };
+["#drawerBody", "#meBody"].forEach(sel => { const el = $(sel); if(el) new MutationObserver(() => { if(VIEW === "cart" || VIEW === "me") NOW[VIEW](); }).observe(el, { childList: true }); });
+const _go = go;
+go = function(v){ const r = _go.apply(this, arguments); if(NOW[v]) NOW[v](); return r; };
+const _render = render;      // каталог загрузился позже, чем открыли экран, — достроить подборку
+render = function(){ const r = _render.apply(this, arguments); if(NOW[VIEW]) NOW[VIEW](); return r; };
+/* в корзине добавили товар из подборки — он сразу появляется в списке */
+document.addEventListener("click", e => {
+  if(VIEW === "cart" && e.target.closest(".rrec-sec.incart [data-radd]")) setTimeout(() => renderCart(), 0);
+});
 })();
 /* Аналитика карточек (модуль «Аналитика» в системе AMURA): обезличенные события розничного сайта — заход, просмотр карточки,
    добавление в корзину, оформление. Без cookies и без персональных данных: случайный номер посещения живёт в sessionStorage

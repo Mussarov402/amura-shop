@@ -4,7 +4,8 @@
       (история только на устройстве, на сервер не уходит); купленное и то, что уже в корзине, не повторяем;
    3) после ~20 карточек — «Популярное сейчас»: остальные товары по популярности.
    Внутри блоков лёгкое перемешивание — своё у каждого посетителя, но одно и то же в течение сессии.
-   В поиске и в бренде — обычный список с сортировкой («Популярные» по умолчанию). Метка «Хит» на карточке. Только розница. */
+   В поиске и в бренде — обычный список с сортировкой («Популярные» по умолчанию). Метка «Хит» на карточке. Только розница.
+   Та же подборка (window.recsFor) — в «Вам может понравиться» на остальных экранах (retail/recs.js). */
 (function(){
 if(!window.AMURA_RETAIL) return;
 let HITS = [], POP = new Map();
@@ -45,7 +46,7 @@ function taste(){                                  // вес бренда и г�
   return w;
 }
 let FEED = null;                                   // id первого товара «Популярного сейчас»
-function forYou(list){
+function rank(list){                               // [подборка: хиты + личное, остальное по популярности]
   const hs = HSET(), skip = new Set([...Object.keys(cart), ...load(BOUGHT, [])]), w = taste();
   const hits = HITS.map(byId).filter(it => it && list.includes(it)).sort((a, b) => (HITS.indexOf(a.id) + 3 * noise(a.id)) - (HITS.indexOf(b.id) + 3 * noise(b.id)));
   const score = it => (w.b.get(it.brand) || 0) + (w.g.get(it.group) || 0);
@@ -54,9 +55,16 @@ function forYou(list){
   const top = [...hits, ...mine].slice(0, FIRST), used = new Set(top.map(it => it.id));
   const rest = list.filter(it => !used.has(it.id)).sort((a, b) => popRank(a) * (0.85 + 0.3 * noise(a.id)) - popRank(b) * (0.85 + 0.3 * noise(b.id)));
   if(top.length < FIRST){ const n = FIRST - top.length; top.push(...rest.splice(0, n)); }   // новый посетитель: хиты, затем популярные
+  return [top, rest];
+}
+function forYou(list){
+  const [top, rest] = rank(list);
   FEED = rest.length ? rest[0].id : null;
   return [...top, ...rest];
 }
+/* «Вам может понравиться» в карточке товара, избранном, корзине, кабинете и после заказа (retail/recs.js) — та же подборка без того, что уже на экране */
+window.recsFor = exclude => { const ex = new Set(exclude || []); return rank(ALL.filter(it => !ex.has(it.id))).flat(); };
+window.popRank = popRank;
 
 const home = () => !st.q && !st.brand && st.sort === "pop";   // главная — подборка; поиск, бренд и баннер «Новинки» — обычный список с сортировкой
 const sel = $("#sort");
