@@ -32,8 +32,8 @@ def build(src):
     s = rep(s, "renderBanners(BANNERS_DEFAULT);\n", "")
     s = rep(s, 'getJSON(CONFIG.apiUrl + "/banners", 8000).catch(() => getJSON("banners.json", 8000)).then(renderBanners).catch(() => {});',
             "/* баннеры розницы — retail/banners.js */")
-    css = read("cards.css") + read("cart.css") + read("reviews.css") + read("banners.css") + read("product.css") + read("hits.css")    # карточки, корзина как на WB, отзывы, баннеры, страница товара
-    js = read("cards.js") + read("cart.js") + read("reviews.js") + read("banners.js") + read("product.js") + read("hits.js") + read("recs.js") + read("stats.js")
+    css = read("cards.css") + read("cart.css") + read("reviews.css") + read("banners.css") + read("product.css") + read("hits.css") + read("search.css")    # карточки, корзина как на WB, отзывы, баннеры, страница товара
+    js = read("cards.js") + read("cart.js") + read("reviews.js") + read("banners.js") + read("product.js") + read("hits.js") + read("recs.js") + read("search.js") + read("stats.js")
     r = legal_req()
     if legal_ready(r):                            # ссылки внизу и согласие у «Заказать» — только когда заполнены реквизиты
         s = rep(s, "</body>", legal_footer(r) + "<script>window.AMURA_LEGAL = true;</script>\n</body>")

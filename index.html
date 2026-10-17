@@ -71,6 +71,8 @@ header.top{position:sticky;top:0;z-index:20;background:#0E3B2C;color:#F2F5F3;pad
 .search{flex:1;display:flex;background:#fff;border-radius:12px;overflow:hidden;min-width:0}
 .search input{flex:1;min-width:0;border:0;padding:11px 14px;font-size:15px;color:#16201B;background:transparent}
 .search input:focus{outline:none}
+.search input::-webkit-search-cancel-button{-webkit-appearance:none}.qx{border:0;background:none;color:#8A968F;font-size:16px;padding:0 12px;cursor:pointer}.qx[hidden]{display:none}
+html.qon #viewHome .hero{display:none}   /* идёт поиск — баннеры скрыты, результат сразу под строкой, как на WB */
 .count{background:var(--brass);color:#1b1408;border-radius:99px;font-size:12px;font-weight:800;min-width:20px;height:20px;display:inline-grid;place-items:center;padding:0 6px}
 .brandsBar{background:#0E3B2C}
 .brands{display:flex;gap:6px;overflow-x:auto;padding:0 0 12px;scrollbar-width:none}
@@ -169,7 +171,7 @@ select{font-size:14px;background:var(--surface);border:1px solid var(--line);bor
 .btn.tg{background:#229ED9}
 .btn.wa{background:#1FA855}
 .btn:disabled{opacity:.6;cursor:wait}
-.more{display:block;margin:28px auto 56px;border:1.5px solid var(--green);color:var(--green-3);background:transparent;font-weight:700;border-radius:12px;padding:12px 28px}
+.more[hidden]{display:none}.more{display:block;margin:28px auto 56px;border:1.5px solid var(--green);color:var(--green-3);background:transparent;font-weight:700;border-radius:12px;padding:12px 28px}
 
 /* кнопка «Каталог» и боковая панель брендов — как на WB */
 .catBtn{flex:none;display:flex;align-items:center;gap:8px;border:0;background:#1F5A44;color:#fff;font-weight:700;font-size:15px;padding:10px 16px;border-radius:12px}
@@ -678,6 +680,31 @@ body.rpage .sheet .brand .rpc-ok{width:15px;height:15px;margin-right:5px}
 .rrec-more{height:1px}.rrec-empty{margin:0 0 4px}
 @media(max-width:760px){.rrec-sec.insheet{padding:26px 16px 0}.rrec-sec.incart{padding-bottom:150px}}
 .sheet .rrec .rpc .fav{top:8px;right:8px;left:auto}   /* в «Похожих» сердечко справа, как в каталоге (у фото товара — слева) */
+/* поиск как на WB (retail/search.js): экран под шапкой на телефоне, выпадающее окно под строкой на компьютере */
+.rsrch{position:fixed;left:0;right:0;top:var(--rs-top,64px);bottom:0;z-index:41;background:var(--surface);overflow-y:auto;overscroll-behavior:contain;padding:14px 16px 120px}
+.rsrch[hidden]{display:none}
+.rs-cancel{display:none;order:5;border:0;background:none;color:#fff;font:inherit;font-weight:700;font-size:15px;padding:0 0 0 10px;cursor:pointer;flex:none}
+html.rs-open .rs-cancel{display:block}
+.rs-h{display:flex;align-items:center;justify-content:space-between;margin:6px 0 10px}.rs-h b{font-size:17px}
+.rs-clr{border:0;background:none;color:var(--muted);font:inherit;font-size:14px;cursor:pointer}
+.rs-chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px}
+.rs-chip{display:inline-flex;align-items:center;background:var(--bg);border:1px solid var(--line);border-radius:999px;overflow:hidden}
+.rs-chip button{border:0;background:none;font:inherit;font-size:14px;color:var(--ink);padding:8px 12px;cursor:pointer}
+.rs-chip .rs-x{padding:8px 10px 8px 0;color:var(--muted);font-size:12px}
+.rs-seen.grid{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(140px,42%);grid-template-columns:none;overflow-x:auto;scrollbar-width:none;padding-bottom:4px}
+.rs-seen.grid::-webkit-scrollbar{display:none}
+.rs-list{display:flex;flex-direction:column}
+.rs-row{display:flex;align-items:center;gap:12px;border:0;border-bottom:1px solid var(--line);background:none;font:inherit;color:var(--ink);text-align:left;padding:10px 2px;cursor:pointer}
+.rs-row:hover{background:var(--bg)}
+.rs-ic{width:40px;text-align:center;font-size:18px;flex:none}
+.rs-ph{width:40px;height:40px;border-radius:8px;background:var(--bg);flex:none;overflow:hidden}.rs-ph img{width:100%;height:100%;object-fit:cover}
+.rs-t{min-width:0;font-size:15px;line-height:1.3}.rs-t b{font-weight:800}.rs-t small{display:block;color:var(--muted);font-size:13px}
+.rs-all .rs-t{font-weight:700;color:var(--green-3)}.rs-none{margin:8px 0}
+@media (min-width:761px) and (min-height:501px), (min-width:761px) and (pointer:fine){
+  .rsrch{left:var(--rs-left);right:auto;width:var(--rs-width);bottom:auto;max-height:70vh;border-radius:0 0 16px 16px;box-shadow:0 18px 40px rgba(8,25,18,.18);padding:14px 16px}
+  .rs-seen.grid{grid-auto-columns:minmax(150px,24%)}
+  html.rs-open .rs-cancel{display:none}   /* компьютер: закрыть — щелчком мимо или Esc */
+}
 </style>
 </head>
 <body>
@@ -689,7 +716,7 @@ body.rpage .sheet .brand .rpc-ok{width:15px;height:15px;margin-right:5px}
       <span class="brk" aria-hidden="true"></span>
       <button type="button" class="catBtn" id="catBtn" aria-label="Каталог брендов" aria-controls="catPanel"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Каталог</span></button>
       <form class="search" id="searchForm" role="search">
-        <input id="q" type="search" placeholder="Бренд, товар или артикул" aria-label="Поиск">
+        <input id="q" type="search" placeholder="Бренд, товар или артикул" aria-label="Поиск" enterkeyhint="search" autocomplete="off" autocorrect="off" spellcheck="false"><button type="button" class="qx" id="qx" aria-label="Очистить поиск" hidden>✕</button>
       </form>
       <nav class="topnav" aria-label="Разделы">
         <button type="button" data-view="fav"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-9.2-9.4C1.6 7.6 3.9 4.5 7.2 4.5c2 0 3.4 1.1 4.8 2.8 1.4-1.7 2.8-2.8 4.8-2.8 3.3 0 5.6 3.1 4.4 6.6-1.7 4.8-9.2 9.4-9.2 9.4Z"/></svg><span class="count" id="favCount2" hidden>0</span></span><span>Избранное</span></button>
@@ -994,6 +1021,7 @@ function filtered(){
   return list;
 }
 function render(){
+  if(window.qSync) window.qSync();
   const list = filtered();
   const part = list.slice(0, st.shown);
   $("#title").textContent = st.q ? `Поиск: «${st.q}»` : (st.brand || "Весь каталог");
@@ -1208,7 +1236,18 @@ $("#catClose").onclick = closeAll;
 $("#catList").addEventListener("click", e => { const b = e.target.closest("[data-b]"); if(!b) return; closeAll(); st.q = ""; $("#q").value = ""; selectBrand(b.dataset.b); });
 document.querySelectorAll("[data-home]").forEach(b => b.onclick = () => go("home"));
 let qt; $("#q").addEventListener("input", e => { if(VIEW !== "home") return; clearTimeout(qt); qt = setTimeout(() => { st.q = e.target.value.trim(); st.shown = PAGE; render(); }, 200); });
-$("#searchForm").onsubmit = e => { e.preventDefault(); if(VIEW !== "home") go("home"); st.q = $("#q").value.trim(); st.shown = PAGE; render(); $("#q").blur(); };   // поиск из корзины/кабинета ведёт в каталог
+/* код, артикул или штрихкод ровно одного товара — по «Найти» сразу его карточка (без учёта регистра, пробелов и нулей впереди) */
+const codeKey = v => String(v || "").toLowerCase().replace(/\s+/g, "").replace(/^0+(?=.)/, "");
+function exactItem(q){
+  const k = codeKey(q); if(!k || k.length < 3) return null;
+  const hit = ALL.filter(i => [i.code, i.article, i.barcode].some(v => v && codeKey(v) === k));
+  return hit.length === 1 ? hit[0] : null;
+}
+$("#searchForm").onsubmit = e => { e.preventDefault(); if(VIEW !== "home") go("home"); st.q = $("#q").value.trim(); st.shown = PAGE; render(); $("#q").blur();
+  const it = exactItem(st.q); if(it) openProduct(it); };   // поиск из корзины/кабинета ведёт в каталог
+const qSync = window.qSync = () => { $("#qx").hidden = !$("#q").value; document.documentElement.classList.toggle("qon", !!st.q); };
+$("#q").addEventListener("input", qSync);
+$("#qx").onclick = () => { $("#q").value = ""; qSync(); $("#q").focus(); if(st.q){ st.q = ""; st.shown = PAGE; render(); } };   // поиск из корзины/кабинета ведёт в каталог
 $("#sort").onchange = e => { st.sort = e.target.value; render(); };
 function showMore(){
   const list = filtered(); if(list.length <= st.shown) return;
@@ -2137,7 +2176,7 @@ function addOne(it, from){
   fly(from);
 }
 document.addEventListener("click", e => {          // каталог, избранное и подборки «Вам может понравиться» (retail/recs.js)
-  const btn = e.target.closest("#grid [data-radd], #favGrid [data-radd], .rrec [data-radd], .rseen [data-radd], .rseen-all [data-radd]"); if(!btn) return;
+  const btn = e.target.closest("#grid [data-radd], #favGrid [data-radd], .rrec [data-radd], .rseen [data-radd], .rseen-all [data-radd], .rs-seen [data-radd]"); if(!btn) return;
   const card = btn.closest(".rpc"), it = card && byId(card.dataset.id); if(!it) return;
   addOne(it, card.querySelector(".thumb img") || card.querySelector(".thumb .ph"));
 });
@@ -3496,6 +3535,83 @@ render = function(){ const r = _render.apply(this, arguments); if(NOW[VIEW]) NOW
 document.addEventListener("click", e => {
   if(VIEW === "cart" && e.target.closest(".rrec-sec.incart [data-radd]")) setTimeout(() => renderCart(), 0);
 });
+})();
+/* Розничный сайт: поиск как на WB. Нажали в строку поиска — экран поиска:
+   пустое поле — «Вы искали» (до 10 последних запросов, только в браузере: amura-q), «Часто ищут» (бренды популярных товаров),
+   «Вы смотрели» (история amura-seen); печатают (от 2 букв) — подсказки: бренды и товары с фото и ценой, «Искать «…»».
+   Подсказки — по уже загруженному каталогу, без запросов к серверу. Список товаров — только по «Найти» (без поиска на каждую букву).
+   Точный код/артикул/штрихкод по «Найти» сразу открывает товар (общий код в opt/index.html). Только розница. */
+(function(){
+if(!window.AMURA_RETAIL) return;
+const QK = "amura-q", MAXH = 10;
+const q = $("#q"), form = $("#searchForm");
+const hist = () => load(QK, []);
+const remember = v => { v = String(v || "").trim(); if(v.length < 2) return; save(QK, [v, ...hist().filter(x => x.toLowerCase() !== v.toLowerCase())].slice(0, MAXH)); };
+
+const panel = document.createElement("section");
+panel.className = "rsrch"; panel.hidden = true; panel.setAttribute("aria-label", "Поиск");
+document.body.appendChild(panel);
+form.insertAdjacentHTML("afterend", '<button type="button" class="rs-cancel" id="rsCancel">Отменить</button>');
+
+function place(){                                  // под шапкой; на компьютере — выпадающим окном под строкой поиска
+  const hb = document.querySelector("header.top").getBoundingClientRect(), fb = form.getBoundingClientRect();
+  panel.style.setProperty("--rs-top", Math.max(0, hb.bottom) + "px");
+  panel.style.setProperty("--rs-left", fb.left + "px"); panel.style.setProperty("--rs-width", fb.width + "px");
+}
+const bold = (t, w) => { const i = t.toLowerCase().indexOf(w.toLowerCase()); return i < 0 ? esc(t) : esc(t.slice(0, i)) + "<b>" + esc(t.slice(i, i + w.length)) + "</b>" + esc(t.slice(i + w.length)); };
+function popular(){
+  const rank = window.popRank, cnt = new Map();
+  ALL.slice().sort((a, b) => rank ? rank(a) - rank(b) : 0).slice(0, 150).forEach(i => { if(i.brand) cnt.set(i.brand, (cnt.get(i.brand) || 0) + 1); });
+  return [...cnt.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(x => x[0]);
+}
+function drawEmpty(){
+  const H = hist(), P = popular(), seen = [...new Set(load("amura-seen", []))].map(byId).filter(Boolean).slice(0, 12);
+  panel.innerHTML = (H.length ? `<div class="rs-h"><b>Вы искали</b><button type="button" class="rs-clr" data-rs-clear>Очистить</button></div>
+      <div class="rs-chips">${H.map((x, i) => `<span class="rs-chip"><button type="button" data-rs-q="${esc(x)}">${esc(x)}</button><button type="button" class="rs-x" data-rs-del="${i}" aria-label="Удалить «${esc(x)}»">✕</button></span>`).join("")}</div>` : "")
+    + (P.length ? `<div class="rs-h"><b>Часто ищут</b></div><div class="rs-chips">${P.map(b => `<span class="rs-chip"><button type="button" data-rs-brand="${esc(b)}">${esc(b)}</button></span>`).join("")}</div>` : "")
+    + (seen.length ? `<div class="rs-h"><b>Вы смотрели</b></div><div class="grid rs-seen">${seen.map(cardHTML).join("")}</div>` : "")
+    || '<p class="kv rs-none">Введите название, бренд или артикул</p>';
+}
+function drawSuggest(w){
+  const lw = w.toLowerCase();
+  const brands = [...new Set(ALL.map(i => i.brand).filter(Boolean))].filter(b => b.toLowerCase().includes(lw))
+    .sort((a, b) => b.toLowerCase().startsWith(lw) - a.toLowerCase().startsWith(lw) || a.localeCompare(b, "ru")).slice(0, 3);
+  const its = ALL.filter(i => (i.name + " " + (i.brand || "") + " " + (i.code || "") + " " + (i.article || "")).toLowerCase().includes(lw))
+    .sort((a, b) => (window.popRank ? popRank(a) - popRank(b) : 0)).slice(0, 8 - brands.length);
+  panel.innerHTML = `<div class="rs-list">
+    ${brands.map(b => `<button type="button" class="rs-row" data-rs-brand="${esc(b)}"><span class="rs-ic" aria-hidden="true">🏷️</span><span class="rs-t">${bold(b, w)}<small>бренд</small></span></button>`).join("")}
+    ${its.map(i => `<button type="button" class="rs-row" data-rs-item="${esc(i.id)}"><span class="rs-ph">${i.img ? `<img src="${esc(i.img)}" alt="" loading="lazy">` : ""}</span><span class="rs-t">${bold(i.name, w)}<small>${fmt(i.opt)} ₸</small></span></button>`).join("")}
+    <button type="button" class="rs-row rs-all" data-rs-q="${esc(w)}"><span class="rs-ic" aria-hidden="true">🔍</span><span class="rs-t">Искать «${esc(w)}»</span></button></div>`;
+}
+let dt = 0;
+function draw(){ const w = q.value.trim(); if(w.length >= 2) drawSuggest(w); else drawEmpty(); }
+function open(){ if(!panel.hidden) return; place(); draw(); panel.hidden = false; document.documentElement.classList.add("rs-open"); }
+function close(){ panel.hidden = true; document.documentElement.classList.remove("rs-open"); }
+function search(v){ q.value = v; remember(v); close(); form.requestSubmit(); }
+
+q.addEventListener("focus", open);
+document.addEventListener("input", e => {                // пока печатают — подсказки, а не список товаров (общий живой поиск отключаем)
+  if(e.target !== q) return;
+  e.stopImmediatePropagation(); if(window.qSync) qSync();
+  open(); clearTimeout(dt); dt = setTimeout(draw, 150);
+}, true);
+form.addEventListener("submit", () => { remember(q.value); close(); }, true);
+$("#rsCancel").onclick = () => { close(); q.value = st.q || ""; if(window.qSync) qSync(); q.blur(); };
+$("#qx").addEventListener("click", () => setTimeout(() => { open(); draw(); }, 0));
+document.addEventListener("click", e => {
+  if(panel.hidden) return;
+  if(!panel.contains(e.target) && !form.contains(e.target) && e.target.id !== "rsCancel"){ close(); return; }
+  const t = e.target;
+  const qb = t.closest("[data-rs-q]"); if(qb) return search(qb.dataset.rsQ);
+  const del = t.closest("[data-rs-del]"); if(del){ const H = hist(); H.splice(+del.dataset.rsDel, 1); save(QK, H); q.focus(); return drawEmpty(); }
+  if(t.closest("[data-rs-clear]")){ save(QK, []); q.focus(); return drawEmpty(); }
+  const br = t.closest("[data-rs-brand]"); if(br){ close(); q.value = ""; st.q = ""; if(window.qSync) qSync(); q.blur(); return selectBrand(br.dataset.rsBrand); }
+  const it = t.closest("[data-rs-item]"); if(it){ const x = byId(it.dataset.rsItem); remember(q.value); close(); q.blur(); if(x) openProduct(x); return; }
+  const card = t.closest(".rs-seen [data-id]");
+  if(card && !t.closest("[data-radd]")){ if(t.closest("[data-open]")) close(); onBuyClick(e); }
+});
+addEventListener("resize", () => { if(!panel.hidden) place(); });
+document.addEventListener("keydown", e => { if(e.key === "Escape" && !panel.hidden){ close(); q.blur(); } });
 })();
 /* Аналитика карточек (модуль «Аналитика» в системе AMURA): обезличенные события розничного сайта — заход, просмотр карточки,
    добавление в корзину, оформление. Без cookies и без персональных данных: случайный номер посещения живёт в sessionStorage

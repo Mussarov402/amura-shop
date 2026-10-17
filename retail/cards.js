@@ -86,7 +86,7 @@ function addOne(it, from){
   fly(from);
 }
 document.addEventListener("click", e => {          // каталог, избранное и подборки «Вам может понравиться» (retail/recs.js)
-  const btn = e.target.closest("#grid [data-radd], #favGrid [data-radd], .rrec [data-radd], .rseen [data-radd], .rseen-all [data-radd]"); if(!btn) return;
+  const btn = e.target.closest("#grid [data-radd], #favGrid [data-radd], .rrec [data-radd], .rseen [data-radd], .rseen-all [data-radd], .rs-seen [data-radd]"); if(!btn) return;
   const card = btn.closest(".rpc"), it = card && byId(card.dataset.id); if(!it) return;
   addOne(it, card.querySelector(".thumb img") || card.querySelector(".thumb .ph"));
 });
