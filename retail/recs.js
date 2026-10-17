@@ -61,7 +61,7 @@ function cartRecs(){
   const done = body.querySelector(".rdone");
   place(body, checkout ? null : (done ? "d:" : "c:") + ids(cart), Object.keys(cart), "incart");
 }
-function meRecs(){ place($("#meBody"), "m", [], "inme"); }
+function meRecs(){ const ex = window.moExclude ? window.moExclude() : null; place($("#meBody"), ex ? "o:" + ex.join(",") : "m", ex || [], "inme"); }   // «Мои заказы» — без товаров, что ещё едут
 const NOW = { fav: favRecs, cart: cartRecs, me: meRecs };
 
 const _fav = renderFav;

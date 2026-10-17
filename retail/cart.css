@@ -197,3 +197,5 @@ input,select,textarea{font-size:16px!important}
 .rsup{display:flex;align-items:center;gap:12px;width:100%;margin-top:22px;padding:14px 16px;border:1px solid var(--line);border-radius:16px;background:var(--surface);color:var(--ink);font:inherit;text-align:left;cursor:pointer}
 .rsup:hover{border-color:var(--green-2)}.rsup-i{font-size:22px;flex:none}.rsup b{display:block;font-size:16px}.rsup small{display:block;color:var(--muted);font-size:13px;margin-top:2px}.rsup-a{margin-left:auto;font-size:22px;color:var(--muted)}
 .rsup + [data-coop]{margin-top:10px!important}#profile + .rsup{margin-top:12px}
+.rmo{margin-top:12px}.rmo-n{margin-left:auto;min-width:22px;height:22px;border-radius:11px;background:var(--green-2);color:#fff;font:700 12px/22px system-ui,sans-serif;font-style:normal;text-align:center;padding:0 6px}.rmo .rmo-n + .rsup-a{margin-left:6px}
+#profile + .rmo + .rsup{margin-top:10px}

@@ -139,7 +139,7 @@ def _send_client(agent, title, body, url, tag):
         print("Push покупателю:", str(e)[:200], flush=True)
 
 
-def notify_client(agent, title, body, url="https://amura.kz/#me", tag=""):
+def notify_client(agent, title, body, url="https://amura.kz/#orders", tag=""):   # уведомление о заказе — сразу в «Мои заказы»
     """Уведомление покупателю розничного сайта (все его устройства с включёнными уведомлениями)."""
     if agent:
         threading.Thread(target=_send_client, args=(agent, title, body or "", url, tag), daemon=True).start()
