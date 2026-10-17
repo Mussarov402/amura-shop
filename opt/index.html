@@ -7,7 +7,8 @@
   var d = JSON.parse(decodeURIComponent(escape(atob(m[1].replace(/-/g, "+").replace(/_/g, "/")))));
   for(var k in d) if(localStorage.getItem(k) === null) localStorage.setItem(k, d[k]);
   history.replaceState(null, "", location.pathname + location.search + (m[2] ? "#" + decodeURIComponent(m[2]) : ""));
-}catch(e){} })();</script>
+}catch(e){} })();
+if(window.AMURA_RETAIL) document.documentElement.classList.add("retail");   /* розница: без ряда брендов и свайпа каталога */</script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>AMURA — оптовый каталог</title>
 <meta name="description" content="Оригинальная корейская косметика оптом. Цены поштучно, от 10 штук и от короба.">
@@ -181,6 +182,7 @@ select{font-size:14px;background:var(--surface);border:1px solid var(--line);bor
 .page-h{font-family:var(--display);font-weight:500;font-size:22px;margin:4px 0 8px}
 body{padding-bottom:calc(84px + max(8px,calc(env(safe-area-inset-bottom,0px) - 12px)))}
 body:not([data-view="home"]) .brandsBar{display:none}
+html.retail .brandsBar{display:none}   /* розница: ряд брендов убран, бренды — в «Каталоге» (☰) */
 .tabbar{position:fixed;left:0;right:0;bottom:0;z-index:30;display:grid;grid-template-columns:repeat(4,1fr);background:#173A2A;border-radius:22px 22px 0 0;padding:10px 8px calc(8px + env(safe-area-inset-bottom,0px));box-shadow:0 -6px 24px rgba(8,25,18,.22);-webkit-transform:translateZ(0);transform:translateZ(0);will-change:transform}
 /* компьютер: как в маркетплейсах — «Корзина» и «Кабинет» в шапке, нижней панели нет */
 .topnav{display:none;margin-left:auto;gap:4px}
@@ -855,6 +857,7 @@ function openCatalog(){
 }
 /* телефон: свайп слева направо — открыть каталог, справа налево по панели — закрыть */
 (() => {
+  if(RETAIL) return;                            // розница: свайп каталога убран (мешал листать «Хиты» и баннеры), каталог — кнопкой ☰
   let sx = 0, sy = 0, t0 = 0, ok = false;
   const skip = el => el.closest(".brands, .bTrack, input, textarea, select, .stepper, .tiers, #modal.open");
   addEventListener("touchstart", e => {
