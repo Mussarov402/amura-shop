@@ -43,7 +43,7 @@ function onClick(e){
   if(e.target.closest("[data-hits-all]")){ st.sort = "pop"; st.brand = ""; st.q = ""; if(sel) sel.value = "pop"; render(); document.querySelector("main .toolbar").scrollIntoView({ behavior: "smooth", block: "start" }); return; }
   const add = e.target.closest("[data-radd]");
   if(add){ const card = add.closest("[data-id]"), it = card && byId(card.dataset.id); if(!it) return;
-    const q = (cart[it.id] || 0) + 1; if(q > it.qty) return toast("Больше нет в наличии");
+    const q = (cart[it.id] || 0) + 1; if(q > it.qty) return toast(overMsg(it));
     cart[it.id] = q; save("amura-cart2", cart); renderCartCount(); refreshCard(it.id); drawHits(); toast(`${it.name.slice(0, 40)} — в корзине`); return; }
   onBuyClick(e);
 }

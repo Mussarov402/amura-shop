@@ -129,6 +129,7 @@ class Orders(unittest.TestCase):
         oh.delivery_service_id = lambda: "dlv-1"
         oh.notify_bg = lambda fn: None
         oh._post_order = lambda body: self.posted.append(body) or {"name": "1600"}
+        oh.rtl_max = lambda: 0                    # лимит «не больше N шт» проверяет test_sources.test_retail_max_qty
 
     def order(self, **kw):
         d = {"name": "Аружан", "phone": "+77012345678", "city": "Алматы", "shipping": "courier", "mode": "retail",

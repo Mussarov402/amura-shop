@@ -556,9 +556,13 @@ async function getJSON(url, ms, headers){
 }
 const DESC = {}, INCI = {};                   // описание и состав (INCI) — из catalog.json или /product/<id>, в живой каталог не входят
 let WS = false;                               // true — сервер отдал оптовые цены (клиент с тегом «опт»)
+let MAXQ = RETAIL ? +load("amura-maxq", 0) || 0 : 0;   // розница: не больше стольких штук одного товара (0 — без ограничения); qty — сколько можно взять, stock — остаток
+const overMsg = it => MAXQ && (it.stock || 0) > it.qty ? `Не больше ${MAXQ} шт одного товара в заказе` : "Больше нет в наличии";
 function applyData(data){
-  if(RETAIL) data = { ...data, wholesale: false, items: (data.items || []).map(i => ({ ...i,   // в выгрузке опт и розница — берём розницу
-    ...("rtl" in i ? { opt: i.rtl, mid: 0, box: 0 } : {}), img: i.img && !/^(https?:)?\//.test(i.img) ? "/" + i.img : i.img })) };
+  if(RETAIL && "maxQty" in data){ MAXQ = +data.maxQty || 0; save("amura-maxq", MAXQ); }
+  if(RETAIL) data = { ...data, wholesale: false, items: (data.items || []).map(i => { const stock = i.stock ?? i.qty; return { ...i,   // в выгрузке опт и розница — берём розницу
+    ...("rtl" in i ? { opt: i.rtl, mid: 0, box: 0 } : {}), stock, qty: MAXQ ? Math.min(stock, MAXQ) : stock,
+    img: i.img && !/^(https?:)?\//.test(i.img) ? "/" + i.img : i.img }; }) };
   WS = !!data.wholesale;
   ALL = (data.items || []).filter(i => i.qty > 0 && i.opt > 0);
   ALL.forEach(i => { if(typeof i.desc === "string"){ DESC[i.id] = i.desc; INCI[i.id] = i.inci || ""; } else if(i.id in DESC){ i.desc = DESC[i.id]; i.inci = INCI[i.id] || ""; } });
@@ -729,7 +733,7 @@ function refreshCard(id){
 }
 function setPick(it, v){
   const q = Math.max(1, Math.min(it.qty, Math.floor(Number(v) || 1)));
-  if(Number(v) > it.qty) toast("Больше нет в наличии");
+  if(Number(v) > it.qty) toast(overMsg(it));
   pick[it.id] = q; refreshCard(it.id);
 }
 function onBuyClick(e){
@@ -1135,7 +1139,7 @@ $("#drawerBody").addEventListener("input", e => {
 });
 function setCartQty(it, v){
   const q = Math.max(0, Math.min(it.qty, Math.floor(Number(v) || 0)));
-  if(Number(v) > it.qty) toast("Больше нет в наличии");
+  if(Number(v) > it.qty) toast(overMsg(it));
   if(q === 0) delete cart[it.id]; else cart[it.id] = q;
   delete pick[it.id];
   save("amura-cart2", cart); renderCartCount(); refreshCard(it.id); readFormSafe(); renderCart();
@@ -1615,7 +1619,7 @@ boot();
   const keep = () => { try{ localStorage.setItem(K, JSON.stringify(st)); }catch{} };
   let msgs = [], open = false, timer = 0, sending = false;
   const btn = document.createElement("button");
-  btn.className = "cbtn"; btn.type = "button"; btn.setAttribute("aria-label", R ? "Поддержка" : "Чат с менеджером"); btn.hidden = R && !st.token;
+  btn.className = "cbtn"; btn.type = "button"; btn.setAttribute("aria-label", R ? "Поддержка" : "Чат с менеджером"); btn.hidden = R && (!st.token || !(typeof AUTH !== "undefined" && AUTH.token));
   btn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg><i hidden>0</i>';
   document.body.appendChild(btn);
   const box = document.createElement("section");
@@ -1661,13 +1665,14 @@ boot();
   }
   function schedule(){ clearTimeout(timer); timer = setTimeout(async () => { if(document.visibilityState === "visible") await poll(); schedule(); }, open ? 3000 : 25000); }
   function show(v){
-    open = v; box.hidden = !v; btn.hidden = v || (R && !st.token);
+    open = v; box.hidden = !v; btn.hidden = v || (R && (!st.token || !auth()));
     if(v){ if(msgs.length){ st.seen = msgs[msgs.length - 1].id || st.seen; keep(); } draw(); badge(); poll(); setTimeout(() => $c("ctext").focus(), 50); }
     schedule();
   }
   btn.onclick = () => show(true);
   const auth = () => R && typeof AUTH !== "undefined" && AUTH.token || "";   // розница: вошёл в кабинет — ИИ поддержки видит его заказы
   window.openSupport = text => {                     // «Написать в поддержку» в «Моих заказах»: вопрос уже с номером заказа
+    if(R && !auth()){ toast("Войдите, чтобы написать в поддержку"); if(typeof go === "function") go("me"); return; }
     const p = (typeof AUTH !== "undefined" && AUTH.profile) || {};
     if(!$c("chName").value && p.name) $c("chName").value = p.name;
     if(!$c("chPhone").value && p.phone) $c("chPhone").value = "+" + String(p.phone).replace(/\D/g, "");

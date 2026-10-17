@@ -2580,12 +2580,17 @@ def sites_admin():
         b = request.get_json(silent=True) or {}
         if b.get("id") in oh.SITES and "on" in b:
             oh.set_site(b["id"], bool(b["on"]))
+        if "rtlMax" in b:
+            try:
+                oh.set_rtl_max(float(b["rtlMax"] or 0))
+            except (TypeError, ValueError):
+                return jsonify(ok=False, error="Количество — число"), 400
         if "optMin" in b:
             try:
                 oh.set_opt_min(float(b["optMin"] or 0))
             except (TypeError, ValueError):
                 return jsonify(ok=False, error="Минимальная сумма — число"), 400
-    return jsonify(ok=True, optMin=oh.opt_min(), sites=[{"id": k, "title": t, "on": oh.site_on(k)} for k, t in oh.SITES.items()])
+    return jsonify(ok=True, optMin=oh.opt_min(), rtlMax=oh.rtl_max(), sites=[{"id": k, "title": t, "on": oh.site_on(k)} for k, t in oh.SITES.items()])
 
 
 # ---------- подключаемые модули (по умолчанию выключены; см. modules.py) ----------

@@ -114,6 +114,19 @@ class Sources(unittest.TestCase):
         self.assertEqual(self.add(name="Другой", code="other", promo="AIG10").status_code, 400)   # промокод не повторяется
         self.assertEqual(self.c.get("/ref/promo?retail=1&code=NOPE").status_code, 404)
 
+    def test_retail_max_qty(self):
+        """amura.kz: не больше N шт одного товара (перекупы); опт и 0 — без ограничения."""
+        self.patch(oh, "rtl_max", lambda: 5)
+        res, st = self.order(mode="retail", items=[{"id": "p1", "qty": 6}])
+        self.assertEqual(st, 400)
+        self.assertIn("Не больше 5 шт", res["error"])
+        n = len(self.posted)
+        self.assertEqual(self.order(mode="retail", items=[{"id": "p1", "qty": 5}])[1], 200)
+        self.assertEqual(self.order(items=[{"id": "p1", "qty": 30}])[1], 200)            # оптовый сайт — без ограничения
+        self.assertEqual(len(self.posted), n + 2)
+        self.patch(oh, "rtl_max", lambda: 0)
+        self.assertEqual(self.order(mode="retail", items=[{"id": "p1", "qty": 20}])[1], 200)
+
     def test_visit_rate_limit(self):
         self.add()
         self.patch(oh, "too_many", lambda key, limit=5, window=600: True)
