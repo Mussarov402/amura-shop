@@ -1113,6 +1113,9 @@ def order_core(d, key, ip, me, source="с сайта", panel=False, paid=None):
                 save_news(phone, d["news"], f"заказ № {number}")
         except Exception as e:
             print("Новости и акции: не сохранено:", e, flush=True)
+    if retail:                                   # модуль «Аналитика»: строки заказа для воронки карточек
+        import analytics
+        analytics.record_order(number, lines, src["code"] if src else d.get("ref"))
     if site:
         try:
             import sources
