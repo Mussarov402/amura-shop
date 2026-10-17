@@ -1045,7 +1045,7 @@ async analytics(){const A=views.analytics,days=A.days||7,src=A.src||"",n=nav;
  <div class="card"><div class="oqw" style="margin-bottom:8px"><input id="anq" placeholder="Поиск товара" value="${esc(A.q||"")}" autocomplete="off"></div>
  <div class="ansort">Сортировка: ${[["views","Переходы"],["carts","В корзину"],["qty","Заказали"],["sum","Сумма"],["toCart","% в корзину"]].map(([k,t])=>`<button data-ans="${k}" class="${k===sk?"on":""}">${t}</button>`).join("")}</div>
  <div id="anl"></div></div>`;
- const draw=()=>{const q=(A.q||"").toLowerCase(),rows=o.rows.filter(r=>!q||(r.name+" "+r.brand).toLowerCase().includes(q)).sort((a,b)=>(b[sk]||0)-(a[sk]||0));
+ const draw=()=>{const q=(A.q||"").toLowerCase(),rows=o.rows.filter(r=>!q||(r.name+" "+r.brand).toLowerCase().includes(q)).sort((a,b)=>{const k=A.sort||"views";return (b[k]||0)-(a[k]||0)||(b.views||0)-(a.views||0)});
   $("#anl").innerHTML=rows.length?`<div class="anh"><span>Товар</span><span>Переходы</span><span>В корзину</span><span>Заказали</span></div>`+rows.slice(0,300).map(r=>`<div class="anr" data-anp="${esc(r.id)}" tabindex="0"><div class="ann">${r.img?`<img src="${esc(r.img)}" alt="" loading="lazy">`:"<i></i>"}<div><b>${esc(r.name)}</b><small>${esc(r.brand||"")}</small></div></div>
    <div><b>${fmt(r.views)}</b><small>переходы</small></div><div><b>${fmt(r.carts)}</b><small>${r.toCart==null?"в корзину":r.toCart+"%"}</small></div><div><b>${fmt(r.qty)} шт</b><small>${fmt(r.sum)} ₸${r.toOrder==null?"":" · "+r.toOrder+"%"}</small></div></div>`).join(""):'<div class="mut" style="padding:8px 0">За период событий нет. Данные появляются, когда покупатели заходят на amura.kz.</div>'};
  draw();
