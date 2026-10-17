@@ -648,7 +648,8 @@ document.addEventListener("click", e => {
   if(e.target.closest("[data-paid-shop]")){ const pr = window.PAY_RET; if(pr) pr.shown = "done"; go("home"); }
 });
 /* ---------- «Мои заказы» как у WB: карточки с фото, понятный статус, вкладки Активные / Завершённые, экран заказа ---------- */
-const MO = { p: null, orders: null, tab: "active", page: location.hash === "#orders" ? "orders" : "", keep: location.hash === "#orders" };
+const PAGES = { "#orders": "orders", "#seen": "seen" };   // экраны внутри «Я» со своим адресом
+const MO = { p: null, orders: null, tab: "active", page: PAGES[location.hash] || "", keep: !!PAGES[location.hash] };
 function moStatus(o){
   const s = o.status || "", pick = /самовывоз/i.test(o.ship || "");
   if(o.draft) return ["Ожидает оплаты", "wait"];
@@ -728,12 +729,12 @@ paintMe = function(p, orders){
   _paintMe(p, orders); markRetail();
   MO.p = p; MO.orders = orders;
   if(orders && orders.length && !orders.some(o => !moDone(o))) MO.tab = "done";
-  const top = $("#viewMe .back[data-home]"), ord = MO.page === "orders";   // на экране заказов вместо «← В каталог» — «← Назад» в «Я»
+  const top = $("#viewMe .back[data-home]"), ord = !!MO.page;   // на экранах «Мои заказы» и «Вы смотрели» вместо «← В каталог» — «← Назад» в «Я»
   if(top) top.hidden = ord;
   const mb = $("#viewMe .mo-top"); if(mb && !ord) mb.remove();
   if(ord && !mb) $("#meTitle").insertAdjacentHTML("beforebegin", '<button type="button" class="back mo-top" data-mo-home>← Назад</button>');
   else if(ord) mb.hidden = false;
-  if(MO.page === "orders") moPage(); else { moEntry(); supportEntry(); }
+  if(MO.page === "orders") moPage(); else if(MO.page === "seen") seenPage(); else { moEntry(); favEntry(); seenBlock(); supportEntry(); }
   let want = false; try{ want = sessionStorage.getItem(WANT) === "1"; }catch{}
   if(want && AUTH.token && p && p.name){ try{ sessionStorage.removeItem(WANT); }catch{} toast("Вы вошли — оформляем заказ"); NEXT = "checkout"; go("cart"); }
 };
@@ -755,38 +756,66 @@ function moPage(){
   moList(); trackPaint(MO.orders); payPaint(MO.orders);
   const oh = $("#orders"); if(oh && MO.orders && MO.orders.length) oh.insertAdjacentHTML("beforebegin", pushBoxHTML());
 }
-function openOrders(){
-  MO.page = "orders";
+function openPage(page){
+  MO.page = page;
   if(VIEW === "me" && MO.p){
-    try{ history.pushState({ mo: 1 }, "", "#orders"); }catch{}
+    try{ history.pushState({ mo: 1 }, "", "#" + page); }catch{}
     paintMe(MO.p, MO.orders); scrollTo({ top: 0 });
   } else { MO.keep = true; go("me"); }
 }
-window.moExclude = () => MO.page === "orders" && MO.orders ? MO.orders.filter(o => !moDone(o)).flatMap(o => (o.items || []).map(i => i.id)) : null;
+function openOrders(){ openPage("orders"); }
+/* «Избранное · N товаров» и «Вы смотрели» (история просмотров только в браузере — amura-seen, её пишет hits.js) */
+function favEntry(){
+  if($("#meBody .rfav")) return;
+  const n = FAV.length, m = n % 10, h = n % 100, w = m === 1 && h !== 11 ? "товар" : m >= 2 && m <= 4 && (h < 10 || h >= 20) ? "товара" : "товаров";
+  const html = `<button type="button" class="rsup rfav" data-go-fav><span class="rsup-i" aria-hidden="true">🤍</span><span><b>Избранное</b><small>${n ? `${n} ${w}` : "Пока пусто"}</small></span><span class="rsup-a" aria-hidden="true">›</span></button>`;
+  const after = $("#meBody .rmo") || $("#meBody #profile"); if(after) after.insertAdjacentHTML("afterend", html);
+}
+const seenItems = () => [...new Set(load("amura-seen", []))].map(byId).filter(Boolean);   // byId — только товары в наличии
+function seenBlock(){
+  const L = seenItems().slice(0, 20), old = $("#meBody .rseen");
+  if(old) old.remove();
+  if(!L.length) return;
+  const html = `<section class="rseen"><button type="button" class="rseen-h" data-seen-page>Вы смотрели <span aria-hidden="true">›</span></button><div class="grid rseen-row">${L.map(cardHTML).join("")}</div></section>`;
+  const after = $("#meBody .rfav") || $("#meBody .rmo") || $("#meBody #profile"); if(after) after.insertAdjacentHTML("afterend", html);
+}
+function seenPage(){
+  const L = seenItems();
+  $("#meTitle").textContent = "Вы смотрели";
+  $("#meBody").innerHTML = L.length ? `<div class="grid rseen-all">${L.map(cardHTML).join("")}</div><button type="button" class="btn ghost rseen-clr" data-seen-clear>Очистить историю</button>`
+    : `<div class="notice" style="margin:0"><h3>Здесь пока пусто</h3><p>Открывайте товары в каталоге — они появятся здесь.</p></div>`;
+}
+window.moExclude = () => MO.page === "orders" && MO.orders ? MO.orders.filter(o => !moDone(o)).flatMap(o => (o.items || []).map(i => i.id))
+  : MO.page === "seen" ? seenItems().map(i => i.id) : MO.page === "" && MO.p ? seenItems().slice(0, 20).map(i => i.id) : null;   // подборка — без того, что уже на экране
 const _goMo = go;      // уход в другой раздел или нажатие «Я» — снова кабинет; открытие #orders — экран заказов
 go = function(v){
   if(!MO.keep) MO.page = ""; MO.keep = false;
   const r = _goMo.apply(this, arguments);
-  if(v === "me" && MO.page === "orders") try{ history.replaceState(history.state, "", "#orders"); }catch{}
+  if(v === "me" && MO.page) try{ history.replaceState(history.state, "", "#" + MO.page); }catch{}
   return r;
 };
 addEventListener("popstate", () => {
   if(VIEW !== "me" || !MO.p) return;
-  const want = location.hash === "#orders" ? "orders" : "";
+  const want = PAGES[location.hash] || "";
   if(want !== MO.page){ MO.page = want; paintMe(MO.p, MO.orders); scrollTo({ top: 0 }); }
 });
 document.addEventListener("click", e => {
   if(e.target.closest("[data-mo-page]")) return openOrders();
+  if(e.target.closest("[data-seen-page]")) return openPage("seen");
+  if(e.target.closest("[data-go-fav]")) return go("fav");
+  if(e.target.closest("[data-seen-clear]")){ save("amura-seen", []); toast("История просмотров очищена"); paintMe(MO.p, MO.orders); return; }
+  const sc = e.target.closest(".rseen [data-id], .rseen-all [data-id]");     // карточки «Вы смотрели»: открыть, ♡, корзина — как в каталоге
+  if(sc && !e.target.closest("[data-radd]")) onBuyClick(e);
   if(e.target.closest("[data-mo-home]")){ if(history.state && history.state.mo) history.back(); else { MO.page = ""; paintMe(MO.p, MO.orders); try{ history.replaceState(null, "", "#me"); }catch{} scrollTo({ top: 0 }); } }
 });
-if(MO.keep && typeof go === "function") setTimeout(() => { if(MO.page === "orders" && VIEW !== "me"){ MO.keep = true; go("me", true); } }, 0);   // открыли amura.kz/#orders
+if(MO.keep && typeof go === "function") setTimeout(() => { if(MO.page && VIEW !== "me"){ MO.keep = true; go("me", true); } }, 0);   // открыли amura.kz/#orders или #seen
 
 /* «Поддержка» в кабинете — только после входа: чат «Поддержка AMURA», отвечает ИИ по правилам поддержки или менеджер */
 function supportEntry(){
   if(!$("#meBody") || $("#meBody [data-support]")) return;
   const prof = $("#meBody #profile"), at = $("#meBody [data-coop]") || $("#meBody #logout");
   const html = `<button type="button" class="rsup" data-support><span class="rsup-i" aria-hidden="true">💬</span><span><b>Поддержка</b><small>Вопрос о заказе, доставке, оплате или товаре — ответим в чате</small></span><span class="rsup-a" aria-hidden="true">›</span></button>`;
-  const after = $("#meBody .rmo") || prof;                         // под «Моими заказами», иначе сразу под профилем
+  const after = $("#meBody .rseen") || $("#meBody .rfav") || $("#meBody .rmo") || prof;   // под «Вы смотрели» / «Избранным» / «Моими заказами»
   if(after) after.insertAdjacentHTML("afterend", html);
   else if(at) at.insertAdjacentHTML("beforebegin", html); else $("#meBody").insertAdjacentHTML("beforeend", html);
   $("#meBody [data-support]").onclick = () => { if(window.openSupport) openSupport(""); };
