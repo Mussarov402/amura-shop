@@ -51,6 +51,11 @@ button{cursor:pointer}
 .wrap{max-width:1280px;margin:0 auto;padding:0 16px}
 
 body::before{content:"";position:fixed;left:0;right:0;top:0;height:env(safe-area-inset-top,0px);background:#0E3B2C;z-index:19;pointer-events:none}
+/* плашка AMURA в строке статуса по центру, как у WB/Ozon (цвет — выбор владельца). Есть только там, где есть безопасная зона сверху
+   (телефон, сайт «на экране Домой»); на компьютере и в браузере с адресной строкой зоны нет — высота 0, плашки не видно */
+body::after{content:"AMURA";position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) / 2);transform:translate(-50%,-50%);z-index:21;pointer-events:none;
+  height:max(0px,min(27px,calc(env(safe-area-inset-top,0px) - 6px)));overflow:hidden;padding:0 14px;border-radius:999px;background:#00FF41;color:#0E3B2C;
+  font-family:var(--display);font-weight:700;font-size:13px;letter-spacing:.08em;line-height:27px;display:flex;align-items:center}
 header.top{position:sticky;top:0;z-index:20;background:#0E3B2C;color:#F2F5F3;padding-top:env(safe-area-inset-top,0px)}
 .bar{display:flex;align-items:center;gap:14px;padding:12px 0}
 .logo{font-family:var(--display);font-weight:700;font-size:21px;letter-spacing:.02em;white-space:nowrap;color:#fff;text-decoration:none}
