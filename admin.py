@@ -1489,7 +1489,7 @@ def order_search():
     gone = (v[1].get("outItems") if v else None) or []          # нет в наличии — тоже находятся и добавляются
     out = smart_find(shown + gone, q, 30)
     return jsonify(ok=True, items=[{"type": "product", "id": i["id"], "name": i["name"], "qty": i["qty"], "price": oh.unit_price(i, 1, True),
-                                    "img": f"{oh.SITE_URL}/{i['img']}" if i.get("img") else ""} for i in out])
+                                    "img": oh.img_url(i.get("img"))} for i in out])
 
 
 @bp.put("/admin/api/orders/<number>")

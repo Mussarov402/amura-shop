@@ -84,7 +84,7 @@ def hits_view():
     h = public()
     items = {i["id"]: i for i in (oh.live() or {}).get("items", []) + (oh.live() or {}).get("hiddenItems", [])}
     card = lambda pid: {"id": pid, "name": (items.get(pid) or {}).get("name") or (oh._names.get(pid) or ("Товар снят с сайта",))[0],
-                        "img": f"{oh.SITE_URL}/{items[pid]['img']}" if (items.get(pid) or {}).get("img") else ""}
+                        "img": oh.img_url((items.get(pid) or {}).get("img"))}
     pins, off = _get("hits_pin"), _get("hits_off")
     return jsonify(ok=True, hits=[card(p) | {"pin": p in pins} for p in h["hits"]], off=[card(p) for p in off],
                    at=datetime.fromtimestamp(h["at"], timezone(timedelta(hours=5))).strftime("%d.%m %H:%M") if h["at"] else "")

@@ -139,7 +139,7 @@ def report(days=7, src="", now=None):
     for r in rows.values():
         it = cat.get(r["id"]) or {}
         name = it.get("name") or (oh._names.get(r["id"]) or ("",))[0] or "Товар снят с сайта"
-        r.update(name=name, img=f"{oh.SITE_URL}/{it['img']}" if it.get("img") else "", brand=it.get("brand") or "",
+        r.update(name=name, img=oh.img_url(it.get("img")), brand=it.get("brand") or "",
                  toCart=round(100 * r["carts"] / r["views"], 1) if r["views"] else None,
                  toOrder=round(100 * r["orders"] / r["carts"], 1) if r["carts"] else None)
     return {"since": since, "funnel": funnel, "rows": sorted(rows.values(), key=lambda r: (-r["views"], -r["sum"])), "sources": sorted(srcs)}
@@ -209,7 +209,7 @@ def product_report(pid, days=7, now=None):
     except Exception:
         it = {}
     return {"item": {"id": pid, "name": it.get("name") or (oh._names.get(pid) or ("Товар снят с сайта",))[0], "brand": it.get("brand") or "",
-                     "code": it.get("code") or "", "article": it.get("article") or "", "img": f"{oh.SITE_URL}/{it['img']}" if it.get("img") else ""},
+                     "code": it.get("code") or "", "article": it.get("article") or "", "img": oh.img_url(it.get("img"))},
             "cur": cur | conv(cur), "prev": old | conv(old), "since": since,
             "daily": [{"day": k} | v for k, v in sorted(daily.items()) if k >= since],
             "sources": sorted(({"code": k} | v for k, v in srcs.items()), key=lambda x: (-x["views"], -x["sum"]))}
