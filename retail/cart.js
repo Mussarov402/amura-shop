@@ -538,9 +538,7 @@ let TRACK_ORDERS = null;
 function trackPaint(orders){
   TRACK_ORDERS = orders || null;
   if(!orders) return;
-  const panels = document.querySelectorAll("#orders .order");
-  orders.forEach((o, i) => { const el = panels[i]; if(!el) return; const old = el.querySelector(".rtrk"); if(old) old.remove();
-    if(o.track) el.querySelector(".top + .top").insertAdjacentHTML("afterend", trackHTML(o.track)); });
+  if(MO.orders === orders && $("#moList")) moList();       // отслеживание показывается в карточке заказа
   seenTracks(Object.fromEntries(orders.filter(o => o.track).map(o => [o.number, o.track])), false);
   meDot(false);
 }
@@ -605,12 +603,7 @@ document.addEventListener("click", e => { const b = e.target.closest("[data-rpus
 
 /* «Мои заказы»: неоплаченный заказ, где выбрана карта, — кнопка «Оплатить»; после возврата с оплаты — «Оплата получена» */
 function payPaint(orders){
-  const panels = document.querySelectorAll("#orders .order");
   const pr = window.PAY_RET, justPaid = pr && pr.r === "ok" ? pr.n : "", draft = /^D\d+_/.test(justPaid);
-  (orders || []).forEach((o, i) => { const el = panels[i]; if(!el) return;
-    if(o.draft){ const h = el.querySelector(".top b"); if(h) h.textContent = "Ещё не оплачен"; const r = el.querySelector(".row"); if(r) r.remove(); }   // черновик: без номера, PDF и «Повторить»
-    if(!o.payCard || o.number === justPaid || o.payCard === justPaid || el.querySelector("[data-rpaynow]")) return;
-    el.querySelector(".top + .top").insertAdjacentHTML("afterend", `<button type="button" class="btn rpaynow" data-rpaynow="${esc(o.payCard)}">💳 Оплатить ${fmt(o.sum)} ₸</button>`); });
   if(justPaid !== "" && pr && !$("#rPaid")){
     const box = $("#orders") || $("#meBody .panel"), num = draft ? (pr.num || "") : pr.n;
     if(box) box.insertAdjacentHTML("beforebegin", `<div class="rdone-h rpaid" id="rPaid">${CHECK_BIG}<div><h3>${draft && !num ? "Оплата получена, оформляем заказ…" : "Оплата получена, заказ передан в сборку"}</h3><p id="rPaidN">${num ? `Заказ № ${esc(num)}` : pr.fail ? esc(pr.fail) : ""}</p></div></div>`);
@@ -637,9 +630,87 @@ document.addEventListener("click", async e => {
   const t = b.textContent; b.disabled = true; b.textContent = "Открываем оплату…";
   try{ location.href = await cardUrl(b.dataset.rpaynow); }catch(x){ toast(x.message); b.disabled = false; b.textContent = t; }
 });
+/* ---------- «Мои заказы» как у WB: карточки с фото, понятный статус, вкладки Активные / Завершённые, экран заказа ---------- */
+const MO = { p: null, orders: null, tab: "active" };
+function moStatus(o){
+  const s = o.status || "", pick = /самовывоз/i.test(o.ship || "");
+  if(o.draft) return ["Ожидает оплаты", "wait"];
+  if(/отмен/i.test(s)) return ["Отменён", "off"];
+  if(/возврат/i.test(s)) return ["Возврат", "off"];
+  if(/доставлен/i.test(s)) return ["Получен", "ok"];
+  if(/отгруж/i.test(s)) return pick ? ["Получен", "ok"] : ["Передан в доставку", "go"];
+  if(/собран/i.test(s)) return pick ? ["Готов к выдаче", "ok"] : ["Собирается", "go"];
+  if(/подтвержд/i.test(s)) return o.paid ? ["Оплачен", "go"] : ["Собирается", "go"];
+  if(o.payCard) return ["Ожидает оплаты", "wait"];
+  return [o.paid ? "Оплачен" : "Принят", "go"];
+}
+const moDone = o => ["Получен", "Отменён", "Возврат"].includes(moStatus(o)[0]) && !(moStatus(o)[0] === "Получен" && o.track && o.track.step < 3);
+const moPic = (it, cls) => { const c = byId(it.id), img = c && c.img; return `<span class="${cls}">${img ? `<img src="${esc(img)}" alt="" loading="lazy">` : `<i>${esc(((c && c.brand) || it.name || "A").charAt(0))}</i>`}${it.qty > 1 && cls === "mo-t" ? `<em>${it.qty}</em>` : ""}</span>`; };
+const moTitle = o => o.draft ? "Ещё не оплачен" : `Заказ № ${esc(o.number)}`;
+function moCard(o, i){
+  const [st, tone] = moStatus(o), its = o.items || [];
+  return `<article class="rcard mo" data-mo-open="${i}" tabindex="0">
+    <div class="mo-h"><span class="mo-chip ${tone}">${st}</span><span class="mo-d">от ${esc(o.date)}</span></div>
+    <div class="mo-ths">${its.slice(0, 5).map(it => moPic(it, "mo-t")).join("")}${its.length > 5 ? `<span class="mo-t"><i>+${its.length - 5}</i></span>` : ""}</div>
+    <div class="mo-f"><div><b>${moTitle(o)}</b>${o.ship ? `<small>${esc(o.ship)}</small>` : ""}</div><b class="mo-s">${fmt(o.sum)} ₸</b></div>
+    ${o.track && o.track.step >= 0 && o.track.step < 3 ? `<div class="mo-trk"><b>${esc(o.track.label)}</b>${o.track.link ? `<a href="${esc(o.track.link)}" target="_blank" rel="noopener">Где курьер?</a>` : ""}</div>` : ""}
+    ${o.payCard ? `<button type="button" class="btn rpaynow" data-rpaynow="${esc(o.payCard)}">💳 Оплатить ${fmt(o.sum)} ₸</button>` : ""}
+  </article>`;
+}
+function moList(){
+  const box = $("#orders"); if(!box || !MO.orders) return;
+  box.classList.add("mo-list"); box.id = "orders";
+  if(!MO.orders.length){ box.innerHTML = `<div class="notice" style="margin:0"><h3>Заказов пока нет</h3><p>Оформите первый заказ в каталоге — он появится здесь.</p></div>`; return; }
+  const act = MO.orders.map((o, i) => [o, i]).filter(([o]) => !moDone(o)), done = MO.orders.map((o, i) => [o, i]).filter(([o]) => moDone(o));
+  const list = MO.tab === "done" ? done : act;
+  box.innerHTML = `<div class="rtabs n2 mo-tabs" role="tablist" id="moList">
+      <button type="button" role="tab" aria-selected="${MO.tab !== "done"}" data-mo-tab="active">Активные${act.length ? `<small>${act.length}</small>` : ""}</button>
+      <button type="button" role="tab" aria-selected="${MO.tab === "done"}" data-mo-tab="done">Завершённые${done.length ? `<small>${done.length}</small>` : ""}</button></div>
+    ${list.length ? list.map(([o, i]) => moCard(o, i)).join("") : `<div class="kv" style="padding:14px 2px">${MO.tab === "done" ? "Завершённых заказов пока нет" : "Активных заказов нет — все получены"}</div>`}`;
+}
+function moOpen(i){
+  const o = MO.orders[i]; if(!o) return;
+  const [st, tone] = moStatus(o), goods = (o.items || []).reduce((s, it) => s + it.qty * it.price, 0);
+  const wa = CONFIG.managerWa ? `https://wa.me/${CONFIG.managerWa}?text=${encodeURIComponent(o.number ? `Здравствуйте! Вопрос по заказу № ${o.number}` : "Здравствуйте! Вопрос по заказу")}` : "";
+  $("#meTitle").innerHTML = moTitle(o);
+  $("#meBody").innerHTML = `<div class="mo-det"><button type="button" class="back mo-back" data-mo-back>← Мои заказы</button>
+    <section class="rcard"><div class="mo-h"><span class="mo-chip ${tone}">${st}</span><span class="mo-d">от ${esc(o.date)}</span></div>
+      ${o.track ? trackHTML(o.track) : ""}
+      ${o.payCard ? `<button type="button" class="btn rpaynow" data-rpaynow="${esc(o.payCard)}">💳 Оплатить ${fmt(o.sum)} ₸</button>` : ""}</section>
+    <section class="rcard"><h3>Товары · ${fmt(o.count)} шт</h3>${(o.items || []).map(it => `<div class="mo-it">${moPic(it, "mo-p")}<div><b>${esc(it.name)}</b><small>${fmt(it.qty)} шт × ${fmt(it.price)} ₸</small></div><b>${fmt(it.qty * it.price)} ₸</b></div>`).join("")}</section>
+    <section class="rcard"><h3>Получение</h3><div class="mo-ship">${esc(o.ship || "—")}</div>
+      <div class="rrow"><span>Товары</span><span>${fmt(goods)} ₸</span></div>
+      <div class="rrow"><span>Доставка</span><span class="${o.extra ? "" : "free"}">${o.extra ? fmt(o.extra) + " ₸" : "бесплатно"}</span></div>
+      <div class="rtot"><span>Итого</span><b>${fmt(o.sum)} ₸</b></div></section>
+    <div class="mo-act"><button type="button" class="btn" data-mo-repeat="${i}">Повторить заказ</button>${wa ? `<a class="btn ghost" href="${esc(wa)}" target="_blank" rel="noopener">Написать нам</a>` : ""}</div>
+  </div>`;
+  scrollTo({ top: 0 });
+}
+function moRepeat(i){
+  let added = 0, missing = 0;
+  (MO.orders[i].items || []).forEach(it => { const c = byId(it.id); if(c){ cart[c.id] = Math.min(c.qty, it.qty); added++; } else missing++; });
+  save("amura-cart2", cart); renderCartCount(); render();
+  toast(added ? `Добавлено в корзину: ${added}${missing ? `, нет в наличии: ${missing}` : ""}` : "Этих товаров сейчас нет в наличии");
+  if(added) go("cart");
+}
+document.addEventListener("click", e => {
+  if(VIEW !== "me" || !MO.orders) return;
+  if(e.target.closest("[data-rpaynow], a")) return;
+  const t = e.target.closest("[data-mo-tab]"); if(t){ MO.tab = t.dataset.moTab; return moList(); }
+  if(e.target.closest("[data-mo-back]")){ paintMe(MO.p, MO.orders); return scrollTo({ top: 0 }); }
+  const r = e.target.closest("[data-mo-repeat]"); if(r) return moRepeat(+r.dataset.moRepeat);
+  const c = e.target.closest("[data-mo-open]"); if(c) moOpen(+c.dataset.moOpen);
+});
+const _renderMo = render;   // каталог загрузился позже списка — перерисовать миниатюры заказов с фото
+render = function(){ const r = _renderMo.apply(this, arguments); if(VIEW === "me" && $("#moList")) moList(); return r; };
+document.addEventListener("keydown", e => { const c = e.key === "Enter" && e.target.closest && e.target.closest("[data-mo-open]"); if(c) moOpen(+c.dataset.moOpen); });
+
 const _paintMe = paintMe;
 paintMe = function(p, orders){
   _paintMe(p, orders); markRetail();
+  MO.p = p; MO.orders = orders;
+  if(orders && orders.length && !orders.some(o => !moDone(o))) MO.tab = "done";
+  moList();
   trackPaint(orders);
   payPaint(orders);
   const oh = $("#orders"); if(oh && orders && orders.length && !$("#meBody .rpush")) oh.insertAdjacentHTML("beforebegin", pushBoxHTML());
