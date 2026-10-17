@@ -57,6 +57,17 @@ class Partners(unittest.TestCase):
         self.assertEqual(self.c.get("/admin/api/partners").get_json()["counts"], {"new": 1, "contacted": 1, "rejected": 0})
         self.assertEqual(self.c.post(f"/admin/api/partners/{s['id']}", json={"status": "x"}).status_code, 400)
 
+    def test_cors_for_sites(self):
+        """Сайты amura.kz / opt.amura.kz — другой адрес: без CORS браузер пишет «Нет связи с сервером»."""
+        import app
+        c = app.app.test_client()
+        for origin in ("https://amura.kz", "https://opt.amura.kz"):
+            h = {"Origin": origin}
+            self.assertEqual(c.get("/partners/info", headers=h).headers.get("Access-Control-Allow-Origin"), origin)
+            self.assertEqual(c.options("/partners/apply", headers=h).headers.get("Access-Control-Allow-Origin"), origin)
+            self.assertEqual(c.options("/an/ev", headers=h).headers.get("Access-Control-Allow-Origin"), origin)
+        self.assertIsNone(self.c.get("/partners/info", headers={"Origin": "https://evil.example"}).headers.get("Access-Control-Allow-Origin"))
+
     def test_limit_and_off(self):
         oh.too_many = lambda *a, **k: True
         self.assertEqual(self.post().status_code, 429)

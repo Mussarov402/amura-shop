@@ -15,6 +15,7 @@ import modules
 import order_hook as oh
 
 bp = Blueprint("analytics", __name__)
+bp.after_request(oh.cors)                 # сайты amura.kz и opt.amura.kz обращаются к серверу с другого адреса
 ALMATY = timezone(timedelta(hours=5))
 BOT = re.compile(r"bot|crawl|spider|slurp|headless|lighthouse|preview|facebookexternalhit|whatsapp|telegram|python|curl|wget|httpclient|monitor",
                  re.I)

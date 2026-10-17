@@ -12,6 +12,7 @@ import modules
 import order_hook as oh
 
 bp = Blueprint("partners", __name__)
+bp.after_request(oh.cors)                 # сайты amura.kz и opt.amura.kz обращаются к серверу с другого адреса
 KINDS = {"opt": "Стать оптовиком", "seller": "Стать продавцом"}
 STATUSES = ("new", "contacted", "rejected")
 LEGAL = ("ИП", "ТОО", "Пока нет")
