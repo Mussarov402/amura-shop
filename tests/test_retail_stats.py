@@ -54,6 +54,31 @@ class RetailStats(unittest.TestCase):
             d.run("DELETE FROM ms_doc")
         self.assertIsNone(self.get("30")["buyout"])
 
+    def test_opt_and_total(self):
+        """Опт (opt.amura.kz): заказано за период, отгружено, ждут оплаты, отменено; «Всего с сайтов» = розница + опт."""
+        with mirror.db() as d:
+            for i, (moment, updated, st, total, paid) in enumerate([
+                ("2026-10-17 09:00:00", "2026-10-17 09:00:00", "s-new", 50000, 20000),      # сегодня, оплачен частично
+                ("2026-10-15 12:00:00", "2026-10-17 10:00:00", "s-ship", 30000, 30000),     # отгружен сегодня
+                ("2026-10-17 11:00:00", "2026-10-17 12:00:00", "s-x", 15000, 0)]):          # заказан и отменён сегодня
+                d.run("INSERT INTO ms_doc (id, type, number, moment, updated, state_id, sum, paid, descr, deleted) VALUES (%s,'customerorder',%s,%s,%s,%s,%s,%s,%s,0)",
+                      (f"w{i}", str(1800 + i), moment, updated, st, total, paid, rs.OPT_MARK))
+        o = rs.opt_stats("today", now=NOW, states=ST)
+        self.assertEqual(o["ordered"], {"count": 3, "sum": 155000})              # 90 000 из setUp + 50 000 + 15 000
+        self.assertEqual(o["shipped"], {"count": 1, "sum": 30000})
+        self.assertEqual(o["unpaid"], {"count": 1, "sum": 30000})                # отменённый и оплаченный — не ждут
+        self.assertEqual(o["cancelled"], {"count": 1, "sum": 15000})
+        import admin
+        from flask import Flask
+        old = (admin.who, rs.stats, rs.opt_stats)
+        admin.who = lambda: {"role": "owner", "perms": [], "name": "Владелец"}
+        rs.stats, rs.opt_stats = (lambda p: old[1](p, now=NOW, states=ST, pickup=lambda oid: oid == "o5")), (lambda p: old[2](p, now=NOW, states=ST))
+        self.addCleanup(lambda: (setattr(admin, "who", old[0]), setattr(rs, "stats", old[1]), setattr(rs, "opt_stats", old[2])))
+        app = Flask(__name__)
+        app.register_blueprint(rs.bp)
+        j = app.test_client().get("/admin/api/site-stats?period=today").get_json()
+        self.assertEqual(j["total"], {"count": 5, "sum": 172000, "avg": 34400})   # розница 2 на 17 000 + опт 3 на 155 000
+
 
 if __name__ == "__main__":
     unittest.main()

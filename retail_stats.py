@@ -1,5 +1,7 @@
-"""«Сегодня»: выручка розничного сайта (amura.kz) как в кабинете WB — Заказано / Выкуплено / Отменено, процент выкупа.
-Данные — из нашей копии МойСклад (ms_doc), только заказы с пометкой «Заказ с розничного сайта». В МойСклад ничего не пишем.
+"""«Главная»: заказы с наших сайтов. Розница (amura.kz) как в кабинете WB — Заказано / Выкуплено / Отменено, процент выкупа;
+опт (opt.amura.kz) — Заказано / Отгружено / Ждут оплаты / Отменено; «Всего с сайтов» — оба вместе и средний чек.
+Данные — из нашей копии МойСклад (ms_doc): розница — пометка «Заказ с розничного сайта», опт — «Заказ с сайта»
+(заказы из системы AMURA, ИИ и кассы сюда не входят). В МойСклад ничего не пишем.
 
 Как считаем:
 - Заказано — оплаченные заказы (оплачено ≥ суммы) по дате создания;
@@ -72,6 +74,47 @@ def stats(period, now=None, states=None, pickup=_pickup):
     done = t["bought"][0] + t["cancelled"][0]
     return {k: {"count": v[0], "sum": v[1]} for k, v in t.items()} | {"buyout": round(100 * t["bought"][0] / done) if done else None,
                                                                        "mirror": mirror.enabled()}
+
+
+OPT_MARK = "Заказ с сайта"            # первая строка комментария заказа с opt.amura.kz (order_core, source по умолчанию)
+
+
+def opt_stats(period, now=None, states=None):
+    """Оптовый сайт: Заказано — созданные за период; Отгружено — «Отгружен»/«Доставлен»; Отменено — «Отменен»/«Возврат»
+    (по дате последнего изменения); Ждут оплаты — созданные за период, не отменённые и оплаченные не полностью."""
+    a, b = bounds(period, now)
+    states = states if states is not None else _states()
+    with mirror.db() as d:
+        rows = d.run("SELECT id, moment, updated, state_id, sum, COALESCE(paid, 0) FROM ms_doc WHERE type='customerorder' AND deleted=0 "
+                     "AND descr=%s AND (moment>=%s OR updated>=%s)", (OPT_MARK, a, a), many=True) or []
+    t = {k: [0, 0] for k in ("ordered", "shipped", "unpaid", "cancelled")}
+    add = lambda k, v: (t[k].__setitem__(0, t[k][0] + 1), t[k].__setitem__(1, t[k][1] + v))
+    for oid, moment, updated, sid, total, paid in rows:
+        total, st = round(total or 0), states.get(sid or "", "Новый")
+        off = bool(re.search(r"отмен|возврат", st, re.I))
+        if a <= (moment or "") < b and total > 0:
+            add("ordered", total)
+            if not off and paid < total:
+                add("unpaid", total - round(paid))
+        if a <= (updated or "") < b:
+            if re.search(r"отгруж|доставлен", st, re.I):
+                add("shipped", total)
+            elif off:
+                add("cancelled", total)
+    return {k: {"count": v[0], "sum": v[1]} for k, v in t.items()}
+
+
+@bp.get("/admin/api/site-stats")
+@admin.guard
+def site_stats():
+    """«Главная»: розница, опт и всего с сайтов за период."""
+    period = request.args.get("period", "today")
+    if period not in PERIODS:
+        period = "today"
+    r, o = stats(period), opt_stats(period)
+    n, s_ = r["ordered"]["count"] + o["ordered"]["count"], r["ordered"]["sum"] + o["ordered"]["sum"]
+    return jsonify(ok=True, period=period, retail=r, opt=o, total={"count": n, "sum": s_, "avg": round(s_ / n) if n else 0},
+                   mirror=mirror.enabled())
 
 
 @bp.get("/admin/api/retail-stats")
