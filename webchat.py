@@ -32,19 +32,24 @@ def is_web(chat):
     return str(chat).startswith(PREFIX)
 
 
+def is_retail(chat):
+    """Поддержка розничного сайта amura.kz: «web:r-<id>» (кнопка «Написать в поддержку» в «Моих заказах»)."""
+    return str(chat).startswith(PREFIX + "r-")
+
+
 def _sig(s):
     return hmac.new(_SECRET, s.encode(), hashlib.sha256).hexdigest()[:24]
 
 
-def new_token():
-    cid = secrets.token_urlsafe(12).replace("-", "x").replace("_", "y")
+def new_token(retail=False):
+    cid = ("r-" if retail else "") + secrets.token_urlsafe(12).replace("-", "x").replace("_", "y")
     return f"{cid}.{_sig(cid)}"
 
 
 def chat_of(token):
     """«web:<id>» для верного токена, иначе None."""
     cid, _, sig = str(token or "").partition(".")
-    if not re.fullmatch(r"[A-Za-z0-9]{8,32}", cid) or not hmac.compare_digest(sig, _sig(cid)):
+    if not re.fullmatch(r"(r-)?[A-Za-z0-9]{8,32}", cid) or not hmac.compare_digest(sig, _sig(cid)):
         return None
     return PREFIX + cid
 
@@ -114,7 +119,7 @@ def start():
         return "", 204
     if _limited(_ip(), limit=20):
         return jsonify(ok=False, error="Слишком часто, попробуйте через несколько минут"), 429
-    return jsonify(ok=True, token=new_token())
+    return jsonify(ok=True, token=new_token(retail=request.args.get("site") == "retail"))
 
 
 @bp.route("/chat/send", methods=["POST", "OPTIONS"])
@@ -151,6 +156,8 @@ def send():
     who = name or "Посетитель сайта"
     if phone:
         who += f" +{phone}"
+    if is_retail(chat):
+        who += " · amura.kz"
     import inbox
     threading.Thread(target=inbox.on_client_message, args=(chat, {"first_name": who, "username": ""}, text),
                      kwargs={"photo": photo}, daemon=True).start()

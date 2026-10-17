@@ -688,7 +688,6 @@ function moList(){
 function moOpen(i){
   const o = MO.orders[i]; if(!o) return;
   const [st, tone] = moStatus(o), goods = (o.items || []).reduce((s, it) => s + it.qty * it.price, 0);
-  const wa = CONFIG.managerWa ? `https://wa.me/${CONFIG.managerWa}?text=${encodeURIComponent(o.number ? `Здравствуйте! Вопрос по заказу № ${o.number}` : "Здравствуйте! Вопрос по заказу")}` : "";
   $("#meTitle").innerHTML = moTitle(o);
   $("#meBody").innerHTML = `<div class="mo-det"><button type="button" class="back mo-back" data-mo-back>← Мои заказы</button>
     <section class="rcard"><div class="mo-h"><span class="mo-chip ${tone}">${st}</span><span class="mo-d">от ${esc(o.date)}</span></div>
@@ -699,7 +698,7 @@ function moOpen(i){
       <div class="rrow"><span>Товары</span><span>${fmt(goods)} ₸</span></div>
       <div class="rrow"><span>Доставка</span><span class="${o.extra ? "" : "free"}">${o.extra ? fmt(o.extra) + " ₸" : "бесплатно"}</span></div>
       <div class="rtot"><span>Итого</span><b>${fmt(o.sum)} ₸</b></div></section>
-    <div class="mo-act"><button type="button" class="btn" data-mo-repeat="${i}">Повторить заказ</button>${wa ? `<a class="btn ghost" href="${esc(wa)}" target="_blank" rel="noopener">Написать нам</a>` : ""}</div>
+    <div class="mo-act"><button type="button" class="btn" data-mo-repeat="${i}">Повторить заказ</button><button type="button" class="btn ghost" data-mo-support="${esc(o.number || "")}">Написать в поддержку</button></div>
   </div>`;
   scrollTo({ top: 0 });
 }
@@ -716,6 +715,7 @@ document.addEventListener("click", e => {
   const t = e.target.closest("[data-mo-tab]"); if(t){ MO.tab = t.dataset.moTab; return moList(); }
   if(e.target.closest("[data-mo-back]")){ paintMe(MO.p, MO.orders); return scrollTo({ top: 0 }); }
   const r = e.target.closest("[data-mo-repeat]"); if(r) return moRepeat(+r.dataset.moRepeat);
+  const sp = e.target.closest("[data-mo-support]"); if(sp){ if(window.openSupport) openSupport(sp.dataset.moSupport ? `Вопрос по заказу № ${sp.dataset.moSupport}: ` : ""); return; }
   const c = e.target.closest("[data-mo-open]"); if(c) moOpen(+c.dataset.moOpen);
 });
 const _renderMo = render;   // каталог загрузился позже списка — перерисовать миниатюры заказов с фото

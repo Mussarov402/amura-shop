@@ -1606,32 +1606,33 @@ boot();
 </script>
 <script>
 /* Чат с менеджером: сообщения приходят в панель → «Сообщения» (канал «Сайт»), отвечает ИИ или менеджер.
-   Только оптовый сайт — на розничном (window.AMURA_RETAIL) чата нет. */
+   Розница (window.AMURA_RETAIL) — «Поддержка»: открывается кнопкой «Написать в поддержку» в «Моих заказах» (window.openSupport),
+   круглая кнопка появляется, только когда переписка уже начата. ИИ там по умолчанию выключен — отвечает менеджер. */
 (function(){
-  if(window.AMURA_RETAIL) return;
+  const R = !!window.AMURA_RETAIL;
   const API = CONFIG.apiUrl, K = "amura-chat";
   const st = (() => { try{ return JSON.parse(localStorage.getItem(K) || "{}"); }catch{ return {}; } })();
   const keep = () => { try{ localStorage.setItem(K, JSON.stringify(st)); }catch{} };
   let msgs = [], open = false, timer = 0, sending = false;
   const btn = document.createElement("button");
-  btn.className = "cbtn"; btn.type = "button"; btn.setAttribute("aria-label", "Чат с менеджером");
+  btn.className = "cbtn"; btn.type = "button"; btn.setAttribute("aria-label", R ? "Поддержка" : "Чат с менеджером"); btn.hidden = R && !st.token;
   btn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg><i hidden>0</i>';
   document.body.appendChild(btn);
   const box = document.createElement("section");
-  box.className = "cbox"; box.hidden = true; box.setAttribute("aria-label", "Чат с менеджером");
-  box.innerHTML = `<header><b>Чат с AMURA<small>Ответим здесь, обычно за несколько минут</small></b><button type="button" class="ccl" aria-label="Закрыть">✕</button></header>
+  box.className = "cbox"; box.hidden = true; box.setAttribute("aria-label", R ? "Поддержка" : "Чат с менеджером");
+  box.innerHTML = `<header><b>${R ? "Поддержка AMURA" : "Чат с AMURA"}<small>Ответим здесь, обычно за несколько минут</small></b><button type="button" class="ccl" aria-label="Закрыть">✕</button></header>
     <div class="cmsgs" id="cmsgs"></div><div class="cerr" id="cerr" hidden></div>
-    <div class="cme" id="cme"><input id="cName" placeholder="Ваше имя" autocomplete="name"><input id="cPhone" type="tel" inputmode="tel" placeholder="Телефон (необяз.)" autocomplete="tel"></div>
+    <div class="cme" id="cme"><input id="chName" placeholder="Ваше имя" autocomplete="name"><input id="chPhone" type="tel" inputmode="tel" placeholder="Телефон (необяз.)" autocomplete="tel"></div>
     <form class="cin" id="cform"><button type="button" class="cat" id="cat" aria-label="Прикрепить фото или PDF">📎</button><input type="file" id="cfile" accept="image/*,application/pdf" hidden>
     <textarea id="ctext" rows="1" placeholder="Сообщение…"></textarea><button class="csd" type="submit">Отправить</button></form>`;
   document.body.appendChild(box);
   const $c = id => box.querySelector("#" + id);
-  if(st.name) $c("cName").value = st.name;
-  if(st.phone) $c("cPhone").value = st.phone;
+  if(st.name) $c("chName").value = st.name;
+  if(st.phone) $c("chPhone").value = st.phone;
   const tm = t => new Date(t * 1000).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
   function draw(){
     const el = $c("cmsgs"), atEnd = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
-    el.innerHTML = (msgs.length ? "" : '<div class="chint">Здравствуйте! Задайте вопрос о товаре, заказе или оптовых ценах — ответим в этом окне.</div>') +
+    el.innerHTML = (msgs.length ? "" : `<div class="chint">Здравствуйте! ${R ? "Напишите вопрос о заказе или товаре" : "Задайте вопрос о товаре, заказе или оптовых ценах"} — ответим в этом окне.</div>`) +
       msgs.map(m => `<div class="cm ${m.me ? "me" : ""}">${m.photo ? `<a href="${esc(m.photo)}" target="_blank" rel="noopener"><img src="${esc(m.photo)}" alt="Фото" loading="lazy"></a>` : ""}${m.file ? `<a href="${esc(m.file.url)}" target="_blank" rel="noopener">📄 ${esc(m.file.name)}</a>${m.text ? "\n" : ""}` : ""}${esc(m.text)}<small>${m.ed ? "изменено · " : ""}${m.at ? tm(m.at) : "отправляется…"}</small></div>`).join("");
     if(atEnd || !el.dataset.seen){ el.scrollTop = el.scrollHeight; el.dataset.seen = 1; }
     $c("cme").hidden = !!st.sent;
@@ -1660,11 +1661,18 @@ boot();
   }
   function schedule(){ clearTimeout(timer); timer = setTimeout(async () => { if(document.visibilityState === "visible") await poll(); schedule(); }, open ? 3000 : 25000); }
   function show(v){
-    open = v; box.hidden = !v; btn.hidden = v;
+    open = v; box.hidden = !v; btn.hidden = v || (R && !st.token);
     if(v){ if(msgs.length){ st.seen = msgs[msgs.length - 1].id || st.seen; keep(); } draw(); badge(); poll(); setTimeout(() => $c("ctext").focus(), 50); }
     schedule();
   }
   btn.onclick = () => show(true);
+  window.openSupport = text => {                     // «Написать в поддержку» в «Моих заказах»: вопрос уже с номером заказа
+    const p = (typeof AUTH !== "undefined" && AUTH.profile) || {};
+    if(!$c("chName").value && p.name) $c("chName").value = p.name;
+    if(!$c("chPhone").value && p.phone) $c("chPhone").value = "+" + String(p.phone).replace(/\D/g, "");
+    if(text && !$c("ctext").value) $c("ctext").value = text;
+    show(true);
+  };
   box.querySelector(".ccl").onclick = () => show(false);
   $c("cat").onclick = () => $c("cfile").click();
   $c("ctext").addEventListener("keydown", e => { if(e.key === "Enter" && !e.shiftKey && !matchMedia("(pointer:coarse)").matches){ e.preventDefault(); $c("cform").requestSubmit(); } });
@@ -1672,8 +1680,8 @@ boot();
     const err = $c("cerr"); err.hidden = true;
     if(sending) return; sending = true;
     try{
-      if(!st.token){ const r = await fetch(API + "/chat/start", { method: "POST" }); const j = await r.json(); if(!j.ok) throw new Error(j.error || "Чат недоступен"); st.token = j.token; keep(); }
-      st.name = $c("cName").value.trim(); st.phone = $c("cPhone").value.trim(); keep();
+      if(!st.token){ const r = await fetch(API + "/chat/start" + (R ? "?site=retail" : ""), { method: "POST" }); const j = await r.json(); if(!j.ok) throw new Error(j.error || "Чат недоступен"); st.token = j.token; keep(); }
+      st.name = $c("chName").value.trim(); st.phone = $c("chPhone").value.trim(); keep();
       msgs.push({ me: true, text: file ? (text || "") + (file.type === "application/pdf" ? "\n📄 " + file.name : "\n📷 Фото") : text, at: 0 }); draw();
       let r;
       if(file){
