@@ -324,7 +324,9 @@ def status_route():
     dr = get_draft(int(number[1:]))
     if not dr:
         return jsonify(ok=False, error="Заказ не найден"), 404
-    return jsonify(ok=True, status=dr["status"], number=dr["number"])
+    data = dr["data"]                                                # для экрана «Заказ оплачен»: состав, сумма, получение
+    return jsonify(ok=True, status=dr["status"], number=dr["number"], total=dr["total"], ship=data.get("shipName", ""), dlv=data.get("dlv", 0),
+                   items=[{"id": l["id"], "name": l["name"], "qty": l["qty"], "price": l["price"]} for l in data.get("lines") or []])
 
 
 @bp.route("/pay/card/init", methods=["POST", "OPTIONS"])
