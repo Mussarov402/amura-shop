@@ -101,6 +101,9 @@ _watchdog()
 if __import__("os").environ.get("PORT"):          # только на сервере: разделы-дубли МойСклад один раз выключаются (17.10.2026)
     import modules  # noqa: E402
     modules.simplify_1017()
+    import threading  # noqa: E402
+    import admin as _admin  # noqa: E402
+    threading.Thread(target=_admin.warm, daemon=True).start()   # первые нажатия после обновления не ждут МойСклад
 
 
 if __name__ == "__main__":

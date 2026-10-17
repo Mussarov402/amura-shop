@@ -635,6 +635,22 @@ def _ms_states():
 _refreshing = set()
 
 
+def warm():
+    """Сразу после запуска сервера (каждое обновление на Render) загружаем то, что открывают первым: заказы, статусы,
+    «Сегодня», каталог товаров. Иначе первое нажатие на раздел ждёт МойСклад до полуминуты и кажется, что система зависла."""
+    time.sleep(3)
+    for key, ttl, fn in (("adm_order_states", 600, _ms_states), ("adm_orders", 45, _ms_orders),
+                         ("adm_today", 60, _ms_today), ("adm_ping", 30, _ms_ping)):
+        try:
+            oh.cached(key, ttl, fn)
+        except Exception as e:
+            print("Прогрев системы AMURA:", key, e.__class__.__name__, flush=True)
+    try:
+        oh.refresh(oh.LIVE_TTL)
+    except Exception as e:
+        print("Прогрев каталога:", e.__class__.__name__, flush=True)
+
+
 def fresh(key, ttl, fn):
     """Данные из МойСклад с кэшем. Устарели — отдаём прошлые сразу, а обновляем в фоне (панель не ждёт МойСклад).
     Данных ещё нет (первый запрос) — ждём; если МойСклад завис, вместо ошибки в панели «обновите через минуту»."""
