@@ -1920,15 +1920,19 @@ def me():
         "filter": f"agent={API}/entity/counterparty/{cid}", "order": "moment,desc", "limit": 30,
         "expand": "state,positions.assortment"})["rows"]
     for o in rows:
-        items, count = [], 0
+        items, count, extra = [], 0, 0
         for p in o.get("positions", {}).get("rows", []):
             a = p.get("assortment", {})
             if a.get("meta", {}).get("type") == "product" and a.get("code") != LOADER_CODE:
                 items.append({"id": a["id"], "name": a.get("name", ""), "qty": int(p["quantity"]), "price": p["price"] / 100})
                 count += int(p["quantity"])
+            else:
+                extra += p["price"] * p["quantity"] / 100          # доставка, грузчик, комиссия — для «Моих заказов» на рознице
+        ship = next((ln[len("Отправка: "):] for ln in (o.get("description") or "").splitlines() if ln.startswith("Отправка: ")), "")
         orders.append({"number": o["name"], "date": datetime.strptime(o["moment"][:16], "%Y-%m-%d %H:%M").strftime("%d.%m.%Y"),
                        "status": (o.get("state") or {}).get("name", "Новый"), "sum": o["sum"] / 100,
-                       "count": count, "items": items,
+                       "count": count, "items": items, "ship": ship, "extra": extra,
+                       "paid": bool(o["sum"]) and (o.get("payedSum") or 0) >= o["sum"],
                        "payCard": f"{o['name']}_{sign(o['name'])}" if (PAY_CARD_TXT in (o.get("description") or "") and (o.get("payedSum") or 0) < o["sum"]
                                                                         and not re.search(r"отмен|возврат", (o.get("state") or {}).get("name", ""), re.I)) else "",
                        "pdfUrl": f"{PUBLIC_URL}/order/{o['name']}/pdf?t={sign(o['name'])}"})
@@ -1939,6 +1943,7 @@ def me():
             orders.insert(0, {"number": "", "draft": dr["id"], "date": datetime.fromtimestamp(dr["created"], ALMATY).strftime("%d.%m.%Y"),
                               "status": "Ожидает оплаты", "sum": dr["total"], "count": sum(l["qty"] for l in ls),
                               "items": [{"id": l["id"], "name": l["name"], "qty": l["qty"], "price": l["price"]} for l in ls],
+                              "ship": dr["data"].get("shipName", ""), "extra": dr["data"].get("dlv", 0), "paid": False,
                               "payCard": freedom.draft_token(dr["id"]), "pdfUrl": ""})
     except Exception as e:
         print("Мои заказы: черновики не получены:", e, flush=True)
@@ -1947,7 +1952,7 @@ def me():
         paid = freedom.paid_numbers([o["number"] for o in orders if o["payCard"]])
         for o in orders:
             if o["number"] in paid:
-                o["payCard"] = ""
+                o["payCard"], o["paid"] = "", True
     except Exception as e:
         print("Мои заказы: оплаты картой не проверены:", e, flush=True)
     try:                                             # отслеживание курьера Яндекса — только своих заказов
