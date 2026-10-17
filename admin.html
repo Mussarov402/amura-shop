@@ -236,8 +236,10 @@ const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&g
 const fmt=n=>Number(n).toLocaleString("ru-RU").replace(/ /g," ");
 let nav=0;   // номер перехода между разделами: ответ GET-запроса из прежнего раздела отбрасывается
 let gotStale=false;
-async function api(p,o={}){const n=nav;const r=await fetch("/admin/api/"+p,{...o,headers:{"Content-Type":"application/json",Authorization:"Bearer "+tok}});if(!o.method&&r.headers.get("X-Stale"))gotStale=true;
- if(r.status===401){localStorage.removeItem(T);tok="";boot();throw Error("401")}const j=await r.json();if(!o.method&&n!==nav)throw Error("stale");if(!j.ok)throw Error(j.error||"Ошибка");return j}
+async function api(p,o={}){const n=nav;let r;const ac=o.method||o.signal?null:new AbortController(),tm=ac&&setTimeout(()=>ac.abort(),30000);   /* чтение: не дольше 30 с — вместо вечной «Загрузки» кнопка «Повторить» */
+ try{r=await fetch("/admin/api/"+p,{...o,...(ac?{signal:ac.signal}:{}),headers:{"Content-Type":"application/json",Authorization:"Bearer "+tok}})}catch(e){throw Error(e.name==="AbortError"?"Сервер долго отвечает":"Нет связи с сервером — проверьте интернет")}finally{clearTimeout(tm)}
+ if(!o.method&&r.headers.get("X-Stale"))gotStale=true;
+ if(r.status===401){localStorage.removeItem(T);tok="";boot();throw Error("401")}const j=await r.json().catch(()=>({ok:false,error:r.status>=500?"Сервер перезапускается":"Ошибка "+r.status}));if(!o.method&&n!==nav)throw Error("stale");if(!j.ok)throw Error(j.error||"Ошибка");return j}
 const ALLOW={partners:"orders",analytics:"owner",wishes:"owner",money:"owner",reports:"owner",sources:"owner",wh:"warehouse",mirror:"owner",notif:"owner",overview:"owner",pay:"owner",delivery:"owner",accounts:"owner",banners:"owner",reviews:"products",ai:"owner",team:"owner",channels:"owner",products:"products",orders:"orders",retail:"orders",courier:"orders",express:"orders",clients:"orders",inbox:"inbox",groups:"inbox"};
 let ME=null,MODS={};const MODV={partners:"partners",analytics:"analytics",wishes:"wishes",money:"finance",reports:"finance",wh:"warehouse",sources:"sources"};   /* разделы подключаемых модулей: выключен модуль — раздела нет */
 const can=p=>!!ME&&!(MODV[p]&&!MODS[MODV[p]])&&(ME.role==="owner"||(ALLOW[p]!=="owner"&&ME.perms.includes(ALLOW[p])));
@@ -1005,7 +1007,10 @@ function bindLabels(list,kind){const s=$("#lblf");if(s)s.onchange=()=>{try{local
 function toast(t,ms=2600){let el=document.getElementById("tst");if(!el){el=document.createElement("div");el.id="tst";el.style.cssText="position:fixed;left:50%;top:calc(72px + env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:9999;background:#16201B;color:#fff;padding:10px 16px;border-radius:12px;font-weight:700;font-size:14px;box-shadow:0 8px 24px rgba(0,0,0,.25);max-width:90vw;text-align:center";document.body.appendChild(el)}
  clearTimeout(el._t);if(ms<0||!t){el.remove();return}el.textContent=t;if(ms>0)el._t=setTimeout(()=>el.remove(),ms)}
 let timer=null;
-async function show(p,arg){nav++;gotStale=false;lastArg=arg;clearInterval(timer);window.onpopstate=null;try{localStorage.setItem("amura_view",p)}catch(e){}document.body.classList.remove("inchat");cur=p;renderSubs();$("#main").innerHTML='<div class="mut">Загрузка…</div>';try{await views[p](arg);if(p==="products"&&p===cur)pendDraw();if(restoreY&&p===cur){const y=restoreY;restoreY=0;setTimeout(()=>scrollTo(0,y),60)}}catch(e){if(e.message!=="401"&&e.message!=="stale"&&p===cur)$("#main").innerHTML=`<div class="b x">${esc(e.message)}</div>`}}
+async function show(p,arg){if(p!==cur)failN=0;nav++;gotStale=false;lastArg=arg;clearInterval(timer);window.onpopstate=null;try{localStorage.setItem("amura_view",p)}catch(e){}document.body.classList.remove("inchat");cur=p;renderSubs();$("#main").innerHTML='<div class="mut">Загрузка…</div>';try{await views[p](arg);if(p===cur)failN=0;if(p==="products"&&p===cur)pendDraw();if(restoreY&&p===cur){const y=restoreY;restoreY=0;setTimeout(()=>scrollTo(0,y),60)}}catch(e){if(e.message!=="401"&&e.message!=="stale"&&p===cur)loadFail(p,arg,e.message)}}
+/* раздел не загрузился (сервер перезапускается, МойСклад медлит, нет связи): кнопка «Повторить» и один автоповтор через 5 с */
+let failN=0;function loadFail(p,arg,msg){const n=nav,auto=failN++<1;$("#main").innerHTML=`<div class="card" style="text-align:center;padding:28px 16px"><div style="font-weight:700;font-size:16px">Раздел не загрузился</div><div class="mut" style="margin:6px 0 14px">${esc(msg)}${auto?" · пробую ещё раз…":""}</div><button class="btn" id="lfr">Повторить</button></div>`;
+ $("#lfr").onclick=()=>show(p,arg);if(auto)setTimeout(()=>{if(n===nav&&cur===p)show(p,arg)},5000)}
 const badge=(ok,a="Работает",b="Сбой")=>`<span class="b ${ok?"ok":"x"}">${ok?a:b}</span>`;
 const views={
 async overview(){const o=await api("overview");$("#main").innerHTML=head("Сегодня","")+seg("overview")+`<div id="dash"></div>
