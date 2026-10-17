@@ -708,12 +708,20 @@ def catalog_route():
         card = request.args.get("mode") == "retail" and freedom.available()   # «Оплатить картой» — только розница, модуль включён и ключи есть
     except Exception:
         card = False
-    ck = ("catjson", ws, closed, promo, mn, card)             # JSON и gzip собираются раз на обновление каталога, а не на каждого посетителя
+    hits = {}
+    if request.args.get("mode") == "retail":                     # розница: «Хиты продаж» и порядок «Популярные» (пересчёт раз в сутки)
+        try:
+            import hits as _hits
+            h = _hits.public()
+            hits = {"hits": h["hits"], "pop": h["pop"]} if h["pop"] else {}
+        except Exception:
+            hits = {}
+    ck = ("catjson", ws, closed, promo, mn, card, len(json.dumps(hits)) and hash(json.dumps(hits)))   # JSON и gzip — раз на обновление каталога
     hit = _cache.get(ck)
     if hit and hit[0] is data:
         body = hit[1]
     else:
-        raw = json.dumps({"updated": data["updated"], "wholesale": ws, "items": view_items(data["items"], ws)} | ({"closed": SITE_CLOSED} if closed else {}) | ({"promo": True} if promo else {}) | ({"minOrder": mn} if mn else {}) | ({"cardPay": True} if card else {}),
+        raw = json.dumps({"updated": data["updated"], "wholesale": ws, "items": view_items(data["items"], ws)} | ({"closed": SITE_CLOSED} if closed else {}) | ({"promo": True} if promo else {}) | ({"minOrder": mn} if mn else {}) | ({"cardPay": True} if card else {}) | hits,
                          ensure_ascii=False, separators=(",", ":")).encode()
         body = (raw, gzip.compress(raw, 6))
         _cache[ck] = (data, body)
