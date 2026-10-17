@@ -173,11 +173,12 @@ def send():
     who = name or "Посетитель сайта"
     if phone:
         who += f" +{phone}"
-    if is_retail(chat):
-        who += " · amura.kz"
+    if is_retail(chat):                    # поддержка amura.kz — только покупателям, вошедшим в кабинет (ИИ не тратится на случайных)
         cid = oh.token_cid(form.get("auth")) if form.get("auth") else None
-        if cid:
-            bind_client(chat, cid)
+        if not cid:
+            return jsonify(ok=False, error="Войдите на сайте, чтобы написать в поддержку", login=True), 401
+        who += " · amura.kz"
+        bind_client(chat, cid)
     import inbox
     threading.Thread(target=inbox.on_client_message, args=(chat, {"first_name": who, "username": ""}, text),
                      kwargs={"photo": photo}, daemon=True).start()

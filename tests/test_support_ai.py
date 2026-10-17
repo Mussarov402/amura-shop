@@ -99,12 +99,14 @@ class SupportAI(unittest.TestCase):
         self.addCleanup(lambda: setattr(inbox, "on_client_message", old))
         tok = c.post("/chat/start?site=retail").get_json()["token"]
         chat = webchat.chat_of(tok)
-        c.post("/chat/send", json={"token": tok, "text": "где заказ", "auth": "bad"})
-        self.assertIsNone(webchat.client_of(chat))                        # чужой или неверный токен входа — не привязываем
+        r = c.post("/chat/send", json={"token": tok, "text": "где заказ", "auth": "bad"})
+        self.assertEqual(r.status_code, 401)                               # не вошёл — поддержка недоступна, ИИ не тратится
+        self.assertIsNone(webchat.client_of(chat))
+        self.assertEqual(c.post("/chat/send", json={"token": tok, "text": "где заказ"}).status_code, 401)
         c.post("/chat/send", json={"token": tok, "text": "где заказ", "auth": "good"})
         self.assertEqual(webchat.client_of(chat), "cp-1")
-        tok2 = c.post("/chat/start").get_json()["token"]                  # opt.amura.kz — не привязываем
-        c.post("/chat/send", json={"token": tok2, "text": "x", "auth": "good"})
+        tok2 = c.post("/chat/start").get_json()["token"]                  # opt.amura.kz — без входа можно, не привязываем
+        self.assertEqual(c.post("/chat/send", json={"token": tok2, "text": "x", "auth": "good"}).status_code, 200)
         self.assertIsNone(webchat.client_of(webchat.chat_of(tok2)))
 
 

@@ -736,7 +736,7 @@ paintMe = function(p, orders){
   if(want && AUTH.token && p && p.name){ try{ sessionStorage.removeItem(WANT); }catch{} toast("Вы вошли — оформляем заказ"); NEXT = "checkout"; go("cart"); }
 };
 
-/* «Поддержка» в кабинете (и до входа): чат «Поддержка AMURA», отвечает ИИ по правилам поддержки или менеджер */
+/* «Поддержка» в кабинете — только после входа: чат «Поддержка AMURA», отвечает ИИ по правилам поддержки или менеджер */
 function supportEntry(){
   if(!$("#meBody") || $("#meBody .rsup")) return;
   const prof = $("#meBody #profile"), at = $("#meBody [data-coop]") || $("#meBody #logout");
@@ -753,7 +753,6 @@ prepareTg = function(){};
 const _renderAuth = renderAuth;
 renderAuth = function(){
   _renderAuth();
-  supportEntry();
   ["#tgLogin", "#tgHint", "#meBody .or"].forEach(sel => { const el = $(sel); if(el) el.remove(); });
   const send = $("#aSend");
   if(send && !$("#aRemember")){

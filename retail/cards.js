@@ -32,7 +32,7 @@ cardHTML = function(it){
     <div class="rpc-price">${fmt(unitPrice(it, 1))} ₸</div>
     <button type="button" class="rpc-name" data-open>${VERIFIED}${it.brand && it.brand.length <= 20 && !it.name.toLowerCase().startsWith(it.brand.toLowerCase()) ? `<b>${esc(it.brand)}</b> / ` : ""}${esc(it.name)}</button>
     ${rateHTML(it.id)}
-    ${it.qty <= 5 ? `<div class="rpc-low">Осталось ${fmt(it.qty)} шт</div>` : ""}
+    ${(it.stock ?? it.qty) <= 5 ? `<div class="rpc-low">Осталось ${fmt(it.stock ?? it.qty)} шт</div>` : ""}
     <button type="button" class="rpc-buy${q ? " in" : ""}" data-radd>${CART_SVG}<span>${esc(buyLabel(q))}</span></button>
   </article>`;
 };
@@ -80,7 +80,7 @@ function fly(src){
 
 function addOne(it, from){
   const q = (cart[it.id] || 0) + 1;
-  if(q > it.qty) return toast("Больше нет в наличии");
+  if(q > it.qty) return toast(overMsg(it));
   cart[it.id] = q; save("amura-cart2", cart); renderCartCount(); refreshCard(it.id);
   fly(from);
 }
