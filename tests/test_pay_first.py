@@ -55,7 +55,7 @@ class PayFirst(unittest.TestCase):
         for name, val in {"catalog": lambda: {"p1": dict(ITEM, qty=self.stock)}, "too_many": lambda *a, **k: False, "ms": ms,
                           "organization": lambda: "org-1", "store_id": lambda: "store-1", "delivery_service_id": lambda: "dlv-1",
                           "notify_bg": lambda fn: None, "mark_retail": lambda *a: None, "tg": lambda *a, **k: None,
-                          "alert": lambda kind, text: self.alerts.append(text),
+                          "alert": lambda kind, text: kind == "cardpay" and self.alerts.append(text),   # только оплата картой: фоновое обновление каталога шлёт свои тревоги
                           "_post_order": lambda body: self.posted.append(body) or {"name": "1700", "id": "o1"}}.items():
             self.patch(oh, name, val)
         import checkout
