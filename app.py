@@ -88,6 +88,10 @@ def _watchdog():
 
 _watchdog()
 
+if __import__("os").environ.get("PORT"):          # только на сервере: разделы-дубли МойСклад один раз выключаются (17.10.2026)
+    import modules  # noqa: E402
+    modules.simplify_1017()
+
 
 if __name__ == "__main__":
     import os
