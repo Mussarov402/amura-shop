@@ -34,6 +34,8 @@ from sources import bp as sources_bp  # noqa: E402
 app.register_blueprint(sources_bp)
 from wishes import bp as wishes_bp  # noqa: E402
 app.register_blueprint(wishes_bp)
+from catalog_status import bp as catalog_status_bp  # noqa: E402
+app.register_blueprint(catalog_status_bp)
 from partners import bp as partners_bp  # noqa: E402
 app.register_blueprint(partners_bp)
 from hits import bp as hits_bp  # noqa: E402
