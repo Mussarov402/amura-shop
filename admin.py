@@ -2213,11 +2213,14 @@ def ai_settings():
                     inbox.set_setting(d, "ai_ch_" + k, "1" if on else "0")
             if "rules" in j:
                 inbox.set_setting(d, "rules", str(j["rules"]).strip()[:6000] or inbox.DEFAULT_RULES)
+            if "rulesRtl" in j:                                          # правила поддержки amura.kz (розница)
+                inbox.set_setting(d, "rules_rtl", str(j["rulesRtl"]).strip()[:8000] or inbox.RETAIL_RULES)
             return jsonify(ok=True)
         kb = d.run("SELECT id, title, body FROM kb ORDER BY id", many=True)
         return jsonify(ok=True, enabled=inbox.get_setting(d, "ai_enabled", "1") == "1", key=bool(inbox.OPENAI_KEY), model=inbox.OPENAI_MODEL,
                        channels=inbox.ai_channels(d),
                        persistent=inbox.PG, rules=inbox.get_setting(d, "rules", inbox.DEFAULT_RULES),
+                       rulesRtl=inbox.get_setting(d, "rules_rtl", inbox.RETAIL_RULES),
                        kb=[{"id": r[0], "title": r[1], "body": r[2]} for r in kb])
 
 
@@ -2259,7 +2262,7 @@ def ai_test():
     if not inbox.OPENAI_KEY:
         return jsonify(ok=False, error="Ключ OPENAI_API_KEY не добавлен в Render"), 400
     with inbox.db() as d:
-        reply, hand = inbox.ai_reply(d, hist, text, image)
+        reply, hand = inbox.ai_reply(d, hist, text, image, retail=bool(j.get("retail")))
         reply = inbox.clean_reply(reply)
     return jsonify(ok=True, reply=reply, handoff=hand)
 

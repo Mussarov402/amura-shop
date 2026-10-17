@@ -601,6 +601,9 @@ input,select,textarea{font-size:16px!important}
 .mo-act{display:grid;gap:8px}@media(min-width:760px){.mo-act{grid-template-columns:1fr 1fr}}.mo-act a.btn{text-align:center;text-decoration:none}
 .rpaid-n{display:inline-block;width:110px;height:1em;vertical-align:middle;border-radius:6px;background:linear-gradient(90deg,var(--bg),var(--line),var(--bg));background-size:200% 100%;animation:rpn 1.2s linear infinite}
 @keyframes rpn{to{background-position:-200% 0}}
+.rsup{display:flex;align-items:center;gap:12px;width:100%;margin-top:22px;padding:14px 16px;border:1px solid var(--line);border-radius:16px;background:var(--surface);color:var(--ink);font:inherit;text-align:left;cursor:pointer}
+.rsup:hover{border-color:var(--green-2)}.rsup-i{font-size:22px;flex:none}.rsup b{display:block;font-size:16px}.rsup small{display:block;color:var(--muted);font-size:13px;margin-top:2px}.rsup-a{margin-left:auto;font-size:22px;color:var(--muted)}
+.rsup + [data-coop]{margin-top:10px!important}#profile + .rsup{margin-top:12px}
 /* Розничный сайт: отзывы */
 .rpc-rate{font-size:13px;font-weight:700;display:flex;align-items:center;gap:3px}
 .rpc-rate b{color:#E8A317;font-size:14px}.rpc-rate span{color:var(--muted);font-weight:500}
@@ -1970,6 +1973,7 @@ boot();
     schedule();
   }
   btn.onclick = () => show(true);
+  const auth = () => R && typeof AUTH !== "undefined" && AUTH.token || "";   // розница: вошёл в кабинет — ИИ поддержки видит его заказы
   window.openSupport = text => {                     // «Написать в поддержку» в «Моих заказах»: вопрос уже с номером заказа
     const p = (typeof AUTH !== "undefined" && AUTH.profile) || {};
     if(!$c("chName").value && p.name) $c("chName").value = p.name;
@@ -1989,10 +1993,10 @@ boot();
       msgs.push({ me: true, text: file ? (text || "") + (file.type === "application/pdf" ? "\n📄 " + file.name : "\n📷 Фото") : text, at: 0 }); draw();
       let r;
       if(file){
-        const fd = new FormData(); fd.append("token", st.token); fd.append("text", text); fd.append("name", st.name); fd.append("phone", st.phone); fd.append("file", file);
+        const fd = new FormData(); fd.append("token", st.token); fd.append("text", text); fd.append("name", st.name); fd.append("phone", st.phone); fd.append("file", file); if(auth()) fd.append("auth", auth());
         r = await fetch(API + "/chat/send", { method: "POST", body: fd });
       } else {
-        r = await fetch(API + "/chat/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: st.token, text, name: st.name, phone: st.phone }) });
+        r = await fetch(API + "/chat/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: st.token, text, name: st.name, phone: st.phone, ...(auth() ? { auth: auth() } : {}) }) });
       }
       const j = await r.json().catch(() => ({}));
       if(!r.ok || !j.ok) throw new Error(j.error || "Не отправлено, попробуйте ещё раз");
@@ -2837,6 +2841,7 @@ document.addEventListener("keydown", e => { const c = e.key === "Enter" && e.tar
 const _paintMe = paintMe;
 paintMe = function(p, orders){
   _paintMe(p, orders); markRetail();
+  supportEntry();
   MO.p = p; MO.orders = orders;
   if(orders && orders.length && !orders.some(o => !moDone(o))) MO.tab = "done";
   moList();
@@ -2847,6 +2852,15 @@ paintMe = function(p, orders){
   if(want && AUTH.token && p && p.name){ try{ sessionStorage.removeItem(WANT); }catch{} toast("Вы вошли — оформляем заказ"); NEXT = "checkout"; go("cart"); }
 };
 
+/* «Поддержка» в кабинете (и до входа): чат «Поддержка AMURA», отвечает ИИ по правилам поддержки или менеджер */
+function supportEntry(){
+  if(!$("#meBody") || $("#meBody .rsup")) return;
+  const prof = $("#meBody #profile"), at = $("#meBody [data-coop]") || $("#meBody #logout");
+  const html = `<button type="button" class="rsup" data-support><span class="rsup-i" aria-hidden="true">💬</span><span><b>Поддержка</b><small>Вопрос о заказе, доставке, оплате или товаре — ответим в чате</small></span><span class="rsup-a" aria-hidden="true">›</span></button>`;
+  if(prof) prof.insertAdjacentHTML("afterend", html);                // сразу под профилем — не искать под списком заказов
+  else if(at) at.insertAdjacentHTML("beforebegin", html); else $("#meBody").insertAdjacentHTML("beforeend", html);
+  $("#meBody .rsup").onclick = () => { if(window.openSupport) openSupport(""); };
+}
 renderCart = renderRetailCart;
 const _shipName = dlvShipName;
 dlvShipName = function(f){ return f.ship === "express" ? "Срочный курьер по Алматы (Яндекс Экспресс) — " + (f.address || "") : _shipName(f); };
@@ -2855,6 +2869,7 @@ prepareTg = function(){};
 const _renderAuth = renderAuth;
 renderAuth = function(){
   _renderAuth();
+  supportEntry();
   ["#tgLogin", "#tgHint", "#meBody .or"].forEach(sel => { const el = $(sel); if(el) el.remove(); });
   const send = $("#aSend");
   if(send && !$("#aRemember")){
