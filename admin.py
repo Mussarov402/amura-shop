@@ -1582,7 +1582,7 @@ def _all_items():
 def brands():
     shown, hid = _all_items()
     b = {}
-    for i in shown + hid:
+    for i in shown + hid + _gone_items():
         r = b.setdefault(i.get("brand") or "Без бренда", {"brand": i.get("brand") or "Без бренда", "total": 0, "hidden": 0})
         r["total"] += 1
     for i in hid:
@@ -1590,22 +1590,55 @@ def brands():
     return jsonify(ok=True, brands=sorted(b.values(), key=lambda r: r["brand"].lower()))
 
 
+def _gone_items():
+    """Товары без остатка — в списке «Товары на сайте» видны выключенными. Берутся из своей базы (зеркало МойСклад),
+    если её нет — из живого каталога (там только те, что ушли в ноль недавно). Кэш 10 минут."""
+    v = oh._cache.get("gone")
+    if v and time.time() - v[0] < 600:
+        return v[1]
+    shown, hid = _all_items()
+    have = {i["id"] for i in shown + hid}
+    live = oh._cache.get("live")
+    out = {i["id"]: dict(i, qty=0) for i in ((live[1].get("outItems") if live else None) or []) if i["id"] not in have}
+    try:
+        with mirror.db() as d:
+            rows = d.run("SELECT id, code, name, folder, prices FROM ms_product WHERE kind='product' AND archived=0 AND deleted=0", many=True) or []
+        for pid, code, name, folder, prices in rows:
+            if pid in have or pid in out or code == oh.LOADER_CODE:
+                continue
+            pr = json.loads(prices or "{}")
+            out[pid] = {"id": pid, "code": code or "", "name": name or "", "brand": (folder or "").split("/")[0].strip(), "qty": 0,
+                        "rtl": pr.get(oh.PRICE_RTL, 0), "opt": pr.get(oh.PRICE_OPT, 0)}
+    except Exception as e:
+        print("Товары без остатка из своей базы не прочитаны:", e, flush=True)
+    res = list(out.values())
+    oh._cache["gone"] = (time.time(), res)
+    return res
+
+
+def _filtered(q, brand, gone=True):
+    """Товары списка «Товары на сайте» по поиску и бренду — как их видит владелец. gone — с товарами без остатка (в конце списка)."""
+    shown, hid = _all_items()
+    hidset = {i["id"] for i in hid}
+    q = (q or "").strip().lower()
+    rows = [i for i in shown + hid + (_gone_items() if gone else [])
+            if (not brand or (i.get("brand") or "Без бренда") == brand)
+            and (not q or q in (i["name"] + " " + i.get("brand", "") + " " + i.get("code", "")).lower())]
+    return rows, hid, hidset
+
+
 @bp.get("/admin/api/products")
 @need("products")
 def products():
-    shown, hid = _all_items()
-    hidset = {i["id"] for i in hid}
-    q = request.args.get("q", "").strip().lower()
-    brand = request.args.get("brand", "")
-    rows = [i for i in shown + hid
-            if (not brand or (i.get("brand") or "Без бренда") == brand)
-            and (not q or q in (i["name"] + " " + i.get("brand", "") + " " + i.get("code", "")).lower())]
-    rows.sort(key=lambda i: (i["id"] not in hidset, i["name"]))
+    rows, hid, hidset = _filtered(request.args.get("q", ""), request.args.get("brand", ""))
+    rows.sort(key=lambda i: (i["qty"] <= 0, i["id"] not in hidset, i["name"]))
     size = min(max(int(request.args.get("size", 100) or 100), 10), 200)
     start = max(int(request.args.get("offset", 0) or 0), 0)
-    return jsonify(ok=True, total=len(rows), hiddenTotal=len(hid), items=[
+    out = sum(i["qty"] <= 0 for i in rows)
+    return jsonify(ok=True, total=len(rows), outHere=out, hiddenTotal=len(hid),
+                   hiddenHere=sum(i["id"] in hidset for i in rows), items=[
         {"id": i["id"], "code": i.get("code", ""), "name": i["name"], "brand": i.get("brand", ""), "qty": i["qty"],
-         "rtl": i.get("rtl", 0), "opt": i.get("opt", 0), "hidden": i["id"] in hidset} for i in rows[start:start + size]])
+         "rtl": i.get("rtl", 0), "opt": i.get("opt", 0), "hidden": i["id"] in hidset, "out": i["qty"] <= 0} for i in rows[start:start + size]])
 
 
 def _set_hidden(ids, val):
@@ -1634,6 +1667,19 @@ def set_brand_hidden():
     brand, val = d.get("brand", ""), bool(d.get("hidden"))
     ids = [i["id"] for i in (shown if val else hid) if (i.get("brand") or "Без бренда") == brand]
     _set_hidden(ids, val)
+    return jsonify(ok=True, changed=len(ids))
+
+
+@bp.post("/admin/api/products/hidden-all")
+@need("products")
+def set_all_hidden():
+    """Общий переключатель над списком: скрыть или показать все найденные товары (с учётом поиска и бренда)."""
+    d = request.get_json(silent=True) or {}
+    rows, _, hidset = _filtered(d.get("q", ""), d.get("brand", ""), gone=False)   # без остатка на сайт и так не выходят
+    val = bool(d.get("hidden"))
+    ids = [i["id"] for i in rows if (i["id"] in hidset) != val]
+    if ids:
+        _set_hidden(ids, val)
     return jsonify(ok=True, changed=len(ids))
 
 
