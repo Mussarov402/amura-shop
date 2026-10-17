@@ -56,6 +56,22 @@ class Analytics(unittest.TestCase):
         self.assertEqual(r["sources"], ["aigerim"])
         self.assertTrue(self.c.get("/admin/api/analytics?days=7").get_json()["ok"])
 
+    def test_product_report(self):
+        from datetime import datetime, timedelta
+        now = datetime(2026, 10, 17, 12, 0, tzinfo=an.ALMATY)
+        with an.db() as d:
+            for day, src, v, c in (("2026-10-17", "", 5, 2), ("2026-10-15", "aigerim", 3, 1), ("2026-10-09", "", 4, 0)):   # 09.10 — прошлый период
+                d.run("INSERT INTO an_prod (day, pid, src, views, carts) VALUES (%s, 'p1', %s, %s, %s)", (day, src, v, c))
+            d.run("INSERT INTO an_oline (number, pid, day, src, qty, sum) VALUES ('1900', 'p1', '2026-10-15', 'aigerim', 2, 6000)")
+        r = an.product_report("p1", 7, now)
+        self.assertEqual((r["cur"]["views"], r["cur"]["carts"], r["cur"]["qty"], r["cur"]["sum"], r["prev"]["views"]), (8, 3, 2, 6000, 4))
+        self.assertEqual((r["cur"]["toCart"], r["cur"]["toOrder"]), (37.5, 33.3))
+        self.assertEqual(len(r["daily"]), 7)
+        self.assertEqual(next(x for x in r["daily"] if x["day"] == "2026-10-15"), {"day": "2026-10-15", "views": 3, "carts": 1, "qty": 2, "sum": 6000, "orders": 0})
+        self.assertEqual([(x["code"], x["views"], x["qty"]) for x in r["sources"]], [("", 5, 0), ("aigerim", 3, 2)])
+        self.assertEqual(r["item"]["name"], "Крем")
+        self.assertTrue(self.c.get("/admin/api/analytics/product/p1?days=30").get_json()["ok"])
+
     def test_off(self):
         modules.update("analytics", on=False)
         self.addCleanup(lambda: modules.update("analytics", on=True))
