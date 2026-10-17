@@ -437,6 +437,20 @@ function doneRetail(res, f, t, payErr){
   $("#rdShop").onclick = () => go("home");
   scrollTo({ top: 0 });
 }
+/* оплата картой не открылась — заказа ещё нет: «Ожидает оплаты», оплатить можно здесь или в «Моих заказах» (сутки) */
+function pendingRetail(res, t, err){
+  $("#drawerTitle").textContent = "Ожидает оплаты";
+  $("#drawerBody").innerHTML = `<div class="done rdone">
+    <div class="rdone-h"><div><h3>Осталось оплатить ${fmt(res.total || t.total)} ₸</h3><p>Заказ оформится и уйдёт в сборку сразу после оплаты</p></div></div>
+    <button class="btn" id="rdCard" type="button">💳 Оплатить картой ${fmt(res.total || t.total)} ₸</button>
+    <div class="rhint mut" style="text-align:center;margin:6px 0 10px">Visa, Mastercard, Apple Pay, Google Pay · безопасная страница Freedom Pay. Оплатить можно и позже — в «Моих заказах», в течение суток</div>
+    <div class="err" id="rdErr">${esc(err || "")}</div>
+    <button class="btn ghost" id="rdOrders" type="button">Мои заказы</button></div>`;
+  $("#rdCard").onclick = async e => { const b = e.currentTarget; b.disabled = true; b.textContent = "Открываем оплату…"; $("#rdErr").textContent = "";
+    try{ location.href = await cardUrl(res.payToken); }catch(x){ $("#rdErr").textContent = x.message; b.disabled = false; b.textContent = `💳 Оплатить картой ${fmt(res.total || t.total)} ₸`; } };
+  $("#rdOrders").onclick = () => go("me");
+  scrollTo({ top: 0 });
+}
 const CHECK_BIG = '<svg class="rdone-ok" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="22"/><path d="M14 24.5l7 7 13-14"/></svg>';
 
 let busy = false;
@@ -461,7 +475,7 @@ async function submit(){
     city: f.city || (AUTH.profile && AUTH.profile.city) || "Алматы", shipping: f.ship, address: f.address || "",
     items: t.ls.map(l => ({ id: l.it.id, qty: l.q, price: l.price })), clientTotal: t.total,
     orderKey: orderKey(), mode: "retail", ref: REF.code() || undefined, promo: PROMO ? PROMO.code : undefined,   // модуль «Источники»
-    consent: LEGAL() ? true : undefined, news: LEGAL() ? CONSENT.news : undefined, pay: window.CARD_PAY ? "card" : undefined,   // факт и время согласия сервер пишет в комментарий заказа
+    consent: LEGAL() ? true : undefined, news: LEGAL() ? CONSENT.news : undefined, pay: window.CARD_PAY ? "card" : undefined, payFirst: payNow() || undefined,   // оплата картой: заказ в МойСклад — только после оплаты   // факт и время согласия сервер пишет в комментарий заказа
     pvz: f.ship === "cdek" ? DLV.pvzSel : undefined, slot: f.ship === "courier" ? DLV.slotSel : undefined
   };
   const btns = [...document.querySelectorAll("#rGo, [data-rgo]")]; busy = true;
@@ -480,6 +494,15 @@ async function submit(){
       if(!r.ok || !res.ok) throw new Error(res.error || "Сервер не ответил");
     }
     const df = { ...f, pvz: DLV.pvzSel, slot: DLV.slotSel, address: f.address || "" };
+    if(res.draft){   // заказ появится после оплаты: сразу на страницу оплаты; не вышло — экран «Ожидает оплаты»
+      orderKeyVal = ""; DLV.slotSel = null; STEP = "cart";
+      t.ls.forEach(l => delete cart[l.it.id]); save("amura-cart2", cart); renderCartCount(); render();
+      btns.forEach(b => { if(b.isConnected) b.textContent = "Открываем оплату…"; });
+      let perr = "";
+      try{ location.href = await cardUrl(res.payToken); return; }catch(x){ perr = x.message; }
+      $("#drawerBody").parentElement.classList.remove("rwide", "rstep2");
+      return pendingRetail(res, t, perr);
+    }
     orderKeyVal = ""; DLV.slotSel = null; STEP = "cart";
     t.ls.forEach(l => delete cart[l.it.id]); save("amura-cart2", cart); renderCartCount(); render();   // заказанное убираем, остальное остаётся
     let payErr = "";
@@ -583,13 +606,31 @@ document.addEventListener("click", e => { const b = e.target.closest("[data-rpus
 /* «Мои заказы»: неоплаченный заказ, где выбрана карта, — кнопка «Оплатить»; после возврата с оплаты — «Оплата получена» */
 function payPaint(orders){
   const panels = document.querySelectorAll("#orders .order");
-  const pr = window.PAY_RET, justPaid = pr && pr.r === "ok" ? pr.n : "";
-  (orders || []).forEach((o, i) => { const el = panels[i]; if(!el || !o.payCard || o.number === justPaid || el.querySelector("[data-rpaynow]")) return;
+  const pr = window.PAY_RET, justPaid = pr && pr.r === "ok" ? pr.n : "", draft = /^D\d+_/.test(justPaid);
+  (orders || []).forEach((o, i) => { const el = panels[i]; if(!el) return;
+    if(o.draft){ const h = el.querySelector(".top b"); if(h) h.textContent = "Ещё не оплачен"; const r = el.querySelector(".row"); if(r) r.remove(); }   // черновик: без номера, PDF и «Повторить»
+    if(!o.payCard || o.number === justPaid || o.payCard === justPaid || el.querySelector("[data-rpaynow]")) return;
     el.querySelector(".top + .top").insertAdjacentHTML("afterend", `<button type="button" class="btn rpaynow" data-rpaynow="${esc(o.payCard)}">💳 Оплатить ${fmt(o.sum)} ₸</button>`); });
   if(justPaid !== "" && pr && !$("#rPaid")){
-    const box = $("#orders") || $("#meBody .panel");
-    if(box) box.insertAdjacentHTML("beforebegin", `<div class="rdone-h rpaid" id="rPaid">${CHECK_BIG}<div><h3>Оплата получена, заказ передан в сборку</h3>${pr.n ? `<p>Заказ № ${esc(pr.n)}</p>` : ""}</div></div>`);
+    const box = $("#orders") || $("#meBody .panel"), num = draft ? (pr.num || "") : pr.n;
+    if(box) box.insertAdjacentHTML("beforebegin", `<div class="rdone-h rpaid" id="rPaid">${CHECK_BIG}<div><h3>${draft && !num ? "Оплата получена, оформляем заказ…" : "Оплата получена, заказ передан в сборку"}</h3><p id="rPaidN">${num ? `Заказ № ${esc(num)}` : pr.fail ? esc(pr.fail) : ""}</p></div></div>`);
+    if(draft && !num && !pr.polling) pollDraft(pr);
   }
+}
+/* после оплаты черновика заказ создаётся за секунды — подтягиваем номер и обновляем «Мои заказы» */
+async function pollDraft(pr){
+  pr.polling = true;
+  for(let i = 0; i < 20; i++){
+    await new Promise(r => setTimeout(r, i < 5 ? 1500 : 4000));
+    try{
+      const r = await fetch(CONFIG.apiUrl + "/pay/card/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: pr.n }) });
+      const j = await r.json();
+      if(j.number){ pr.num = j.number; break; }
+      if(j.status === "failed"){ pr.fail = "Оплата получена. Менеджер оформит заказ вручную и свяжется с вами"; break; }
+    }catch{}
+  }
+  const el = $("#rPaid"); if(el) el.remove();
+  if(VIEW === "me") renderMe();
 }
 document.addEventListener("click", async e => {
   const b = e.target.closest("[data-rpaynow]"); if(!b) return;
