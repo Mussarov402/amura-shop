@@ -56,10 +56,11 @@ MANAGERS = [x.strip() for x in os.environ.get("MANAGER_CHAT_IDS", "").replace(";
 HOOK_SECRET = os.environ.get("TG_WEBHOOK_SECRET", "")
 ORDER_SECRET = os.environ.get("ORDER_SECRET", "").encode()
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "").rstrip("/")
+DEFAULT_API = "https://amura-shop-api.onrender.com"
 SITE_URL = os.environ.get("SITE_URL", "").rstrip("/")
 
 TIER_MID = 10                  # цена типа «От 10шт» действует от 10 шт
-LIVE_TTL = 150                 # сек: как часто сервер перечитывает МойСклад для сайта
+LIVE_TTL = 90                  # сек: как часто сервер перечитывает МойСклад для сайта (оприходованный товар — на сайте за 2–4 минуты)
 PRICE_RTL, PRICE_OPT, PRICE_MID, PRICE_BOX = "Розничная цена", "Оптовая цена", ("От 10шт",), "Короб"
 WHOLESALE_TAG = os.environ.get("WHOLESALE_TAG", "опт").strip().lower()
 RETAIL_SOURCE = "с розничного сайта"   # «Заказ с розничного сайта» в описании — по нему панель отделяет розничные заказы
@@ -376,6 +377,41 @@ def _delta():
     return rows
 
 
+_miss = {}                    # id -> (время, строка товара или None): товары с остатком, которых нет в выгрузке
+MISS_TTL, MISS_NONE_TTL, MISS_MAX, MISS_PACK = 600, 1800, 400, 40
+
+
+def _missing(have, stock):
+    """Товары с остатком, которых нет ни в catalog.json, ни в _delta: приняли или оприходовали после выгрузки
+    (updated у товара от этого не меняется, а выгрузка берёт только товары в наличии). Догружаем из МойСклад пачками
+    по MISS_PACK, помним 10 минут; id, которых нет среди товаров (модификации, комплекты, архив), — 30 минут."""
+    now = time.time()
+    want = [i for i, q in stock.items() if (q or 0) > 0 and i not in have]
+    keep = set(want)
+    for i in [i for i in _miss if i not in keep]:
+        del _miss[i]
+    fresh = lambda i: i in _miss and now - _miss[i][0] < (MISS_TTL if _miss[i][1] else MISS_NONE_TTL)
+    need = [i for i in want if not fresh(i)][:MISS_MAX]
+    for k in range(0, len(need), MISS_PACK):
+        part = need[k:k + MISS_PACK]
+        try:
+            rows = ms("GET", "/entity/product", params={"filter": ";".join(f"id={i}" for i in part), "limit": 100}, timeout=12).get("rows", [])
+        except Exception as e:             # не вышло — догрузим на следующем обновлении
+            print("Догрузка товаров с остатком:", e, flush=True)
+            break
+        got = {r["id"]: r for r in rows}
+        for i in part:
+            _miss[i] = (now, got.get(i))
+    if need:
+        print(f"Товаров с остатком вне выгрузки: {len(want)}, запрошено из МойСклад: {len(need)}", flush=True)
+    return [_miss[i][1] for i in want if i in _miss and _miss[i][1]]
+
+
+def img_url(img):
+    """Ссылка на фото товара из живого каталога: своя миниатюра (img/<id>.webp на сайте) или фото с сервера (/pimg/<id>)."""
+    return "" if not img else img if re.match(r"https?://", img) else f"{SITE_URL}/{img}"
+
+
 def _stock():
     """Доступный остаток (остаток − резерв) по всем товарам — лёгкий быстрый отчёт МойСклад."""
     data = ms("GET", "/report/stock/all/current", params={"stockType": "freeStock"}, timeout=12)   # 3 попытки по 12 с < 60 с воркера gunicorn
@@ -383,8 +419,8 @@ def _stock():
     return {r["assortmentId"]: r.get("freeStock", r.get("stock", 0)) for r in rows}
 
 
-def build_live(products):
-    stock = _stock()
+def build_live(products, stock=None):
+    stock = _stock() if stock is None else stock
     imgs = cached("imgidx", 1800, _img_index)
     new_since = (datetime.now(ALMATY) - timedelta(days=21)).strftime("%Y-%m-%d")
     items, descs, incis, out = [], {}, {}, []           # out — нет в наличии: только для заказов из системы AMURA, клиентам не уходит
@@ -401,7 +437,7 @@ def build_live(products):
             (items if qty > 0 else out).append(row)
             descs[r["id"]], incis[r["id"]] = r.get("desc", ""), r.get("inci", "")
             continue
-        if r.get("code") == LOADER_CODE:
+        if r.get("code") == LOADER_CODE or r.get("archived"):      # как в export_catalog.py: служебные и архивные не показываем
             continue
         qty = int(stock.get(r["id"], 0) or 0)
         opt, rtl = _price(r, PRICE_OPT), _price(r, PRICE_RTL)
@@ -416,14 +452,15 @@ def build_live(products):
             "article": r.get("article", ""), "country": _country(r), "barcode": _barcode(r), "qty": qty,
             "opt": opt, "mid": mid if 0 < mid < opt else 0,
             "box": box if (0 < box < opt and bq) else 0, "boxQty": bq, "rtl": rtl,
-            "img": f"img/{r['id']}.webp" if r["id"] in imgs else None,
+            "img": f"img/{r['id']}.webp" if r["id"] in imgs else (f"{PUBLIC_URL or DEFAULT_API}/pimg/{r['id']}"
+                                                                   if (r.get("images") or {}).get("meta", {}).get("size", 0) > 0 else None),
             "updated": upd[:10], "isNew": upd[:10] >= new_since,
         })
     hid_items = [i for i in items if i["id"] in hidden]      # скрытые: клиентам не отдаются, видны только в панели
     items = [i for i in items if i["id"] not in hidden]
     _cache["descs"] = (time.time(), descs)
     _cache["incis"] = (time.time(), incis)
-    # описание и состав не входят в живой каталог (он уходит клиентам каждые 3 минуты) — отдаётся по /product/<id>
+    # описание и состав не входят в живой каталог (он уходит клиентам каждые 2 минуты) — отдаётся по /product/<id>
     return {"updated": datetime.now(ALMATY).strftime("%d.%m.%Y %H:%M"), "items": items, "hiddenItems": hid_items, "outItems": out}
 
 
@@ -452,7 +489,12 @@ def refresh(max_age):
         if extra:
             ids = {r["id"] for r in extra}
             products = [p for p in products if p["id"] not in ids] + extra
-        data = build_live(products)
+        stock = _stock()
+        try:
+            products = products + _missing({p["id"] for p in products}, stock)
+        except Exception as e:
+            print("Товары вне выгрузки не получены:", e, flush=True)
+        data = build_live(products, stock)
         _cache["live"] = (time.time(), data)
         return data
 
@@ -533,6 +575,51 @@ def product_route(pid):
             return jsonify(error="not found"), 404
     resp = jsonify(desc=descs[pid], inci=incis.get(pid, ""))
     resp.headers["Cache-Control"] = "public, max-age=600"
+    return resp
+
+
+_pimg = {}                    # id -> (время, байты, тип) — фото товаров, которых ещё нет в выгрузке
+PIMG_TTL, PIMG_MAX, PIMG_SIZE = 21600, 200, 800
+
+
+def _pimg_fetch(pid):
+    rows = ms("GET", f"/entity/product/{pid}/images", params={"limit": 1}, timeout=15).get("rows", [])
+    if not rows:
+        return b"", ""
+    r = S.get(rows[0]["meta"]["downloadHref"], timeout=(10, 30), allow_redirects=True, headers={"Content-Type": None})
+    r.raise_for_status()
+    try:
+        from PIL import Image                # как миниатюры выгрузки: большая сторона 800, webp
+        im = Image.open(io.BytesIO(r.content)).convert("RGB")
+        im.thumbnail((PIMG_SIZE, PIMG_SIZE))
+        buf = io.BytesIO()
+        im.save(buf, "WEBP", quality=80)
+        return buf.getvalue(), "image/webp"
+    except Exception:
+        return r.content, r.headers.get("Content-Type", "image/jpeg")
+
+
+@bp.route("/pimg/<pid>")
+def pimg_route(pid):
+    """Фото товара, который приняли после выгрузки (своей миниатюры на сайте ещё нет): из МойСклад, в памяти 6 часов.
+    Только товары живого каталога — чтобы сервер не отдавал любые картинки МойСклад. С выгрузкой ссылка сменится на img/<id>.webp."""
+    cur = (_cache.get("live") or (0, {}))[1]
+    if not re.fullmatch(r"[0-9a-f-]{36}", pid) or pid not in {i["id"] for i in cur.get("items", []) + cur.get("hiddenItems", [])}:
+        return "", 404
+    v = _pimg.get(pid)
+    if not v or time.time() - v[0] > (PIMG_TTL if v[1] else 600):
+        try:
+            data, ctype = _pimg_fetch(pid)
+        except Exception as e:
+            print("Фото товара из МойСклад:", pid, e, flush=True)
+            return "", 502
+        if len(_pimg) >= PIMG_MAX:
+            _pimg.pop(min(_pimg, key=lambda k: _pimg[k][0]), None)
+        v = _pimg[pid] = (time.time(), data, ctype)
+    if not v[1]:
+        return "", 404
+    resp = Response(v[1], mimetype=v[2])
+    resp.headers["Cache-Control"] = "public, max-age=21600"
     return resp
 
 

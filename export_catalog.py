@@ -6,6 +6,7 @@
   prices.bin          — оптовые цены (Оптовая / От 10шт / Короб), зашифрованы ключом из MS_TOKEN — читает только сервер
   img/<id>.webp       — миниатюры 500px (перекачиваются только если товар изменился)
   img/index.json      — кэш: id -> updated
+  img/seen.json       — id -> последний день в наличии (фото товаров без остатка не удаляются KEEP_DAYS дней)
 ИИ не используется. Токенов в выходных файлах нет.
 """
 import io
@@ -27,6 +28,7 @@ IMG_DIR = os.path.join(OUT, "img")
 IMG_SIZE = 800          # большая сторона миниатюры; фото в МойСклад — 3:4 (900×1200), как на WB
 IMG_VER = 2             # сменить — все миниатюры пересоберутся
 NEW_DAYS = 21
+KEEP_DAYS = 90          # фото товара без остатка хранится столько дней (см. конец main)
 
 PRICE_RTL = "Розничная цена"
 PUBLIC_WHOLESALE = True   # пока всем показываем опт; False — всем розница, опт только клиентам с тегом «опт»
@@ -60,6 +62,17 @@ def fetch_assortment():
         offset += 500
         if offset >= data["meta"]["size"]:
             return rows
+
+
+def fetch_archived():
+    """id товаров в архиве — их миниатюры удаляем."""
+    ids, offset = set(), 0
+    while True:
+        data = get(f"{API}/entity/product", filter="archived=true", limit=1000, offset=offset).json()
+        ids |= {r["id"] for r in data.get("rows", [])}
+        offset += 1000
+        if offset >= data["meta"]["size"]:
+            return ids
 
 
 def price(item, name):
@@ -195,20 +208,35 @@ def main():
             "isNew": upd[:10] >= new_since,
         })
 
-    # удалить миниатюры товаров, которых больше нет
-    alive = {i["id"] for i in items}
+    # миниатюры: товар ушёл в ноль — фото остаётся (после приёмки он выходит на сайт сразу с фото, без ожидания выгрузки);
+    # удаляем фото товаров в архиве и тех, кого не было в наличии KEEP_DAYS дней (удалённые в МойСклад)
+    seen_path = os.path.join(IMG_DIR, "seen.json")
+    try:
+        seen = json.load(open(seen_path, encoding="utf-8"))
+    except Exception:
+        seen = {}
+    today = now.strftime("%Y-%m-%d")
+    for pid in img_index:
+        seen.setdefault(pid, today)              # первый запуск: отсчёт с сегодняшнего дня
+    for i in items:
+        seen[i["id"]] = today
+    seen.pop("_ver", None)
+    old = (now - timedelta(days=KEEP_DAYS)).strftime("%Y-%m-%d")
+    archived = fetch_archived()
     for pid in list(img_index):
-        if pid != "_ver" and pid not in alive:
+        if pid != "_ver" and (pid in archived or seen.get(pid, today) < old):
             img_index.pop(pid, None)
             try:
                 os.remove(os.path.join(IMG_DIR, f"{pid}.webp"))
             except FileNotFoundError:
                 pass
+    seen = {k: v for k, v in seen.items() if v >= old and k not in archived}
 
     catalog = {"updated": now.strftime("%d.%m.%Y %H:%M"), "items": items}
     json.dump(catalog, open(os.path.join(OUT, "catalog.json"), "w", encoding="utf-8"),
               ensure_ascii=False, separators=(",", ":"))
     json.dump(img_index, open(idx_path, "w", encoding="utf-8"))
+    json.dump(seen, open(seen_path, "w", encoding="utf-8"), sort_keys=True, separators=(",", ":"))
     open(os.path.join(OUT, "prices.bin"), "wb").write(seal(wholesale, TOKEN))
     print(f"товаров: {len(items)}, новых фото: {downloaded}, без цен пропущено: {no_opt}, "
           f"с оптовой ценой: {len(wholesale)}, без розничной: {sum(1 for i in items if not i['opt'])}")
