@@ -951,6 +951,14 @@ function fitHeader(){
 }
 fitHeader(); addEventListener("resize", fitHeader); addEventListener("load", fitHeader);
 let lastLive = 0;
+/* «Потянуть вниз» (паучок): обновить каталог, остатки и цены и данные открытого раздела; окно товара остаётся открытым */
+window.ptrRefresh = async () => {
+  await refreshLive();
+  if(VIEW === "cart" && !$("#drawerBody").parentElement.classList.contains("rstep2")) renderCart();
+  if(VIEW === "fav") renderFav();
+  if(VIEW === "me" && AUTH.token) renderMe();
+  toast("Обновлено");
+};
 async function refreshLive(){
   if(!CONFIG.liveUrl) return false;
   try{
@@ -1884,7 +1892,9 @@ document.body.dataset.view = "home";
 boot();
 </script>
 <script>
-/* Потянуть вниз — обновить (только когда сайт добавлен на экран телефона). Индикатор: Человек-паук на нити, гнётся в двух местах, пружинная инерция. */
+/* Потянуть вниз — обновить (только когда сайт добавлен на экран телефона). Индикатор: Человек-паук на нити, гнётся в двух местах, пружинная инерция.
+   Работает в любом разделе и в окне товара: тянуть можно, когда наверху тот блок, который сейчас листается (окно товара, раздел или вся страница).
+   Обновление без перезагрузки — window.ptrRefresh (каталог, остатки, данные раздела); нет его — перезагрузка страницы. */
 (function(){
  var sa=(window.matchMedia&&matchMedia("(display-mode: standalone)").matches)||window.navigator.standalone===true;if(!sa)return;
  var SRC=location.pathname.indexOf("/admin")===0?"/admin/spider.png":window.AMURA_RETAIL?"/spider.png":"spider.png",W=27,H=64,J1=.27*H,J2=.62*H;
@@ -1892,7 +1902,7 @@ boot();
  var ind=document.createElement("div");ind.id="ptr";ind.innerHTML='<i class="a"></i><i class="b"></i><i class="c"></i>';document.body.appendChild(ind);
  new Image().src=SRC;
  var a=ind.querySelector(".a"),b=ind.querySelector(".b"),c=ind.querySelector(".c");
- var y0=0,x0=0,base=8,TH=62,MAX=100,on=false,pull=0,state="idle",y=0,vy=0,target=0,ang=0,t0=0,raf=0,e1=0,e2=0,sway=0,hz0=false;
+ var y0=0,x0=0,base=8,TH=62,MAX=100,on=false,pull=0,state="idle",y=0,vy=0,target=0,ang=0,t0=0,raf=0,e1=0,e2=0,sway=0,hz0=false,box=null;
  function draw(){ind.style.transform="translateY("+(base+y-90)+"px)";ind.style.opacity=Math.min(1,y/22);
   var r1="translate(0,"+J1+"px) rotate("+e1+"deg) translate(0,"+(-J1)+"px)",r2="translate(0,"+J2+"px) rotate("+e2+"deg) translate(0,"+(-J2)+"px)",g="rotate("+ang+"deg) ";
   a.style.transform=g;b.style.transform=g+r1;c.style.transform=g+r1+r2}
@@ -1903,17 +1913,26 @@ boot();
   draw();raf=requestAnimationFrame(loop)}
  function run(s,ts){state=s;if(s==="go")t0=ts||performance.now();cancelAnimationFrame(raf);raf=requestAnimationFrame(loop)}
  function hscroll(t){for(var e=t;e&&e!==document.body&&e!==document.documentElement;e=e.parentElement){var s=getComputedStyle(e);if((s.overflowX==="auto"||s.overflowX==="scroll")&&e.scrollWidth>e.clientWidth+1)return true}return false}
- function blocked(t){if(document.body.classList.contains("inchat")||document.querySelector(".modal.open,.scrim.open"))return true;
-  for(var e=t;e&&e!==document.body&&e!==document.documentElement;e=e.parentElement){var s=getComputedStyle(e);if((s.overflowY==="auto"||s.overflowY==="scroll")&&e.scrollHeight>e.clientHeight+1)return true}return false}
- addEventListener("touchstart",function(e){on=false;pull=0;if(state==="go"||window.scrollY>0||e.touches.length!==1||blocked(e.target))return;
+ function scroller(t){for(var e=t;e&&e!==document.body&&e!==document.documentElement;e=e.parentElement){var s=getComputedStyle(e);if((s.overflowY==="auto"||s.overflowY==="scroll")&&e.scrollHeight>e.clientHeight+1)return e}return null}   /* что сейчас листается: блок или вся страница */
+ function top0(b){return b?b.scrollTop<=0:window.scrollY<=0}
+ function blocked(t){var B=document.body;if(B.classList.contains("inchat")||(t.closest&&t.closest("input,textarea,select,.cbox,.cbtn")))return true;   /* поля ввода и чат поддержки */
+  var m=document.querySelector(".modal.open");if(m&&!B.classList.contains("rpage"))return true;   /* открытые формы (не страница товара) */
+  var d=document.querySelector("#drawerBody");if(d&&!d.closest("[hidden]")&&d.parentElement.classList.contains("rstep2"))return true;   /* оформление заказа и оплата */
+  var sc=scroller(t);if(sc&&sc.closest&&sc.closest("#catPanel"))return false;   /* каталог ☰ — можно, свайп вбок его закрывает */
+  return false}
+ addEventListener("touchstart",function(e){on=false;pull=0;if(state==="go"||e.touches.length!==1||blocked(e.target))return;
+  box=scroller(e.target);if(!top0(box))return;
   var h=document.querySelector(".mtop"),r=h&&h.offsetParent!==null?h.getBoundingClientRect().bottom:0;base=(r||0)+10;ind.style.top=r?0:"env(safe-area-inset-top,0px)";
   hz0=hscroll(e.target);y0=e.touches[0].clientY;x0=e.touches[0].clientX;on=true;y=0;vy=0;target=0;sway=0;ang=e1=e2=0},{passive:true});
  addEventListener("touchmove",function(e){if(!on)return;var t=e.touches[0],dx=t.clientX-x0,dy=t.clientY-y0;
-  if(window.scrollY>0||(dy<=0&&Math.abs(dx)<=Math.abs(dy))){on=false;pull=0;sway=0;target=0;run("back");return}      /* вверх — отмена */
+  if(!top0(box)||(dy<=0&&Math.abs(dx)<=Math.abs(dy))){on=false;pull=0;sway=0;target=0;run("back");return}      /* вверх — отмена */
   if(Math.abs(dx)>Math.abs(dy)){if(hz0){on=false;pull=0;sway=0;target=0;if(state==="pull")run("back");return}pull=0;target=Math.min(Math.abs(dx)*.14,20);sway=Math.max(-14,Math.min(14,dx*.1));if(state!=="pull")run("pull");return}      /* вбок: паучок чуть выглядывает и качается, обновления нет */
   sway=0;if(e.cancelable)e.preventDefault();pull=Math.min(dy*.5,MAX);target=pull;if(state!=="pull")run("pull")},{passive:false});
  addEventListener("touchend",function(){if(!on)return;on=false;
-  if(pull>=TH){target=pull;run("go");setTimeout(function(){location.reload()},1000)}else if(state==="pull")run("back");pull=0},{passive:true});
+  if(pull>=TH){target=pull;run("go");var t1=Date.now();
+   if(typeof window.ptrRefresh!=="function"){setTimeout(function(){location.reload()},1000)}
+   else Promise.resolve().then(window.ptrRefresh).catch(function(){}).then(function(){setTimeout(function(){target=0;run("back")},Math.max(0,1100-(Date.now()-t1)))})}   /* паучок качается, пока обновляем, не меньше секунды */
+  else if(state==="pull")run("back");pull=0},{passive:true});
 })();
 </script>
 <script>
