@@ -15,8 +15,23 @@ function rateLine(id){
   return `<button type="button" class="rp-rate" data-rprate><b>★ ${String(r[0]).replace(".", ",")}</b> · ${fmt(n)} ${w}</button>`;
 }
 
+/* каталог позади страницы товара не листается (iPhone не слушается overflow:hidden у body): body закрепляем на месте
+   и при закрытии возвращаем ту же позицию главной */
+let lockY = null;
+function lock(){
+  if(lockY !== null) return;
+  lockY = scrollY;
+  Object.assign(document.body.style, { position: "fixed", top: -lockY + "px", left: "0", right: "0", width: "100%" });
+}
+function unlock(){
+  if(lockY === null) return;
+  const y = lockY; lockY = null;
+  Object.assign(document.body.style, { position: "", top: "", left: "", right: "", width: "" });
+  scrollTo(0, y);
+}
 const _open = openProduct;
 openProduct = function(it, fromHistory){
+  lock();                                    // до открытия — запоминаем, где была главная
   _open(it);
   const sh = $("#sheet"), n = cartN();
   document.body.classList.add("rpage"); $("#scrim").classList.remove("open");
@@ -26,6 +41,7 @@ openProduct = function(it, fromHistory){
     <button type="button" class="rp-ic" data-rpshare aria-label="Поделиться">${SHARE_SVG}</button>
     <button type="button" class="rp-ic" data-rpcart aria-label="Корзина">${CART_SVG}<em id="rpCnt" ${n ? "" : "hidden"}>${n}</em></button></div>`);
   const h3 = sh.querySelector(".info h3"); if(h3) h3.insertAdjacentHTML("afterend", rateLine(it.id));
+  const br = sh.querySelector(".info .brand"); if(br && window.VERIFIED_SVG && !br.querySelector(".rpc-ok")) br.insertAdjacentHTML("afterbegin", window.VERIFIED_SVG);   // синяя галочка «оригинал», как в каталоге
   sh.scrollTop = 0;
   const act = sh.querySelector(".act"); if(act) sh.style.setProperty("--rpact", act.offsetHeight + "px");   // телефон: место под закреплённой кнопкой покупки
   document.title = it.name + " — AMURA";
@@ -40,7 +56,7 @@ closeAll = function(){
   const was = isPage();
   _close();
   if(!was) return;
-  document.body.classList.remove("rpage"); document.title = TITLE;
+  document.body.classList.remove("rpage"); document.title = TITLE; unlock();
   if(location.hash.startsWith(PH)) try{ history.replaceState(null, "", location.pathname); }catch{}
 };
 

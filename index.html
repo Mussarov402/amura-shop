@@ -643,8 +643,8 @@ input,select,textarea{font-size:16px!important}
   .banners[data-size] .bBtn{margin-top:8px;padding:7px 12px;font-size:13px}
 }
 /* розница: товар — отдельная страница на весь экран (retail/product.js) */
-body.rpage .modal{padding:0;place-items:stretch;z-index:45}
-body.rpage .sheet{max-width:none;max-height:none;height:100%;border-radius:0;align-content:start;
+body.rpage .modal{padding:0;z-index:45;display:block;height:100%;height:100dvh}   /* на весь экран и на iPhone: окно не зависит от высоты содержимого */
+body.rpage .sheet{position:absolute;inset:0;max-width:none;max-height:none;height:auto;border-radius:0;align-content:start;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
   grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:32px;padding:0 max(16px,calc((100% - 1160px)/2)) 32px}
 body.rpage #closeModal{display:none}
 .rp-bar{grid-column:1/-1;position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:6px;background:var(--surface);
@@ -668,6 +668,7 @@ body.rpage .sheet .info{padding:16px 0 0}
   body.rpage .sheet .act{position:fixed;left:0;right:0;bottom:0;z-index:46;margin:0;background:var(--surface);padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px));box-shadow:0 -6px 18px rgba(8,25,18,.1);border-radius:16px 16px 0 0}
 }
 body.rpage .sheet .act .hint:empty{display:none}
+body.rpage .sheet .brand .rpc-ok{width:15px;height:15px;margin-right:5px}
 /* главная розницы: «Подобрали для вас» → «Популярное сейчас» (заголовок внутри ленты); метка «Хит» на фото */
 .rfy-h{grid-column:1/-1;font-family:var(--display);font-weight:500;font-size:21px;margin:18px 0 2px}
 .thumb[data-hit]::after{content:"Хит";position:absolute;left:8px;bottom:8px;background:#E8432B;color:#fff;font-size:11px;font-weight:800;padding:3px 8px;border-radius:6px;letter-spacing:.02em}
@@ -676,6 +677,7 @@ body.rpage .sheet .act .hint:empty{display:none}
 .rrec-h{font-family:var(--display);font-weight:500;font-size:21px;margin:0 0 12px}
 .rrec-more{height:1px}.rrec-empty{margin:0 0 4px}
 @media(max-width:760px){.rrec-sec.insheet{padding:26px 16px 0}.rrec-sec.incart{padding-bottom:150px}}
+.sheet .rrec .rpc .fav{top:8px;right:8px;left:auto}   /* в «Похожих» сердечко справа, как в каталоге (у фото товара — слева) */
 </style>
 </head>
 <body>
@@ -2035,6 +2037,7 @@ boot();
 if(!window.AMURA_RETAIL) return;
 /* синяя галочка «оригинал» перед брендом, как у WB */
 const VERIFIED = '<svg class="rpc-ok" viewBox="0 0 24 24" aria-label="Оригинальный товар" role="img"><path d="M12.00 1.60 L14.41 3.02 L17.20 2.99 L18.58 5.42 L21.01 6.80 L20.98 9.59 L22.40 12.00 L20.98 14.41 L21.01 17.20 L18.58 18.58 L17.20 21.01 L14.41 20.98 L12.00 22.40 L9.59 20.98 L6.80 21.01 L5.42 18.58 L2.99 17.20 L3.02 14.41 L1.60 12.00 L3.02 9.59 L2.99 6.80 L5.42 5.42 L6.80 2.99 L9.59 3.02Z" stroke-linejoin="round" stroke-width="1.6"/><path d="M8 12.3l2.6 2.6L16.2 9.3" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+window.VERIFIED_SVG = VERIFIED;   // та же галочка у бренда на странице товара (product.js)
 const CART_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l-1 12H6L5 8Z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/></svg>';
 
 /* оценка из отзывов (retail/reviews.js кладёт сводку в window.RV_SUM) */
@@ -3211,8 +3214,23 @@ function rateLine(id){
   return `<button type="button" class="rp-rate" data-rprate><b>★ ${String(r[0]).replace(".", ",")}</b> · ${fmt(n)} ${w}</button>`;
 }
 
+/* каталог позади страницы товара не листается (iPhone не слушается overflow:hidden у body): body закрепляем на месте
+   и при закрытии возвращаем ту же позицию главной */
+let lockY = null;
+function lock(){
+  if(lockY !== null) return;
+  lockY = scrollY;
+  Object.assign(document.body.style, { position: "fixed", top: -lockY + "px", left: "0", right: "0", width: "100%" });
+}
+function unlock(){
+  if(lockY === null) return;
+  const y = lockY; lockY = null;
+  Object.assign(document.body.style, { position: "", top: "", left: "", right: "", width: "" });
+  scrollTo(0, y);
+}
 const _open = openProduct;
 openProduct = function(it, fromHistory){
+  lock();                                    // до открытия — запоминаем, где была главная
   _open(it);
   const sh = $("#sheet"), n = cartN();
   document.body.classList.add("rpage"); $("#scrim").classList.remove("open");
@@ -3222,6 +3240,7 @@ openProduct = function(it, fromHistory){
     <button type="button" class="rp-ic" data-rpshare aria-label="Поделиться">${SHARE_SVG}</button>
     <button type="button" class="rp-ic" data-rpcart aria-label="Корзина">${CART_SVG}<em id="rpCnt" ${n ? "" : "hidden"}>${n}</em></button></div>`);
   const h3 = sh.querySelector(".info h3"); if(h3) h3.insertAdjacentHTML("afterend", rateLine(it.id));
+  const br = sh.querySelector(".info .brand"); if(br && window.VERIFIED_SVG && !br.querySelector(".rpc-ok")) br.insertAdjacentHTML("afterbegin", window.VERIFIED_SVG);   // синяя галочка «оригинал», как в каталоге
   sh.scrollTop = 0;
   const act = sh.querySelector(".act"); if(act) sh.style.setProperty("--rpact", act.offsetHeight + "px");   // телефон: место под закреплённой кнопкой покупки
   document.title = it.name + " — AMURA";
@@ -3236,7 +3255,7 @@ closeAll = function(){
   const was = isPage();
   _close();
   if(!was) return;
-  document.body.classList.remove("rpage"); document.title = TITLE;
+  document.body.classList.remove("rpage"); document.title = TITLE; unlock();
   if(location.hash.startsWith(PH)) try{ history.replaceState(null, "", location.pathname); }catch{}
 };
 
