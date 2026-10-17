@@ -452,7 +452,7 @@ const CONFIG = {
   managerWa: "77003671350",
   tierMid: 10,                                                // цена «от 10 шт» (тип цены «От 10шт» в МойСклад)
   liveUrl: "https://amura-shop-api.onrender.com/catalog",  // живые остатки и цены из МойСклад
-  refreshMs: 180000,                                          // обновлять каждые 3 минуты
+  refreshMs: 120000,                                          // обновлять каждые 2 минуты (новый товар на сайте за 2–4 минуты)
   loaderPrice: 1000,
   bankFee: 0.0095,
   shipping: [
@@ -641,7 +641,7 @@ async function refreshLive(){
     if($("#modal").classList.contains("open")){ const id = $("#sheet").dataset.id; if(byId(id)) refreshCard(id); }
     if(VIEW === "cart" && !document.querySelector(".done") && !document.activeElement?.matches("#drawerBody input")) renderCart();
     return true;
-  }catch{ setTimeout(refreshLive, 15000); return false; }   // сервер не ответил — пробуем снова через 15 с, не ждём 3 минуты
+  }catch{ setTimeout(refreshLive, 15000); return false; }   // сервер не ответил — пробуем снова через 15 с, не ждём 2 минуты
 }
 /* сайт выключен владельцем в системе AMURA: закрываем витрину заставкой, заказы сервер тоже не примет */
 function siteClosed(msg){

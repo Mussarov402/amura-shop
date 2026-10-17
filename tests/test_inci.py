@@ -40,7 +40,7 @@ class Inci(unittest.TestCase):
         self.patch(admin, "hidden_ids", lambda: set())
         site_row = {"_site": True, "id": "p2", "name": "Тоник", "desc": "Тонизирует", "inci": "Aqua", "opt": 100, "rtl": 200}
         live = oh.build_live([site_row])
-        self.assertNotIn("inci", live["items"][0])                    # клиентам каждые 3 минуты — без состава
+        self.assertNotIn("inci", live["items"][0])                    # клиентам каждые 2 минуты — без состава
         app = Flask(__name__)
         app.register_blueprint(oh.bp)
         c = app.test_client()
