@@ -1,0 +1,144 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><link rel="stylesheet" href="../../kit/brand.css">
+<style>
+:root{--mid:#14513D;--deep:#0E3B2C;--bg:#0A2C21;--lime:#00FF41}
+html,body{background:#0E3B2C}
+#am-bg{background:radial-gradient(60% 40% at 50% 45%,#16573F 0%,#0E3B2C 50%,#072319 100%)}
+#am-bar{background:#00FF41}
+.sub{position:absolute;left:30px;right:30px;top:1250px;text-align:center;font:800 104px/1.05 Unbounded;color:#fff;-webkit-text-stroke:10px #000;paint-order:stroke fill;letter-spacing:-.01em;opacity:0}
+.sub b{color:#FFE600}
+.ylw{display:inline-block;background:#FFE600;color:#111;font:800 44px/1.15 Manrope;padding:16px 30px;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.4)}
+.plate{position:absolute;left:60px;right:60px;border-radius:26px;background:rgba(0,0,0,.42);border:3px dashed rgba(255,255,255,.55);padding:22px 30px;font:700 34px/1.3 Manrope;color:#fff}
+.plate i{font-style:normal;color:#00FF41;font-weight:800;letter-spacing:.12em;font-size:26px;display:block;margin-bottom:6px}
+.big{position:absolute;left:30px;right:30px;text-align:center;font:800 150px/1 Unbounded;color:#fff;-webkit-text-stroke:12px #000;paint-order:stroke fill}
+.big.g{color:#00FF41}.big.y{color:#FFE600}
+.chip{position:absolute;white-space:nowrap}
+.chip span{display:inline-block;background:#00FF41;color:#0E3B2C;font:800 42px Manrope;border-radius:999px;padding:14px 30px;box-shadow:0 12px 30px rgba(0,0,0,.4)}
+.prod{position:absolute;background:url(toner.png) 0 0/100% 100%;filter:drop-shadow(0 40px 60px rgba(0,0,0,.55))}
+.glow{position:absolute;border-radius:50%;background:radial-gradient(closest-side,rgba(0,255,65,.45),rgba(0,255,65,0))}
+.arrow{position:absolute}
+</style></head><body>
+<script src="../../kit/kit.js"></script><script src="words.js"></script>
+<script>
+(function(){
+const { make, A, E } = AM; AM.setWords([]);
+const world = AM.stage({ brand: 'AMURA' });
+const END = 42;
+const SC = [];
+const sc = (a, opt = {}) => { const id = 'sc' + SC.length; const el = make(`<div class="sc" id="${id}"></div>`, world); SC.push({ id, a, ...opt }); return el; };
+const subs = make('<div class="ab" style="inset:0;z-index:5"></div>', document.body);
+const sub = (html, a, b) => { const n = make(`<div class="sub">${html}</div>`, subs); n.animate([{opacity:0,transform:'scale(1.35)'},{opacity:1,transform:'scale(1)',offset:Math.min(.25,.15/(b-a))},{opacity:1,transform:'scale(1)',offset:.92},{opacity:0,transform:'scale(1)'}],{delay:a*1000,duration:(b-a)*1000,fill:'none',easing:'ease-out'}); AM.cue(a,'pop'); };
+const plate = (el, html, top, t) => { const n = make(`<div class="plate" style="top:${top}px"><i>🎬 В СЪЁМКЕ</i>${html}</div>`, el); AM.up(n, t, .4, 30); return n; };
+const prod = (el, h, l, t, extra = '') => make(`<div class="prod" style="left:${l}px;top:${t}px;width:${Math.round(h*1153/1551)}px;height:${h}px;${extra}"></div>`, el);
+const arrowSVG = (rot) => `<svg width="190" height="120" viewBox="0 0 190 120" style="transform:rotate(${rot}deg)"><path d="M10 60 H140" stroke="#FF2D2D" stroke-width="22" stroke-linecap="round"/><path d="M120 18 L178 60 L120 102" fill="none" stroke="#FF2D2D" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const arrow = (el, x, y, rot, t) => { const n = make(`<div class="arrow" style="left:${x}px;top:${y}px">${arrowSVG(rot)}</div>`, el); AM.A(n,[{opacity:0,transform:'scale(.4)'},{opacity:1,transform:'scale(1)'}],t,.35,E.back); AM.A(n,[{translate:'0 0'},{translate:'-18px 0'},{translate:'0 0'}],t+.35,.6,'ease-in-out','none'); AM.cue(t,'swish'); return n; };
+const face = (el, x, y, s=1) => make(`<svg class="ab" style="left:${x}px;top:${y}px" width="${520*s}" height="${620*s}" viewBox="0 0 520 620">
+  <path d="M90 600 C 110 470, 410 470, 430 600" fill="#1F6A50"/><rect x="215" y="420" width="90" height="80" rx="30" fill="#F2C9A8"/>
+  <ellipse cx="260" cy="270" rx="185" ry="225" fill="#F6D3B5"/><path d="M75 250 C 70 80, 450 80, 445 250 C 430 150, 90 150, 75 250Z" fill="#3A2A22"/>
+  <g class="eyesN"><ellipse cx="190" cy="280" rx="20" ry="24" fill="#2B2B2B"/><ellipse cx="330" cy="280" rx="20" ry="24" fill="#2B2B2B"/></g>
+  <g class="eyesS" opacity="0"><path d="M160 282 L215 270 M160 268 L215 282" stroke="#2B2B2B" stroke-width="12" stroke-linecap="round"/><path d="M305 270 L360 282 M305 282 L360 268" stroke="#2B2B2B" stroke-width="12" stroke-linecap="round"/></g>
+  <path class="mouthN" d="M205 380 Q260 420 315 380" fill="none" stroke="#B5574B" stroke-width="12" stroke-linecap="round"/>
+  <path class="mouthS" d="M210 395 Q235 380 260 395 Q285 410 310 392" fill="none" stroke="#B5574B" stroke-width="12" stroke-linecap="round" opacity="0"/>
+  <g class="dry" opacity="0"><g stroke="#E0A080" stroke-width="5"><path d="M110 330 l20 10 M120 350 l25 -5 M100 360 l18 12 M390 330 l-20 10 M400 352 l-25 -6 M415 365 l-18 12"/></g></g>
+</svg>`, el);
+
+/* 1. Обещание-парадокс 0–3.2 */
+let a = 0; const s1 = sc(a);
+make('<div class="glow" style="left:190px;top:420px;width:700px;height:700px"></div>', s1);
+const p1 = prod(s1, 820, 235, 470); AM.rise(p1, .05); AM.float(p1, .8, 3.3);
+const t1 = make('<div class="big" style="top:200px">ТОНЕР?</div>', s1); AM.slam(t1, .15);
+const t2 = make('<div class="ab" style="left:0;right:0;top:1330px;text-align:center"><span class="ylw" style="font:800 74px/1.1 Unbounded;padding:20px 40px">КАК КРЕМ!</span></div>', s1); AM.slam(t2, 1.35);
+
+/* 2. Проблема: обычный тоник 3.2–9.5 */
+a = 3.2; const s2 = sc(a, { in: 'whip' });
+const f2 = face(s2, 280, 330);
+const tonik = make(`<svg class="ab" style="left:70px;top:640px" width="170" height="330" viewBox="0 0 170 330"><rect x="55" y="0" width="60" height="60" rx="10" fill="#9AA3A0"/><rect x="15" y="55" width="140" height="270" rx="30" fill="#C9D1CE"/><rect x="30" y="150" width="110" height="80" rx="8" fill="#fff"/><text x="85" y="198" font-family="Manrope" font-weight="800" font-size="26" text-anchor="middle" fill="#555">тоник</text></svg>`, s2);
+AM.slide(tonik, a + .2, -1);
+const pad = make('<div class="ab" style="left:600px;top:660px;width:110px;height:110px;border-radius:50%;background:#fff;box-shadow:0 6px 18px rgba(0,0,0,.35)"></div>', s2);
+AM.A(pad,[{transform:'translate(0,0)',opacity:0},{transform:'translate(0,0)',opacity:1,offset:.15},{transform:'translate(-120px,40px)',offset:.45},{transform:'translate(-20px,90px)',offset:.75},{transform:'translate(-140px,120px)',opacity:1}],a+.5,1.6,'ease-in-out','forwards');
+AM.A(pad,[{opacity:1},{opacity:0}],a+2.1,.2,'linear','forwards');
+const tS = a + 2.1;
+[['.eyesN',0],['.mouthN',0],['.eyesS',1],['.mouthS',1]].forEach(([q,o]) => AM.A(f2.querySelector(q),[{opacity:1-o},{opacity:o}],tS,.2,'linear','forwards'));
+AM.A(f2,[{transform:'scale(1)'},{transform:'scale(.97,1.02)'},{transform:'scale(1)'}],tS,.3,'ease-in-out','none'); AM.shake(tS,.6);
+arrow(s2, 120, 600, 15, tS + .3); arrow(s2, 790, 600, 165, tS + .45);
+plate(s2, 'Консультант протирает лицо <b>обычным тоником без бренда</b> — мимика «стянуло»', 160, a + .3);
+sub('ОБЫЧНЫЙ<br><b>ТОНИК</b>', a + .15, a + 2); sub('<b>СТЯНУЛО</b>', tS, tS + 1.8); sub('СУХО!', tS + 1.9, 9.45);
+
+/* 3. Доказательство 9.5–13 */
+a = 9.5; const s3 = sc(a, { in: 'zoom' });
+const f3 = face(s3, 280, 330); ['.eyesN','.mouthN'].forEach(q=>f3.querySelector(q).setAttribute('opacity','0')); ['.eyesS','.mouthS','.dry'].forEach(q=>f3.querySelector(q).setAttribute('opacity','1'));
+const mag = make(`<div class="ab" style="left:560px;top:520px;width:380px;height:380px;border-radius:50%;border:14px solid #fff;box-shadow:0 0 0 8px #FF2D2D,0 20px 50px rgba(0,0,0,.5);background:radial-gradient(#F3C6A6,#E8B08C);overflow:hidden">
+<svg width="380" height="380" viewBox="0 0 380 380"><g stroke="#C9845F" stroke-width="7" fill="none" stroke-linecap="round"><path d="M60 120 l50 20 l40 -15"/><path d="M90 210 l60 -10 l50 25"/><path d="M200 120 l45 30 l55 -10"/><path d="M150 280 l50 -20 l60 15"/><path d="M240 210 l60 20"/></g><g fill="#FBE3D0"><circle cx="120" cy="150" r="10"/><circle cx="250" cy="170" r="12"/><circle cx="190" cy="250" r="9"/></g></svg></div>`, s3);
+AM.A(mag,[{opacity:0,transform:'scale(.2)'},{opacity:1,transform:'scale(1)'}],a+.3,.5,E.back); AM.cue(a+.3,'pop');
+arrow(s3, 330, 640, 0, a + .8);
+plate(s3, 'Крупный план щеки: <b>сухие участки, шелушение</b> после обычного тоника', 160, a + .2);
+sub('КОЖА<br><b>ШЕЛУШИТСЯ</b>', a + .2, a + 1.9); sub('ЕЙ МАЛО<br><b>ВЛАГИ</b>', a + 1.95, 12.95);
+
+/* 4. «Но давай заменим» 13–16 */
+a = 13; const s4 = sc(a, { in: 'whip' });
+const b1 = make('<div class="big" style="top:520px">НО<br>ДАВАЙ</div>', s4); AM.slam(b1, a + .1);
+const b2 = make('<div class="big g" style="top:880px;font-size:122px">ЗАМЕНИМ!</div>', s4); AM.slam(b2, a + 1.2);
+const swap = make('<div class="ab" style="left:0;right:0;top:1330px;text-align:center;font:800 90px Manrope">🔄</div>', s4); AM.pop(swap, a + 1.5);
+
+/* 5. Товар руками крупно 16–22.5 */
+a = 16; const s5 = sc(a, { in: 'zoom' });
+make('<div class="glow" style="left:-60px;top:380px;width:760px;height:900px"></div>', s5);
+const p5 = prod(s5, 760, 40, 420); AM.rise(p5, a); AM.sweep(p5, a + .9); AM.float(p5, a + .7, 22.6, 12);
+const nm = make('<div class="ab" style="left:60px;top:330px"><span class="ylw">Celimax Dual Barrier<br>Creamy Toner</span></div>', s5); AM.pop(nm, a + .35);
+[['5 церамидов',17.3,500],['пептид Aquatide',18.3,620],['гиалуронат натрия',19.3,740]].forEach(([t,tt,y])=>{ const n=make(`<div class="chip" style="right:40px;top:${y}px"><span>${t}</span></div>`, s5); AM.slide(n, tt, 1); });
+AM.drop(s5, 20.2, 830, 1000);
+const tx = make('<div class="chip" style="right:40px;top:1110px"><span style="background:#fff">🥛 молочная текстура</span></div>', s5); AM.pop(tx, 21.05);
+plate(s5, 'Консультант <b>держит флакон крупно</b>, капает тонер на ладонь', 140, a + .3);
+sub('<b>КРЕМОВЫЙ</b><br>ТОНЕР', a + .2, 17.25); sub('5<br><b>ЦЕРАМИДОВ</b>', 17.3, 19.25); sub('<b>НЕ ЛИПНЕТ</b>', 21.1, 22.45);
+
+/* 6. Возражение 22.5–25.5 */
+a = 22.5; const s6 = sc(a, { in: 'whip' });
+const q1 = make('<div class="big" style="top:520px;font-size:130px">А НЕ<br>БУДЕТ</div>', s6); AM.slam(q1, a + .1);
+const q2 = make('<div class="big y" style="top:850px;font-size:150px">ЛИПКО?</div>', s6); AM.slam(q2, a + 1.05);
+const qm = make('<div class="ab" style="left:820px;top:330px;font:800 200px Unbounded;color:#FF2D2D;-webkit-text-stroke:10px #000;paint-order:stroke fill">?</div>', s6); AM.pop(qm, a + 1.4);
+plate(s6, 'Клиентка с сомнением: «А не будет липко?»', 160, a + .2);
+
+/* 7. Тест на двух половинах ладони + таймер 25.5–33.5 */
+a = 25.5; const s7 = sc(a, { in: 'wipe' });
+const palm = make(`<svg class="ab" style="left:150px;top:470px" width="780" height="860" viewBox="0 0 780 860">
+<path d="M230 840 C 150 700, 120 560, 130 430 L 120 200 Q120 160 155 160 Q190 160 192 200 L 200 380 L 210 110 Q212 70 250 70 Q288 70 288 110 L 290 360 L 310 70 Q312 30 350 30 Q388 30 388 70 L 382 360 L 412 110 Q416 72 452 74 Q488 78 484 116 L 462 400 L 560 300 Q590 272 620 296 Q646 322 620 352 L 500 520 C 470 640, 470 740, 450 840 Z" fill="#F6D3B5" stroke="#E2B796" stroke-width="6"/>
+<line x1="345" y1="380" x2="335" y2="840" stroke="#0E3B2C" stroke-width="8" stroke-dasharray="22 16"/>
+<ellipse class="L" cx="262" cy="620" rx="72" ry="54" fill="#FFFFFF"/><ellipse class="Lg" cx="245" cy="600" rx="22" ry="12" fill="#fff" opacity=".95"/>
+<ellipse class="R" cx="410" cy="620" rx="72" ry="54" fill="#FFFDF5"/></svg>`, s7);
+AM.fade(palm, a + .1);
+const lbl = (t, x, c) => make(`<div class="ab" style="left:${x}px;top:1115px;width:330px;text-align:center"><span class="ylw" style="font-size:34px;${c}">${t}</span></div>`, s7);
+AM.pop(lbl('плотный крем', 150, 'background:#fff'), a + .4); AM.pop(lbl('Creamy Toner', 520, ''), a + .6);
+const timer = make(`<div class="ab" style="left:360px;top:300px;width:360px;height:150px;border-radius:30px;background:#000;border:6px solid #00FF41;display:flex;align-items:center;justify-content:center;gap:14px;font:800 92px Unbounded;color:#00FF41"><span>⏱</span><span class="tm">1:00</span></div>`, s7);
+AM.pop(timer, a + .9);
+const tm = timer.querySelector('.tm'); tm.textContent = '';
+for (let k = 0; k <= 12; k++) { const v = 60 - k * 5, s = make(`<span style="position:absolute;opacity:0">${v === 60 ? '1:00' : '0:' + String(v).padStart(2,'0')}</span>`); tm.appendChild(s); }
+tm.style.position = 'relative'; tm.style.width = '250px'; tm.style.height = '110px'; tm.style.display = 'block';
+[...tm.children].forEach((s, k) => { s.style.left = '0'; s.style.top = '0'; const t0 = a + 1.2 + k * .38; s.animate([{opacity:1},{opacity:1}],{delay:t0*1000,duration:(k===12?99:.38)*1000,fill:'none'}); AM.cue(t0,'tick'); });
+const tEnd = a + 1.2 + 12 * .38;
+const R = palm.querySelector('.R'); AM.A(R,[{opacity:1,transform:'scale(1)'},{opacity:0,transform:'scale(.6)'}],a+1.4,4.2,'ease-in','forwards'); R.style.transformOrigin='410px 620px'; R.style.transformBox='view-box';
+const ok = make('<div class="ab" style="left:500px;top:900px;font:800 150px Manrope;color:#00FF41;-webkit-text-stroke:8px #000;paint-order:stroke fill">✓</div>', s7); AM.pop(ok, tEnd + .1);
+const st = make('<div class="ab" style="left:250px;top:960px"><span class="ylw" style="background:#FF2D2D;color:#fff;font-size:36px">липко</span></div>', s7); AM.pop(st, tEnd + .3);
+plate(s7, 'Тест на ладони: слева плотный крем, справа тонер. Таймер 1 мин (в ролике ускорено)', 140, a + .2);
+sub('ТЕСТ<br><b>1 МИНУТА</b>', a + .3, a + 2.6); sub('<b>ВПИТАЛСЯ</b>', tEnd + .1, tEnd + 1.6); sub('БЕЗ<br><b>ЛИПКОСТИ</b>', tEnd + 1.65, 33.45);
+
+/* 8. Результат 33.5–37 */
+a = 33.5; const s8 = sc(a, { in: 'zoom' });
+make('<div class="glow" style="left:140px;top:420px;width:800px;height:800px"></div>', s8);
+const p8 = prod(s8, 700, 280, 470); AM.rise(p8, a); AM.float(p8, a + .7, 37.2, 10);
+const c1 = make('<div class="chip" style="left:60px;top:560px"><span>мягкость</span></div>', s8); AM.pop(c1, a + .6);
+const c2 = make('<div class="chip" style="right:60px;top:760px"><span>гладкость</span></div>', s8); AM.pop(c2, a + 1.1);
+const c3 = make('<div class="chip" style="left:60px;top:960px"><span>для сухой и чувствительной</span></div>', s8); AM.pop(c3, a + 1.6);
+sub('КОЖА<br><b>МЯГКАЯ</b>', a + .3, a + 1.9); sub('И <b>ГЛАДКАЯ</b>', a + 1.95, 36.95);
+
+/* 9. Призыв 37–42 */
+a = 37; const s9 = sc(a, { in: 'zoom' });
+const p9 = prod(s9, 520, 60, 330); AM.rise(p9, a); AM.float(p9, a + .7, END, 10);
+const u = make('<div class="ab" style="left:470px;top:400px;width:560px"><div style="font:800 36px Manrope;color:#00FF41;letter-spacing:.14em">ЗАКАЖИ НА</div><div style="font:800 92px/1.05 Unbounded">amura.kz</div></div>', s9); AM.up(u, a + .3, .45, 40);
+const art = make('<div class="ab" style="left:470px;top:640px"><span class="ylw" style="font-size:40px">артикул 00148</span></div>', s9); AM.pop(art, a + .8);
+const dl = make('<div class="ab" style="left:470px;top:760px;width:560px;font:700 38px/1.3 Manrope">🚚 Доставка по Алматы<br>и всему Казахстану</div>', s9); AM.up(dl, a + 1.3, .45, 30);
+const by = make('<div class="ab" style="left:60px;right:60px;top:1000px;height:150px;border-radius:30px;background:#00FF41;color:#0E3B2C;display:flex;align-items:center;justify-content:center;font:800 60px Unbounded">Подобрано AMURA</div>', s9); AM.pop(by, a + 1.9); AM.pulse(by, a + 2.6); AM.pulse(by, a + 3.6);
+sub('ЗАКАЖИ<br>НА <b>AMURA.KZ</b>', a + .3, 41.9);
+
+AM.scenes(SC, END); AM.background(END);
+window.REEL_END = END;
+})();
+</script></body></html>
