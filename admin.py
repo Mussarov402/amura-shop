@@ -457,17 +457,22 @@ def _dash_calc(d1, d2, p1=None, p2=None):
     hourly = span <= timedelta(days=1)
     rng = lambda a, b: f"moment>={_ms_time(a)};moment<{_ms_time(b)}"
     done = lambda a, b: rng(a, b) + ";applicable=true"              # только проведённые — как в МойСклад «Продажи»
+    # прошлый период уже не меняется — его документы и отчёт держим в кэше час: МойСклад спрашиваем вдвое реже (ответ ~3,6 → ~2 с)
+    today0 = datetime.now(oh.ALMATY).replace(hour=0, minute=0, second=0, microsecond=0)
+    keep = lambda b: 3600 if b <= today0 else 60
+    get = lambda path, flt, b: oh.cached(f"dq:{path}:{flt}", keep(b), lambda: _ms_all(path, flt))
+    prof = lambda a, b: oh.cached(f"dp:{_ms_time(a)}:{_ms_time(b)}", keep(b), lambda: _profit_rows(a, b))
     with cf.ThreadPoolExecutor(8) as ex:
-        f_o = ex.submit(_ms_all, "/entity/customerorder", rng(start, end))
-        f_po = ex.submit(_ms_all, "/entity/customerorder", rng(pstart, pend))
-        f_r = ex.submit(_ms_all, "/entity/retaildemand", done(start, end))
-        f_pr = ex.submit(_ms_all, "/entity/retaildemand", done(pstart, pend))
-        f_d = ex.submit(_ms_all, "/entity/demand", done(start, end))
-        f_pd = ex.submit(_ms_all, "/entity/demand", done(pstart, pend))
-        f_rt = ex.submit(lambda: _ms_all("/entity/salesreturn", done(start, end)) + _ms_all("/entity/retailsalesreturn", done(start, end)))
-        f_prt = ex.submit(lambda: _ms_all("/entity/salesreturn", done(pstart, pend)) + _ms_all("/entity/retailsalesreturn", done(pstart, pend)))
-        f_t = ex.submit(_profit_rows, start, end)
-        f_pt = ex.submit(_profit_rows, pstart, pend)
+        f_o = ex.submit(get, "/entity/customerorder", rng(start, end), end)
+        f_po = ex.submit(get, "/entity/customerorder", rng(pstart, pend), pend)
+        f_r = ex.submit(get, "/entity/retaildemand", done(start, end), end)
+        f_pr = ex.submit(get, "/entity/retaildemand", done(pstart, pend), pend)
+        f_d = ex.submit(get, "/entity/demand", done(start, end), end)
+        f_pd = ex.submit(get, "/entity/demand", done(pstart, pend), pend)
+        f_rt = ex.submit(lambda: get("/entity/salesreturn", done(start, end), end) + get("/entity/retailsalesreturn", done(start, end), end))
+        f_prt = ex.submit(lambda: get("/entity/salesreturn", done(pstart, pend), pend) + get("/entity/retailsalesreturn", done(pstart, pend), pend))
+        f_t = ex.submit(prof, start, end)
+        f_pt = ex.submit(prof, pstart, pend)
         orders, porders, retail, pretail = f_o.result(), f_po.result(), f_r.result(), f_pr.result()
         demands, pdemands, rets, prets = f_d.result(), f_pd.result(), f_rt.result(), f_prt.result()
         try:
@@ -597,7 +602,7 @@ def dash():
         p1 = p2 = None
     live = d2 >= today
     try:
-        data = oh.cached(f"dash:{d1}:{d2}:{p1}:{p2}", 60 if live else 900, lambda: _dash_calc(d1, d2, p1, p2))
+        data = fresh(f"dash:{d1}:{d2}:{p1}:{p2}", 60 if live else 900, lambda: _dash_calc(d1, d2, p1, p2))   # повторно — сразу из кэша, свежие в фоне
     except Exception as e:
         print("Дашборд:", e, flush=True)
         return jsonify(ok=False, error="МойСклад долго отвечает — повторите через минуту"), 503
