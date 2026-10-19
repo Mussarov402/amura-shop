@@ -37,3 +37,9 @@
 ## Запрос для Glif (шаблон)
 
 > Make ONE vertical marketplace product card (3:4, ~1086x1448) copying the layout and style of the FIRST attached image exactly, for the product in the SECOND image. Keep the product exactly as in the photo. Background: blurred luxury cosmetics store, glowing shelves on both sides, warm beige/gold light, marble floor. Top: illuminated gold sign "AMURA", "Cosmetics" below; top-right blue check badge "100% ОРИГИНАЛ". Title: small spaced brand, big bold black product name, second line, accent spec line, beige pill "<тип товара>". Product on a marble hexagonal podium. Left: 4 feature rows with brown line icons in rounded beige cards: <4 × заголовок — пояснение>. Bottom: box icon "ОПТ <цена>₸" and bag icon "РОЗНИЦА <цена>₸" in big bold brown digits. Bottom row: "Оригинальный товар", "Доставка по всем регионам KZ", "Надёжная упаковка". All text in Russian, spelled exactly as given.
+
+## Без ИИ: генератор `cards/make.py` (бесплатно, около минуты)
+
+`python3 cards/make.py <артикул> [--opt N --rtl N]` → `cards/out/<артикул>.png` в этом же дизайне. Вёрстка HTML (`cards/card.html`) → PNG через Playwright, все надписи — настоящий шрифт, ошибок в буквах нет.
+Тексты (название, объём, тип, 4 преимущества) — в `cards/benefits.json` по артикулу, только правда из описания. Цены по умолчанию — из `catalog.json`.
+Товар вырезается с белого фона фото каталога; если не вышло — фото в светлой рамке. Фото настоящего магазина → `cards/bg.jpg` — встанет вместо нарисованного фона.
