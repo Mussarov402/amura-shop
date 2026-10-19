@@ -1,0 +1,24 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><link rel="stylesheet" href="../kit/fonts.css">
+<!-- Финальная карточка ASMR-ролика (2 с): артикулы + «amura.kz — ссылка в шапке». Цену не показываем.
+     edit.py открывает её с ?items=Название|00637;...  и снимает PNG 1080×1920. -->
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1080px;height:1920px;overflow:hidden}
+body{background:radial-gradient(70% 50% at 50% 45%,#F7EFE6 0%,#EBDDCB 70%,#E2D0BA 100%);color:#3B2416;font-family:Manrope,sans-serif;display:flex;flex-direction:column;align-items:center;padding-top:300px}
+.brand{font:800 40px Unbounded;letter-spacing:.34em;padding-left:.34em;color:#8A6A4A}
+.t{margin-top:60px;font:800 34px Manrope;letter-spacing:.24em;color:#8A6A4A}
+.list{margin-top:36px;width:860px;display:flex;flex-direction:column;gap:22px}
+.row{display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,.7);border-radius:28px;padding:26px 36px;box-shadow:0 10px 30px rgba(90,46,20,.08)}
+.n{font:700 34px/1.2 Manrope;max-width:560px}
+.a{font:800 44px Unbounded;color:#5A2E14;letter-spacing:.04em}
+.cta{margin-top:70px;width:860px;border-radius:34px;background:#5A2E14;color:#F7EFE6;text-align:center;padding:34px 30px}
+.cta b{display:block;font:800 64px Unbounded}
+.cta span{display:block;margin-top:10px;font:700 36px Manrope;opacity:.9}
+</style></head><body>
+<div class="brand">AMURA</div><div class="t">АРТИКУЛЫ</div><div class="list" id="L"></div>
+<div class="cta"><b>amura.kz</b><span>↑ ссылка в шапке профиля</span></div>
+<script>
+const q = new URLSearchParams(location.search).get('items') || '';
+q.split(';').filter(Boolean).forEach(s => { const [n, a] = s.split('|'); const r = document.createElement('div'); r.className = 'row';
+  r.innerHTML = '<div class="n"></div><div class="a"></div>'; r.children[0].textContent = n; r.children[1].textContent = a; L.appendChild(r); });
+</script></body></html>
