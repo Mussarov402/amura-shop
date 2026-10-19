@@ -1,0 +1,21 @@
+{
+  "_как": "Тексты карточек по артикулу. Только правда из описания и этикетки. title — 2 строки названия, spec — объём/SPF (синим), type — плашка. benefits — 4 шт.: title 2–3 слова, text до 40 знаков, icon: drop shield leaf layers milk sparkle feather heart eye lash curl water sun clock hand check flask. Необязательно: crop [x1,y1,x2,y2] — кадр фото; frame true — фото целиком в рамке.",
+  "00148": {
+    "title": ["Dual Barrier", "Creamy Toner"], "spec": "150 мл", "type": "Кремовый тонер",
+    "benefits": [
+      {"icon": "layers", "title": "5 видов церамидов", "text": "Укрепляют защитный барьер кожи"},
+      {"icon": "drop", "title": "Увлажняет", "text": "Гиалуронат натрия и пептид Aquatide"},
+      {"icon": "leaf", "title": "Успокаивает", "text": "Снимает раздражение и шелушение"},
+      {"icon": "milk", "title": "Молочная текстура", "text": "Быстро впитывается, не липнет"}
+    ]
+  },
+  "00167": {
+    "title": ["Dailism Smudge Stop", "Mascara Curling Black"], "spec": "9 г", "type": "Тушь для ресниц",
+    "benefits": [
+      {"icon": "curl", "title": "Подкручивает", "text": "Изогнутая щёточка, выразительный изгиб"},
+      {"icon": "lash", "title": "Удлиняет", "text": "Прокрашивает ресницы от корней"},
+      {"icon": "water", "title": "Стойкая", "text": "Не боится влаги, не осыпается за день"},
+      {"icon": "drop", "title": "Смывается тёплой водой", "text": "Снимается «чулочками», без средств"}
+    ]
+  }
+}
