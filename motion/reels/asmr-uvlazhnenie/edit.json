@@ -1,0 +1,199 @@
+{
+ "bpm": 90,
+ "music": "music.mp3",
+ "music_start": 0,
+ "music_vol": 0.35,
+ "title": "Увлажняющий уход",
+ "items": [
+  [
+   "Torriden Dive In Toner",
+   "00637"
+  ],
+  [
+   "Torriden Dive In Serum",
+   "01337"
+  ],
+  [
+   "Torriden Hydra-Glow Eye Patch",
+   "01335"
+  ],
+  [
+   "Medicube Collagen Jelly Cream",
+   "01053"
+  ]
+ ],
+ "shots": [
+  {
+   "clip": "00_hook.mp4",
+   "in": 0,
+   "beats": 2,
+   "audio": 0.6
+  },
+  {
+   "clip": "01_toner_show.mp4",
+   "in": 0,
+   "beats": 2,
+   "audio": 1,
+   "sfx": [
+    {
+     "file": "sfx/cap.wav",
+     "at": 0.2
+    }
+   ]
+  },
+  {
+   "clip": "02_toner_texture.mp4",
+   "in": 0,
+   "beats": 2,
+   "audio": 1,
+   "sfx": [
+    {
+     "file": "sfx/pour.wav",
+     "at": 0.1
+    }
+   ]
+  },
+  {
+   "clip": "03_toner_apply.mp4",
+   "in": 0,
+   "beats": 4,
+   "audio": 1,
+   "sfx": [
+    {
+     "file": "sfx/pat.wav",
+     "at": 0.4
+    },
+    {
+     "file": "sfx/pat.wav",
+     "at": 1.1
+    },
+    {
+     "file": "sfx/pat.wav",
+     "at": 1.8
+    }
+   ]
+  },
+  {
+   "clip": "04_serum_show.mp4",
+   "in": 0,
+   "beats": 2,
+   "audio": 1,
+   "sfx": [
+    {
+     "file": "sfx/cap.wav",
+     "at": 0.2
+    }
+   ]
+  },
+  {
+   "clip": "05_serum_texture.mp4",
+   "in": 0,
+   "beats": 2,
+   "audio": 1,
+   "sfx": [
+    {
+     "file": "sfx/drop.wav",
+     "at": 0.5
+    }
+   ]
+  },
+  {
+   "clip": "06_serum_apply.mp4",
+   "in": 0,
+   "beats": 4,
+   "audio": 1,
+   "sfx": [
+    {
+     "file": "sfx/pat.wav",
+     "at": 0.6
+    },
+    {
+     "file": "sfx/pat.wav",
+     "at": 1.4
+    }
+   ]
+  },
+  {
+   "clip": "07_patch_show.mp4",
+   "in": 0,
+   "beats": 2,
+   "audio": 1,
+   "sfx": [
+    {
+     "file": "sfx/jar.wav",
+     "at": 0.2
+    }
+   ]
+  },
+  {
+   "clip": "08_patch_texture.mp4",
+   "in": 0,
+   "beats": 2,
+   "audio": 1,
+   "sfx": [
+    {
+     "file": "sfx/peel.wav",
+     "at": 0.5
+    }
+   ]
+  },
+  {
+   "clip": "09_patch_apply.mp4",
+   "in": 0,
+   "beats": 4,
+   "audio": 1,
+   "sfx": [
+    {
+     "file": "sfx/stick.wav",
+     "at": 0.5
+    },
+    {
+     "file": "sfx/stick.wav",
+     "at": 1.6
+    }
+   ]
+  },
+  {
+   "clip": "10_cream_show.mp4",
+   "in": 0,
+   "beats": 2,
+   "audio": 1,
+   "sfx": [
+    {
+     "file": "sfx/jar.wav",
+     "at": 0.2
+    }
+   ]
+  },
+  {
+   "clip": "11_cream_texture.mp4",
+   "in": 0,
+   "beats": 2,
+   "audio": 1,
+   "sfx": [
+    {
+     "file": "sfx/scoop.wav",
+     "at": 0.4
+    }
+   ]
+  },
+  {
+   "clip": "12_cream_apply.mp4",
+   "in": 0,
+   "beats": 4,
+   "audio": 1,
+   "sfx": [
+    {
+     "file": "sfx/spread.wav",
+     "at": 0.3
+    }
+   ]
+  },
+  {
+   "clip": "13_final.mp4",
+   "in": 0,
+   "beats": 3,
+   "audio": 0.6
+  }
+ ]
+}

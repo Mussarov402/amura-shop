@@ -1,0 +1,191 @@
+{
+ "bpm": 90,
+ "music": "music.mp3",
+ "music_start": 0,
+ "music_vol": 0.35,
+ "title": "Успокаивающий уход",
+ "items": [
+  [
+   "Skin1004 Centella Quick Calming Pad",
+   "01219"
+  ],
+  [
+   "Dr.Althea 345 Relief Cream Mist",
+   "00732"
+  ],
+  [
+   "Dr.Althea 147 Barrier Cream",
+   "00333"
+  ],
+  [
+   "Skin1004 Hyalu-Cica Sun Serum",
+   "00355"
+  ]
+ ],
+ "shots": [
+  {
+   "clip": "00_hook.mp4",
+   "in": 0,
+   "beats": 2,
+   "audio": 0.6
+  },
+  {
+   "clip": "01_pad_show.mp4",
+   "in": 0,
+   "beats": 2,
+   "audio": 1,
+   "sfx": [
+    {
+     "file": "sfx/jar.wav",
+     "at": 0.2
+    }
+   ]
+  },
+  {
+   "clip": "02_pad_texture.mp4",
+   "in": 0,
+   "beats": 2,
+   "audio": 1,
+   "sfx": [
+    {
+     "file": "sfx/peel.wav",
+     "at": 0.4
+    }
+   ]
+  },
+  {
+   "clip": "03_pad_apply.mp4",
+   "in": 0,
+   "beats": 4,
+   "audio": 1,
+   "sfx": [
+    {
+     "file": "sfx/swipe.wav",
+     "at": 0.3
+    },
+    {
+     "file": "sfx/swipe.wav",
+     "at": 1.4
+    }
+   ]
+  },
+  {
+   "clip": "04_mist_show.mp4",
+   "in": 0,
+   "beats": 2,
+   "audio": 1,
+   "sfx": [
+    {
+     "file": "sfx/shake.wav",
+     "at": 0.1
+    }
+   ]
+  },
+  {
+   "clip": "05_mist_texture.mp4",
+   "in": 0,
+   "beats": 2,
+   "audio": 1,
+   "sfx": [
+    {
+     "file": "sfx/spray.wav",
+     "at": 0.3
+    }
+   ]
+  },
+  {
+   "clip": "06_mist_apply.mp4",
+   "in": 0,
+   "beats": 4,
+   "audio": 1,
+   "sfx": [
+    {
+     "file": "sfx/spray.wav",
+     "at": 0.2
+    },
+    {
+     "file": "sfx/pat.wav",
+     "at": 1.6
+    }
+   ]
+  },
+  {
+   "clip": "07_barrier_show.mp4",
+   "in": 0,
+   "beats": 2,
+   "audio": 1,
+   "sfx": [
+    {
+     "file": "sfx/cap.wav",
+     "at": 0.2
+    }
+   ]
+  },
+  {
+   "clip": "08_barrier_texture.mp4",
+   "in": 0,
+   "beats": 2,
+   "audio": 1,
+   "sfx": [
+    {
+     "file": "sfx/squeeze.wav",
+     "at": 0.3
+    }
+   ]
+  },
+  {
+   "clip": "09_barrier_apply.mp4",
+   "in": 0,
+   "beats": 4,
+   "audio": 1,
+   "sfx": [
+    {
+     "file": "sfx/spread.wav",
+     "at": 0.3
+    }
+   ]
+  },
+  {
+   "clip": "10_spf_show.mp4",
+   "in": 0,
+   "beats": 2,
+   "audio": 1,
+   "sfx": [
+    {
+     "file": "sfx/cap.wav",
+     "at": 0.2
+    }
+   ]
+  },
+  {
+   "clip": "11_spf_texture.mp4",
+   "in": 0,
+   "beats": 2,
+   "audio": 1,
+   "sfx": [
+    {
+     "file": "sfx/squeeze.wav",
+     "at": 0.3
+    }
+   ]
+  },
+  {
+   "clip": "12_spf_apply.mp4",
+   "in": 0,
+   "beats": 4,
+   "audio": 1,
+   "sfx": [
+    {
+     "file": "sfx/spread.wav",
+     "at": 0.3
+    }
+   ]
+  },
+  {
+   "clip": "13_final.mp4",
+   "in": 0,
+   "beats": 3,
+   "audio": 0.6
+  }
+ ]
+}
