@@ -58,6 +58,8 @@ ORDER_SECRET = os.environ.get("ORDER_SECRET", "").encode()
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "").rstrip("/")
 DEFAULT_API = "https://amura-shop-api.onrender.com"
 SITE_URL = os.environ.get("SITE_URL", "").rstrip("/")
+OPT_URL = "https://opt.amura.kz"   # адрес оптового сайта для клиентов (SITE_URL — технический адрес файлов на GitHub Pages)
+RTL_URL = "https://amura.kz"
 
 TIER_MID = 10                  # цена типа «От 10шт» действует от 10 шт
 LIVE_TTL = 90                  # сек: как часто сервер перечитывает МойСклад для сайта (оприходованный товар — на сайте за 2–4 минуты)
@@ -1960,7 +1962,8 @@ def auth_tg_start():
     for k in [k for k, v in _tg_login.items() if now - v["t"] > 900]:
         _tg_login.pop(k, None)
     nonce = secrets.token_urlsafe(18).replace("-", "a").replace("_", "b")
-    _tg_login[nonce] = {"t": now, "token": None, "new": False}
+    _tg_login[nonce] = {"t": now, "token": None, "new": False,
+                        "site": RTL_URL if request.headers.get("Origin", "") in (RTL_URL, "https://www.amura.kz") else OPT_URL}
     return jsonify(ok=True, nonce=nonce)
 
 
@@ -1992,7 +1995,7 @@ def handle_tg_login(nonce, user, chat):
     set_tg_id(cid, tg_id)
     v.update(token=make_token(cid), new=new)
     tg("sendMessage", chat_id=chat, text="Готово, вы вошли в AMURA ✅\nВернитесь на сайт — личный кабинет уже открыт.",
-       reply_markup=json.dumps({"inline_keyboard": [[{"text": "Открыть сайт", "url": SITE_URL + "/#me"}]]}))
+       reply_markup=json.dumps({"inline_keyboard": [[{"text": "Открыть сайт", "url": v.get("site", OPT_URL) + "/#me"}]]}))
 
 
 def handle_owner_callback(cq):
