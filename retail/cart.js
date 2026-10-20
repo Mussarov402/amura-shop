@@ -647,6 +647,11 @@ document.addEventListener("click", e => {
   if(e.target.closest("[data-paid-orders]")){ const pr = window.PAY_RET; if(pr) pr.shown = "done"; MO.page = "orders"; renderMe(); try{ history.replaceState(null, "", "#orders"); }catch{} }
   if(e.target.closest("[data-paid-shop]")){ const pr = window.PAY_RET; if(pr) pr.shown = "done"; go("home"); }
 });
+document.addEventListener("click", async e => {   // «💳 Оплатить» в «Моих заказах» — на страницу оплаты по заказу
+  const b = e.target.closest("[data-rpaynow]"); if(!b || b.disabled) return;
+  const t = b.textContent; b.disabled = true; b.textContent = "Открываем оплату…";
+  try{ location.href = await cardUrl(b.dataset.rpaynow); }catch(x){ toast(x.message); b.disabled = false; b.textContent = t; }
+});
 /* ---------- «Мои заказы» как у WB: карточки с фото, понятный статус, вкладки Активные / Завершённые, экран заказа ---------- */
 const PAGES = { "#orders": "orders", "#seen": "seen" };   // экраны внутри «Я» со своим адресом
 const MO = { p: null, orders: null, tab: "active", page: PAGES[location.hash] || "", keep: !!PAGES[location.hash] };
