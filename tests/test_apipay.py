@@ -68,6 +68,7 @@ class Kaspi(unittest.TestCase):
             d.run("DELETE FROM card_pay")
             d.run("DELETE FROM card_draft")
         apipay._seen.clear()
+        apipay._retry_at[0] = 0
         modules.update("kaspipay", on=True)
         self.addCleanup(lambda: modules.update("kaspipay", on=False))
         self.api = FakeApiPay()
@@ -209,6 +210,28 @@ class Kaspi(unittest.TestCase):
         before = len(self.api.sent)
         apipay.sweep()
         self.assertEqual(len(self.api.sent), before)
+
+    def test_failed_order_retried_every_10_minutes(self):
+        res, _ = self.checkout()
+        self.init(res["payToken"])
+        self.api.last()["status"] = "paid"
+        self.stock = 1                                                         # пока платили — товар разобрали
+        self.status(res["payToken"])
+        apipay.after_paid(self.api.next)
+        self.assertEqual(freedom.get_draft(res["draft"])["status"], "failed")
+        self.assertEqual(len(self.alerts), 1)
+        tries = lambda: freedom.get_draft(res["draft"])["tries"]
+        apipay.sweep()                                                         # первая сверка — повтор
+        self.assertEqual(tries(), 2)
+        for _ in range(5):                                                     # следующие минуты — без повторов
+            apipay.sweep()
+        self.assertEqual(tries(), 2)
+        apipay._retry_at[0] -= apipay.RETRY_GAP                                # прошло 10 минут
+        self.stock = 5
+        apipay.sweep()
+        self.assertEqual(freedom.get_draft(res["draft"])["status"], "ordered")
+        self.assertEqual(len(self.posted), 1)
+        self.assertEqual(len(self.alerts), 1)                                  # тревога была одна
 
     def test_amount_mismatch_and_bad_token(self):
         res, _ = self.checkout()

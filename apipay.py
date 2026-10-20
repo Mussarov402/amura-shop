@@ -36,6 +36,8 @@ TTL = 86400                                             # счёт по номе
 _ready = [False]
 _lock = threading.Lock()
 _seen = {}                                              # invoice_id → когда последний раз спрашивали ApiPay
+RETRY_GAP = 600                                         # повтор «оплачен, но заказ / платёж не создан» — не чаще раза в 10 минут
+_retry_at = [0.0]
 
 
 def key():
@@ -415,6 +417,9 @@ def sweep():
                       (now - 7 * 86400,), many=True) or []
     for (iid,) in rows:
         refresh(iid, force=True)
+    if now - _retry_at[0] < RETRY_GAP:                 # счета опрашиваем раз в минуту, а заказ в МойСклад повторяем раз в 10 минут
+        return
+    _retry_at[0] = now
     for (iid,) in again + nopay:
         try:
             after_paid(iid) if (iid,) in again else post_ms(iid)
