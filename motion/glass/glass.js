@@ -39,6 +39,19 @@ window.G = (() => {
     document.body.prepend(b);
   }
 
-  window.seek = ms => document.getAnimations().forEach(a => { a.pause(); a.currentTime = ms; });
-  return { E, A, make, show, type, caret, bg, cue, cues };
+  /* видео-фон (свои съёмки владельца): кадр видео ставится точно под время ролика; dim — затемнение, чтобы читалось стекло */
+  let vid = null;
+  function video(src, { dim = .35 } = {}) {
+    const w = make(`<div id="g-bg" style="background:#000"><video src="${src}" muted playsinline preload="auto" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></video><div id="g-vig" style="background:rgba(0,0,0,${dim})"></div></div>`);
+    document.body.prepend(w); vid = w.querySelector('video'); vid.pause();
+  }
+
+  window.seek = ms => {
+    document.getAnimations().forEach(a => { a.pause(); a.currentTime = ms; });
+    if (!vid) return;
+    const t = Math.min(ms / 1000, (vid.duration || 1e9) - .04);
+    if (Math.abs(vid.currentTime - t) < .001 && vid.readyState >= 2) return;
+    return new Promise(ok => { vid.addEventListener('seeked', () => requestAnimationFrame(() => ok()), { once: true }); vid.currentTime = t; });
+  };
+  return { E, A, make, show, type, caret, bg, video, cue, cues };
 })();

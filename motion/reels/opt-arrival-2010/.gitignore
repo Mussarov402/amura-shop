@@ -1,0 +1,7 @@
+footage.webm
+*.mov
+snap_*.jpg
+frames/
+cues.json
+mix.wav
+out.mp4
