@@ -32,7 +32,7 @@ def run(*a):
 
 
 def endcard(d, items):
-    """PNG финальной карточки через Chromium (те же шрифты, что в motion/kit)."""
+    """PNG финальной карточки через Chromium (шрифты motion/asmr/type)."""
     from urllib.parse import quote
     png = os.path.join(d, 'endcard.png')
     url = 'file://' + os.path.join(KIT, 'endcard.html') + '?items=' + quote(';'.join(f'{n}|{a}' for n, a in items))
