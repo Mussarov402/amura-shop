@@ -1,57 +1,58 @@
 <!doctype html><html lang="ru"><head><meta charset="utf-8"><link rel="stylesheet" href="../../glass/glass.css">
 <!-- Опт: новое поступление (20.10.2026). Стиль AMURA Glass поверх съёмки владельца со склада (IMG_9313.mov).
-     Видео: ffmpeg -i IMG_9313.mov -an -vf "setpts=4.1*PTS,fps=30,scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920" -c:v libvpx-vp9 -b:v 6M -g 1 footage.webm
-     Голос: ElevenLabs, Victoria — Warm & Cinematic (D5RRIJYa9pFwxiSpbGbR, eleven_v4), ускорен ×1.15 → voice.wav (в git не храним). Бренды — список владельца 20.10 (9 шт.), все есть в catalog.json. Цены не показываем. -->
+     Видео: ffmpeg -i IMG_9313.mov -an -vf "setpts=4.8*PTS,fps=30,scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920" -c:v libvpx-vp9 -b:v 6M -g 1 footage.webm
+     Голос: ElevenLabs (eleven_v4), без ускорения → voice.wav (в git не храним); моменты фраз — timing.js (копия timing_<голос>.js). Пробы 20.10: Tatiana (gCqVHuQpLDMkHrGiG95I), Alina (dVRDrbP5ULGXB94se4KZ). Бренды — список владельца 20.10 (9 шт.), все есть в catalog.json. Цены не показываем. -->
 <style>
 .brand { display:inline-flex; align-items:center; justify-content:center; height:92px; padding:0 34px; border-radius:999px; font:700 40px Inter,sans-serif; letter-spacing:.01em;
   background:rgba(255,255,255,.14); box-shadow: inset 0 0 0 1.5px rgba(255,255,255,.4); opacity:0 }
 </style></head><body>
-<script src="../../glass/glass.js"></script>
+<script src="../../glass/glass.js"></script><script src="timing.js"></script>
 <script>
 (function(){
 const { A, make, show, type, caret, cue, E } = G;
-const V = t => t / 1.15 + .3;            // время во фразе голоса (исходник 21 с) → время ролика (голос ×1.15, старт 0.3 с)
-const END = 19.4;
+const T = window.TIMING;                 // моменты фраз в голосе (с), timing.js — свой для каждого голоса
+const V = t => t + .3;                   // голос стартует на 0.3 с, без ускорения
+const END = V(T.end) + .9;
 G.video('footage.webm', { dim: .44 });
 
 /* 0–3: печать хука */
 const hook = make('<div class="g-type" style="top:780px;font-size:92px"></div>');
 const tEnd = type(hook, 'Новое поступление<br>для оптовиков', .3, .045);
-const cr = make('<span class="g-caret" style="opacity:0"></span>', hook); caret(cr, tEnd, V(2.0)); A(cr, [{ visibility: 'visible' }, { visibility: 'hidden' }], V(2.0), .01, 'linear', 'forwards');
-A(hook, [{ transform: 'none', top: '780px' }, { transform: 'scale(.66)', top: '250px' }], V(1.95), .6, E.io, 'forwards');
+const cr = make('<span class="g-caret" style="opacity:0"></span>', hook); caret(cr, tEnd, V(T.ding)); A(cr, [{ visibility: 'visible' }, { visibility: 'hidden' }], V(T.ding), .01, 'linear', 'forwards');
+A(hook, [{ transform: 'none', top: '780px' }, { transform: 'scale(.66)', top: '250px' }], V(T.ding - .1), .6, E.io, 'forwards');
 
 /* карточка: бренды → список → таблетка */
 const card = make('<div class="glass" style="left:100px;top:620px;width:880px;height:640px;opacity:0"></div>');
-A(card, [{ opacity: 0, transform: 'scale(.6)' }, { opacity: 1, transform: 'scale(1)' }], V(2.2), .6, E.back); cue(V(2.2), 'ding');
-A(card, [{ left: '100px', top: '620px', width: '880px', height: '640px' }, { left: '80px', top: '640px', width: '920px', height: '600px' }], V(10.35), .5, E.io, 'forwards'); cue(V(10.35), 'whoosh');
-A(card, [{ left: '80px', top: '640px', width: '920px', height: '600px', borderRadius: '56px' }, { left: '170px', top: '860px', width: '740px', height: '160px', borderRadius: '80px' }], V(14.95), .55, E.io, 'forwards'); cue(V(14.95), 'whoosh');
+A(card, [{ opacity: 0, transform: 'scale(.6)' }, { opacity: 1, transform: 'scale(1)' }], V(T.ding), .6, E.back); cue(V(T.ding), 'ding');
+A(card, [{ left: '100px', top: '620px', width: '880px', height: '640px' }, { left: '80px', top: '640px', width: '920px', height: '600px' }], V(T.list), .5, E.io, 'forwards'); cue(V(T.list), 'whoosh');
+A(card, [{ left: '80px', top: '640px', width: '920px', height: '600px', borderRadius: '56px' }, { left: '170px', top: '860px', width: '740px', height: '160px', borderRadius: '80px' }], V(T.pills), .55, E.io, 'forwards'); cue(V(T.pills), 'whoosh');
 
 /* 1) бренды на складе */
 const s1 = make('<div class="ab" style="left:100px;top:620px;width:880px;height:640px;padding:64px 56px;opacity:0"></div>');
 make('<div class="g-small" style="text-align:center;margin-bottom:40px">уже на складе</div>', s1);
 const grid = make('<div style="display:flex;flex-wrap:wrap;justify-content:center;gap:26px 22px"></div>', s1);
 ['Dr.Cellio', 'Round Lab', 'AXIS-Y', 'Dr.Althea', 'Anua', 'Celimax', 'Heimish', 'Medi-Peel', 'Arencia'].forEach((b, i) => { const n = make(`<div class="brand">${b}</div>`, grid);
-  const t = V([2.75, 3.45, 4.3, 5.3, 6.13, 6.77, 7.73, 8.53, 9.61][i]); A(n, [{ opacity: 0, transform: 'scale(.7)' }, { opacity: 1, transform: 'none' }], t, .35, E.back, 'forwards'); cue(t, 'ping'); });
-show(s1, V(2.3), V(10.4), .25);
+  const t = V(T.brands[i]); A(n, [{ opacity: 0, transform: 'scale(.7)' }, { opacity: 1, transform: 'none' }], t, .35, E.back, 'forwards'); cue(t, 'ping'); });
+show(s1, V(T.ding + .1), V(T.list + .05), .25);
 
 /* 2) список 1–2–3 */
 const s2 = make('<div class="ab" style="left:80px;top:640px;width:920px;height:600px;padding:80px 70px;opacity:0"></div>');
 ['Свежая партия из Кореи', 'Склад в Алматы', 'Доставка по Казахстану'].forEach((txt, i) => { const r = make(`<div class="g-item" style="margin-top:${i ? 56 : 0}px;opacity:0"><div class="g-num">${i + 1}</div><div>${txt}</div></div>`, s2);
-  const t = V([10.7, 12.25, 13.47][i]); A(r, [{ opacity: 0, transform: 'translateY(26px)' }, { opacity: 1, transform: 'none' }], t, .45, E.back, 'forwards'); cue(t, 'ping'); });
-show(s2, V(10.55), V(15.0), .25);
+  const t = V(T.items[i]); A(r, [{ opacity: 0, transform: 'translateY(26px)' }, { opacity: 1, transform: 'none' }], t, .45, E.back, 'forwards'); cue(t, 'ping'); });
+show(s2, V(T.list + .2), V(T.pills + .05), .25);
 
 /* 3) таблетка: AMURA ОПТ · opt.amura.kz */
 const s3 = make('<div class="ab" style="left:170px;top:860px;width:740px;height:160px;display:flex;align-items:center;gap:28px;padding:0 30px;opacity:0"></div>');
 make('<div style="flex:none;width:108px;height:108px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:800 48px Inter,sans-serif;background:linear-gradient(160deg,#f2f4f6,#9aa0a8);color:#15171a;box-shadow:inset 0 0 0 2px rgba(255,255,255,.6)">A</div>', s3);
 make('<div><div style="font:700 46px/1.1 Inter,sans-serif">AMURA · опт</div><div class="g-small" style="margin-top:6px">opt.amura.kz</div></div>', s3);
-A(s3, [{ opacity: 0, transform: 'scale(.9)' }, { opacity: 1, transform: 'none' }], V(15.4), .4, E.back, 'forwards'); cue(V(15.4), 'pop');
+A(s3, [{ opacity: 0, transform: 'scale(.9)' }, { opacity: 1, transform: 'none' }], V(T.pills + .45), .4, E.back, 'forwards'); cue(V(T.pills + .45), 'pop');
 /* второй вариант заказа: Telegram-канал */
 const tg = make('<div class="glass pill" style="left:170px;top:1050px;width:740px;height:160px;display:flex;align-items:center;gap:28px;padding:0 30px;opacity:0"></div>');
 make('<div style="flex:none;width:108px;height:108px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:linear-gradient(160deg,#5fb8ee,#2a8fd0);box-shadow:inset 0 0 0 2px rgba(255,255,255,.45)"><svg width="54" height="54" viewBox="0 0 24 24"><path d="M3 11.5 L20 4.5 L17 19.5 L11.5 15.5 L9 18.5 L9 14.5 L17 7.5 L7.5 13.5 Z" fill="#fff"/></svg></div>', tg);
 make('<div><div style="font:700 46px/1.1 Inter,sans-serif">Telegram-канал</div><div class="g-small" style="margin-top:6px">новинки и поступления</div></div>', tg);
-A(tg, [{ opacity: 0, transform: 'translateY(30px) scale(.94)' }, { opacity: 1, transform: 'none' }], V(16.4), .45, E.back, 'forwards'); cue(V(16.4), 'pop');
+A(tg, [{ opacity: 0, transform: 'translateY(30px) scale(.94)' }, { opacity: 1, transform: 'none' }], V(T.tg), .45, E.back, 'forwards'); cue(V(T.tg), 'pop');
 const lk = make('<div class="ab" style="left:0;right:0;top:1250px;text-align:center;opacity:0;font:600 40px/1.3 Inter,sans-serif;text-shadow:0 2px 14px rgba(0,0,0,.7)">Заказывайте на сайте или в Telegram<br><span class="g-small" style="text-shadow:0 2px 12px rgba(0,0,0,.7)">ссылки — в шапке профиля</span></div>');
-A(lk, [{ opacity: 0, transform: 'translateY(16px)' }, { opacity: 1, transform: 'none' }], V(19.5), .5, E.out, 'forwards');
+A(lk, [{ opacity: 0, transform: 'translateY(16px)' }, { opacity: 1, transform: 'none' }], V(T.link), .5, E.out, 'forwards');
 
 window.REEL_END = END;
 })();
