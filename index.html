@@ -450,6 +450,12 @@ form.co{display:grid;gap:12px;padding-top:6px}
 .rpay{display:grid;grid-template-columns:28px minmax(0,1fr);gap:10px;align-items:start;background:var(--bg);border-radius:14px;padding:12px}
 .rpay svg{width:26px;height:26px;fill:none;stroke:var(--green-3);stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .rpay span{display:grid;gap:3px}.rpay small{font-size:12.5px;color:var(--muted)}
+.rpays{display:grid;gap:8px}.rpay.rpm{width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer;border:2px solid transparent}
+.rpay.rpm.on{border-color:var(--green-3);background:var(--surface)}
+.rpay2{display:grid;grid-template-columns:1fr 1fr;gap:8px}.rpay2 .rpaynow{margin:8px 0 4px}
+.rkwait{display:flex;align-items:center;gap:10px;justify-content:center;color:var(--muted);font-size:14px;margin:4px 0 8px}
+.rkdot{width:10px;height:10px;border-radius:50%;background:#F14635;animation:rkp 1.2s ease-in-out infinite}
+@keyframes rkp{0%,100%{opacity:.25;transform:scale(.8)}50%{opacity:1;transform:scale(1.1)}}
 .rpaynow{margin:8px 0 4px}.rpaid{background:var(--surface);border-radius:16px;padding:14px;margin-bottom:12px}.rpaid h3{margin:0;font-size:17px}.rpaid p{margin:2px 0 0;color:var(--muted)}
 .rtot{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px}
 .rtot span{font-size:20px;font-weight:800}.rtot b{font-size:22px;font-weight:800}
@@ -998,6 +1004,7 @@ async function refreshLive(){
     lastLive = Date.now();
     siteClosed(data.closed);
     window.CARD_PAY = RETAIL && !!data.cardPay;   // «Оплатить картой» (Freedom Pay) — включает владелец в системе AMURA
+    window.KASPI_PAY = RETAIL && !!data.kaspiPay; // «Kaspi» (счёт через ApiPay) — тоже включает владелец
     if(!RETAIL && (data.minOrder || 0) !== MIN_ORDER){ MIN_ORDER = data.minOrder || 0; if(VIEW === "cart" && $("#sum")) renderSum(); }
     if(!!data.promo !== PROMO_ON){ PROMO_ON = !!data.promo; if(VIEW === "cart" && !document.activeElement?.matches("#drawerBody input")) renderCart(); }
     const typing = document.activeElement && document.activeElement.matches("#grid input, #sheet input");
@@ -2223,6 +2230,7 @@ const PIN = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6.5-6.
 const CHEV = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 6 6 6-6 6"/></svg>';
 const TRASH = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 7h15M9.5 7V5h5v2M6.5 7l1 12.5h9l1-12.5"/></svg>';
 const CARD = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5.5" width="18" height="13" rx="2.5"/><path d="M3 9.5h18M7 14.5h4"/></svg>';
+const KASPI = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="2.5" width="12" height="19" rx="3"/><path d="M10.5 18.5h3M9.5 9.5l2 2 3.5-4"/></svg>';
 
 /* выбранные галочкой товары: в заказ идут только они (снятые — остаются в корзине) */
 const OFF = "amura-r-off";
@@ -2331,13 +2339,22 @@ function totalsHTML(f, t){
 /* согласие с офертой и политикой (требование юриста): галочка не отмечена по умолчанию, без неё «Заказать» и «Получить код» неактивны.
    Только на amura.kz (window.AMURA_LEGAL); на опте ничего этого нет */
 const LEGAL = () => !!window.AMURA_LEGAL;
-/* оплата: при включённой оплате картой — единственный способ «Картой онлайн»: заказ и сразу страница оплаты Freedom.
-   Выключена — как раньше (менеджер пришлёт ссылку) */
-const payNow = () => !!window.CARD_PAY;
+/* оплата: «Картой онлайн» (Freedom Pay) и/или «Kaspi» (счёт в приложение Kaspi через ApiPay) — заказ появится после оплаты.
+   Оба выключены — как раньше (менеджер пришлёт ссылку). Включены оба — покупатель выбирает, по умолчанию карта */
+const payNow = () => !!(window.CARD_PAY || window.KASPI_PAY);
+const PAYM = { v: "" };
+const payWay = () => window.CARD_PAY && window.KASPI_PAY ? (PAYM.v || "card") : window.KASPI_PAY ? "kaspi" : window.CARD_PAY ? "card" : "";
 const goTxt = (t, sum) => !AUTH.token ? "Войти и заказать" : payNow() ? "Заказать и оплатить" + (sum ? ` ${fmt(t.total)} ₸` : "") : "Заказать";
 function payHTML(){
-  if(!window.CARD_PAY) return `<div class="rpay">${CARD}<span><b>Оплата после подтверждения</b><small>Менеджер проверит наличие и пришлёт ссылку на оплату. Оплата картой на сайте — скоро.</small></span></div>`;
-  return `<div class="rpay">${CARD}<span><b>Картой онлайн</b><small>Visa, Mastercard, Apple Pay, Google Pay — сразу после «Заказать и оплатить», на защищённой странице Freedom Pay</small></span></div>`;
+  if(!payNow()) return `<div class="rpay">${CARD}<span><b>Оплата после подтверждения</b><small>Менеджер проверит наличие и пришлёт ссылку на оплату. Оплата картой на сайте — скоро.</small></span></div>`;
+  const card = `${CARD}<span><b>Картой онлайн</b><small>Visa, Mastercard, Apple Pay, Google Pay — сразу после «Заказать и оплатить», на защищённой странице Freedom Pay</small></span>`;
+  const kaspi = `${KASPI}<span><b>Kaspi</b><small>Счёт придёт в приложение Kaspi на номер получателя — откройте и оплатите</small></span>`;
+  if(!window.KASPI_PAY) return `<div class="rpay">${card}</div>`;
+  if(!window.CARD_PAY) return `<div class="rpay">${kaspi}</div>`;
+  const w = payWay();
+  return `<div class="rpays" role="radiogroup" aria-label="Способ оплаты">
+    <button type="button" class="rpay rpm${w === "card" ? " on" : ""}" role="radio" aria-checked="${w === "card"}" data-rpaym="card">${card}</button>
+    <button type="button" class="rpay rpm${w === "kaspi" ? " on" : ""}" role="radio" aria-checked="${w === "kaspi"}" data-rpaym="kaspi">${kaspi}</button></div>`;
 }
 const CONSENT = { cart: false, auth: false, news: false };
 function consentHTML(id, on){
@@ -2563,6 +2580,8 @@ $("#drawerBody").addEventListener("click", e => {
   if(e.target.closest("[data-rnext]")) return toCheckout();
   if(e.target.closest("[data-rback]")){ STEP = "cart"; renderRetailCart(); return; }
   if(e.target.closest("[data-rgo]") || e.target.id === "rGo"){ if(LEGAL() && !CONSENT.cart) return consentNeed("rAgree"); return submit(); }
+  const pm = e.target.closest("[data-rpaym]");
+  if(pm){ PAYM.v = pm.dataset.rpaym; document.querySelectorAll("[data-rpaym]").forEach(b => { const on = b === pm; b.classList.toggle("on", on); b.setAttribute("aria-checked", on); }); return; }
   const item = e.target.closest(".ritem");
   if(item && e.target.closest("[data-rbuy]")){ lines().forEach(l => l.it.id === item.dataset.rid ? off.delete(l.it.id) : off.add(l.it.id)); saveOff(); return toCheckout(); }
   if(item && e.target.closest("[data-rdel]")){ const it = byId(item.dataset.rid); if(it) setCartQty(it, 0); return; }
@@ -2646,6 +2665,56 @@ function pendingRetail(res, t, err){
   $("#rdOrders").onclick = () => openOrders();
   scrollTo({ top: 0 });
 }
+/* Kaspi: сервер выставляет счёт на номер из заказа, здесь — экран «Счёт отправлен в Kaspi» и опрос статуса раз в 4 с.
+   Оплачен — тот же экран «Спасибо! Заказ оплачен» в «Моих заказах». Отменён / истёк / ошибка — «Выставить ещё раз» или карта */
+async function kaspiApi(path, token){
+  let j;
+  try{ const r = await fetch(CONFIG.apiUrl + "/pay/kaspi/" + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) }); j = await r.json(); }
+  catch{ throw new Error("Нет связи с сервером"); }
+  if(!j.ok) throw new Error(j.error || "Оплата Kaspi сейчас недоступна");
+  return j;
+}
+async function kaspiScreen(title, body, token, total, again){
+  const run = (body.dataset.kaspi = String(Date.now()));          // новый экран — прежний опрос останавливается
+  const alive = () => body.isConnected && body.dataset.kaspi === run && body.querySelector("#kaspiBox");
+  title.textContent = "Оплата Kaspi";
+  const paint = (st, j = {}) => {
+    const box = body.querySelector("#kaspiBox"); if(!box) return;
+    const wait = st === "processing" || st === "pending" || st === "cancelling" || st === "load";
+    const bad = { cancelled: "Счёт отменён в Kaspi", expired: "Время на оплату счёта истекло", error: j.error || "Kaspi не принял счёт" }[st];
+    box.innerHTML = `<div class="rdone-h"><div><h3>${wait ? (st === "pending" ? "Счёт отправлен в Kaspi" : "Отправляем счёт в Kaspi…") : bad || esc(j.fail || "Не получилось выставить счёт")}</h3>
+        <p>${fmt(j.total || total)} ₸${j.phone ? ` · на номер ${esc(j.phone)}` : ""}</p></div></div>
+      ${wait ? `<ol class="rsteps"><li class="${st === "pending" ? "on" : ""}"><b>Откройте приложение Kaspi</b><span>Счёт от AMURA Cosmetics — в уведомлениях или в разделе «Платежи»</span></li>
+        <li><b>Оплатите ${fmt(j.total || total)} ₸</b><span>Счёт действует сутки</span></li>
+        <li><b>Заказ сразу уйдёт в сборку</b><span>Этот экран обновится сам — можно не закрывать</span></li></ol>
+        <div class="rkwait"><span class="rkdot"></span>Ждём оплату в Kaspi…</div>`
+      : `<button class="btn" type="button" data-rk-again>Выставить счёт ещё раз</button>${window.CARD_PAY ? `<button class="btn ghost" type="button" data-rk-card>💳 Оплатить картой</button>` : ""}`}
+      <div class="rhint mut" style="text-align:center;margin:6px 0 10px">Заказ оформится после оплаты. Оплатить можно и позже — в «Моих заказах», в течение суток</div>
+      <button class="btn ghost" type="button" data-rk-orders>Мои заказы</button>`;
+  };
+  body.innerHTML = `<div class="done rdone" id="kaspiBox"></div>`;
+  paint("load");
+  body.onclick = async e => {
+    if(e.target.closest("[data-rk-orders]")){ body.dataset.kaspi = ""; return openOrders(); }
+    if(e.target.closest("[data-rk-again]")) return kaspiScreen(title, body, token, total, true);
+    const c = e.target.closest("[data-rk-card]");
+    if(c){ c.disabled = true; c.textContent = "Открываем оплату…"; try{ location.href = await cardUrl(token); }catch(x){ toast(x.message); c.disabled = false; c.textContent = "💳 Оплатить картой"; } }
+  };
+  scrollTo({ top: 0 });
+  let j;
+  try{ j = await kaspiApi("init", token); }
+  catch(x){ if(alive()) paint("fail", { fail: x.message }); return; }
+  for(let i = 0; alive(); i++){
+    if(j.draft && j.draft !== "new" || j.status === "paid"){   // оплачен — «Спасибо! Заказ оплачен» (номер заказа подставится, когда появится)
+      body.dataset.kaspi = ""; window.PAY_RET = { r: "ok", n: token, how: "kaspi" }; return openOrders();
+    }
+    paint(j.status, j);
+    if(!["processing", "pending", "cancelling"].includes(j.status)) return;
+    await new Promise(r => setTimeout(r, i < 30 ? 4000 : 8000));
+    if(!alive()) return;
+    try{ j = { ...j, ...(await kaspiApi("status", token)) }; }catch{}
+  }
+}
 const CHECK_BIG = '<svg class="rdone-ok" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="22"/><path d="M14 24.5l7 7 13-14"/></svg>';
 
 let busy = false;
@@ -2670,7 +2739,7 @@ async function submit(){
     city: f.city || (AUTH.profile && AUTH.profile.city) || "Алматы", shipping: f.ship, address: f.address || "",
     items: t.ls.map(l => ({ id: l.it.id, qty: l.q, price: l.price })), clientTotal: t.total,
     orderKey: orderKey(), mode: "retail", ref: REF.code() || undefined, promo: PROMO ? PROMO.code : undefined,   // модуль «Источники»
-    consent: LEGAL() ? true : undefined, news: LEGAL() ? CONSENT.news : undefined, pay: window.CARD_PAY ? "card" : undefined, payFirst: payNow() || undefined,   // оплата картой: заказ в МойСклад — только после оплаты   // факт и время согласия сервер пишет в комментарий заказа
+    consent: LEGAL() ? true : undefined, news: LEGAL() ? CONSENT.news : undefined, pay: payWay() || undefined, payFirst: payNow() || undefined,   // оплата картой: заказ в МойСклад — только после оплаты   // факт и время согласия сервер пишет в комментарий заказа
     pvz: f.ship === "cdek" ? DLV.pvzSel : undefined, slot: f.ship === "courier" ? DLV.slotSel : undefined
   };
   const btns = [...document.querySelectorAll("#rGo, [data-rgo]")]; busy = true;
@@ -2692,6 +2761,7 @@ async function submit(){
     if(res.draft){   // заказ появится после оплаты: сразу на страницу оплаты; не вышло — экран «Ожидает оплаты»
       orderKeyVal = ""; DLV.slotSel = null; STEP = "cart";
       t.ls.forEach(l => delete cart[l.it.id]); save("amura-cart2", cart); renderCartCount(); render();
+      if(payWay() === "kaspi"){ $("#drawerBody").parentElement.classList.remove("rwide", "rstep2"); return kaspiScreen($("#drawerTitle"), $("#drawerBody"), res.payToken, res.total || t.total); }
       btns.forEach(b => { if(b.isConnected) b.textContent = "Открываем оплату…"; });
       let perr = "";
       try{ location.href = await cardUrl(res.payToken); return; }catch(x){ perr = x.message; }
@@ -2815,7 +2885,7 @@ async function paidScreen(pr){
     $("#meBody").innerHTML = `<div class="done rdone">
       <div class="rdone-h">${CHECK_BIG}<div><h3>Спасибо! Заказ оплачен</h3><p>${info.number ? `Заказ № ${esc(info.number)}` : `<span class="rpaid-n"></span>`}${info.total ? ` · ${fmt(info.total)} ₸` : ""}</p></div></div>
       <ol class="rsteps">
-        <li class="on"><b>Оплата получена</b><span>Списали ${info.total ? fmt(info.total) + " ₸ " : ""}с вашей карты</span></li>
+        <li class="on"><b>Оплата получена</b><span>${pr.how === "kaspi" ? `Оплачено через Kaspi${info.total ? " · " + fmt(info.total) + " ₸" : ""}` : `Списали ${info.total ? fmt(info.total) + " ₸ " : ""}с вашей карты`}</span></li>
         <li class="on"><b>Передали в сборку</b><span>Соберём и сообщим, когда заказ будет в пути</span></li>
         <li><b>${/самовывоз/i.test(info.ship || "") ? "Можно забирать" : "Доставка"}</b><span>${esc(info.ship || "")}</span></li>
       </ol>
@@ -2842,6 +2912,11 @@ document.addEventListener("click", e => {
   if(e.target.closest("[data-paid-orders]")){ const pr = window.PAY_RET; if(pr) pr.shown = "done"; MO.page = "orders"; renderMe(); try{ history.replaceState(null, "", "#orders"); }catch{} }
   if(e.target.closest("[data-paid-shop]")){ const pr = window.PAY_RET; if(pr) pr.shown = "done"; go("home"); }
 });
+document.addEventListener("click", e => {   // «Kaspi» в «Моих заказах» — экран счёта Kaspi вместо списка
+  const b = e.target.closest("[data-rkaspi]"); if(!b) return;
+  e.stopPropagation(); const mb = $("#viewMe .mo-top"); if(mb) mb.hidden = true;
+  kaspiScreen($("#meTitle"), $("#meBody"), b.dataset.rkaspi, +b.dataset.sum || 0);
+}, true);
 document.addEventListener("click", async e => {   // «💳 Оплатить» в «Моих заказах» — на страницу оплаты по заказу
   const b = e.target.closest("[data-rpaynow]"); if(!b || b.disabled) return;
   const t = b.textContent; b.disabled = true; b.textContent = "Открываем оплату…";
@@ -2865,6 +2940,14 @@ function moStatus(o){
 const moDone = o => ["Получен", "Отменён", "Возврат"].includes(moStatus(o)[0]) && !(moStatus(o)[0] === "Получен" && o.track && o.track.step < 3);
 const moPic = (it, cls) => { const c = byId(it.id), img = c && c.img; return `<span class="${cls}">${img ? `<img src="${esc(img)}" alt="" loading="lazy">` : `<i>${esc(((c && c.brand) || it.name || "A").charAt(0))}</i>`}${it.qty > 1 && cls === "mo-t" ? `<em>${it.qty}</em>` : ""}</span>`; };
 const moTitle = o => o.draft ? "Ещё не оплачен" : `Заказ № ${esc(o.number)}`;
+/* «Оплатить» у неоплаченного: заказ — картой; черновик — картой и/или Kaspi, что включено */
+function moPay(o){
+  if(!o.payCard) return "";
+  const two = o.draft && window.KASPI_PAY && window.CARD_PAY;   // две кнопки — без суммы (она над кнопками), чтобы влезло в одну строку
+  const card = (!o.draft || window.CARD_PAY) ? `<button type="button" class="btn rpaynow" data-rpaynow="${esc(o.payCard)}">💳 ${two ? "Картой" : `Оплатить ${fmt(o.sum)} ₸`}</button>` : "";
+  const kaspi = o.draft && window.KASPI_PAY ? `<button type="button" class="btn rpaynow${card ? " ghost" : ""}" data-rkaspi="${esc(o.payCard)}" data-sum="${o.sum}">${two ? "Kaspi" : `Оплатить в Kaspi ${fmt(o.sum)} ₸`}</button>` : "";
+  return card && kaspi ? `<div class="rpay2">${card}${kaspi}</div>` : card + kaspi;
+}
 function moCard(o, i){
   const [st, tone] = moStatus(o), its = o.items || [];
   return `<article class="rcard mo" data-mo-open="${i}" tabindex="0">
@@ -2872,7 +2955,7 @@ function moCard(o, i){
     <div class="mo-ths">${its.slice(0, 5).map(it => moPic(it, "mo-t")).join("")}${its.length > 5 ? `<span class="mo-t"><i>+${its.length - 5}</i></span>` : ""}</div>
     <div class="mo-f"><div><b>${moTitle(o)}</b>${o.ship ? `<small>${esc(o.ship)}</small>` : ""}</div><b class="mo-s">${fmt(o.sum)} ₸</b></div>
     ${o.track && o.track.step >= 0 && o.track.step < 3 ? `<div class="mo-trk"><b>${esc(o.track.label)}</b>${o.track.link ? `<a href="${esc(o.track.link)}" target="_blank" rel="noopener">Где курьер?</a>` : ""}</div>` : ""}
-    ${o.payCard ? `<button type="button" class="btn rpaynow" data-rpaynow="${esc(o.payCard)}">💳 Оплатить ${fmt(o.sum)} ₸</button>` : ""}
+    ${moPay(o)}
   </article>`;
 }
 function moList(){
@@ -2894,7 +2977,7 @@ function moOpen(i){
   $("#meBody").innerHTML = `<div class="mo-det"><button type="button" class="back mo-back" data-mo-back>← Мои заказы</button>
     <section class="rcard"><div class="mo-h"><span class="mo-chip ${tone}">${st}</span><span class="mo-d">от ${esc(o.date)}</span></div>
       ${o.track ? trackHTML(o.track) : ""}
-      ${o.payCard ? `<button type="button" class="btn rpaynow" data-rpaynow="${esc(o.payCard)}">💳 Оплатить ${fmt(o.sum)} ₸</button>` : ""}</section>
+      ${moPay(o)}</section>
     <section class="rcard"><h3>Товары · ${fmt(o.count)} шт</h3>${(o.items || []).map(it => `<div class="mo-it">${moPic(it, "mo-p")}<div><b>${esc(it.name)}</b><small>${fmt(it.qty)} шт × ${fmt(it.price)} ₸</small></div><b>${fmt(it.qty * it.price)} ₸</b></div>`).join("")}</section>
     <section class="rcard"><h3>Получение</h3><div class="mo-ship">${esc(o.ship || "—")}</div>
       <div class="rrow"><span>Товары</span><span>${fmt(goods)} ₸</span></div>
