@@ -1,7 +1,7 @@
 <!doctype html><html lang="ru"><head><meta charset="utf-8"><link rel="stylesheet" href="../../glass/glass.css">
 <!-- Опт: новое поступление (20.10.2026). Стиль AMURA Glass поверх съёмки владельца со склада (IMG_9313.mov).
      Видео: ffmpeg -i IMG_9313.mov -an -vf "setpts=2.5*PTS,fps=30,scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920" -c:v libvpx-vp9 -b:v 6M -g 1 footage.webm
-     Голос: ElevenLabs, Maxim — Premium Baritone (SkGOoi8yfK3ONMNKMKj0, eleven_v4), ускорен ×1.15 → voice.wav (в git не храним). Бренды — только те, что видны на коробках и есть в catalog.json. Цены не показываем. -->
+     Голос: ElevenLabs, Maxim — Premium Baritone (SkGOoi8yfK3ONMNKMKj0, eleven_v4), ускорен ×1.15 → voice.wav (в git не храним). Бренды — с коробок на видео + Celimax (по просьбе владельца), все есть в catalog.json. Цены не показываем. -->
 <style>
 .brand { display:inline-flex; align-items:center; justify-content:center; height:92px; padding:0 34px; border-radius:999px; font:700 40px Inter,sans-serif; letter-spacing:.01em;
   background:rgba(255,255,255,.14); box-shadow: inset 0 0 0 1.5px rgba(255,255,255,.4); opacity:0 }
@@ -30,8 +30,8 @@ A(card, [{ left: '80px', top: '640px', width: '920px', height: '600px', borderRa
 const s1 = make('<div class="ab" style="left:100px;top:620px;width:880px;height:640px;padding:64px 56px;opacity:0"></div>');
 make('<div class="g-small" style="text-align:center;margin-bottom:40px">уже на складе</div>', s1);
 const grid = make('<div style="display:flex;flex-wrap:wrap;justify-content:center;gap:26px 22px"></div>', s1);
-['Round Lab', 'Dr.Cellio', 'AXIS-Y', 'Medi-Peel', 'MISSHA', 'Arencia'].forEach((b, i) => { const n = make(`<div class="brand">${b}</div>`, grid);
-  const t = V([3.3, 4.1, 4.9, 5.7, 6.5, 7.3][i]); A(n, [{ opacity: 0, transform: 'scale(.7)' }, { opacity: 1, transform: 'none' }], t, .35, E.back, 'forwards'); cue(t, 'ping'); });
+['Round Lab', 'Dr.Cellio', 'AXIS-Y', 'Medi-Peel', 'MISSHA', 'Arencia', 'Celimax'].forEach((b, i) => { const n = make(`<div class="brand">${b}</div>`, grid);
+  const t = V([3.3, 4.0, 4.7, 5.4, 6.1, 6.8, 7.5][i]); A(n, [{ opacity: 0, transform: 'scale(.7)' }, { opacity: 1, transform: 'none' }], t, .35, E.back, 'forwards'); cue(t, 'ping'); });
 show(s1, V(2.35), V(8.05), .25);
 
 /* 2) список 1–2–3 */
