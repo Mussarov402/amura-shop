@@ -6,7 +6,7 @@
 <script>
 (function(){
 const { A, make, show, type, caret, cue, E } = G;
-const END = 13.2, PR = 1134 / 1400;
+const END = 13.2, PR = 1223 / 1400;
 G.bg(END);
 
 /* 0–3.2: печать хука по центру */
@@ -32,7 +32,7 @@ A(ph, [{ transform: 'translateY(40px) scale(.92)' }, { transform: 'none' }], 3.4
 
 /* 2) список 1–2–3 */
 const s2 = make('<div class="ab" style="left:80px;top:620px;width:920px;height:700px;padding:70px 70px;opacity:0"></div>');
-make(`<div style="display:flex;align-items:center;gap:30px;margin-bottom:56px"><div style="width:120px;height:150px;background:url(product.png) 0 0/100% 100%;flex:none"></div>
+make(`<div style="display:flex;align-items:center;gap:30px;margin-bottom:56px"><div style="width:131px;height:150px;background:url(product.png) 0 0/100% 100%;flex:none"></div>
   <div><div style="font:700 44px/1.1 Inter,sans-serif">Celimax Dual Barrier</div><div class="g-small" style="margin-top:8px">Creamy Toner · 150 мл</div></div></div>`, s2);
 const items = ['5 видов церамидов', 'Молочная текстура', 'Без липкости'];
 items.forEach((txt, i) => { const r = make(`<div class="g-item" style="margin-top:${i ? 44 : 0}px;opacity:0"><div class="g-num">${i + 1}</div><div>${txt}</div></div>`, s2);
