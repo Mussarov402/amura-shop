@@ -1,7 +1,7 @@
 <!doctype html><html lang="ru"><head><meta charset="utf-8"><link rel="stylesheet" href="../../glass/glass.css">
 <!-- Опт: новое поступление (20.10.2026). Стиль AMURA Glass поверх съёмки владельца со склада (IMG_9313.mov).
      Видео: ffmpeg -i IMG_9313.mov -an -vf "setpts=4.8*PTS,fps=30,scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920" -c:v libvpx-vp9 -b:v 6M -g 1 footage.webm
-     Голос: ElevenLabs (eleven_v4), без ускорения → voice.wav (в git не храним); моменты фраз — timing.js (копия timing_<голос>.js). Пробы 20.10: Tatiana (gCqVHuQpLDMkHrGiG95I), Alina (dVRDrbP5ULGXB94se4KZ). Бренды — список владельца 20.10 (9 шт.), все есть в catalog.json. Цены не показываем. -->
+     Голос: ElevenLabs (eleven_v4), ускорение — TIMING.tempo (ffmpeg atempo) → voice.wav (в git не храним); моменты фраз — timing.js (копия timing_<голос>.js). Пробы 20.10: Tatiana (gCqVHuQpLDMkHrGiG95I), Alina (dVRDrbP5ULGXB94se4KZ). Бренды — список владельца 20.10 (9 шт.), все есть в catalog.json. Цены не показываем. -->
 <style>
 .brand { display:inline-flex; align-items:center; justify-content:center; height:92px; padding:0 34px; border-radius:999px; font:700 40px Inter,sans-serif; letter-spacing:.01em;
   background:rgba(255,255,255,.14); box-shadow: inset 0 0 0 1.5px rgba(255,255,255,.4); opacity:0 }
@@ -11,7 +11,7 @@
 (function(){
 const { A, make, show, type, caret, cue, E } = G;
 const T = window.TIMING;                 // моменты фраз в голосе (с), timing.js — свой для каждого голоса
-const V = t => t + .3;                   // голос стартует на 0.3 с, без ускорения
+const V = t => t / (T.tempo || 1) + .3;  // голос стартует на 0.3 с; tempo — ускорение голоса (atempo)
 const END = V(T.end) + .9;
 G.video('footage.webm', { dim: .44 });
 
