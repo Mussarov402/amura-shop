@@ -3,6 +3,7 @@
 Всё синтезируется здесь (numpy), чужой музыки нет:
   click — щелчок клавиши (печать)   ding — стеклянный «динь» (появление карточки)
   ping — короткий «пинг» (пункт списка)   pop — мягкий «поп» (таблетка)   whoosh — воздух (смена формы)
+  hit — удар-«бум» (слово на весь экран)   glitch — цифровой сбой
 Подложка: электронный бит 100 BPM — бочка, хлопок, бас, арпеджио и мягкий аккорд; первые секунды (печать) — тише, в конце — затухание.
 Голос: voice.wav / voice.mp3 в папке ролика (в git не храним) — под голосом музыка приглушается."""
 import json
@@ -57,7 +58,24 @@ def whoosh():
     return .25 * x * k
 
 
-FX = {'click': click, 'ding': ding, 'ping': ping, 'pop': pop, 'whoosh': whoosh}
+def hit():
+    n = int(.7 * SR); t = np.arange(n) / SR                                 # удар: низкий «бум» с падающей частотой + шум атаки
+    f = 120 * np.exp(-t * 9) + 38
+    x = np.sin(2 * np.pi * np.cumsum(f) / SR) * env(n, .001, .22)
+    m = int(.05 * SR); x[:m] += rng.standard_normal(m) * env(m, .0005, .012) * .6
+    return .9 * x
+
+
+def glitch():
+    n = int(.22 * SR); x = np.zeros(n)                                      # цифровой сбой: рваные пачки шума и писка
+    for a in range(0, n, int(.03 * SR)):
+        if rng.random() < .6:
+            m = min(n - a, int(rng.uniform(.008, .025) * SR)); t = np.arange(m) / SR
+            x[a:a + m] += np.sign(np.sin(2 * np.pi * rng.uniform(300, 2500) * t)) * .25 + rng.standard_normal(m) * .15
+    return x
+
+
+FX = {'click': click, 'ding': ding, 'ping': ping, 'pop': pop, 'whoosh': whoosh, 'hit': hit, 'glitch': glitch}
 
 
 def bed(dur):

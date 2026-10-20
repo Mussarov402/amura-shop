@@ -1,0 +1,181 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../glass/glass.css"><link rel="stylesheet" href="../../../cards/fonts.css">
+<!-- Кинетическая типографика AMURA (20.10.2026) — по образцу владельца (reel @ai.akshu): одно крупное слово на удар бита,
+     красный / чёрный / белый, смаз движения, растяжка, глитч, 3D-кубик, рамка камеры, «разрез» красной линией. Всё на русском.
+     Розница: цен нет, в конце «Заказать на amura.kz». Бренды — корейские из наличия (catalog.json 20.10).
+     Рендер: node motion/glass/render.js motion/reels/kinetic-amura-2010 -->
+<style>
+:root { --r: #e3172b; --k: #0a0a0c; --w: #f1f0ee }
+body { background: var(--k); font-family: Montserrat, Inter, sans-serif }
+#stage { position: absolute; inset: 0 }
+.sc { position: absolute; inset: 0; overflow: hidden; visibility: hidden }
+.k { background: radial-gradient(70% 50% at 50% 50%, #1a0b0e 0%, var(--k) 70%) } .r { background: var(--r) } .w { background: var(--w) }
+.wd { position: absolute; left: 0; right: 0; text-align: center; white-space: nowrap }
+.wd > span { display: inline-block; font-weight: 900; letter-spacing: -.02em; line-height: 1 }
+.dot { color: var(--r) } .r .dot { color: var(--k) }
+.out { color: transparent; -webkit-text-stroke: 4px #fff }
+.glow { text-shadow: 0 0 40px rgba(227,23,43,.8), 0 0 120px rgba(227,23,43,.5) }
+#grain { position: absolute; inset: -60px; pointer-events: none; opacity: .07; mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)'/%3E%3C/svg%3E") }
+.spk { position: absolute; border-radius: 50%; background: var(--r); box-shadow: 0 0 30px var(--r) }
+</style></head><body>
+<div id="stage"></div><div id="grain"></div>
+<script src="../../glass/glass.js"></script>
+<script>
+(function(){
+const { A, make, cue, E } = G;
+const stage = document.getElementById('stage');
+const fits = [];                                          // подгон размера слов — после загрузки шрифта
+
+/* сцена: полный экран со своим фоном, видна только в [t, t+d) — жёсткие склейки, как в образце */
+function sc(t, d, bg) {
+  const s = make(`<div class="sc ${bg}"></div>`, stage);
+  A(s, [{ visibility: 'visible' }, { visibility: 'visible' }], t, d, 'linear', 'none');
+  A(s, [{ transform: 'scale(1)' }, { transform: 'scale(1.07)' }], t, d, 'linear', 'none');   // медленный наезд камеры
+  return s;
+}
+/* слово: внешний блок — позиция, внутренний span — анимация входа; w — ширина, под которую подогнать */
+function wd(s, html, y, { w = 960, size = 200, color = '#fff', cls = '' } = {}) {
+  const o = make(`<div class="wd" style="top:${y}px"><span class="${cls}" style="font-size:${size}px;color:${color}">${html}</span></div>`, s);
+  const i = o.firstChild; if (w) fits.push([i, w]); return i;
+}
+const IN = {
+  zoom:    [{ opacity: 0, transform: 'scale(1.9)', filter: 'blur(22px)' }, { opacity: 1, transform: 'scale(1)', filter: 'blur(0px)' }],
+  slam:    [{ opacity: 0, transform: 'scale(3.2)' }, { opacity: 1, transform: 'scale(.96)', offset: .8 }, { opacity: 1, transform: 'scale(1)' }],
+  left:    [{ opacity: 0, transform: 'translateX(-90%) skewX(-12deg)', filter: 'blur(26px)' }, { opacity: 1, transform: 'none', filter: 'blur(0px)' }],
+  right:   [{ opacity: 0, transform: 'translateX(90%) skewX(12deg)', filter: 'blur(26px)' }, { opacity: 1, transform: 'none', filter: 'blur(0px)' }],
+  up:      [{ opacity: 0, transform: 'translateY(120px)', filter: 'blur(14px)' }, { opacity: 1, transform: 'none', filter: 'blur(0px)' }],
+  stretch: [{ opacity: 0, transform: 'scaleX(3.2) scaleY(.5)', filter: 'blur(18px)' }, { opacity: 1, transform: 'scaleX(.94) scaleY(1.04)', offset: .75 }, { opacity: 1, transform: 'none', filter: 'blur(0px)' }],
+};
+const go = (el, kind, t, d = .26) => A(el, IN[kind], t, d, kind === 'slam' ? 'cubic-bezier(.2,.9,.3,1)' : E.out);
+/* выход «сквозь камеру» перед склейкой */
+const thru = (el, t) => A(el, [{ transform: 'scale(1)', filter: 'blur(0px)', opacity: 1 }, { transform: 'scale(2.2)', filter: 'blur(30px)', opacity: 0 }], t, .16, 'ease-in', 'forwards');
+/* удар: тряска кадра + звук */
+const hit = (t, k = 'hit') => { cue(t, k); A(stage, [{ transform: 'translate(0,0)' }, { transform: 'translate(-14px,10px)' }, { transform: 'translate(12px,-8px)' }, { transform: 'translate(-6px,4px)' }, { transform: 'translate(0,0)' }], t, .22, 'linear', 'none'); };
+/* глитч: слово дробится на сдвинутые полосы (красная/белая копии) */
+function glitch(el, t, d = .2) {
+  A(el, [{ transform: 'none', textShadow: 'none' }, { transform: 'translateX(-18px) skewX(-8deg)', textShadow: '14px 0 var(--r), -14px 0 #39d0ff' }, { transform: 'translateX(14px)', textShadow: '-10px 0 var(--r), 10px 0 #fff' },
+    { transform: 'translateX(-6px)', textShadow: '6px 0 var(--r)' }, { transform: 'none', textShadow: 'none' }], t, d, 'steps(4)', 'none');
+  cue(t, 'glitch');
+}
+
+/* 0.0 — темнота, красная искра разлетается лучами */
+let s = sc(0, .9, 'k');
+const burst = make('<svg class="ab" style="left:0;top:0" width="1080" height="1920" viewBox="-540 -960 1080 1920"></svg>', s);
+for (let i = 0; i < 26; i++) { const a = i / 26 * Math.PI * 2, l = 120 + (i * 53 % 160);
+  burst.innerHTML += `<line x1="0" y1="0" x2="${Math.cos(a) * l}" y2="${Math.sin(a) * l}" stroke="#e3172b" stroke-width="${2 + i % 3}" stroke-linecap="round"/>`; }
+burst.innerHTML += '<circle r="16" fill="#ff3348"/><circle r="60" fill="#e3172b" opacity=".25"/>';
+A(burst, [{ transform: 'scale(.05)', opacity: 0 }, { transform: 'scale(.3)', opacity: 1, offset: .35 }, { transform: 'scale(3.5)', opacity: 1 }], .1, .8, 'cubic-bezier(.7,0,.9,.6)');
+cue(.25, 'whoosh');
+
+/* 0.9 — НЕТ. */
+s = sc(.9, .6, 'r'); let w = wd(s, 'НЕТ<span style="color:#0a0a0c">.</span>', 700, { w: 900 }); go(w, 'zoom', .9, .22); hit(.9);
+/* 1.5 — СЕРЬЁЗНО? */
+s = sc(1.5, .6, 'w'); w = wd(s, 'СЕРЬЁЗНО<span class="dot">?</span>', 800, { w: 980, color: '#0a0a0c' }); go(w, 'left', 1.5, .2); glitch(w, 1.9);
+/* 2.1 — ХВАТИТ / ИСКАТЬ */
+s = sc(2.1, 1.2, 'k');
+w = wd(s, 'ХВАТИТ', 640, { w: 940 }); go(w, 'slam', 2.1, .2); hit(2.1);
+let w2 = wd(s, 'ИСКАТЬ', 940, { w: 940, color: 'var(--r)' }); go(w2, 'up', 2.7, .22); cue(2.7, 'pop'); thru(w, 3.16); thru(w2, 3.16);
+/* 3.3 — ОРИГИНАЛ / ПО ВСЕМУ ИНТЕРНЕТУ. */
+s = sc(3.3, .9, 'r');
+w = wd(s, 'ОРИГИНАЛ', 700, { w: 1000, color: '#0a0a0c' }); go(w, 'stretch', 3.3, .3); hit(3.3);
+w2 = wd(s, 'ПО ВСЕМУ ИНТЕРНЕТУ.', 960, { w: 900 }); go(w2, 'right', 3.75, .2); cue(3.75, 'whoosh');
+
+/* 4.2 — И ПРЕЖДЕ ЧЕМ СПРОСИШЬ ? (как «AND BEFORE YOU ASK ?») */
+s = sc(4.2, 1.5, 'w');
+const q = make('<div class="ab" style="right:-30px;top:1000px;font:900 760px/1 Montserrat;color:var(--r)">?</div>', s);
+const l1 = make('<div class="ab" style="left:70px;top:420px;font:900 92px/1 Montserrat;color:#0a0a0c;letter-spacing:-.02em">И ПРЕЖДЕ</div>', s);
+const l2 = make('<div class="ab" style="left:70px;top:535px;font:900 150px/1 Montserrat;color:#0a0a0c;letter-spacing:-.03em">ЧЕМ</div>', s);
+const l3 = make('<div class="ab" style="left:70px;top:700px;font:900 150px/1 Montserrat;color:var(--r);letter-spacing:-.03em">СПРОСИШЬ</div>', s);
+fits.push([l3, 940]);
+go(l1, 'up', 4.2, .2); go(l2, 'up', 4.5, .2); go(l3, 'left', 4.8, .22); cue(4.2, 'pop'); cue(4.5, 'pop'); cue(4.8, 'whoosh');
+A(q, [{ opacity: 0, transform: 'translateX(400px) rotate(40deg) scale(.6)', filter: 'blur(20px)' }, { opacity: 1, transform: 'rotate(-8deg) scale(1.05)', offset: .7 }, { opacity: 1, transform: 'rotate(0deg) scale(1)', filter: 'blur(0px)' }], 5.1, .35, E.out); hit(5.1);
+A(q, [{ transform: 'rotate(0deg)' }, { transform: 'rotate(6deg)' }], 5.45, .25, 'ease-in-out', 'none');
+
+/* 5.7 — ДА. */
+s = sc(5.7, .6, 'r'); w = wd(s, 'ДА<span style="color:#0a0a0c">.</span>', 640, { w: 760 }); go(w, 'slam', 5.7, .2); hit(5.7);
+/* 6.3 — ЭТО (контур → заливка) */
+s = sc(6.3, .6, 'k'); w = wd(s, 'ЭТО', 700, { w: 820, cls: 'out' }); go(w, 'zoom', 6.3, .2); cue(6.3, 'whoosh');
+A(w, [{ color: 'transparent' }, { color: '#fff' }], 6.62, .12, 'linear', 'forwards');
+/* 6.9 — ОРИГИНАЛ с красным светом */
+s = sc(6.9, .9, 'k');
+const flare = make('<div class="ab" style="left:-100px;right:-100px;top:1010px;height:6px;background:linear-gradient(90deg,transparent,#ff3348 30%,#fff 50%,#ff3348 70%,transparent);box-shadow:0 0 40px 10px rgba(227,23,43,.7)"></div>', s);
+A(flare, [{ transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }], 6.9, .3, E.out);
+w = wd(s, 'ОРИГИНАЛ', 840, { w: 960, cls: 'glow' }); go(w, 'up', 6.95, .25); hit(6.9); glitch(w, 7.5, .18);
+
+/* 7.8 — бренды, по одному на полудолю */
+const brands = ['ROUND LAB', 'SKIN1004', 'ANUA', 'CELIMAX', 'DR.ALTHEA', 'TORRIDEN', 'MEDICUBE', 'MEDI-PEEL'];
+brands.forEach((b, i) => {
+  const t = 7.8 + i * .3, bg = ['r', 'k', 'w'][i % 3];
+  s = sc(t, .3, bg);
+  make(`<div class="ab" style="left:0;right:0;top:640px;text-align:center;font:700 40px Montserrat;letter-spacing:.3em;color:${bg === 'w' ? '#0a0a0c' : '#fff'};opacity:.8">ИЗ КОРЕИ</div>`, s);
+  w = wd(s, b, 820, { w: 960, color: bg === 'w' ? 'var(--r)' : '#fff' }); go(w, i % 2 ? 'left' : 'right', t, .14); cue(t, i % 2 ? 'click' : 'pop');
+});
+hit(7.8);
+
+/* 10.2 — КОРЕЙСКАЯ / КОСМЕТИКА */
+s = sc(10.2, 1.2, 'k');
+w = wd(s, 'КОРЕЙСКАЯ', 700, { w: 960 }); go(w, 'zoom', 10.2, .22); hit(10.2);
+w2 = wd(s, 'КОСМЕТИКА', 900, { w: 960, color: 'var(--r)' }); go(w2, 'stretch', 10.5, .3); cue(10.5, 'whoosh'); glitch(w2, 11.0, .2);
+
+/* 11.4 — СКЛАД В АЛМАТЫ + вращающийся 3D-кубик (как «3D ELEMENTS») */
+s = sc(11.4, 1.5, 'w');
+const cube = make(`<div class="ab" style="left:390px;top:330px;width:300px;height:300px;perspective:1400px"><div style="position:absolute;inset:0;transform-style:preserve-3d">
+  ${[['rotateY(0deg)', '#e3172b'], ['rotateY(90deg)', '#b5101f'], ['rotateY(180deg)', '#e3172b'], ['rotateY(-90deg)', '#8f0c18'], ['rotateX(90deg)', '#ff4a5b'], ['rotateX(-90deg)', '#7a0a14']]
+    .map(([r, c]) => `<div style="position:absolute;inset:0;background:${c};transform:${r} translateZ(150px)"></div>`).join('')}</div></div>`, s);
+A(cube.firstChild, [{ transform: 'rotateX(-25deg) rotateY(0deg)' }, { transform: 'rotateX(-25deg) rotateY(-200deg)' }], 11.4, 1.5, 'linear');
+A(cube, [{ opacity: 0, transform: 'translateY(-500px) scale(.4)' }, { opacity: 1, transform: 'none' }], 11.4, .35, E.back);
+const t1 = make('<div class="ab" style="left:70px;top:820px;font:900 240px/1 Montserrat;color:#0a0a0c;letter-spacing:-.04em">СКЛАД</div>', s);
+const t2 = make('<div class="ab" style="left:70px;top:1090px;font:900 132px/1 Montserrat;color:var(--r);letter-spacing:-.03em">В АЛМАТЫ</div>', s);
+fits.push([t1, 940]); fits.push([t2, 940]); go(t1, 'left', 11.4, .22); go(t2, 'up', 11.85, .22); hit(11.4); cue(11.85, 'pop');
+
+/* 12.9 — ДОСТАВКА в рамке камеры */
+s = sc(12.9, 1.5, 'k');
+const fr = make(`<div class="ab" style="left:90px;top:620px;width:900px;height:620px">${[['left:0;top:0', 'border-left', 'border-top'], ['right:0;top:0', 'border-right', 'border-top'], ['left:0;bottom:0', 'border-left', 'border-bottom'], ['right:0;bottom:0', 'border-right', 'border-bottom']]
+  .map(([p, a, b]) => `<div style="position:absolute;${p};width:110px;height:110px;${a}:8px solid var(--r);${b}:8px solid var(--r)"></div>`).join('')}
+  <div style="position:absolute;left:36px;top:30px;font:700 30px Montserrat;color:#ff3348">● REC</div></div>`, s);
+A(fr, [{ transform: 'scale(1.5)', opacity: 0 }, { transform: 'scale(1)', opacity: 1 }], 12.9, .3, E.out);
+A(fr.lastElementChild, [{ opacity: 1 }, { opacity: 1, offset: .5 }, { opacity: 0, offset: .51 }, { opacity: 0 }], 12.9, .5, 'linear', 'none').effect.updateTiming({ iterations: 3 });
+w = wd(s, 'ДОСТАВКА', 820, { w: 800 }); go(w, 'zoom', 12.9, .22); hit(12.9);
+w2 = wd(s, 'ПО ВСЕМУ КАЗАХСТАНУ', 1010, { w: 780, color: '#ff3348' }); go(w2, 'up', 13.35, .22); cue(13.35, 'whoosh');
+for (let i = 0; i < 9; i++) { const d = make(`<div class="spk" style="left:${(i * 137) % 1000 + 40}px;top:${(i * 263) % 1500 + 200}px;width:${8 + i % 3 * 6}px;height:${8 + i % 3 * 6}px"></div>`, s);
+  A(d, [{ opacity: 0, transform: 'translateY(40px)' }, { opacity: .9, offset: .3 }, { opacity: 0, transform: 'translateY(-120px)' }], 12.9 + i * .08, 1.3, 'linear'); }
+
+/* 14.4 — «разрез» красной линией и прицел */
+s = sc(14.4, .6, 'k');
+const slash = make('<div class="ab" style="left:-300px;top:950px;width:1700px;height:10px;background:#ff3348;box-shadow:0 0 50px 14px rgba(227,23,43,.8);transform:rotate(-58deg)"></div>', s);
+A(slash, [{ clipPath: 'inset(0 100% 0 0)' }, { clipPath: 'inset(0 0% 0 0)' }], 14.4, .22, E.out);
+const ring = make('<div class="ab" style="left:390px;top:810px;width:300px;height:300px;border-radius:50%;border:8px solid #ff3348;box-shadow:0 0 40px rgba(227,23,43,.8), inset 0 0 40px rgba(227,23,43,.6)"></div>', s);
+A(ring, [{ transform: 'scale(2.4)', opacity: 0 }, { transform: 'scale(1)', opacity: 1 }], 14.45, .3, E.out);
+cue(14.4, 'whoosh'); cue(14.6, 'glitch');
+
+/* 15.0 — логотип AMURA (как раскрытие «KATANA») */
+s = sc(15.0, 2.4, 'k');
+const halo = make('<div class="ab" style="left:-200px;right:-200px;top:610px;height:700px;background:radial-gradient(50% 50% at 50% 50%,rgba(227,23,43,.55),transparent 70%)"></div>', s);
+A(halo, [{ opacity: 0 }, { opacity: 1 }], 15.0, .4);
+const fl2 = make('<div class="ab" style="left:-100px;right:-100px;top:1050px;height:4px;background:linear-gradient(90deg,transparent,#ff3348 25%,#fff 50%,#ff3348 75%,transparent);box-shadow:0 0 30px 8px rgba(227,23,43,.7)"></div>', s);
+A(fl2, [{ transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }], 15.0, .35, E.out);
+const logo = wd(s, 'AMURA', 820, { w: 900, cls: 'glow' }); go(logo, 'zoom', 15.0, .3); hit(15.0); glitch(logo, 15.35, .22);
+const sub = make('<div class="ab" style="left:0;right:0;top:1090px;text-align:center;font:600 46px Montserrat;letter-spacing:.6em;color:#fff;opacity:0;padding-left:.6em">COSMETICS</div>', s);
+A(sub, [{ opacity: 0, letterSpacing: '1.4em' }, { opacity: .9, letterSpacing: '.6em' }], 15.4, .6, E.out, 'forwards'); cue(15.4, 'ding');
+const sl = make('<div class="ab" style="left:0;right:0;top:1200px;text-align:center;font:700 40px Montserrat;color:#ff5a6a;opacity:0">корейская косметика · Алматы</div>', s);
+A(sl, [{ opacity: 0, transform: 'translateY(20px)' }, { opacity: 1, transform: 'none' }], 16.1, .4, E.out, 'forwards');
+
+/* 17.4 — Заказать на amura.kz */
+s = sc(17.4, 3.0, 'r');
+const o1 = make('<div class="ab" style="left:0;right:0;top:640px;text-align:center;font:900 150px/1 Montserrat;color:#fff;letter-spacing:-.03em">ЗАКАЗАТЬ</div>', s);
+const pill = make('<div class="ab" style="left:110px;right:110px;top:830px;height:190px;border-radius:999px;background:#0a0a0c;display:flex;align-items:center;justify-content:center;font:900 104px Montserrat;color:#fff;letter-spacing:-.02em">amura<span style="color:#ff3348">.</span>kz</div>', s);
+const o3 = make('<div class="ab" style="left:0;right:0;top:1080px;text-align:center;font:700 44px Montserrat;color:#fff;opacity:0">ссылка в шапке профиля</div>', s);
+fits.push([o1, 860]);
+go(o1, 'slam', 17.4, .2); hit(17.4);
+A(pill, [{ opacity: 0, transform: 'scaleX(.2)' }, { opacity: 1, transform: 'scaleX(1.04)', offset: .7 }, { opacity: 1, transform: 'none' }], 17.8, .35, E.out); cue(17.8, 'pop');
+A(o3, [{ opacity: 0, transform: 'translateY(20px)' }, { opacity: 1, transform: 'none' }], 18.3, .4, E.out, 'forwards'); cue(18.3, 'ping');
+A(pill, [{ transform: 'scale(1)' }, { transform: 'scale(1.04)' }, { transform: 'scale(1)' }], 18.9, .6, 'ease-in-out', 'none').effect.updateTiming({ iterations: 2 });
+
+A(document.getElementById('grain'), [{ transform: 'translate(0,0)' }, { transform: 'translate(-40px,30px)' }, { transform: 'translate(30px,-20px)' }, { transform: 'translate(0,0)' }], 0, .2, 'steps(4)').effect.updateTiming({ iterations: 110 });
+
+/* подгон слов под ширину кадра */
+document.fonts.ready.then(() => fits.forEach(([el, max]) => { const fs = parseFloat(getComputedStyle(el).fontSize); el.style.fontSize = Math.min(fs * max / el.scrollWidth, 560) + 'px'; }));
+window.REEL_END = 20.4;
+})();
+</script></body></html>
