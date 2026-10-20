@@ -30,6 +30,10 @@ from freedom import bp as freedom_bp  # noqa: E402
 app.register_blueprint(freedom_bp)
 import freedom  # noqa: E402
 freedom.start()                   # оплаты картой, не записанные в МойСклад, — повтор в фоне
+from apipay import bp as apipay_bp  # noqa: E402
+app.register_blueprint(apipay_bp)
+import apipay  # noqa: E402
+apipay.start()                    # оплата Kaspi (ApiPay): сверка неоплаченных счетов раз в минуту
 from sources import bp as sources_bp  # noqa: E402
 app.register_blueprint(sources_bp)
 from wishes import bp as wishes_bp  # noqa: E402

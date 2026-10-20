@@ -223,6 +223,12 @@ def init(number):
     amount, order_id, agent = _pay_target(number)
     if amount <= 0:
         raise ValueError("Сумма заказа не определена")
+    if str(number).startswith("D"):                                   # ушёл платить картой — живой счёт Kaspi по черновику отменяем
+        try:
+            import apipay
+            apipay.cancel_active(str(number))
+        except Exception as e:
+            print("Freedom Pay: счёт Kaspi не отменён:", str(e)[:200], flush=True)
     with db() as d:
         if d.run("SELECT 1 FROM card_pay WHERE number=%s AND status='paid'", (str(number),), one=True):
             raise ValueError("Заказ уже оплачен")
@@ -352,11 +358,12 @@ def init_route():
 
 
 # ---------- после оплаты: МойСклад и владелец ----------
-def _ms_account():
-    """Счёт организации в МойСклад для оплат картой: тот, что выбран в «Счетах» (по номеру счёта); не найден — счёт по умолчанию."""
+def _ms_account(method="card"):
+    """Счёт организации в МойСклад для оплат картой (method="card") или Kaspi ("kaspi"): тот, что выбран в «Счетах» (по номеру счёта);
+    не найден — счёт по умолчанию."""
     try:
         import finance
-        aid = finance.routes().get("card")
+        aid = finance.routes().get(method)
         acc = next((a for a in finance.accounts() if a["id"] == aid), None) if aid else None
         iban = re.sub(r"\s", "", (acc or {}).get("iban") or "")
         if not iban:
@@ -401,8 +408,9 @@ def post_ms(pg_order):
 PAID_STATE = "Подтвержден"      # статус заказа в МойСклад после оплаты картой: подтверждён, к сборке («Собран» ставит склад)
 
 
-def to_assembly(p):
-    """Оплачен — заказ «Новый» → «Подтвержден» (передан в сборку). Уже дальше по пути — не трогаем. Тест — тоже, с пометкой «ТЕСТ» в комментарии."""
+def to_assembly(p, how="картой", who="Freedom Pay", test_note=""):
+    """Оплачен — заказ «Новый» → «Подтвержден» (передан в сборку). Уже дальше по пути — не трогаем. Тест — тоже, с пометкой «ТЕСТ» в комментарии.
+    how / who / test_note — для Kaspi (apipay.py): «Оплачен Kaspi», «ApiPay»."""
     if not p["orderId"]:
         return False
     md = oh.cached("ms_order_states", 3600, lambda: oh.ms("GET", "/entity/customerorder/metadata", timeout=15))
@@ -414,11 +422,11 @@ def to_assembly(p):
         return False
     body = {"state": {"meta": target["meta"]}}
     if p["test"]:
-        body["description"] = ((o.get("description") or "") + f"\nТЕСТ: оплата картой Freedom Pay без списания, платёж №{p['paymentId']}")[:4000]
+        body["description"] = ((o.get("description") or "") + "\n" + (test_note or f"ТЕСТ: оплата картой Freedom Pay без списания, платёж №{p['paymentId']}"))[:4000]
     oh.ms("PUT", f"/entity/customerorder/{p['orderId']}", json=body, timeout=20)
     try:
         import admin
-        admin._olog(p["number"], f"Оплачен картой{' (ТЕСТ)' if p['test'] else ''} → статус «{PAID_STATE}»", who_name="Freedom Pay")
+        admin._olog(p["number"], f"Оплачен {how}{' (ТЕСТ)' if p['test'] else ''} → статус «{PAID_STATE}»", who_name=who)
     except Exception:
         pass
     oh._cache.pop("adm_orders", None)
