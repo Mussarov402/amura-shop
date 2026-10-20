@@ -3,9 +3,11 @@
 Всё синтезируется здесь (numpy), чужой музыки нет:
   click — щелчок клавиши (печать)   ding — стеклянный «динь» (появление карточки)
   ping — короткий «пинг» (пункт списка)   pop — мягкий «поп» (таблетка)   whoosh — воздух (смена формы)
-Подложка: лёгкий электронный бит 100 BPM с мягким аккордом; первые секунды (печать) — тише, в конце — затухание."""
+Подложка: электронный бит 100 BPM — бочка, хлопок, бас, арпеджио и мягкий аккорд; первые секунды (печать) — тише, в конце — затухание.
+Голос: voice.wav / voice.mp3 в папке ролика (в git не храним) — под голосом музыка приглушается."""
 import json
 import os
+import subprocess
 import sys
 import wave
 
@@ -62,19 +64,39 @@ def bed(dur):
     n = int(dur * SR); out = np.zeros(n); beat = 60 / 100
     t = np.arange(n) / SR
     chords = [(220, 277.2, 329.6), (196, 246.9, 293.7), (174.6, 220, 261.6), (196, 246.9, 329.6)]
-    for i, ch in enumerate(chords * 8):                                # аккорд-подложка, смена каждые 4 доли
-        a = i * 4 * beat
-        if a >= dur: break
-        m = (t >= a) & (t < a + 4 * beat); tt = t[m] - a
-        out[m] += sum(np.sin(2 * np.pi * f * tt) for f in ch) * .05 * np.minimum(1, tt / .3) * np.exp(-tt / 3)
+    roots = [110, 98, 87.3, 98]
+
+    def put(snd, at):
+        i = int(at * SR)
+        if i >= n: return
+        j = min(n, i + len(snd)); out[i:j] += snd[:j - i]
+
+    bar = 4 * beat
+    for b in range(int(dur / bar) + 1):
+        ch, rt, a = chords[b % 4], roots[b % 4], b * bar
+        m = (t >= a) & (t < a + bar); tt = t[m] - a                       # аккорд-подложка
+        out[m] += sum(np.sin(2 * np.pi * f * tt) for f in ch) * .045 * np.minimum(1, tt / .3) * np.exp(-tt / 3)
+        for k in range(8):                                                # бас на восьмые
+            put(sine(rt, beat / 2 * .9, .18, .32, ((1, 1), (2, .3))), a + k * beat / 2)
+        for k, step in enumerate([0, 1, 2, 1, 0, 2, 1, 2]):               # арпеджио-«плак»
+            put(sine(ch[step] * 2, .22, .07, .12, ((1, 1), (2, .25), (3, .1))), a + k * beat / 2)
     k = 0
-    while k * beat < dur:                                              # бочка на каждую долю, хэт на половинки
-        i = int(k * beat * SR)
-        kick = sine(55, .25, .12, .5); hat = rng.standard_normal(int(.04 * SR)) * env(int(.04 * SR), .001, .01) * .06
-        for snd, at in ((kick, i), (hat, i + int(beat / 2 * SR))):
-            j = min(n, at + len(snd)); out[at:j] += snd[:j - at] if at < n else 0
+    while k * beat < dur:                                                 # бочка, хлопок на 2 и 4, хэт на половинки
+        put(sine(55, .25, .12, .55), k * beat)
+        if k % 2: put(rng.standard_normal(int(.12 * SR)) * env(int(.12 * SR), .001, .03) * .22, k * beat)
+        put(rng.standard_normal(int(.04 * SR)) * env(int(.04 * SR), .001, .01) * .07, k * beat + beat / 2)
         k += 1
     return out
+
+
+def load_voice(d, n):
+    for name in ('voice.wav', 'voice.mp3'):
+        p = os.path.join(d, name)
+        if os.path.exists(p):
+            raw = subprocess.run(['ffmpeg', '-v', 'error', '-i', p, '-f', 's16le', '-ac', '1', '-ar', str(SR), '-'], capture_output=True, check=True).stdout
+            v = np.frombuffer(raw, np.int16).astype(float) / 32768
+            out = np.zeros(n); out[:min(n, len(v))] = v[:n]; return out
+    return None
 
 
 d = sys.argv[1]; cfg = json.load(open(os.path.join(d, 'cues.json'))); dur = cfg['end']
@@ -87,7 +109,13 @@ music *= np.clip((dur - t) / 1.5, 0, 1)                                 # зат
 fx = np.zeros(n)
 for c in cfg['cues']:
     s = FX[c['kind']](); i = int(c['t'] * SR); j = min(n, i + len(s)); fx[i:j] += s[:j - i]
-mix = music + fx
+voice = load_voice(d, n)
+if voice is not None:                                                    # под голосом музыка тише в ~3 раза
+    lvl = np.convolve(np.abs(voice), np.ones(2400) / 2400, mode='same')
+    duck = 1 - .65 * np.clip(lvl / .03, 0, 1); duck = np.convolve(duck, np.ones(9600) / 9600, mode='same')
+    mix = voice * 1.6 + music * duck * .8 + fx * .45
+else:
+    mix = music + fx
 mix = mix / max(1e-6, np.abs(mix).max()) * .9
 pcm = (np.repeat(mix[:, None], 2, 1) * 32767).astype(np.int16)
 with wave.open(os.path.join(d, 'mix.wav'), 'wb') as w:

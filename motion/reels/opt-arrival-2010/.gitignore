@@ -5,3 +5,5 @@ frames/
 cues.json
 mix.wav
 out.mp4
+voice*.mp3
+voice.wav
