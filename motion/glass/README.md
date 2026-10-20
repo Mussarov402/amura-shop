@@ -17,3 +17,6 @@
 **Новый ролик:** скопировать `reels/celimax-glass-00148` в `reels/<бренд>-glass-<артикул>`, поправить `prep.py` (id фото) и тексты в `index.html`.
 `python3 motion/reels/<папка>/prep.py` → `node motion/glass/render.js motion/reels/<папка> --snap 2,5,8,11` (кадры-проверки) → `node motion/glass/render.js motion/reels/<папка>` → `out.mp4`.
 Медиа в git не храним. Публикация — только после «да» владельца.
+
+**Голос и музыка:** голос — ElevenLabs (платно, только по просьбе владельца), файл `voice.wav` в папке ролика; под голосом музыка приглушается сама (`sfx.py`). Музыка — свой бит из `sfx.py`.
+Решение владельца 20.10.2026: во всех роликах **один постоянный голос — Alina** (ElevenLabs, `dVRDrbP5ULGXB94se4KZ`, «bright, modern, and approachable», модель eleven_v4), ускорение ×1.15 (ffmpeg `atempo=1.15`). Текст — разговорный, «как подруге», тег `[дружелюбно, естественно, как будто рассказывает подруге]`. Мужской Maxim и женские Jasmine, Victoria, Tatiana владелец отклонил («слишком ИИшные»).

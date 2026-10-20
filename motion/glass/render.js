@@ -10,7 +10,7 @@ const page = 'file://' + path.join(dir, 'index.html'), frames = path.join(dir, '
 async function open() {
   const b = await chromium.launch({ args: ['--no-sandbox'] }); const p = await b.newPage({ viewport: { width: 1080, height: 1920 } });
   p.on('pageerror', e => { console.error('Ошибка на странице:', e.message); process.exitCode = 1; });
-  await p.goto(page); await p.evaluate(() => document.fonts.ready); await p.waitForTimeout(400); return [b, p];
+  await p.goto(page); await p.evaluate(() => document.fonts.ready); await p.evaluate(() => { const v = document.querySelector('video'); return v && v.readyState < 2 ? new Promise(ok => v.addEventListener('loadeddata', ok, { once: true })) : 0; }); await p.waitForTimeout(400); return [b, p];
 }
 async function worker(a, z) {
   const [b, p] = await open();

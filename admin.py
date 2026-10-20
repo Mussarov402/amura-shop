@@ -1044,7 +1044,17 @@ def order_detail(number):
                    store=(o.get("store") or {}).get("meta", {}).get("href", "").rstrip("/").rsplit("/", 1)[-1],
                    reserved=any((l["reserve"] or 0) > 0 for l in lines if l["type"] in RESERVABLE),
                    shipOps=shipments.enabled(), demands=len(o.get("demands") or []), shipOp=shipments.for_order(o["id"]),
-                   cardPay=_card_pay(o["name"]))
+                   cardPay=_card_pay(o["name"]), kaspiPay=_kaspi_pay(o["name"]))
+
+
+def _kaspi_pay(number):
+    """Счета Kaspi (ApiPay) по заказу: оплачен / отменён / истёк; не записанные в МойСклад повторит фоновая сверка."""
+    try:
+        import apipay
+        return [r for r in apipay.for_order(number) if r["status"] not in ("processing", "pending", "cancelling")]
+    except Exception as e:
+        print("Оплата Kaspi: не прочитана:", str(e)[:200], flush=True)
+        return []
 
 
 def _card_pay(number):
@@ -1058,6 +1068,18 @@ def _card_pay(number):
     except Exception as e:
         print("Оплата картой: не прочитана:", str(e)[:200], flush=True)
         return []
+
+
+@bp.post("/admin/api/kaspipay/<int:iid>/refund")
+@guard
+def kaspi_refund(iid):
+    """Возврат делается в Kaspi Pay / кабинете ApiPay — здесь только отметка."""
+    import apipay
+    try:
+        apipay.mark_refund(iid, (who() or {}).get("name", ""))
+    except ValueError as e:
+        return jsonify(ok=False, error=str(e)), 400
+    return jsonify(ok=True)
 
 
 @bp.post("/admin/api/cardpay/<pg_order>/refund")
@@ -2636,7 +2658,8 @@ def modules_admin():
             return jsonify(ok=False, error="Нет такого модуля"), 404
     import freedom      # «Оплата картой»: видно ли серверу ключи Freedom Pay (сами ключи не показываем)
     keys = {"merchant": bool(freedom.merchant()), "secret": bool(freedom.secret()), "test": freedom.testing()}
-    return jsonify(ok=True, modules=modules.listing(), cardpayKeys=keys)
+    import apipay       # «Оплата Kaspi»: вписан ли ключ ApiPay (сам ключ не показываем)
+    return jsonify(ok=True, modules=modules.listing(), cardpayKeys=keys, kaspipayKeys={"key": apipay.keys_set()})
 
 
 @bp.get("/admin/api/finance")

@@ -686,10 +686,11 @@ NEWS_TXT = "Новости и акции AMURA (SMS, e-mail, мессендже�
 
 
 def pay_first_on():
-    """Розница: заказ создаётся только после оплаты картой — когда оплата картой включена и ключи вписаны."""
+    """Розница: заказ создаётся только после оплаты (картой или Kaspi) — когда хотя бы один способ включён и ключи вписаны."""
     try:
+        import apipay
         import freedom
-        return freedom.available()
+        return freedom.available() or apipay.available()
     except Exception:
         return False
 
@@ -820,6 +821,11 @@ def catalog_route():
         card = request.args.get("mode") == "retail" and freedom.available()   # «Оплатить картой» — только розница, модуль включён и ключи есть
     except Exception:
         card = False
+    try:
+        import apipay
+        kaspi = request.args.get("mode") == "retail" and apipay.available()   # «Kaspi» (ApiPay) — тоже только розница
+    except Exception:
+        kaspi = False
     hits = {}
     if request.args.get("mode") == "retail":                     # розница: «Хиты продаж» и порядок «Популярные» (пересчёт раз в сутки)
         try:
@@ -828,12 +834,12 @@ def catalog_route():
             hits = {"hits": h["hits"], "pop": h["pop"]} if h["pop"] else {}
         except Exception:
             hits = {}
-    ck = ("catjson", ws, closed, promo, mn, mx, card, len(json.dumps(hits)) and hash(json.dumps(hits)))   # JSON и gzip — раз на обновление каталога
+    ck = ("catjson", ws, closed, promo, mn, mx, card, kaspi, len(json.dumps(hits)) and hash(json.dumps(hits)))   # JSON и gzip — раз на обновление каталога
     hit = _cache.get(ck)
     if hit and hit[0] is data:
         body = hit[1]
     else:
-        raw = json.dumps({"updated": data["updated"], "wholesale": ws, "items": view_items(data["items"], ws)} | ({"closed": SITE_CLOSED} if closed else {}) | ({"promo": True} if promo else {}) | ({"minOrder": mn} if mn else {}) | ({"maxQty": mx} if request.args.get("mode") == "retail" else {}) | ({"cardPay": True} if card else {}) | hits,
+        raw = json.dumps({"updated": data["updated"], "wholesale": ws, "items": view_items(data["items"], ws)} | ({"closed": SITE_CLOSED} if closed else {}) | ({"promo": True} if promo else {}) | ({"minOrder": mn} if mn else {}) | ({"maxQty": mx} if request.args.get("mode") == "retail" else {}) | ({"cardPay": True} if card else {}) | ({"kaspiPay": True} if kaspi else {}) | hits,
                          ensure_ascii=False, separators=(",", ":")).encode()
         body = (raw, gzip.compress(raw, 6))
         _cache[ck] = (data, body)

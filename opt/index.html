@@ -654,6 +654,7 @@ async function refreshLive(){
     lastLive = Date.now();
     siteClosed(data.closed);
     window.CARD_PAY = RETAIL && !!data.cardPay;   // «Оплатить картой» (Freedom Pay) — включает владелец в системе AMURA
+    window.KASPI_PAY = RETAIL && !!data.kaspiPay; // «Kaspi» (счёт через ApiPay) — тоже включает владелец
     if(!RETAIL && (data.minOrder || 0) !== MIN_ORDER){ MIN_ORDER = data.minOrder || 0; if(VIEW === "cart" && $("#sum")) renderSum(); }
     if(!!data.promo !== PROMO_ON){ PROMO_ON = !!data.promo; if(VIEW === "cart" && !document.activeElement?.matches("#drawerBody input")) renderCart(); }
     const typing = document.activeElement && document.activeElement.matches("#grid input, #sheet input");
