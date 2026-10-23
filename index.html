@@ -686,7 +686,7 @@ body.rpage .sheet .brand .rpc-ok{width:15px;height:15px;margin-right:5px}
 .rfy-h{grid-column:1/-1;font-family:var(--display);font-weight:500;font-size:21px;margin:18px 0 2px}
 .thumb[data-hit]::after{content:"Хит";position:absolute;left:8px;bottom:8px;background:#E8432B;color:#fff;font-size:11px;font-weight:800;padding:3px 8px;border-radius:6px;letter-spacing:.02em}
 /* «Похожие товары» и «Вам может понравиться» на остальных экранах (retail/recs.js) */
-.rrec-sec{margin:26px 0 8px}.rrec-sec.insheet{grid-column:1/-1;position:relative;z-index:1;background:var(--surface);margin:0;padding-top:26px}   /* закрывает закреплённое фото товара */
+.rrec-sec{margin:26px 0 8px}.rrec-sec.wrap{margin:26px auto 8px}.rrec-sec.insheet{grid-column:1/-1;position:relative;z-index:1;background:var(--surface);margin:0;padding-top:26px}   /* закрывает закреплённое фото товара */
 .rrec-h{font-family:var(--display);font-weight:500;font-size:21px;margin:0 0 12px}
 .rrec-more{height:1px}.rrec-empty{margin:0 0 4px}
 @media(max-width:760px){.rrec-sec.insheet{padding:26px 16px 0}.rrec-sec.incart{padding-bottom:150px}}
@@ -3595,12 +3595,13 @@ openProduct = function(it){
 /* экраны «Избранное», «Корзина», «Я»: блок после содержимого; пересобираем, только когда изменилось то, что исключаем */
 function place(host, key, exclude, cls){
   if(!host || !ALL.length) return;
-  let sec = host.nextElementSibling && host.nextElementSibling.classList.contains("rrec-sec") ? host.nextElementSibling : null;
+  const at = host.closest(".narrow") || host;     // корзина и кабинет — узкая колонка; подборка после неё во всю ширину, как на главной (5 в ряд)
+  let sec = at.nextElementSibling && at.nextElementSibling.classList.contains("rrec-sec") ? at.nextElementSibling : null;
   if(key === null){ if(sec) sec.remove(); return; }
   if(sec && sec.dataset.key === key) return;
-  const nb = block(MAY, recsFor(exclude), { cls });
+  const nb = block(MAY, recsFor(exclude), { cls: at === host ? cls : (cls ? cls + " " : "") + "wrap" });
   nb.dataset.key = key;
-  if(sec) sec.replaceWith(nb); else host.after(nb);
+  if(sec) sec.replaceWith(nb); else at.after(nb);
 }
 const ids = o => Object.keys(o).sort().join(",");
 function favRecs(){

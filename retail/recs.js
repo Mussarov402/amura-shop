@@ -42,12 +42,13 @@ openProduct = function(it){
 /* экраны «Избранное», «Корзина», «Я»: блок после содержимого; пересобираем, только когда изменилось то, что исключаем */
 function place(host, key, exclude, cls){
   if(!host || !ALL.length) return;
-  let sec = host.nextElementSibling && host.nextElementSibling.classList.contains("rrec-sec") ? host.nextElementSibling : null;
+  const at = host.closest(".narrow") || host;     // корзина и кабинет — узкая колонка; подборка после неё во всю ширину, как на главной (5 в ряд)
+  let sec = at.nextElementSibling && at.nextElementSibling.classList.contains("rrec-sec") ? at.nextElementSibling : null;
   if(key === null){ if(sec) sec.remove(); return; }
   if(sec && sec.dataset.key === key) return;
-  const nb = block(MAY, recsFor(exclude), { cls });
+  const nb = block(MAY, recsFor(exclude), { cls: at === host ? cls : (cls ? cls + " " : "") + "wrap" });
   nb.dataset.key = key;
-  if(sec) sec.replaceWith(nb); else host.after(nb);
+  if(sec) sec.replaceWith(nb); else at.after(nb);
 }
 const ids = o => Object.keys(o).sort().join(",");
 function favRecs(){
