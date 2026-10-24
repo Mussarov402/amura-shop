@@ -131,5 +131,5 @@ if __name__ == '__main__':
     run('-i', os.path.join(D, 'frames', 'cut.mp4'), '-loop', '1', '-i', os.path.join(D, 'ov_price.png'), '-loop', '1', '-i', os.path.join(D, 'ov_end.png'), '-i', os.path.join(D, 'mix.wav'),
         '-filter_complex', f"[0][1]overlay=shortest=1:enable='lt(t,{end_at:.2f})'[a];[2]format=rgba,fade=in:st={end_at:.2f}:d=0.35:alpha=1[e];[a][e]overlay=shortest=1[v]",
         '-map', '[v]', '-map', '3:a', '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p', '-r', str(FPS),
-        '-c:a', 'aac', '-b:a', '160k', '-af', 'loudnorm=I=-14:TP=-1.5', '-shortest', '-movflags', '+faststart', os.path.join(D, 'out.mp4'))
+        '-c:a', 'aac', '-b:a', '160k', '-ar', '48000', '-af', 'loudnorm=I=-14:TP=-1.5', '-shortest', '-movflags', '+faststart', os.path.join(D, 'out.mp4'))
     print(f'Готово: out.mp4, {t:.1f} с, склеек {len(cuts)}')
