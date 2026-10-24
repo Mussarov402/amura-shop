@@ -1,0 +1,22 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><link rel="stylesheet" href="../../../cards/fonts.css">
+<!-- Axis-Y 00259, 3D-ролик: накладки поверх видео (рендер в PNG: ?part=price | end).
+     Цены — МойСклад 24.10.2026 (опт 2 950 ₸, розница 4 690 ₸), по прямой просьбе владельца для этих 3D-роликов.
+     Табличка — ниже верхних 15 % кадра (интерфейс Instagram/TikTok). -->
+<style>
+* { margin: 0; box-sizing: border-box } html, body { width: 1080px; height: 1920px; background: transparent; font-family: Montserrat, sans-serif }
+.price { position: absolute; right: 30px; top: 310px; padding: 16px 22px; border-radius: 24px; background: rgba(255,255,255,.88);
+  box-shadow: 0 12px 40px rgba(0,0,0,.18); color: #1a1a1a; min-width: 270px }
+.row { display: flex; justify-content: space-between; align-items: baseline; gap: 26px }
+.row + .row { margin-top: 8px; padding-top: 8px; border-top: 2px solid rgba(0,0,0,.08) }
+.k { font: 700 22px Montserrat; letter-spacing: .08em; color: #0e7a4b } .v { font: 900 36px Montserrat; letter-spacing: -.01em }
+.end { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding-top: 330px;
+  background: linear-gradient(to bottom, rgba(255,255,255,.9) 0%, rgba(255,255,255,.7) 30%, rgba(255,255,255,0) 45%) }
+.logo { font: 900 150px/1 Montserrat; letter-spacing: .02em; color: #111 } .sub { margin-top: 18px; font: 600 40px Montserrat; color: #333 }
+.btn { margin-top: 40px; padding: 26px 70px; border-radius: 999px; background: #0e7a4b; color: #fff; font: 800 48px Montserrat }
+</style></head><body>
+<script>
+const part = new URLSearchParams(location.search).get('part');
+document.body.innerHTML = part === 'end'
+  ? '<div class="end"><div class="logo">AMURA</div><div class="sub">Корейская косметика · Алматы</div><div class="btn">Подпишись</div></div>'
+  : '<div class="price"><div class="row"><span class="k">ОПТ</span><span class="v">2 950 ₸</span></div><div class="row"><span class="k">РОЗНИЦА</span><span class="v">4 690 ₸</span></div></div>';
+</script></body></html>

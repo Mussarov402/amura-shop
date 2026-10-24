@@ -1,0 +1,17 @@
+[
+ {"src":"C1","in":0.0,"beats":2},
+ {"src":"C1","in":2.2,"beats":2},
+ {"src":"C2","in":0.0,"beats":3,"hit":1},
+ {"src":"C3","in":0.2,"beats":1},
+ {"src":"C3","in":0.6,"beats":3},
+ {"src":"C3","in":3.1,"beats":1},
+ {"src":"C4","in":0.0,"beats":4,"hit":1},
+ {"src":"C5","in":0.6,"beats":5,"hit":1},
+ {"src":"label1","beats":4,"pan":[2300,0,380,0,760]},
+ {"src":"label2","beats":4,"pan":[3400,-150,560,150,760]},
+ {"src":"C6","in":0.0,"beats":3},
+ {"src":"flash","beats":0.5},
+ {"src":"C7","in":0.4,"beats":2},
+ {"src":"C8","in":0.0,"beats":1},
+ {"src":"C8","in":0.5,"beats":4,"hit":1}
+]

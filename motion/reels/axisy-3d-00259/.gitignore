@@ -1,0 +1,11 @@
+source.jpg
+tube.png
+clips/
+frames/
+*.mp4
+*.wav
+*.png
+!overlay.html
+label.jpg
+keys/
+plan.json.bak
