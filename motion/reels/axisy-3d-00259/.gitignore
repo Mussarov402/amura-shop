@@ -6,3 +6,6 @@ frames/
 *.wav
 *.png
 !overlay.html
+label.jpg
+keys/
+plan.json.bak
