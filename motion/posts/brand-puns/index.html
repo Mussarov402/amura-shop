@@ -24,7 +24,7 @@ body { font-family: Montserrat, sans-serif; background: #F6F1EA; color: #1d1b19;
 </style></head><body>
 <script>
 const S = [
-  ['ТОРРИДЕН', 'ТОРРИУТРО', 'Torriden', 'Dive In Serum', 'img/49d2070b-b659-11f1-0a80-1af8001c5b5e.webp'],
+  ['ТОРРИДЕН', 'ТОРРИНОЧЬ', 'Torriden', 'Dive In Serum', 'img/49d2070b-b659-11f1-0a80-1af8001c5b5e.webp'],
   ['МЕДИПИЛ', 'МЕДИНЕПИЛ', 'MEDI-PEEL', 'Retinal NMN Bounce Shot Eye Cream', 'img/9195679a-b324-11f1-0a80-0b21001a0397.webp'],
   ['СЕЛИМАКС', 'ВСТАЛИМАКС', 'Celimax', 'Dual Barrier Creamy Toner', 'img/7147ca1b-2ff1-11f0-0a80-08e2001f36e3.webp'],
   ['РАУНД ЛАБ', 'КВАДРАТ ЛАБ', 'Round Lab', 'Birch Juice Moisturizing Sunscreen', 'img/f90f1f43-2fe7-11f0-0a80-18a8001c70cd.webp'],
@@ -37,7 +37,7 @@ const S = [
 const q = new URLSearchParams(location.search), i = q.get('i');
 if (i === 'cover') document.body.innerHTML = `<div class="cover"><h1>Бренды<br><span>наоборот</span></h1>
   <p>Переводим названия корейской косметики на «противоположный»</p>
-  <div class="ex"><span class="was">ТОРРИДЕН</span><span class="arr">→</span><span class="n">ТОРРИУТРО</span></div></div><div class="logo">AMURA</div>`;
+  <div class="ex"><span class="was">ТОРРИДЕН</span><span class="arr">→</span><span class="n">ТОРРИНОЧЬ</span></div></div><div class="logo">AMURA</div>`;
 else if (i === 'end') document.body.innerHTML = `<div class="cover"><h1 style="font-size:84px;top:360px">А в оригинале —<br><span>всё на amura.kz</span></h1>
   <p style="top:640px">Корейская косметика · Алматы<br>доставка по всему Казахстану<br><br>Какой перевёртыш смешнее? Пишите в комментариях 👇</p></div><div class="logo">AMURA</div>`;
 else { const [was, now, brand, prod, img, cut] = S[+i];
