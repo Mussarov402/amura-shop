@@ -2,13 +2,15 @@
 """Этикетка Celimax 00148 в клипе — настоящая, с фото МойСклад (real.jpg): Veo нарисовал мелкий текст с ошибками.
 Вырезка этикетки с фото (без перерисовки) масштабируется под этикетку в кадре, цвет подгоняется, правая часть
 («FOR SENSITIVE / DRY SKIN» — на фото её заслоняет коробка) продолжается фоном этикетки. Накладывается с момента, когда флакон стоит неподвижно.
-python3 labelfix.py → clips/V_fixed.mp4"""
+python3 labelfix.py → clips/V2_fixed.mp4 (клип V2 — Veo 3.1, один непрерывный план, 25.10)."""
 import os, subprocess
 import numpy as np
 from PIL import Image, ImageFilter
 D = os.path.dirname(os.path.abspath(__file__))
-X, Y, W_, H_ = 392, 1190, 328, 305            # этикетка в кадре клипа (1080×1920)
-T0, FADE = 4.5, .6                            # с какой секунды клипа ставим настоящую этикетку
+SRC, OUT = 'V2.mp4', 'V2_fixed.mp4'
+X, Y, W_, H_ = 392, 1192, 326, 296            # этикетка в кадре клипа (1080×1920)
+T0, FADE = 3.2, .5                            # этикетка проявляется по мере наполнения — в это же время ставим настоящую
+PROBE = 7.2                                   # кадр, по которому берём цвет этикетки
 
 
 def patch(gen_gray):
@@ -28,11 +30,11 @@ def patch(gen_gray):
 
 if __name__ == '__main__':
     os.makedirs(os.path.join(D, 'frames'), exist_ok=True)
-    subprocess.run(['ffmpeg', '-v', 'error', '-y', '-ss', '7.9', '-i', os.path.join(D, 'clips', 'V.mp4'), '-frames:v', '1', os.path.join(D, 'frames', 'last.png')], check=True)
+    subprocess.run(['ffmpeg', '-v', 'error', '-y', '-ss', str(PROBE), '-i', os.path.join(D, 'clips', SRC), '-frames:v', '1', os.path.join(D, 'frames', 'last.png')], check=True)
     g = np.asarray(Image.open(os.path.join(D, 'frames', 'last.png')).convert('RGB')).astype(float)
     patch(np.median(g[1300:1360, 420:460].reshape(-1, 3), 0))
-    subprocess.run(['ffmpeg', '-v', 'error', '-y', '-i', os.path.join(D, 'clips', 'V.mp4'),
+    subprocess.run(['ffmpeg', '-v', 'error', '-y', '-i', os.path.join(D, 'clips', SRC),
                     '-loop', '1', '-i', os.path.join(D, 'frames', 'label_patch.png'), '-loop', '1', '-i', os.path.join(D, 'frames', 'label_mask.png'),
                     '-filter_complex', f"[2]format=gray[m];[1][m]alphamerge,format=rgba,fade=in:st={T0}:d={FADE}:alpha=1[p];[0][p]overlay={X}:{Y}:shortest=1[v]",
-                    '-map', '[v]', '-c:v', 'libx264', '-crf', '14', '-pix_fmt', 'yuv420p', os.path.join(D, 'clips', 'V_fixed.mp4')], check=True)
-    print('Готово: clips/V_fixed.mp4')
+                    '-map', '[v]', '-c:v', 'libx264', '-crf', '14', '-pix_fmt', 'yuv420p', os.path.join(D, 'clips', OUT)], check=True)
+    print('Готово: clips/' + OUT)
