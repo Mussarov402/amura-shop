@@ -1,0 +1,48 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><link rel="stylesheet" href="../../../cards/fonts.css">
+<!-- Пост-карусель «Бренды наоборот» (25.10.2026, по слову владельца): настоящее название зачёркнуто → «перевёртыш».
+     Фото — из каталога сайта (img/), упаковку не перерисовываем. Розница: цен нет. Рендер: node render.js → out/*.png (1080×1350). -->
+<style>
+* { margin: 0; box-sizing: border-box } html, body { width: 1080px; height: 1350px; overflow: hidden }
+body { font-family: Montserrat, sans-serif; background: #F6F1EA; color: #1d1b19; position: relative }
+.top { position: absolute; left: 0; right: 0; top: 70px; text-align: center }
+.was { display: inline-block; font: 700 64px/1 Montserrat; color: #9a948c; position: relative; letter-spacing: .02em }
+.was::after { content: ''; position: absolute; left: -12px; right: -12px; top: 52%; height: 8px; border-radius: 4px; background: #E0463A; transform: rotate(-3deg) }
+.now { display: inline-block; white-space: nowrap; margin-top: 26px; font: 900 128px/1 Montserrat; color: #C9A063; letter-spacing: -.02em }
+.card { position: absolute; left: 190px; top: 400px; width: 700px; height: 760px; border-radius: 48px; background: #fff;
+  box-shadow: 0 30px 70px rgba(80,60,30,.14); display: flex; align-items: center; justify-content: center; overflow: hidden }
+.card img { max-width: 92%; max-height: 92%; object-fit: contain }
+.card .cut { width: 92%; max-height: 92%; overflow: hidden; position: relative } .card .cut img { position: absolute; left: 0; width: 100%; max-width: none; max-height: none }
+.foot { position: absolute; left: 0; right: 0; bottom: 64px; text-align: center; font: 600 32px Montserrat; color: #6f675d }
+.foot b { color: #1d1b19 }
+.logo { position: absolute; right: 44px; top: 26px; font: 900 34px Montserrat; color: #C9A063; letter-spacing: .06em }
+.cover h1 { position: absolute; left: 80px; right: 80px; top: 330px; text-align: center; font: 900 112px/1.05 Montserrat; color: #1d1b19; letter-spacing: -.02em }
+.cover h1 span { color: #C9A063 }
+.cover p { position: absolute; left: 100px; right: 100px; top: 700px; text-align: center; font: 600 44px/1.3 Montserrat; color: #6f675d }
+.cover .ex { position: absolute; left: 0; right: 0; top: 960px; text-align: center }
+.cover .ex .was { font-size: 52px } .cover .ex .arr { font: 900 52px Montserrat; color: #C9A063; margin: 0 18px }
+.cover .ex .n { font: 900 52px Montserrat; color: #C9A063 }
+</style></head><body>
+<script>
+const S = [
+  ['ТОРРИДЕН', 'ТОРРИУТРО', 'Torriden', 'Dive In Serum', 'img/49d2070b-b659-11f1-0a80-1af8001c5b5e.webp'],
+  ['МЕДИПИЛ', 'МЕДИНЕПИЛ', 'MEDI-PEEL', 'Retinal NMN Bounce Shot Eye Cream', 'img/9195679a-b324-11f1-0a80-0b21001a0397.webp'],
+  ['СЕЛИМАКС', 'ВСТАЛИМАКС', 'Celimax', 'Dual Barrier Creamy Toner', 'img/7147ca1b-2ff1-11f0-0a80-08e2001f36e3.webp'],
+  ['РАУНД ЛАБ', 'КВАДРАТ ЛАБ', 'Round Lab', 'Birch Juice Moisturizing Sunscreen', 'img/f90f1f43-2fe7-11f0-0a80-18a8001c70cd.webp'],
+  ['ФАРМСТЕЙ', 'ФАРМИДИ', 'Farmstay', 'Escargot Noblesse Intensive Cream', 'img/1ce2dcba-420c-11f0-0a80-169600200f78.webp'],
+  ['МЕДИКУБ', 'МЕДИШАР', 'Medicube', 'Collagen Jelly Cream', 'img/e352020b-29f6-11f1-0a80-0d890007b11b.webp'],
+  ['ХЕЙМИШ', 'ХЕЙМЕДВЕДЬ', 'Heimish', 'All Clean Green Foam', 'img/e8e7d041-2ff3-11f0-0a80-14ca001fd590.webp', .2],
+  ['ДОКТОР СЕЛЛИО', 'ДОКТОР ВСТАЛЛИО', 'Dr.Cellio', '4in1 Cream Vita', 'img/09384afd-2e26-11f0-0a80-18a40092878a.webp', .27],
+];
+const q = new URLSearchParams(location.search), i = q.get('i');
+if (i === 'cover') document.body.innerHTML = `<div class="cover"><h1>Бренды<br><span>наоборот</span></h1>
+  <p>Переводим названия корейской косметики на «противоположный»</p>
+  <div class="ex"><span class="was">ТОРРИДЕН</span><span class="arr">→</span><span class="n">ТОРРИУТРО</span></div></div><div class="logo">AMURA</div>`;
+else if (i === 'end') document.body.innerHTML = `<div class="cover"><h1 style="font-size:84px;top:360px">А в оригинале —<br><span>всё на amura.kz</span></h1>
+  <p style="top:640px">Корейская косметика · Алматы<br>доставка по всему Казахстану<br><br>Какой перевёртыш смешнее? Пишите в комментариях 👇</p></div><div class="logo">AMURA</div>`;
+else { const [was, now, brand, prod, img, cut] = S[+i];
+  document.body.innerHTML = `<div class="top"><span class="was">${was}</span><br><div class="now">${now}</div></div>
+  <div class="card">${cut ? `<div class="cut" style="aspect-ratio:${3 / (4 * (1 - cut))}"><img src="../../../${img}" style="top:${-cut / (1 - cut) * 100}%"></div>` : `<img src="../../../${img}">`}</div><div class="foot"><b>${brand}</b> · ${prod}</div><div class="logo">AMURA</div>`; }
+const now = document.querySelector('.now');                      // длинный «перевёртыш» — уменьшаем, чтобы влез в строку
+if (now) { let fs = 128; while (now.scrollWidth > 980 && fs > 60) { fs -= 4; now.style.fontSize = fs + 'px'; } now.style.whiteSpace = 'nowrap'; }
+window.N = S.length;
+</script></body></html>
