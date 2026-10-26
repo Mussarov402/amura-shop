@@ -1,0 +1,96 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><link rel="stylesheet" href="../../kit/brand.css">
+<!-- Dr.Althea Aqua Marine Watery Cream, арт. 00821. Фото: python3 motion/tools/cutout.py <img/68705e52-d4be-11f0-0a80-1c65009e40ae.webp в png> motion/reels/dralthea-00821/pack.png --crop 88,222,505,795 --scale 3 (в git не храним) -->
+<style>
+:root{--mid:#14513D;--deep:#0E3B2C;--bg:#0A2C21;--lime:#D7EA4A}
+html,body{background:#0E3B2C}
+#am-bg{background:radial-gradient(60% 40% at 50% 45%,#16573F 0%,#0E3B2C 50%,#072319 100%)}
+#am-bar{background:#D7EA4A}
+.sub{position:absolute;left:40px;right:40px;top:1250px;text-align:center;font:800 64px/1.15 Manrope;color:#fff;-webkit-text-stroke:9px #0b0b0b;paint-order:stroke fill;letter-spacing:-.01em;opacity:0}
+.sub b{color:#FFE600}
+.ylw{display:inline-block;background:#FFE600;color:#111;font:800 44px/1.15 Manrope;padding:16px 30px;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.4)}
+.plate{position:absolute;left:60px;right:60px;border-radius:26px;background:rgba(0,0,0,.42);border:3px dashed rgba(255,255,255,.55);padding:22px 30px;font:700 34px/1.3 Manrope;color:#fff}
+.plate i{font-style:normal;color:#D7EA4A;font-weight:800;letter-spacing:.12em;font-size:26px;display:block;margin-bottom:6px}
+.big{position:absolute;left:30px;right:30px;text-align:center;font:800 150px/1 Unbounded;color:#fff;-webkit-text-stroke:12px #000;paint-order:stroke fill}
+.big.g{color:#D7EA4A}.big.y{color:#FFE600}
+.chip{position:absolute;white-space:nowrap}
+.chip span{display:inline-block;background:#D7EA4A;color:#0E3B2C;font:800 42px Manrope;border-radius:999px;padding:14px 30px;box-shadow:0 12px 30px rgba(0,0,0,.4)}
+.prod{position:absolute;background:url(pack.png) 0 0/100% 100%;filter:drop-shadow(0 40px 60px rgba(0,0,0,.55))}
+.glow{position:absolute;border-radius:50%;background:radial-gradient(closest-side,rgba(215,234,74,.45),rgba(215,234,74,0))}
+.arrow{position:absolute}
+</style></head><body>
+<script src="../../kit/kit.js"></script><script src="words.js"></script>
+<script>
+(function(){
+const { make, A, E } = AM; AM.setWords([]);
+const world = AM.stage({ brand: 'AMURA' });
+const END = 15;
+const SC = [];
+const sc = (a, opt = {}) => { const id = 'sc' + SC.length; const el = make(`<div class="sc" id="${id}"></div>`, world); SC.push({ id, a, ...opt }); return el; };
+const subs = make('<div class="ab" style="inset:0;z-index:5"></div>', document.body);
+const sub = (html, a, b) => { const n = make(`<div class="sub">${html}</div>`, subs); n.animate([{opacity:0,transform:'scale(1.35)'},{opacity:1,transform:'scale(1)',offset:Math.min(.25,.15/(b-a))},{opacity:1,transform:'scale(1)',offset:.92},{opacity:0,transform:'scale(1)'}],{delay:a*1000,duration:(b-a)*1000,fill:'none',easing:'ease-out'}); AM.cue(a,'pop'); };
+const plate = (el, html, top, t) => { const n = make(`<div class="plate" style="top:${top}px"><i>🎬 В СЪЁМКЕ</i>${html}</div>`, el); AM.up(n, t, .4, 30); return n; };
+const prod = (el, h, l, t, extra = '') => make(`<div class="prod" style="left:${l}px;top:${t}px;width:${Math.round(h*1251/1670)}px;height:${h}px;${extra}"></div>`, el);
+const arrowSVG = (rot) => `<svg width="190" height="120" viewBox="0 0 190 120" style="transform:rotate(${rot}deg)"><path d="M10 60 H140" stroke="#FF2D2D" stroke-width="22" stroke-linecap="round"/><path d="M120 18 L178 60 L120 102" fill="none" stroke="#FF2D2D" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const arrow = (el, x, y, rot, t) => { const n = make(`<div class="arrow" style="left:${x}px;top:${y}px">${arrowSVG(rot)}</div>`, el); AM.A(n,[{opacity:0,transform:'scale(.4)'},{opacity:1,transform:'scale(1)'}],t,.35,E.back); AM.A(n,[{translate:'0 0'},{translate:'-18px 0'},{translate:'0 0'}],t+.35,.6,'ease-in-out','none'); AM.cue(t,'swish'); return n; };
+const face = (el, x, y, s=1) => make(`<svg class="ab" style="left:${x}px;top:${y}px" width="${520*s}" height="${620*s}" viewBox="0 0 520 620">
+  <path d="M90 600 C 110 470, 410 470, 430 600" fill="#1F6A50"/><rect x="215" y="420" width="90" height="80" rx="30" fill="#F2C9A8"/>
+  <ellipse cx="260" cy="270" rx="185" ry="225" fill="#F6D3B5"/><path d="M75 250 C 70 80, 450 80, 445 250 C 430 150, 90 150, 75 250Z" fill="#3A2A22"/>
+  <g class="eyesN"><ellipse cx="190" cy="280" rx="20" ry="24" fill="#2B2B2B"/><ellipse cx="330" cy="280" rx="20" ry="24" fill="#2B2B2B"/></g>
+  <g class="eyesS" opacity="0"><path d="M160 282 L215 270 M160 268 L215 282" stroke="#2B2B2B" stroke-width="12" stroke-linecap="round"/><path d="M305 270 L360 282 M305 282 L360 268" stroke="#2B2B2B" stroke-width="12" stroke-linecap="round"/></g>
+  <path class="mouthN" d="M205 380 Q260 420 315 380" fill="none" stroke="#B5574B" stroke-width="12" stroke-linecap="round"/>
+  <path class="mouthS" d="M210 395 Q235 380 260 395 Q285 410 310 392" fill="none" stroke="#B5574B" stroke-width="12" stroke-linecap="round" opacity="0"/>
+  <g class="dry" opacity="0"><g stroke="#E0A080" stroke-width="5"><path d="M110 330 l20 10 M120 350 l25 -5 M100 360 l18 12 M390 330 l-20 10 M400 352 l-25 -6 M415 365 l-18 12"/></g></g>
+</svg>`, el);
+
+
+const onT = (el, html, top, t, size=72, color='#fff') => { const n = make(`<div class="ab" style="left:40px;right:40px;top:${top}px;text-align:center;font:800 ${size}px/1.08 Unbounded;color:${color};-webkit-text-stroke:9px #000;paint-order:stroke fill">${html}</div>`, el); AM.slam(n, t, { hit: false }); return n; };
+const tonikSVG = `<svg width="170" height="330" viewBox="0 0 170 330"><rect x="55" y="0" width="60" height="60" rx="10" fill="#9AA3A0"/><rect x="15" y="55" width="140" height="270" rx="30" fill="#BFD3E6"/><rect x="30" y="150" width="110" height="80" rx="8" fill="#fff"/><text x="85" y="198" font-family="Manrope" font-weight="800" font-size="24" text-anchor="middle" fill="#777">без бренда</text></svg>`;
+const palmTop = (el, x, y) => make(`<svg class="ab" style="left:${x}px;top:${y}px" width="700" height="700" viewBox="0 0 700 700"><path d="M150 690 C 90 560, 80 420, 120 300 C 150 220, 250 170, 350 170 C 450 170, 560 220, 590 320 C 620 430, 610 560, 550 690 Z" fill="#F6D3B5" stroke="#E2B796" stroke-width="6"/><path d="M200 420 Q350 480 500 420" fill="none" stroke="#E6BC9C" stroke-width="5"/><path d="M220 520 Q350 570 480 520" fill="none" stroke="#E6BC9C" stroke-width="5"/></svg>`, el);
+const say = (txt, a, b) => sub(txt, a, b);
+
+
+/* 1. 0–2 хук: крем из тюбика на палец */
+let a = 0; const s1 = sc(a);
+make('<div class="glow" style="left:190px;top:420px;width:700px;height:700px"></div>', s1);
+const p1 = prod(s1, 640, 300, 540); AM.rise(p1, 0); AM.float(p1, .7, 2.1, 8);
+const g1 = make('<div class="ab" style="left:600px;top:1060px;width:150px;height:80px;border-radius:50%;background:radial-gradient(circle at 40% 35%,rgba(255,255,255,.95),rgba(190,225,250,.85) 60%,rgba(150,200,240,.7))"></div>', s1);
+AM.A(g1,[{transform:'scale(.2)',opacity:0},{transform:'scale(1)',opacity:1}],.6,.6,E.back);
+const fg1 = make('<div class="ab" style="left:700px;top:1080px;font:800 120px Manrope;transform:rotate(-20deg)">👆</div>', s1); AM.up(fg1, .5, .4, 120);
+onT(s1, 'Крем<br>или <span style="color:#D7EA4A">гель?</span>', 250, .05, 92);
+say('Смотри,', 0, .8); say('какая текстура', .8, 1.98);
+
+/* 2. 2–7 растушёвка на тыльной стороне ладони */
+a = 2; const s2 = sc(a, { in: 'zoom' });
+const hb = make(`<svg class="ab" style="left:140px;top:560px" width="800" height="560" viewBox="0 0 800 560"><path d="M20 540 C 40 280, 140 110, 400 100 C 660 110, 760 280, 780 540 Z" fill="#F6D3B5" stroke="#E2B796" stroke-width="6"/></svg>`, s2); AM.fade(hb, a + .05);
+const gel = make('<div class="ab" style="left:440px;top:800px;width:200px;height:120px;border-radius:50%;background:radial-gradient(circle at 40% 35%,rgba(255,255,255,.95),rgba(190,225,250,.85) 60%,rgba(150,200,240,.6))"></div>', s2);
+AM.A(gel,[{transform:'scale(.6)',opacity:1},{transform:'scale(2.4,1.8)',opacity:.6,offset:.6},{transform:'scale(2.8,2.1)',opacity:0}],a+.6,3.6,'ease-out','forwards');
+const fg2 = make('<div class="ab" style="left:520px;top:780px;font:800 110px Manrope">👆</div>', s2);
+AM.A(fg2,[{transform:'translate(0,0)',opacity:0},{transform:'translate(0,0)',opacity:1,offset:.1},{transform:'translate(-150px,30px)',offset:.35},{transform:'translate(140px,10px)',offset:.65},{transform:'translate(-60px,60px)',opacity:1}],a+.5,3.4,'ease-in-out','forwards');
+onT(s2, 'Лёгкий гель-крем', 300, a + .1, 70);
+const c2 = make('<div class="chip" style="left:0;right:0;top:1130px;text-align:center"><span>💧 70% бамбуковой воды</span></div>', s2); AM.pop(c2, a + 2.2);
+say('Растушёвываю —', a + .1, a + 1.8); say('и он быстро впитывается', a + 1.8, 6.98);
+
+/* 3. 7–11 не липнет: касание пальцем, салфетка */
+a = 7; const s3 = sc(a, { in: 'whip' });
+const hb3 = make(`<svg class="ab" style="left:140px;top:560px" width="800" height="560" viewBox="0 0 800 560"><path d="M20 540 C 40 280, 140 110, 400 100 C 660 110, 760 280, 780 540 Z" fill="#F6D3B5" stroke="#E2B796" stroke-width="6"/><ellipse cx="400" cy="330" rx="200" ry="110" fill="rgba(255,255,255,.18)"/></svg>`, s3); AM.fade(hb3, a);
+const fg3 = make('<div class="ab" style="left:470px;top:760px;font:800 120px Manrope">👆</div>', s3);
+AM.A(fg3,[{transform:'translateY(-200px)',opacity:0},{transform:'translateY(0)',opacity:1,offset:.4},{transform:'translateY(-180px)',opacity:1}],a+.2,1.2,'ease-in-out','forwards');
+const nap = make('<div class="ab" style="left:430px;top:760px;width:220px;height:220px;background:#fff;border-radius:10px;box-shadow:0 10px 24px rgba(0,0,0,.3);transform:rotate(8deg);opacity:0"></div>', s3);
+AM.A(nap,[{opacity:0,transform:'translateY(-260px) rotate(8deg)'},{opacity:1,transform:'translateY(0) rotate(8deg)',offset:.5},{opacity:1,transform:'translateY(-260px) rotate(8deg)'}],a+1.5,1.3,'ease-in-out','forwards');
+const ok3 = make('<div class="ab" style="left:0;right:0;top:1140px;text-align:center"><span class="ylw" style="background:#D7EA4A;color:#0E3B2C">салфетка чистая ✓</span></div>', s3); AM.pop(ok3, a + 2.8);
+onT(s3, 'Не липнет', 300, a + .1, 96);
+say('Не липнет', a + .1, a + 1.6); say('и не тяжелит', a + 1.6, 10.98);
+
+/* 4. 11–15 финал */
+a = 11; const s4 = sc(a, { in: 'zoom' });
+const p4 = prod(s4, 520, 40, 380); AM.rise(p4, a); AM.float(p4, a + .7, END, 10);
+const bag = make(`<svg class="ab" style="left:700px;top:520px" width="300" height="360" viewBox="0 0 300 360"><path d="M100 80 Q100 20 150 20 Q200 20 200 80" fill="none" stroke="#0E3B2C" stroke-width="12"/><rect x="20" y="80" width="260" height="270" rx="16" fill="#F4EFE6"/><text x="150" y="230" font-family="Unbounded" font-weight="800" font-size="46" text-anchor="middle" fill="#0E3B2C">AMURA</text></svg>`, s4); AM.pop(bag, a + .3);
+const u = make('<div class="ab" style="left:60px;right:60px;top:250px;text-align:center"><div style="font:800 40px Manrope;color:#D7EA4A;letter-spacing:.14em">ЗАКАЖИ НА</div><div style="font:800 110px/1.05 Unbounded">amura.kz</div></div>', s4); AM.up(u, a + .15, .45, 40);
+const art = make('<div class="ab" style="left:700px;top:910px"><span class="ylw" style="font-size:36px">арт. 00821</span></div>', s4); AM.pop(art, a + .7);
+const by = make('<div class="ab" style="left:60px;right:60px;top:1010px;height:140px;border-radius:30px;background:#D7EA4A;color:#0E3B2C;display:flex;align-items:center;justify-content:center;font:800 58px Unbounded">Подобрано AMURA</div>', s4); AM.pop(by, a + 1.2); AM.pulse(by, a + 1.9);
+say('Закажи на amura.kz —', a, a + 1.3); say('доставка по Алматы', a + 1.3, a + 2.5); say('и всему Казахстану', a + 2.5, 14.95);
+
+AM.scenes(SC, END); AM.background(END);
+window.REEL_END = END;
+})();
+</script></body></html>
