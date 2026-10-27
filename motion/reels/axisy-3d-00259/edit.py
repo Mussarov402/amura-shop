@@ -37,7 +37,7 @@ def seg(i, p):
         im = Image.open(os.path.join(D, 'label.jpg')).convert('RGB')
         im = im.resize((sw, round(im.height * sw / im.width)), Image.LANCZOS)
         n = round(dur * FPS); tmp = os.path.join(D, 'frames', f'lab{i:02d}')
-        os.makedirs(tmp, exist_ok=True)
+        import shutil; shutil.rmtree(tmp, ignore_errors=True); os.makedirs(tmp)
         c = 540 * sw / 1086                                              # тюбик на фото ровно по центру, x = 540
         for f in range(n):
             k = f / max(1, n - 1); k = k * k * (3 - 2 * k)
@@ -131,5 +131,5 @@ if __name__ == '__main__':
     run('-i', os.path.join(D, 'frames', 'cut.mp4'), '-loop', '1', '-i', os.path.join(D, 'ov_price.png'), '-loop', '1', '-i', os.path.join(D, 'ov_end.png'), '-i', os.path.join(D, 'mix.wav'),
         '-filter_complex', f"[0][1]overlay=shortest=1:enable='lt(t,{end_at:.2f})'[a];[2]format=rgba,fade=in:st={end_at:.2f}:d=0.35:alpha=1[e];[a][e]overlay=shortest=1[v]",
         '-map', '[v]', '-map', '3:a', '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p', '-r', str(FPS),
-        '-c:a', 'aac', '-b:a', '160k', '-af', 'loudnorm=I=-14:TP=-1.5', '-shortest', '-movflags', '+faststart', os.path.join(D, 'out.mp4'))
+        '-c:a', 'aac', '-b:a', '160k', '-ar', '48000', '-af', 'loudnorm=I=-14:TP=-1.5', '-shortest', '-t', f'{t:.3f}', '-movflags', '+faststart', os.path.join(D, 'out.mp4'))
     print(f'Готово: out.mp4, {t:.1f} с, склеек {len(cuts)}')

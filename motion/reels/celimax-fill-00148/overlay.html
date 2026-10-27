@@ -1,0 +1,23 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><link rel="stylesheet" href="../../../cards/fonts.css">
+<!-- Celimax 00148, ролик «наполнение» (по референсу владельца, Reels DdnndJ1t7l5): накладки поверх видео (рендер в PNG: ?part=price | end).
+     Цены — МойСклад 25.10.2026 (опт 4 200 ₸, розница 6 490 ₸), по прямой просьбе владельца для 3D-роликов (24.10).
+     Табличка — на 19 % от верха (выше её закрывает интерфейс Instagram/TikTok); в финале цены — строкой под логотипом. -->
+<style>
+* { margin: 0; box-sizing: border-box } html, body { width: 1080px; height: 1920px; background: transparent; font-family: Montserrat, sans-serif }
+.price { position: absolute; left: 30px; top: 365px; padding: 16px 22px; border-radius: 24px; background: rgba(255,255,255,.88);
+  box-shadow: 0 12px 40px rgba(0,0,0,.18); color: #1a1a1a; min-width: 270px }
+.row { display: flex; justify-content: space-between; align-items: baseline; gap: 26px }
+.row + .row { margin-top: 8px; padding-top: 8px; border-top: 2px solid rgba(0,0,0,.08) }
+.k { font: 700 22px Montserrat; letter-spacing: .08em; color: #0e7a4b } .v { font: 900 36px Montserrat; letter-spacing: -.01em }
+.end { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding-top: 250px;
+  background: linear-gradient(to bottom, rgba(255,255,255,.92) 0%, rgba(255,255,255,.8) 32%, rgba(255,255,255,0) 46%) }
+.logo { font: 900 112px/1 Montserrat; letter-spacing: .02em; color: #C9A063 } .sub { margin-top: 12px; font: 600 36px Montserrat; color: #333 }
+.pl { margin-top: 14px; font: 800 34px Montserrat; color: #1a1a1a } .pl b { color: #0e7a4b; font-size: 26px; letter-spacing: .08em; margin-right: 10px }
+.btn { margin-top: 18px; padding: 18px 60px; border-radius: 999px; background: #0e7a4b; color: #fff; font: 800 40px Montserrat }
+</style></head><body>
+<script>
+const part = new URLSearchParams(location.search).get('part');
+document.body.innerHTML = part === 'end'
+  ? '<div class="end"><div class="logo">AMURA</div><div class="sub">Корейская косметика · Алматы</div><div class="pl"><b>ОПТ</b>4 200 ₸ &nbsp;·&nbsp; <b>РОЗНИЦА</b>6 490 ₸</div><div class="btn">Подпишись</div></div>'
+  : '<div class="price"><div class="row"><span class="k">ОПТ</span><span class="v">4 200 ₸</span></div><div class="row"><span class="k">РОЗНИЦА</span><span class="v">6 490 ₸</span></div></div>';
+</script></body></html>
