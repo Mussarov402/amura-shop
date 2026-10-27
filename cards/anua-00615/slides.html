@@ -1,0 +1,96 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><link rel="stylesheet" href="../fonts.css">
+<!-- Anua PDRN Hyaluronic Acid 100 Moisturizing Cream, 60 мл (00615): галерея WB/Ozon (900×1200) и рич-контент (1440×900).
+     Бриф Аналитика 27.10. Тексты — только из описания и этикетки, без цен и без процентов «клинически доказано».
+     Фоны/сцены — ElevenLabs (bg/*.png), туба — настоящее фото без фона (tube.png). Надписи — вёрстка (точные буквы).
+     Рендер: node render.js → out/g1..g6.png, out/r1..r6.png -->
+<style>
+:root { --mint: #E6F4F1; --teal: #1FA79A; --ink: #2B2B2B }
+* { margin: 0; box-sizing: border-box } body { font-family: Montserrat, sans-serif; color: var(--ink); overflow: hidden; position: relative; background: var(--mint) }
+.bg { position: absolute; inset: 0; background-size: cover; background-position: center }
+.ab { position: absolute }
+.h1 { font: 900 72px/1.05 Montserrat; letter-spacing: -.01em } .h2 { font: 800 52px/1.1 Montserrat } .sub { font: 600 32px/1.3 Montserrat; color: #4a5653 }
+.pill { display: inline-flex; align-items: center; gap: 14px; padding: 18px 28px; border-radius: 999px; background: rgba(255,255,255,.92); font: 700 34px Montserrat; box-shadow: 0 8px 24px rgba(31,167,154,.15) }
+.pill i { width: 18px; height: 18px; border-radius: 50%; background: var(--teal); flex: none }
+.card { background: rgba(255,255,255,.93); border-radius: 32px; box-shadow: 0 10px 30px rgba(31,167,154,.14); padding: 28px 30px }
+.card b { display: block; font: 800 36px/1.15 Montserrat; color: var(--teal) } .card span { display: block; margin-top: 8px; font: 600 28px/1.3 Montserrat }
+.num { width: 76px; height: 76px; border-radius: 50%; background: var(--teal); color: #fff; font: 900 40px/76px Montserrat; text-align: center; flex: none }
+.step { display: flex; align-items: center; gap: 24px; font: 700 36px/1.2 Montserrat }
+.no { display: flex; align-items: center; gap: 18px; font: 700 34px Montserrat } .no s { width: 64px; height: 64px; border-radius: 50%; border: 5px solid #d9534f; position: relative; flex: none; text-decoration: none }
+.no s::after { content: ''; position: absolute; left: 50%; top: 6px; bottom: 6px; width: 5px; background: #d9534f; transform: translateX(-50%) rotate(45deg) }
+.yes { display: flex; align-items: center; gap: 18px; font: 700 34px Montserrat } .yes s { width: 64px; height: 64px; border-radius: 50%; background: var(--teal); flex: none; position: relative; text-decoration: none }
+.yes s::after { content: ''; position: absolute; left: 20px; top: 14px; width: 18px; height: 30px; border: solid #fff; border-width: 0 6px 6px 0; transform: rotate(45deg) }
+.brand { font: 700 30px Montserrat; color: var(--teal); letter-spacing: .04em }
+</style></head><body>
+<script>
+const q = new URLSearchParams(location.search), id = q.get('s'), P = (n) => `bg/${n}.png`;
+const tube = (x, y, h, rot = 0) => `<img class="ab" src="tube.png" style="left:${x}px;top:${y}px;height:${h}px;transform:rotate(${rot}deg);filter:drop-shadow(0 30px 40px rgba(20,90,80,.25))">`;
+const S = {
+  /* ── галерея 900×1200 ── */
+  g1: [900, 1200, `<div class="bg" style="background-image:url(${P('g1')})"></div>
+    <div class="ab" style="left:56px;top:60px;right:56px"><div class="h1">Увлажняющий крем<br>с PDRN</div><div class="sub" style="margin-top:14px">Anua · Корея · 60 мл</div></div>
+    <div class="ab" style="left:56px;bottom:70px;display:flex;flex-direction:column;gap:18px;align-items:flex-start">
+      <div class="pill"><i></i>PDRN + гиалуроновая кислота</div><div class="pill"><i></i>Увлажнение до 100 часов</div><div class="pill"><i></i>Лёгкая текстура</div></div>${tube(660, 360, 760, 6)}`],
+  g1o: [900, 1200, `<div class="bg" style="background-image:url(${P('g1')})"></div>
+    <div class="ab" style="left:56px;top:60px;right:56px"><div class="h1">Увлажняющий крем<br>с PDRN</div><div class="sub" style="margin-top:14px">Anua · Корея · 60 мл</div></div>${tube(330, 390, 780, 4)}`],
+  g2: [900, 1200, `<div class="bg" style="background-image:url(${P('g2')})"></div>
+    <div class="ab h2" style="left:56px;top:60px">Что внутри</div>
+    <div class="ab" style="left:56px;top:190px;width:470px;display:flex;flex-direction:column;gap:26px">
+      <div class="card"><b>PDRN</b><span>низкомолекулярный, из ДНК лосося</span></div>
+      <div class="card"><b>Гиалуроновая кислота</b><span>глубокое увлажнение</span></div>
+      <div class="card"><b>Коллаген</b><span>упругость и сияние</span></div></div>${tube(600, 250, 860, 6)}`],
+  g3: [900, 1200, `<div class="bg" style="background-image:url(${P('g3')})"></div>
+    <div class="ab h2" style="left:56px;top:60px">Что даёт коже</div>
+    <div class="ab card" style="left:40px;top:220px;width:300px"><b>Увлажнение</b><span>до 100 часов</span></div>
+    <div class="ab card" style="right:40px;top:220px;width:300px"><b>Барьер</b><span>восстанавливает кожный барьер</span></div>
+    <div class="ab card" style="left:40px;bottom:120px;width:300px"><b>Сияние</b><span>придаёт коже сияние</span></div>
+    <div class="ab card" style="right:40px;bottom:120px;width:360px"><b>Упругость</b><span>придаёт коже упругость</span></div>${tube(355, 260, 680)}`],
+  g4: [900, 1200, `<div class="bg" style="background-image:url(${P('g4')})"></div>
+    <div class="ab" style="left:56px;top:60px;right:56px"><div class="h2">Изумрудная лёгкая текстура</div></div>
+    <div class="ab" style="left:56px;bottom:80px;display:flex;flex-direction:column;gap:18px;align-items:flex-start">
+      <div class="pill"><i></i>Быстро впитывается</div><div class="pill"><i></i>Не оставляет липкости</div></div>`],
+  g5: [900, 1200, `<div class="bg" style="background-image:url(${P('g5')})"></div>
+    <div class="ab h2" style="left:56px;top:60px">Как наносить</div>${tube(620, 150, 600, 10)}
+    <div class="ab card" style="left:40px;right:40px;bottom:70px;display:flex;flex-direction:column;gap:30px;padding:36px">
+      <div class="step"><div class="num">1</div>Очистите кожу</div>
+      <div class="step"><div class="num">2</div>Нанесите тонер и сыворотку</div>
+      <div class="step"><div class="num">3</div>Завершите уход кремом — утром и вечером</div></div>`],
+  g6: [900, 1200, `<div class="bg" style="background-image:url(${P('g6')})"></div>
+    <div class="ab h2" style="left:56px;top:60px">Кому подходит</div>${tube(350, 170, 560)}
+    <div class="ab card" style="left:40px;right:40px;bottom:70px;display:grid;grid-template-columns:1fr 1fr;gap:28px 20px;padding:36px">
+      <div class="yes"><s></s>Для всех типов кожи</div><div class="no"><s></s>Без отдушек</div>
+      <div class="yes"><s></s>В том числе для чувствительной</div><div class="no"><s></s>Без искусственных красителей</div>
+      <div class="sub" style="grid-column:1/3;text-align:center;margin-top:6px">Сделано в Корее</div></div>`],
+  /* ── рич-контент 1440×900 ── */
+  r1: [1440, 900, `<div class="bg" style="background-image:url(${P('r1')})"></div>
+    <div class="ab" style="left:80px;top:250px;width:640px"><div class="brand">ANUA · PDRN HYALURONIC ACID 100</div>
+      <div class="h1" style="margin-top:18px">PDRN + гиалуроновая кислота</div><div class="h2" style="margin-top:22px;color:var(--teal)">Увлажнение до&nbsp;100&nbsp;часов</div></div>${tube(843, 48, 740)}`],
+  r2: [1440, 900, `<div class="bg" style="background-image:url(${P('r2')})"></div>
+    <div class="ab h1" style="left:80px;top:90px">Почему PDRN</div>
+    <div class="ab" style="left:80px;top:270px;width:600px;display:flex;flex-direction:column;gap:26px">
+      <div class="card"><b>Низкомолекулярный PDRN</b><span>из ДНК лосося</span></div>
+      <div class="card"><b>Работает в команде</b><span>с гиалуроновой кислотой и коллагеном</span></div></div>`],
+  r3: [1440, 900, `<div class="bg" style="background-image:url(${P('r3')})"></div>
+    <div class="ab h1" style="left:80px;top:90px">Результат ухода</div>
+    <div class="ab" style="left:80px;right:80px;bottom:110px;display:grid;grid-template-columns:repeat(3,1fr);gap:30px">
+      <div class="card"><b>Глубокое увлажнение</b><span>до 100 часов</span></div>
+      <div class="card"><b>Сияние и упругость</b><span>для ежедневного ухода</span></div>
+      <div class="card"><b>Кожный барьер</b><span>восстанавливает</span></div></div>`],
+  r4: [1440, 900, `<div class="bg" style="background-image:url(${P('r4')})"></div>
+    <div class="ab card" style="left:80px;bottom:90px;width:720px;padding:36px"><b style="font-size:46px">Изумрудный лёгкий крем</b><span style="font-size:34px">впитывается быстро и без липкости</span></div>`],
+  r5: [1440, 900, `<div class="bg" style="background-image:url(${P('r5')})"></div>
+    <div class="ab h1" style="left:80px;top:90px">Ритуал ухода</div><div class="ab sub" style="left:80px;top:190px">Утром и вечером, последним этапом</div>
+    <div class="ab" style="left:80px;right:80px;bottom:110px;display:grid;grid-template-columns:repeat(3,1fr);gap:30px">
+      <div class="card step"><div class="num">1</div>Очистите кожу</div>
+      <div class="card step"><div class="num">2</div>Тонер и сыворотка</div>
+      <div class="card step"><div class="num">3</div>Крем Anua PDRN</div></div>`],
+  r6: [1440, 900, `<div class="bg" style="background-image:url(${P('r6')})"></div>
+    <div class="ab h1" style="left:80px;top:110px">Для кого</div>${tube(1010, 120, 680, -6)}
+    <div class="ab card" style="left:80px;top:260px;width:720px;display:flex;flex-direction:column;gap:24px;padding:36px">
+      <div class="yes"><s></s>Для всех типов кожи, включая чувствительную</div>
+      <div class="no"><s></s>Без отдушек и искусственных красителей</div>
+      <div class="sub">Республика Корея · 60 мл</div></div>`],
+};
+const [w, h, html] = S[id]; document.documentElement.style.width = document.body.style.width = w + 'px';
+document.documentElement.style.height = document.body.style.height = h + 'px'; document.body.innerHTML = html;
+window.SIZE = [w, h];
+</script></body></html>
