@@ -34,6 +34,10 @@ from apipay import bp as apipay_bp  # noqa: E402
 app.register_blueprint(apipay_bp)
 import apipay  # noqa: E402
 apipay.start()                    # оплата Kaspi (ApiPay): сверка неоплаченных счетов раз в минуту
+from marketplaces import bp as marketplaces_bp  # noqa: E402
+app.register_blueprint(marketplaces_bp)
+import marketplaces  # noqa: E402
+marketplaces.start()              # каналы продаж: заказы Ozon/WB → МойСклад, остатки → маркетплейсы
 from sources import bp as sources_bp  # noqa: E402
 app.register_blueprint(sources_bp)
 from wishes import bp as wishes_bp  # noqa: E402
