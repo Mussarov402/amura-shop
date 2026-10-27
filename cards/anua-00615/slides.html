@@ -29,32 +29,33 @@ const S = {
   g1: [900, 1200, `<div class="bg" style="background-image:url(${P('g1')})"></div>
     <div class="ab" style="left:56px;top:60px;right:56px"><div class="h1">Увлажняющий крем<br>с PDRN</div><div class="sub" style="margin-top:14px">Anua · Корея · 60 мл</div></div>
     <div class="ab" style="left:56px;bottom:70px;display:flex;flex-direction:column;gap:18px;align-items:flex-start">
-      <div class="pill"><i></i>PDRN + гиалуроновая кислота</div><div class="pill"><i></i>Увлажнение до 100 часов</div><div class="pill"><i></i>Лёгкая текстура</div></div>`],
-  g1o: [900, 1200, `<div class="bg" style="background-image:url(${P('g1')})"></div>`],
+      <div class="pill"><i></i>PDRN + гиалуроновая кислота</div><div class="pill"><i></i>Увлажнение до 100 часов</div><div class="pill"><i></i>Лёгкая текстура</div></div>${tube(660, 360, 760, 6)}`],
+  g1o: [900, 1200, `<div class="bg" style="background-image:url(${P('g1')})"></div>
+    <div class="ab" style="left:56px;top:60px;right:56px"><div class="h1">Увлажняющий крем<br>с PDRN</div><div class="sub" style="margin-top:14px">Anua · Корея · 60 мл</div></div>${tube(330, 390, 780, 4)}`],
   g2: [900, 1200, `<div class="bg" style="background-image:url(${P('g2')})"></div>
     <div class="ab h2" style="left:56px;top:60px">Что внутри</div>
     <div class="ab" style="left:56px;top:190px;width:470px;display:flex;flex-direction:column;gap:26px">
       <div class="card"><b>PDRN</b><span>низкомолекулярный, из ДНК лосося</span></div>
       <div class="card"><b>Гиалуроновая кислота</b><span>глубокое увлажнение</span></div>
-      <div class="card"><b>Коллаген</b><span>упругость и сияние</span></div></div>`],
+      <div class="card"><b>Коллаген</b><span>упругость и сияние</span></div></div>${tube(600, 250, 860, 6)}`],
   g3: [900, 1200, `<div class="bg" style="background-image:url(${P('g3')})"></div>
     <div class="ab h2" style="left:56px;top:60px">Что даёт коже</div>
-    <div class="ab card" style="left:40px;top:220px;width:360px"><b>Увлажнение</b><span>до 100 часов</span></div>
-    <div class="ab card" style="right:40px;top:220px;width:360px"><b>Барьер</b><span>восстанавливает кожный барьер</span></div>
-    <div class="ab card" style="left:40px;bottom:120px;width:360px"><b>Сияние</b><span>придаёт коже сияние</span></div>
-    <div class="ab card" style="right:40px;bottom:120px;width:360px"><b>Упругость</b><span>придаёт коже упругость</span></div>`],
+    <div class="ab card" style="left:40px;top:220px;width:300px"><b>Увлажнение</b><span>до 100 часов</span></div>
+    <div class="ab card" style="right:40px;top:220px;width:300px"><b>Барьер</b><span>восстанавливает кожный барьер</span></div>
+    <div class="ab card" style="left:40px;bottom:120px;width:300px"><b>Сияние</b><span>придаёт коже сияние</span></div>
+    <div class="ab card" style="right:40px;bottom:120px;width:360px"><b>Упругость</b><span>придаёт коже упругость</span></div>${tube(355, 260, 680)}`],
   g4: [900, 1200, `<div class="bg" style="background-image:url(${P('g4')})"></div>
     <div class="ab" style="left:56px;top:60px;right:56px"><div class="h2">Изумрудная лёгкая текстура</div></div>
     <div class="ab" style="left:56px;bottom:80px;display:flex;flex-direction:column;gap:18px;align-items:flex-start">
       <div class="pill"><i></i>Быстро впитывается</div><div class="pill"><i></i>Не оставляет липкости</div></div>`],
   g5: [900, 1200, `<div class="bg" style="background-image:url(${P('g5')})"></div>
-    <div class="ab h2" style="left:56px;top:60px">Как наносить</div>
+    <div class="ab h2" style="left:56px;top:60px">Как наносить</div>${tube(620, 150, 600, 10)}
     <div class="ab card" style="left:40px;right:40px;bottom:70px;display:flex;flex-direction:column;gap:30px;padding:36px">
       <div class="step"><div class="num">1</div>Очистите кожу</div>
       <div class="step"><div class="num">2</div>Нанесите тонер и сыворотку</div>
       <div class="step"><div class="num">3</div>Завершите уход кремом — утром и вечером</div></div>`],
   g6: [900, 1200, `<div class="bg" style="background-image:url(${P('g6')})"></div>
-    <div class="ab h2" style="left:56px;top:60px">Кому подходит</div>
+    <div class="ab h2" style="left:56px;top:60px">Кому подходит</div>${tube(350, 170, 560)}
     <div class="ab card" style="left:40px;right:40px;bottom:70px;display:grid;grid-template-columns:1fr 1fr;gap:28px 20px;padding:36px">
       <div class="yes"><s></s>Для всех типов кожи</div><div class="no"><s></s>Без отдушек</div>
       <div class="yes"><s></s>В том числе для чувствительной</div><div class="no"><s></s>Без искусственных красителей</div>
@@ -62,7 +63,7 @@ const S = {
   /* ── рич-контент 1440×900 ── */
   r1: [1440, 900, `<div class="bg" style="background-image:url(${P('r1')})"></div>
     <div class="ab" style="left:80px;top:250px;width:640px"><div class="brand">ANUA · PDRN HYALURONIC ACID 100</div>
-      <div class="h1" style="margin-top:18px">PDRN + гиалуроновая кислота</div><div class="h2" style="margin-top:22px;color:var(--teal)">Увлажнение до 100 часов</div></div>`],
+      <div class="h1" style="margin-top:18px">PDRN + гиалуроновая кислота</div><div class="h2" style="margin-top:22px;color:var(--teal)">Увлажнение до&nbsp;100&nbsp;часов</div></div>${tube(843, 48, 740)}`],
   r2: [1440, 900, `<div class="bg" style="background-image:url(${P('r2')})"></div>
     <div class="ab h1" style="left:80px;top:90px">Почему PDRN</div>
     <div class="ab" style="left:80px;top:270px;width:600px;display:flex;flex-direction:column;gap:26px">
@@ -83,7 +84,7 @@ const S = {
       <div class="card step"><div class="num">2</div>Тонер и сыворотка</div>
       <div class="card step"><div class="num">3</div>Крем Anua PDRN</div></div>`],
   r6: [1440, 900, `<div class="bg" style="background-image:url(${P('r6')})"></div>
-    <div class="ab h1" style="left:80px;top:110px">Для кого</div>
+    <div class="ab h1" style="left:80px;top:110px">Для кого</div>${tube(1010, 120, 680, -6)}
     <div class="ab card" style="left:80px;top:260px;width:720px;display:flex;flex-direction:column;gap:24px;padding:36px">
       <div class="yes"><s></s>Для всех типов кожи, включая чувствительную</div>
       <div class="no"><s></s>Без отдушек и искусственных красителей</div>
