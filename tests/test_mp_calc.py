@@ -416,5 +416,60 @@ class SetPrice(Calculator):
         self.assertEqual(self.w.uploads, [])
 
 
+class WBCard(unittest.TestCase):
+    """Карточка WB по артикулу: наша — данные из кабинета; чужая — только «не наша»; только владелец; ничего не меняет."""
+    patch = tm.Channels.patch
+
+    def setUp(self):
+        tm.Channels.setUp(self)
+        self.calls = []
+        card = {"nmID": 244631445, "title": "Крем Anua", "subjectName": "Кремы", "brand": "Anua", "vendorCode": "00615",
+                "description": "Увлажняющий крем", "photos": [{}, {}, {}], "video": "v.mp4",
+                "dimensions": {"length": 10, "width": 10, "height": 20, "weightBrutto": 0.3},
+                "characteristics": [{"name": "Объём", "value": ["60 мл"]}], "sizes": [{"chrtID": 501, "skus": ["8809640738135"]}],
+                "updatedAt": "2026-10-20T10:00:00Z"}
+
+        def wb(method, url, params=None, json=None, headers=None, timeout=None):
+            self.calls.append((method, url.split(".ru", 1)[1]))
+            if "/content/v2/get/cards/list" in url:
+                return Resp(200, {"cards": [card] if json["settings"]["filter"]["textSearch"] == "244631445" else []})
+            if "/api/v2/list/goods/filter" in url:
+                return Resp(200, {"data": {"listGoods": [{"nmID": 244631445, "discount": 0, "currencyIsoCode4217": "KZT",
+                                                          "sizes": [{"price": 13500, "discountedPrice": 13500}]}]}})
+            raise AssertionError(url)
+        self.patch(mpk.requests, "request", wb)
+        import admin
+        self.patch(admin, "who", lambda: {"role": "owner", "perms": []})
+        app = Flask(__name__)
+        app.register_blueprint(mpk.bp)
+        self.c = app.test_client()
+
+    def test_ours(self):
+        j = self.c.get("/admin/api/mp/wbcard?nm=244631445").get_json()
+        self.assertTrue(j["ours"])
+        self.assertEqual((j["title"], j["subject"], j["brand"], j["vendorCode"], j["barcodes"], j["photos"], j["video"]),
+                         ("Крем Anua", "Кремы", "Anua", "00615", ["8809640738135"], 3, 1))
+        self.assertEqual(j["chars"], [{"name": "Объём", "value": "60 мл"}])
+        self.assertEqual((j["price"]["price"], j["price"]["discount"], j["price"]["currency"]), (13500, 0, "KZT"))
+        self.assertTrue(all(m in ("GET", "POST") and ("cards/list" in u or "goods/filter" in u) for m, u in self.calls))   # только чтение
+
+    def test_not_ours(self):
+        j = self.c.get("/admin/api/mp/wbcard?nm=111").get_json()
+        self.assertEqual((j["ok"], j["ours"]), (True, False))
+        self.assertNotIn("title", j)
+
+    def test_owner_only_and_input(self):
+        import admin
+        self.assertEqual(self.c.get("/admin/api/mp/wbcard?nm=абв").status_code, 400)
+        self.patch(admin, "who", lambda: {"role": "manager", "perms": ["orders"]})
+        self.assertEqual(self.c.get("/admin/api/mp/wbcard?nm=244631445").status_code, 403)
+
+    def test_no_key(self):
+        os.environ.pop("WB_API_TOKEN")
+        j = self.c.get("/admin/api/mp/wbcard?nm=244631445")
+        self.assertEqual(j.status_code, 502)
+        self.assertIn("нет ключа WB", j.get_json()["error"])
+
+
 if __name__ == "__main__":
     unittest.main()
