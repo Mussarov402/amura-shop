@@ -344,7 +344,7 @@ def wb_fin_rows(ch, d1, d2):
 def wb_facts_load(ch):
     to = datetime.now(mpk.ALMATY)
     d1, d2 = (to - timedelta(days=FACT_DAYS)).strftime("%Y-%m-%d"), to.strftime("%Y-%m-%d")
-    by, tot, cur, days = {}, _bucket(), "", []
+    by, tot, cur, days, first = {}, _bucket(), "", [], {}
     for x in wb_fin_rows(ch, d1, d2):
         num = lambda k: _wb_num(x.get(k)) or 0.0
         b = by.setdefault(str(x.get("nmId") or ""), _bucket())
@@ -353,6 +353,9 @@ def wb_facts_load(ch):
             days.append(str(x["rrDate"])[:10])
         q = int(x.get("quantity") or 0)
         sale = str(x.get("docTypeName") or "").lower().startswith("продаж") and q > 0
+        if sale and x.get("rrDate"):
+            nm = str(x.get("nmId") or "")
+            first[nm] = min(first.get(nm, "9999"), str(x["rrDate"])[:10])
         for t in (b, tot):
             if sale:
                 t["sales"] += q
@@ -363,7 +366,7 @@ def wb_facts_load(ch):
             t["accept"] += num("paidAcceptance")
     span = f"{min(days)[8:10]}.{min(days)[5:7]}–{max(days)[8:10]}.{max(days)[5:7]}" if days else f"{FACT_DAYS} дней"
     return {"by": {k: _avg(v) for k, v in by.items()}, "all": _avg(tot), "cur": cur or "KZT", "span": span,
-            "at": int(time.time()), "src": "отчёт реализации WB"}
+            "at": int(time.time()), "src": "отчёт реализации WB", "first": first}
 
 
 OZ_LOGI = ("logistic", "delivtocustomer", "directflow", "lastmile", "delivery")
@@ -372,7 +375,7 @@ OZ_PROC = ("dropoff", "firstmile", "pickup", "processing", "fulfillment", "packa
 
 def ozon_facts_load(ch):
     """Транзакции Ozon за 90 дней (по месяцу за запрос): продажи, комиссия, логистика, обработка, эквайринг по SKU."""
-    by, tot = {}, _bucket()
+    by, tot, first = {}, _bucket(), {}
     now = datetime.now(timezone.utc)
     days = []
     for k in range(3):
@@ -390,6 +393,8 @@ def ozon_facts_load(ch):
                 share = 1 / len(skus)
                 acc, typ = float(op.get("accruals_for_sale") or 0), str(op.get("operation_type") or "").lower()
                 for sku in skus:
+                    if acc > 0 and op.get("operation_date"):
+                        first[sku] = min(first.get(sku, "9999"), str(op["operation_date"])[:10])
                     bk = by.setdefault(sku, _bucket())
                     for t in (bk, tot):
                         if acc > 0:
@@ -409,7 +414,7 @@ def ozon_facts_load(ch):
     days = [d for d in days if d]
     span = f"{min(days)[8:10]}.{min(days)[5:7]}–{max(days)[8:10]}.{max(days)[5:7]}" if days else f"{FACT_DAYS} дней"
     return {"by": {k: _avg(v) for k, v in by.items()}, "all": _avg(tot), "cur": "", "span": span, "at": int(time.time()),
-            "src": "транзакции Ozon"}
+            "src": "транзакции Ozon", "first": first}
 
 
 def facts(ch):

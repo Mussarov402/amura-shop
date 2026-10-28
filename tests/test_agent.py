@@ -199,5 +199,103 @@ class Agent(unittest.TestCase):
         self.assertIn("ответ на вопрос WB", text)
         self.assertNotIn("цена", text)
 
+class PriceCorridor(unittest.TestCase):
+    """Цены в коридоре: правило выключено по умолчанию; внутри коридора, шаг ≤5 % и раз в сутки — сразу, остальное — «Да»;
+    нижняя граница — минимальная цена калькулятора для маржи 20 % (моложе 30 дней — 15 %); выросла выше цены — заявка владельцу."""
+    patch = tm.Channels.patch
+
+    def setUp(self):
+        Agent.setUp(self)
+        with agent.db() as d:
+            d.run("DELETE FROM agent_corridor")
+        self.price, self.disc, self.full, self.first = 17000.0, 0, True, "2026-01-01"
+        self.margins = []
+        import mp_calc
+        wb_base = mpk.requests.request
+
+        def wb(method, url, params=None, json=None, headers=None, timeout=None):
+            if "/api/v2/list/goods/filter" in url:
+                return Resp(200, {"data": {"listGoods": [{"nmID": int(params["filterNmID"]), "discount": self.disc,
+                                                          "sizes": [{"price": self.price / (1 - self.disc / 100), "discountedPrice": self.price}]}]}})
+            return wb_base(method, url, params=params, json=json, headers=headers, timeout=timeout)
+        self.patch(mpk.requests, "request", wb)
+        self.patch(agent, "ms_match", lambda ch, ident: ("p1", [ident]))
+        self.patch(mp_calc, "facts", lambda ch: {"first": {"244631445": self.first}})
+        self.patch(mp_calc, "product", lambda pid: {"name": "Anua PDRN 100", "cost": 6000})
+        self.patch(mp_calc, "settings", lambda: {"tax": 4, "ads": 10, "margin": 20})
+
+        def calc(ch, pid, prod, st, price_override=None):
+            self.margins.append(st["margin"])
+            return {"minPrice": 16500 if st["margin"] == 20 else 15000, "complete": self.full,
+                    "lines": [{"label": "Комиссия", "sum": 1}, {"label": "Эквайринг", "sum": 1 if self.full else None}]}
+        self.patch(mp_calc, "channel_calc", calc)
+
+    def on(self, base=17000):
+        self.c.post("/admin/api/agent/price-rules", json={"on": True})
+        return self.c.post("/admin/api/agent/corridor", json={"shop": "wb", "ident": "244631445", "base": base}).get_json()
+
+    def price_req(self, price, **extra):
+        return self.c.post("/agent/api/requests", headers=self.h,
+                           json={"kind": "wb_price", "shop": "wb", "params": {"nmID": 244631445, "price": price, **extra}}).get_json()
+
+    def uploads(self):
+        return [x for _, p, x in self.calls if p == "/api/v2/upload/task"]
+
+    def test_off_by_default(self):
+        self.assertEqual(agent.price_rules(), {"on": False, "margin": 20.0, "margin_new": 15.0})
+        self.assertEqual(self.price_req(17500)["status"], "new")
+        self.assertEqual(self.uploads(), [])
+
+    def test_corridor_and_auto(self):
+        row = self.on()["row"]
+        self.assertEqual((row["lower"], row["upper"], row["base_note"]), (16500, 19550, "задана владельцем"))   # 17000 × 1,15
+        r = self.price_req(17500)
+        self.assertEqual((r["status"], r["auto"]), ("done", True))                       # шаг 2,9 %
+        self.assertEqual(self.uploads(), [{"data": [{"nmID": 244631445, "price": 17500}]}])
+        r = self.price_req(17400)
+        self.assertEqual(r["status"], "new")                                             # меньше суток с прошлой смены
+        self.assertIn("меньше суток", self.c.get("/agent/api/requests", headers=self.h).get_json()["items"][0]["summary"])
+
+    def test_outside_corridor_or_big_step(self):
+        self.on()
+        for price, why in ((16000, "ниже коридора: минимум 16500"), (19800, "выше коридора"), (18000, "шаг 5.9 %")):
+            self.assertEqual(self.price_req(price)["status"], "new")
+            self.assertIn(why, self.c.get("/agent/api/requests", headers=self.h).get_json()["items"][0]["summary"])
+        self.assertEqual(self.uploads(), [])
+
+    def test_discount_and_incomplete(self):
+        self.on()
+        self.assertEqual(self.price_req(17500, discount=10)["status"], "new")            # скидка — через «Да»
+        self.full = False
+        self.assertEqual(self.price_req(17500)["status"], "new")
+        self.assertIn("неполная", self.c.get("/agent/api/requests", headers=self.h).get_json()["items"][0]["summary"])
+        self.assertEqual(self.uploads(), [])
+
+    def test_young_product_margin(self):
+        self.first = (agent.mpk.datetime.now(agent.mpk.ALMATY) - agent.mpk.timedelta(days=5)).strftime("%Y-%m-%d")
+        row = self.on()["row"]
+        self.assertEqual((self.margins[-1], row["lower"]), (15, 15000))
+        self.first = None                                                                  # продаж нет — обычная маржа
+        self.assertEqual(self.on()["row"]["margin"], 20)
+
+    def test_stop_and_base_default(self):
+        self.c.post("/admin/api/agent/price-rules", json={"on": True})
+        row = self.c.post("/admin/api/agent/corridor", json={"shop": "wb", "ident": "244631445"}).get_json()["row"]
+        self.assertTrue(row["base_note"].startswith("цена на момент включения"))
+        self.assertEqual(row["base"], 17000)
+        self.c.post("/admin/api/agent/rules", json={"stop": True})
+        self.assertEqual(self.price_req(17500)["status"], "new")
+
+    def test_recheck_raises_via_yes(self):
+        self.on()
+        self.price = 13500.0                                                               # ставки выросли: граница 16500 > 13500
+        self.assertEqual(agent.recheck_corridors(), 1)
+        self.assertEqual(agent.recheck_corridors(), 0)                                     # открытая заявка — не дублируем
+        x = self.c.get("/agent/api/requests", headers=self.h).get_json()["items"][0]
+        self.assertEqual((x["status"], x["params"]), ("new", {"nmID": 244631445, "price": 16500}))
+        self.assertIn("Нужно поднять цену", self.tg[-1])
+        self.assertEqual(self.uploads(), [])                                               # сами не поднимаем
+
+
 if __name__ == "__main__":
     unittest.main()
