@@ -24,6 +24,13 @@ NBK_XML = b"""<?xml version="1.0" encoding="utf-8"?><rates><date>28.10.2026</dat
 <item><title>KRW</title><description>33.4</description><quant>100</quant></item></rates>"""
 
 
+MIG_HTML = """<table><tbody>
+<tr><td class="buy delta-neutral">476.50</td><td class="currency">USD</td><td class="sell delta-neutral">480.00</td></tr>
+<tr><td class="buy delta-plus">540.10</td><td class="currency">EUR</td><td class="sell delta-minus">545.90</td></tr>
+<tr><td class="buy delta-neutral">5.70</td><td class="currency">RUB</td><td class="sell delta-neutral">5.95</td></tr>
+</tbody></table>"""
+
+
 class Math(unittest.TestCase):
     def test_top_down_and_min_price(self):
         r = mp_calc.calc(10000, {"commission": 15, "tax": 3, "ads": 5}, {"logistics": 500, "processing": 100, "acquiring": 150},
@@ -45,8 +52,18 @@ class Math(unittest.TestCase):
 
 class Rates(unittest.TestCase):
     def setUp(self):
-        oh._cache.pop("nbk_rates", None)
-        self.addCleanup(lambda: oh._cache.pop("nbk_rates", None))
+        for k in ("nbk_rates", "mig_rates"):
+            oh._cache.pop(k, None)
+        self.addCleanup(lambda: [oh._cache.pop(k, None) for k in ("nbk_rates", "mig_rates")])
+
+    def test_mig_first(self):
+        self.assertEqual(mp_calc.parse_mig(MIG_HTML), {"USD": 480.0, "EUR": 545.9, "RUB": 5.95})
+        old = mp_calc.requests.get
+        mp_calc.requests.get = lambda url, **k: type("R", (), {"text": MIG_HTML, "raise_for_status": lambda s: None})()
+        self.addCleanup(lambda: setattr(mp_calc.requests, "get", old))
+        v, note = mp_calc.to_kzt(12.51, "USD")
+        self.assertEqual(round(v), 6005)                                                 # Anua 00615: около 6 000 ₸
+        self.assertIn("курс продажи МиГ", note)
 
     def test_nbk_parse_and_convert(self):
         old = mp_calc.requests.get
@@ -110,6 +127,7 @@ class Calculator(unittest.TestCase):
         for k in ("nbk_rates", "mpc_prod:p1", "mpc_box:wb", "mpc_kgvp:wb"):
             oh._cache.pop(k, None)
         oh._cache["nbk_rates"] = (9e18, {"date": "28.10.2026", "rates": {"USD": 470.0, "RUB": 6.0}})
+        self.patch(mp_calc, "mig_rates", lambda: (_ for _ in ()).throw(ValueError("МиГ в тестах выключен")))
         self.addCleanup(lambda: [oh._cache.pop(k, None) for k in ("nbk_rates", "mpc_prod:p1", "mpc_box:wb", "mpc_kgvp:wb")])
         for k in mp_calc.SETTINGS.values():
             mpk.set_setting(k, "")
@@ -120,7 +138,8 @@ class Calculator(unittest.TestCase):
 
         def ms2(method, path, **kw):
             if path == "/entity/product/p1":
-                return {"id": "p1", "name": "Крем Anua", "code": "00615", "buyPrice": {"value": 1251, "currency": {"isoCode": "USD", "rate": 472.9}}}
+                return {"id": "p1", "name": "Крем Anua", "code": "00615", "barcodes": [{"ean13": "8809640738135"}],
+                        "buyPrice": {"value": 1251, "currency": {"isoCode": "USD", "rate": 472.9}}}
             return ms(method, path, **kw)
         self.patch(oh, "ms", ms2)
         import admin
@@ -173,6 +192,79 @@ class Calculator(unittest.TestCase):
         j = self.get(id="p1")
         self.assertTrue(all(x["error"].startswith("нет данных из кабинета") and "lines" not in x for x in j["channels"]))
         self.assertIn("WB_API_TOKEN", j["channels"][-1]["error"])
+
+
+class FakeWBPrices(FakeWBTariffs):
+    def __init__(self, base, cur="KZT"):
+        super().__init__(base)
+        self.cur, self.uploads, self.buffer = cur, [], True
+
+    def __call__(self, method, url, params=None, json=None, headers=None, timeout=None):
+        if "/api/v2/list/goods/filter" in url:
+            return Resp(200, {"data": {"listGoods": [{"nmID": params["filterNmID"], "currencyIsoCode4217": self.cur,
+                                                      "sizes": [{"sizeID": 501, "price": 12000, "discountedPrice": 9900}]}]}})
+        if url.endswith("/api/v2/upload/task"):
+            self.uploads.append(json)
+            return Resp(200, {"data": {"id": 777, "alreadyExists": False}, "error": False})
+        if "/api/v2/buffer/tasks" in url:
+            return Resp(200, {"data": {"uploadID": 777, "status": 1}} if self.buffer else {"data": None})
+        if "/api/v2/history/tasks" in url:
+            return Resp(200, {"data": {"uploadID": 777, "status": 3}})
+        return super().__call__(method, url, params=params, json=json, headers=headers, timeout=timeout)
+
+
+class SetPrice(Calculator):
+    def setUp(self):
+        super().setUp()
+        self.patch(mpk, "_catalog", lambda: CAT)
+        self.w = FakeWBPrices(self.wb)
+        self.patch(mpk.requests, "request", self.w)
+        mpk.set_setting("mp_price_wb_p1", "")
+
+    def post(self, **b):
+        return self.c.post("/admin/api/mp/calc/price", json=b)
+
+    def test_set_price_and_status(self):
+        r = self.post(id="p1", shop="wb", price=13500).get_json()
+        self.assertTrue(r["ok"])
+        self.assertEqual(self.w.uploads, [{"data": [{"nmID": 1, "price": 13500, "discount": 0}]}])   # без скидки продавца
+        st = self.c.get("/admin/api/mp/calc/price", query_string={"id": "p1", "shop": "wb"}).get_json()["task"]
+        self.assertEqual((st["id"], st["status"]), (777, "в обработке"))
+        self.w.buffer = False
+        st = self.c.get("/admin/api/mp/calc/price", query_string={"id": "p1", "shop": "wb"}).get_json()["task"]
+        self.assertEqual((st["status"], st["final"]), ("цена обновилась", True))
+        j = self.get(id="p1")
+        self.assertEqual(next(x for x in j["channels"] if x["id"] == "wb")["priceTask"]["price"], 13500)
+
+    def test_not_tenge_not_set(self):
+        self.w.cur = "RUB"
+        r = self.post(id="p1", shop="wb", price=13500)
+        self.assertEqual(r.status_code, 409)
+        self.assertIn("RUB", r.get_json()["error"])
+        self.assertEqual(self.w.uploads, [])
+
+    def test_no_card_nothing_created(self):
+        self.patch(mpk, "_catalog", lambda: {})                                         # пары нет, и по штрихкоду карточки нет
+        self.patch(mp_calc, "_ref_for", lambda ch, pid: (None, {"products": {}}))
+        old = self.w.__class__.__call__
+
+        def no_cards(me, method, url, **k):
+            if "/content/v2/get/cards/list" in url:
+                return Resp(200, {"cards": [], "cursor": {"total": 0}})
+            return old(me, method, url, **k)
+        self.patch(self.w.__class__, "__call__", no_cards)
+        r = self.post(id="p1", shop="wb", price=13500)
+        self.assertEqual(r.status_code, 409)
+        self.assertIn("нет карточки", r.get_json()["error"])
+        self.assertEqual(self.w.uploads, [])
+
+    def test_owner_only_and_checks(self):
+        import admin
+        self.assertEqual(self.post(id="p1", shop="ozon", price=100).status_code, 400)    # только WB
+        self.assertEqual(self.post(id="p1", shop="wb", price=0).status_code, 400)
+        self.patch(admin, "who", lambda: {"role": "manager", "perms": ["orders"]})
+        self.assertEqual(self.post(id="p1", shop="wb", price=13500).status_code, 403)
+        self.assertEqual(self.w.uploads, [])
 
 
 if __name__ == "__main__":
