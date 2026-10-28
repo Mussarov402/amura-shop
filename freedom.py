@@ -10,6 +10,7 @@ Apple/Google Pay; pg_payment_method=bankcard — оплаты с мобильн�
 Ключи — только переменные окружения на Render: FREEDOM_MERCHANT_ID, FREEDOM_SECRET_KEY, FREEDOM_TEST=1 (тестовые платежи без списания).
 Выключено по умолчанию: модуль «Оплата картой» (cardpay) в настройках; без ключей кнопки нет.
 Подпись pg_sig: md5 строки «имя скрипта;значения параметров по алфавиту ключей;секретный ключ» (имя скрипта — последняя часть адреса)."""
+import bg
 import hashlib
 import json
 import os
@@ -537,4 +538,4 @@ def _loop():
 
 
 def start():
-    threading.Thread(target=_loop, daemon=True).start()
+    bg.start(_loop)

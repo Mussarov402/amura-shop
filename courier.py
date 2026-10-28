@@ -509,6 +509,10 @@ _poller = [None]
 
 def start_poller():
     import threading
+    import bg
+    if bg.in_master():                               # в мастере gunicorn — запустить уже в воркере (bg.py)
+        bg.start(start_poller)
+        return
     if _poller[0] is None:
         _poller[0] = threading.Thread(target=_poll, daemon=True, name="ya-poll")
         _poller[0].start()

@@ -25,6 +25,7 @@
     SITE_URL            https://mussarov402.github.io/amura-shop   (оттуда берётся img/index.json)
     WHOLESALE_TAG       тег контрагента в МойСклад, открывающий оптовые цены (по умолчанию «опт»)
 """
+import bg
 import gzip
 import hashlib
 import hmac
@@ -536,8 +537,8 @@ def _probe():
         alert("probe", f"при запуске сервера МойСклад не ответил: {str(e)[:300]}")
 
 
-threading.Thread(target=_background, daemon=True).start()
-threading.Thread(target=_probe, daemon=True).start()
+bg.start(_background)
+bg.start(_probe)
 
 
 def live(max_age=LIVE_TTL):

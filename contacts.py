@@ -7,6 +7,7 @@
 - новый клиент с телефоном, который уже есть у другого контрагента, не создаётся (подсказка — открыть существующего);
 - после записи наша копия (ms_agent) обновляется сразу; зеркало потом перезапишет то же.
 МойСклад остаётся главным."""
+import bg
 import json
 import os
 import re
@@ -238,4 +239,4 @@ def _loop():
 
 
 if os.environ.get("PORT"):
-    threading.Thread(target=_loop, daemon=True).start()
+    bg.start(_loop)

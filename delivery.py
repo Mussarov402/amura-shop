@@ -6,6 +6,7 @@
 Следующие шаги: цена в корзине сайта, автоматический вызов курьера, статусы и отслеживание.
 Службы подключаемые (PROVIDERS); выключенная служба ни на что не влияет. Ключи хранятся на сервере и в панель целиком не отдаются.
 """
+import bg
 import json
 import re
 from datetime import datetime, timedelta
@@ -348,5 +349,4 @@ def _boot():
 
 
 if __import__("os").environ.get("PORT"):
-    import threading
-    threading.Thread(target=_boot, daemon=True).start()
+    bg.start(_boot)
