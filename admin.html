@@ -1381,7 +1381,7 @@ async express(day){day=day||views.express.day||new Date(Date.now()+5*3600e3).toI
  document.querySelectorAll("[data-cx]").forEach(b=>b.onclick=async()=>{if(!confirm("Отменить заявку в Яндексе? Если курьер уже назначен, отмена может быть платной."))return;
    try{const r=await api("courier/cancel",{method:"POST",body:JSON.stringify({num:b.dataset.cx})});toast(r.paid?"Отменено (платная отмена)":"Отменено");views.express(day)}catch(e){msg(e.message)}})},
 /* Каналы продаж (модуль «marketplaces»): Ozon и WB — ключи, последняя сверка заказов и остатков, ошибки, товары без пары, последние заказы; запас и «Сверить сейчас» — только владелец */
-async mp(){const o=await api("mp/status"),n=nav;if(n!==nav)return;const own=ME.role==="owner",many=o.channels.length>2;
+async mp(){const o=await api("mp/status"),n=nav;if(n!==nav)return;const own=ME.role==="owner",many=o.channels.length>2||o.channels.filter(c=>c.keys).length>1;   /* склад общий: доля остатка нужна, как только продаём в двух местах */
  const dt=t=>t?new Date(t*1000).toLocaleString("ru-RU",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"";
  const last=(r,kind)=>{if(!r)return `<span class="b n">ещё не было</span>`;
   const i=r.info,txt=!r.ok&&typeof i==="string"?i:kind==="orders"?(i&&i.made?"новых заказов: "+i.made:"новых заказов нет"):(i&&i.sent?"отправлено товаров: "+i.sent:"без изменений");
