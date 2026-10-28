@@ -271,7 +271,8 @@ class WB(Channel):
                 for s in c.get("sizes") or []:
                     if s.get("chrtID"):
                         out[str(s["chrtID"])] = {"offer": str(c.get("vendorCode") or ""), "barcodes": [str(b) for b in s.get("skus") or [] if b],
-                                                 "name": str(c.get("title") or c.get("vendorCode") or ""), "archived": False}
+                                                 "name": str(c.get("title") or c.get("vendorCode") or ""), "archived": False,
+                                                 "nm": c.get("nmID"), "subject": c.get("subjectID"), "dims": c.get("dimensions") or {}}
             cur = j.get("cursor") or {}
             if len(cards) < 100 or not cur.get("nmID"):
                 break
@@ -689,3 +690,6 @@ def settings_route():
             oh._cache.pop(f"mp_map_{ch.key}", None)
         oh.notify_bg(tick)
     return jsonify(ok=True, **status())
+
+
+import mp_calc  # noqa: E402,F401  — калькулятор прибыли: маршруты на том же blueprint
