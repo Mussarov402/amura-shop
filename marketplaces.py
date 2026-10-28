@@ -14,6 +14,10 @@
 Ключи — только переменные окружения на Render:
   Ozon — OZON_CLIENT_ID и OZON_API_KEY (кабинет Ozon → Настройки → Seller API), склад FBS — OZON_WAREHOUSE_ID, если складов несколько;
   WB — WB_API_TOKEN (кабинет WB → Интеграции по API; категории «Маркетплейс» и «Контент»), склад — WB_WAREHOUSE_ID, если складов несколько.
+Несколько магазинов (28.10.2026): переменные без суффикса — первый магазин; следующие — те же с суффиксом _2, _3…
+  (WB_API_TOKEN_2, OZON_CLIENT_ID_2 + OZON_API_KEY_2, склады *_WAREHOUSE_ID_2). *_NAME[_N] — название магазина для пометки и экрана,
+  *_ORG_ID[_N] — организация МойСклад, если магазин на другом ИП. У магазина свой ключ канала (ozon2, wb2 — в mp_order и externalCode),
+  пометка «Заказ с WB (FBS) — <название>», контрагент, сверки и доля остатка (mp_<ключ>_share, по умолчанию 100 %): склад МойСклад общий.
 Выключено по умолчанию: модуль «Каналы продаж» в «Настройках». Методы сверены 27.10.2026:
   Ozon /v4/posting/fbs/list (v3 отключён), /v2/products/stocks, /v3/product/list, /v3/product/info/list, /v2/warehouse/list;
   WB /api/v3/orders, /api/v3/orders/status, PUT /api/v3/stocks/{склад} (по chrtId), /api/v3/warehouses, /content/v2/get/cards/list.
@@ -69,34 +73,62 @@ def _iso(t):
 
 # ---------- каналы ----------
 class Channel:
-    """Общий вид канала. fetch → заказы {ext, label, status: live/cancel/wait, raw, at, cutoff, lines[{ref, offer, barcodes, name, qty, price, cur}]};
-    products → {ref: {offer, barcodes, name, archived}}; push_stocks([{ref, offer, stock}]) → ошибки."""
-    key = title = mark = agent_name = emoji = ""
+    """Общий вид канала (один магазин). fetch → заказы {ext, label, status: live/cancel/wait, raw, at, cutoff, lines[{ref, offer, barcodes, name, qty, price, cur}]};
+    products → {ref: {offer, barcodes, name, archived}}; push_stocks([{ref, offer, stock}]) → ошибки.
+    n — номер магазина: 1 — переменные без суффикса, 2 и дальше — с суффиксом _n."""
+    base = env_prefix = base_title = base_agent = emoji = ""
+    KEYS = ()
 
-    def keys_set(self):
-        return False
-
-    def __init__(self):
+    def __init__(self, n=1):
+        self.n, self.sfx = n, "" if n == 1 else f"_{n}"
+        self.key = self.base if n == 1 else f"{self.base}{n}"
         self.sent = {}                                   # ref → последний отправленный остаток
         self.sent_at = 0.0
         self.last = {"orders": 0.0, "stocks": 0.0}
 
+    def env(self, name):
+        return os.environ.get(f"{self.env_prefix}_{name}{self.sfx}", "").strip()
+
+    def keys_set(self):
+        return all(self.env(k) for k in self.KEYS)
+
+    def env_names(self):
+        return " и ".join(f"{self.env_prefix}_{k}{self.sfx}" for k in self.KEYS)
+
+    @property
+    def name(self):
+        return self.env("NAME")
+
+    @property
+    def title(self):
+        return f"{self.base_title} — {self.name}" if self.name else self.base_title if self.n == 1 else f"{self.base_title} {self.n}"
+
+    @property
+    def mark(self):
+        tail = self.name or ("" if self.n == 1 else f"магазин {self.n}")
+        return f"Заказ с {self.base_title} (FBS)" + (f" — {tail}" if tail else "")
+
+    @property
+    def agent_name(self):
+        tail = self.name or ("" if self.n == 1 else f"магазин {self.n}")
+        return f"{self.base_agent}" + (f" — {tail}" if tail else "") + " (маркетплейс)"
+
+    def org(self):
+        return self.env("ORG_ID") or oh.organization()
+
 
 class Ozon(Channel):
-    key, title, mark, agent_name, emoji = "ozon", "Ozon", "Заказ с Ozon (FBS)", "Ozon (маркетплейс)", "🟦"
+    base, env_prefix, base_title, base_agent, emoji = "ozon", "OZON", "Ozon", "Ozon", "🟦"
+    KEYS = ("CLIENT_ID", "API_KEY")
     CANCEL = ("cancelled", "not_accepted", "cancelled_from_split_pending")
     WAIT = ("awaiting_registration", "acceptance_in_progress", "awaiting_approve")   # Ozon ещё оформляет — заказ создадим позже
 
     def api(self):
         return os.environ.get("OZON_API", "https://api-seller.ozon.ru").rstrip("/")
 
-    def keys_set(self):
-        return bool(os.environ.get("OZON_CLIENT_ID", "").strip() and os.environ.get("OZON_API_KEY", "").strip())
-
     def call(self, path, body):
         r = requests.post(self.api() + path, json=body, timeout=30,
-                          headers={"Client-Id": os.environ.get("OZON_CLIENT_ID", "").strip(),
-                                   "Api-Key": os.environ.get("OZON_API_KEY", "").strip(), "Content-Type": "application/json"})
+                          headers={"Client-Id": self.env("CLIENT_ID"), "Api-Key": self.env("API_KEY"), "Content-Type": "application/json"})
         j = _json(r)
         if r.status_code >= 400:
             raise ApiError(r.status_code, (str(j.get("message") or "") or f"HTTP {r.status_code}")[:300])
@@ -153,7 +185,7 @@ class Ozon(Channel):
         return out
 
     def warehouse(self):
-        w = os.environ.get("OZON_WAREHOUSE_ID", "").strip()
+        w = self.env("WAREHOUSE_ID")
         if w:
             return int(w)
 
@@ -163,9 +195,9 @@ class Ozon(Channel):
             live = [x for x in rows if str(x.get("status") or "").lower() not in ("disabled", "archived", "blocked")]
             ids = [int(x.get("warehouse_id") or x.get("id")) for x in live if x.get("warehouse_id") or x.get("id")]
             if len(ids) != 1:
-                raise ValueError("в кабинете Ozon " + ("нет склада FBS" if not ids else f"{len(ids)} склада FBS — впишите OZON_WAREHOUSE_ID на Render"))
+                raise ValueError("в кабинете Ozon " + ("нет склада FBS" if not ids else f"{len(ids)} склада FBS — впишите OZON_WAREHOUSE_ID{self.sfx} на Render"))
             return ids[0]
-        return oh.cached("mp_wh_ozon", 3600, find)
+        return oh.cached(f"mp_wh_{self.key}", 3600, find)
 
     def push_stocks(self, rows):
         wh, errors = self.warehouse(), []
@@ -185,16 +217,14 @@ class Ozon(Channel):
 
 
 class WB(Channel):
-    key, title, mark, agent_name, emoji = "wb", "WB", "Заказ с WB (FBS)", "Wildberries (маркетплейс)", "🟪"
+    base, env_prefix, base_title, base_agent, emoji = "wb", "WB", "WB", "Wildberries", "🟪"
+    KEYS = ("API_TOKEN",)
     CANCEL_WB = ("canceled", "canceled_by_client", "declined_by_client", "defect")
     KZT = 398
 
-    def keys_set(self):
-        return bool(os.environ.get("WB_API_TOKEN", "").strip())
-
     def req(self, method, base, path, **kw):
         url = os.environ.get(f"WB_{base.upper()}_API", f"https://{base}-api.wildberries.ru").rstrip("/") + path
-        r = requests.request(method, url, timeout=30, headers={"Authorization": os.environ.get("WB_API_TOKEN", "").strip(),
+        r = requests.request(method, url, timeout=30, headers={"Authorization": self.env("API_TOKEN"),
                                                               "Content-Type": "application/json"}, **kw)
         j = _json(r)
         if r.status_code >= 400:
@@ -249,16 +279,16 @@ class WB(Channel):
         return out
 
     def warehouse(self):
-        w = os.environ.get("WB_WAREHOUSE_ID", "").strip()
+        w = self.env("WAREHOUSE_ID")
         if w:
             return int(w)
 
         def find():
             rows = [x for x in self.req("GET", "marketplace", "/api/v3/warehouses") or [] if not x.get("isDeleting")]
             if len(rows) != 1:
-                raise ValueError("в кабинете WB " + ("нет своего склада" if not rows else f"{len(rows)} склада — впишите WB_WAREHOUSE_ID на Render"))
+                raise ValueError("в кабинете WB " + ("нет своего склада" if not rows else f"{len(rows)} склада — впишите WB_WAREHOUSE_ID{self.sfx} на Render"))
             return int(rows[0]["id"])
-        return oh.cached("mp_wh_wb", 3600, find)
+        return oh.cached(f"mp_wh_{self.key}", 3600, find)
 
     def push_stocks(self, rows):
         wh, errors = self.warehouse(), []
@@ -275,7 +305,26 @@ class WB(Channel):
         return errors
 
 
-CHANNELS = {c.key: c for c in (Ozon(), WB())}
+CHANNELS = {}                                           # ключ → магазин; состав — по переменным на Render (channels())
+
+
+def channels():
+    """Магазины: первый Ozon и первый WB есть всегда (работают, если вписан ключ), следующие — по переменным с суффиксом _2, _3…
+    Объекты магазинов живут всё время работы — в них последние отправленные остатки и время сверок."""
+    want = []
+    for cls in (Ozon, WB):
+        nums = {1} | {int(k.rsplit("_", 1)[1]) for k in os.environ
+                      if k.startswith(f"{cls.env_prefix}_{cls.KEYS[0]}_") and k.rsplit("_", 1)[1].isdigit() and int(k.rsplit("_", 1)[1]) >= 2}
+        want += [(cls, n) for n in sorted(nums)]
+    keep = dict(CHANNELS)
+    CHANNELS.clear()
+    for cls, n in want:
+        key = cls.base if n == 1 else f"{cls.base}{n}"
+        CHANNELS[key] = keep.get(key) or cls(n)
+    return list(CHANNELS.values())
+
+
+channels()
 
 
 def on(ch=None):
@@ -284,7 +333,7 @@ def on(ch=None):
             return False
     except Exception:
         return False
-    return ch.keys_set() if ch else any(c.keys_set() for c in CHANNELS.values())
+    return ch.keys_set() if ch else any(c.keys_set() for c in channels())
 
 
 # ---------- база и настройки ----------
@@ -347,13 +396,21 @@ def reserve_pct():
         return RESERVE_PCT_DEFAULT
 
 
-def shown(qty, pct=None):
-    """Сколько показать на маркетплейсе: доступно минус запас (pct %, не меньше 1 шт; при 0 % — без запаса)."""
+def share_pct(ch):
+    """Доля остатка для магазина, %: склад МойСклад общий — у двух магазинов по 100 % одну штуку могут купить дважды."""
+    try:
+        return max(0, min(100, int(setting(f"mp_{ch.key}_share", "100"))))
+    except ValueError:
+        return 100
+
+
+def shown(qty, pct=None, share=100):
+    """Сколько показать на маркетплейсе: доступно минус запас (pct %, не меньше 1 шт; при 0 % — без запаса), из этого — доля магазина."""
     q = max(0, int(qty or 0))
     pct = reserve_pct() if pct is None else pct
-    if q == 0 or pct == 0:
-        return q
-    return max(0, q - max(1, math.ceil(q * pct / 100)))
+    if q and pct:
+        q = max(0, q - max(1, math.ceil(q * pct / 100)))
+    return q * share // 100
 
 
 # ---------- товары: маркетплейс ↔ МойСклад ----------
@@ -444,7 +501,7 @@ def create_order(ch, o, mp):
     desc = (f"{ch.mark}\n{o['label']}" + (f"\nСобрать и сдать до: {till}" if till else "")
             + (f"\nЦены {ch.title} в {', '.join(sorted(cur))}" if cur and cur != {"KZT"} else ""))
     try:
-        order = oh._post_order({"externalCode": f"{ch.key}-{o['ext']}", "organization": oh.meta("organization", oh.organization()),
+        order = oh._post_order({"externalCode": f"{ch.key}-{o['ext']}", "organization": oh.meta("organization", ch.org()),
                                 "store": oh.meta("store", oh.store_id()), "agent": oh.meta("counterparty", agent(ch)),
                                 "description": desc, "positions": positions})
     except Exception as e:
@@ -506,13 +563,13 @@ def sync_orders(ch, now=None):
 
 # ---------- остатки: МойСклад → маркетплейс ----------
 def push_stocks(ch, force=False):
-    mp, cat, pct = mapping(ch), _catalog(), reserve_pct()
+    mp, cat, pct, share = mapping(ch), _catalog(), reserve_pct(), share_pct(ch)
     want = []
     for ref, x in mp["products"].items():
         mid = mp["ref"].get(ref)
         if not mid or x["archived"]:
             continue
-        n = shown((cat.get(mid) or {}).get("qty"), pct)
+        n = shown((cat.get(mid) or {}).get("qty"), pct, share)
         if force or ch.sent.get(ref) != n:
             want.append({"ref": ref, "offer": x["offer"], "stock": n})
     errors = ch.push_stocks(want) if want else []
@@ -529,7 +586,7 @@ def tick(now=None):
     if not _lock.acquire(blocking=False):
         return
     try:
-        for ch in CHANNELS.values():
+        for ch in channels():
             if not ch.keys_set():
                 continue
             if now - ch.last["orders"] >= ORDERS_EVERY:
@@ -577,10 +634,11 @@ def status():
             return None
     out = {"on": modules.enabled("marketplaces"), "reserve": reserve_pct(), "channels": []}
     with db() as d:
-        for ch in CHANNELS.values():
+        for ch in channels():
             rows = d.run(f"SELECT {COLS} FROM mp_order WHERE mp=%s ORDER BY created DESC LIMIT 20", (ch.key,), many=True) or []
             m = oh._cache.get(f"mp_map_{ch.key}")
-            out["channels"].append({"id": ch.key, "title": ch.title, "keys": ch.keys_set(), "orders": last(ch, "orders"),
+            out["channels"].append({"id": ch.key, "title": ch.title, "keys": ch.keys_set(), "env": ch.env_names(),
+                                    "share": share_pct(ch), "orders": last(ch, "orders"),
                                     "stocks": last(ch, "stocks"), "lost": (m[1]["lost"][:50] if m else []),
                                     "recent": [dict(zip(COLS.split(", "), r)) for r in rows]})
     return out
@@ -613,10 +671,20 @@ def settings_route():
             set_setting("mp_reserve", max(0, min(90, int(d["reserve"]))))
         except (TypeError, ValueError):
             return jsonify(ok=False, error="Запас — целое число процентов"), 400
-        for ch in CHANNELS.values():
+        for ch in channels():
             ch.sent.clear()
+    if isinstance(d.get("share"), dict):
+        known = {ch.key: ch for ch in channels()}
+        for k, v in d["share"].items():
+            if k not in known:
+                return jsonify(ok=False, error="Нет такого магазина"), 400
+            try:
+                set_setting(f"mp_{k}_share", max(0, min(100, int(v))))
+            except (TypeError, ValueError):
+                return jsonify(ok=False, error="Доля остатка — целое число процентов"), 400
+            known[k].sent.clear()
     if d.get("run") and on():
-        for ch in CHANNELS.values():
+        for ch in channels():
             ch.last.update(orders=0, stocks=0)
             oh._cache.pop(f"mp_map_{ch.key}", None)
         oh.notify_bg(tick)

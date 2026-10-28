@@ -34,12 +34,12 @@ class Resp:
 
 
 class FakeOzon:
-    def __init__(self):
-        self.postings, self.stocks = [], []
+    def __init__(self, cid="cid", key="key"):
+        self.postings, self.stocks, self.cid, self.key = [], [], cid, key
 
     def __call__(self, url, json=None, headers=None, timeout=None):
         path = url[len(mpk.CHANNELS["ozon"].api()):]
-        assert headers["Client-Id"] == "cid" and headers["Api-Key"] == "key"
+        assert headers["Client-Id"] == self.cid and headers["Api-Key"] == self.key
         if path == "/v4/posting/fbs/list":
             return Resp(200, {"postings": self.postings, "has_next": False, "cursor": ""})
         if path == "/v3/product/list":
@@ -57,11 +57,11 @@ class FakeOzon:
 
 
 class FakeWB:
-    def __init__(self):
-        self.orders, self.status, self.stocks = [], {}, []
+    def __init__(self, tok="tok"):
+        self.orders, self.status, self.stocks, self.tok = [], {}, [], tok
 
     def __call__(self, method, url, params=None, json=None, headers=None, timeout=None):
-        assert headers["Authorization"] == "tok"
+        assert headers["Authorization"] == self.tok
         path = url.split(".wildberries.ru", 1)[1]
         if path == "/api/v3/orders":
             return Resp(200, {"next": 0, "orders": self.orders})
@@ -234,6 +234,84 @@ class Channels(unittest.TestCase):
         self.assertEqual((j["ok"], j["reserve"]), (True, 10))
         self.assertEqual([x["id"] for x in j["channels"]], ["ozon", "wb"])
         self.assertEqual(c.post("/admin/api/mp/settings", json={"reserve": "много"}).status_code, 400)
+
+
+class Shops(Channels):
+    """Два магазина Ozon и два WB: свои ключи, заказы не смешиваются, пометки и контрагенты разные, остатки по доле."""
+    ENV = {"OZON_CLIENT_ID_2": "cid2", "OZON_API_KEY_2": "key2", "OZON_NAME_2": "Beauty", "OZON_ORG_ID_2": "org-2",
+           "WB_API_TOKEN_2": "tok2", "WB_NAME_2": "Корея", "WB_WAREHOUSE_ID_2": "9002"}
+
+    def setUp(self):
+        os.environ.update(self.ENV)
+        self.addCleanup(lambda: [os.environ.pop(k, None) for k in self.ENV] and mpk.channels())
+        mpk.channels()
+        super().setUp()
+        for k in ("ozon2", "wb2"):
+            mpk.set_setting(f"mp_{k}_share", "100")
+        self.oz2, self.wb2 = FakeOzon("cid2", "key2"), FakeWB("tok2")
+        self.patch(mpk.requests, "post", lambda url, headers=None, **k: (self.oz2 if headers["Client-Id"] == "cid2" else self.oz)(url, headers=headers, **k))
+        self.patch(mpk.requests, "request", lambda m, url, headers=None, **k: (self.wb2 if headers["Authorization"] == "tok2" else self.wb)(m, url, headers=headers, **k))
+
+    def test_off_by_default(self):                                                      # второй магазин работает и без первого
+        for k in ("OZON_CLIENT_ID", "OZON_API_KEY", "WB_API_TOKEN"):
+            os.environ.pop(k)
+        self.assertTrue(mpk.on())
+        self.assertEqual([c.key for c in mpk.channels() if c.keys_set()], ["ozon2", "wb2"])
+
+    def test_routes(self):
+        import admin
+        app = Flask(__name__)
+        app.register_blueprint(mpk.bp)
+        self.patch(admin, "who", lambda: {"role": "owner", "perms": []})
+        j = app.test_client().get("/admin/api/mp/status").get_json()
+        self.assertEqual([(x["id"], x["title"]) for x in j["channels"]], [("ozon", "Ozon"), ("ozon2", "Ozon — Beauty"), ("wb", "WB"), ("wb2", "WB — Корея")])
+
+    def test_found_by_suffix(self):
+        self.assertEqual(list(mpk.CHANNELS), ["ozon", "ozon2", "wb", "wb2"])
+        o2, w2 = mpk.CHANNELS["ozon2"], mpk.CHANNELS["wb2"]
+        self.assertEqual((o2.title, o2.mark, o2.agent_name), ("Ozon — Beauty", "Заказ с Ozon (FBS) — Beauty", "Ozon — Beauty (маркетплейс)"))
+        self.assertEqual((w2.title, w2.mark), ("WB — Корея", "Заказ с WB (FBS) — Корея"))
+        self.assertEqual(mpk.CHANNELS["ozon"].mark, "Заказ с Ozon (FBS)")              # первый магазин — как раньше
+        self.assertIs(mpk.channels()[1], o2)                                            # тот же объект между сверками
+
+    def test_orders_not_mixed(self):
+        self.oz.postings = [self.posting()]
+        self.oz2.postings = [self.posting()]                                            # тот же номер в другом магазине
+        mpk.sync_orders(mpk.CHANNELS["ozon"], NOW)
+        mpk.sync_orders(mpk.CHANNELS["ozon2"], NOW)
+        self.assertEqual([b["externalCode"] for b in self.posted], ["ozon-0123-0001-1", "ozon2-0123-0001-1"])
+        b1, b2 = self.posted
+        self.assertTrue(b1["description"].startswith("Заказ с Ozon (FBS)\n"))
+        self.assertTrue(b2["description"].startswith("Заказ с Ozon (FBS) — Beauty\n"))
+        self.assertEqual([b["agent"]["meta"]["href"].rsplit("/", 1)[1] for b in self.posted], ["agent-ozon", "agent-ozon2"])
+        self.assertEqual([b["organization"]["meta"]["href"].rsplit("/", 1)[1] for b in self.posted], ["org-1", "org-2"])
+        self.assertIsNotNone(mpk.get(mpk.CHANNELS["ozon2"], "0123-0001-1"))
+        self.wb2.orders = [{"id": 77, "createdAt": iso(NOW - 300), "chrtId": 501, "article": "00615", "skus": ["8809640738135"],
+                            "price": 100000, "currencyCode": 398}]
+        mpk.sync_orders(mpk.CHANNELS["wb"], NOW)
+        mpk.sync_orders(mpk.CHANNELS["wb2"], NOW)
+        self.assertEqual(self.posted[-1]["externalCode"], "wb2-77")
+        self.assertEqual(len(self.posted), 3)
+
+    def test_stocks_by_share(self):
+        self.assertEqual([mpk.shown(10, 20, s) for s in (100, 50, 0)], [8, 4, 0])
+        mpk.set_setting("mp_wb2_share", "50")
+        mpk.push_stocks(mpk.CHANNELS["wb"])
+        mpk.push_stocks(mpk.CHANNELS["wb2"])
+        self.assertEqual(self.wb.stocks[0], ("/api/v3/stocks/9001", [{"chrtId": 501, "amount": 8}]))
+        self.assertEqual(self.wb2.stocks[0], ("/api/v3/stocks/9002", [{"chrtId": 501, "amount": 4}]))
+
+    def test_share_setting_route(self):
+        import admin
+        app = Flask(__name__)
+        app.register_blueprint(mpk.bp)
+        c = app.test_client()
+        self.patch(admin, "who", lambda: {"role": "owner", "perms": []})
+        j = c.post("/admin/api/mp/settings", json={"share": {"ozon2": 40}}).get_json()
+        ch = {x["id"]: x for x in j["channels"]}
+        self.assertEqual((ch["ozon2"]["share"], ch["ozon"]["share"], ch["wb2"]["env"]), (40, 100, "WB_API_TOKEN_2"))
+        self.assertEqual(c.post("/admin/api/mp/settings", json={"share": {"ozon9": 10}}).status_code, 400)
+        self.assertEqual(c.post("/admin/api/mp/settings", json={"share": {"ozon2": "x"}}).status_code, 400)
 
 
 if __name__ == "__main__":
