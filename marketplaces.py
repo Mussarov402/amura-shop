@@ -181,7 +181,8 @@ class Ozon(Channel):
             r = self.call("/v3/product/info/list", {"product_id": ids[k:k + 1000]})
             for i in r.get("items") or self.res(r).get("items") or []:
                 out[str(i.get("id"))] = {"offer": str(i.get("offer_id") or ""), "barcodes": [str(b) for b in i.get("barcodes") or [] if b],
-                                         "name": str(i.get("name") or ""), "archived": bool(i.get("is_archived"))}
+                                         "name": str(i.get("name") or ""), "archived": bool(i.get("is_archived")),
+                                         "skus": [str(x["sku"]) for x in i.get("sources") or [] if x.get("sku")] + ([str(i["sku"])] if i.get("sku") else [])}
         return out
 
     def warehouse(self):

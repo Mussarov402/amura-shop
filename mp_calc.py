@@ -8,7 +8,10 @@
   WB — цена: GET discounts-prices-api /api/v2/list/goods/filter (sizes[].discountedPrice, currencyIsoCode4217);
     комиссия: GET common-api /api/v1/tariffs/commission (kgvpMarketplace по subjectID карточки, токен с категорией «Тарифы»);
     логистика FBS: GET common-api /api/v1/tariffs/box (boxDeliveryMarketplaceBase + доп. литры по габаритам карточки).
-    Приёмки и обработки FBS и ставки эквайринга в API WB нет: эквайринг WB — настройка владельца, приёмка — «нет в API».
+    Тарифа на эквайринг и приёмку в API WB нет — они из отчёта реализации: POST finance-api /api/finance/v1/sales-reports/detailed
+    (с 2026 вместо /api/v5/supplier/reportDetailByPeriod; токен с категорией «Финансы», 1 запрос в минуту) — средние за 90 дней по
+    товару, иначе по кабинету; продаж нет — «ждём первые продажи». Ozon — факт из /v3/finance/transaction/list (по SKU товара).
+    Ставки площадок вручную не вводятся (слово владельца 28.10.2026): только налог ИП, реклама, маржа и своя себестоимость.
 Закупка — buyPrice МойСклад в валюте закупки × курс продажи обменника МиГ (mig.kz, слово владельца 28.10.2026), запасной —
 курс Нацбанка РК (с датой), последний — курс валюты в МойСклад;
 поле «себестоимость, ₸» владельца важнее рассчитанной. Налог ИП, реклама, эквайринг WB и маржа — настройки модуля.
@@ -17,9 +20,10 @@
 Карточки нет — ничего не создаём; валюта кабинета не тенге — не ставим."""
 import json
 import re
+import threading
 import time
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import requests
 from flask import jsonify, request
@@ -29,7 +33,11 @@ import order_hook as oh
 
 NBK_URL = "https://nationalbank.kz/rss/get_rates.cfm?fdate={d}"
 MIG_URL = "https://mig.kz/"
-SETTINGS = {"tax": "mp_calc_tax", "ads": "mp_calc_ads", "wbacq": "mp_calc_wbacq", "margin": "mp_calc_margin"}
+SETTINGS = {"tax": "mp_calc_tax", "ads": "mp_calc_ads", "margin": "mp_calc_margin"}   # ставки площадок — только из API
+FACT_DAYS, FACT_TTL = 90, 6 * 3600
+WAIT = "ждём первые продажи"
+WB_FIN_FIELDS = ["nmId", "docTypeName", "quantity", "retailPriceWithDisc", "commissionPercent", "acquiringFee", "deliveryService",
+                 "paidAcceptance", "currency", "rrdId", "rrDate"]
 NO_DATA = "нет данных из кабинета"
 
 
@@ -165,8 +173,13 @@ def _ref_for(ch, pid):
     return next((ref for ref, mid in mp["ref"].items() if mid == pid), None), mp
 
 
+def today():
+    return datetime.now(mpk.ALMATY).strftime("%d.%m.%Y")
+
+
 def ozon_rates(ch, pid):
-    ref, _ = _ref_for(ch, pid)
+    """Тарифы Ozon на сегодня (/v5/product/info/prices) — основа; факт из транзакций за 90 дней — в подписи."""
+    ref, mp = _ref_for(ch, pid)
     if not ref:
         return {"error": "товара нет в кабинете Ozon (нет пары по штрихкоду или артикулу)"}
     r = ch.call("/v5/product/info/prices", {"filter": {"product_id": [ref], "visibility": "ALL"}, "cursor": "", "limit": 1})
@@ -177,11 +190,29 @@ def ozon_rates(ch, pid):
     c, pr = it.get("commissions") or {}, it.get("price") or {}
     cur = str(pr.get("currency_code") or "")
     num = lambda v: float(v or 0)
-    return {"cur": cur, "price": num(pr.get("price")), "pct": {"commission": num(c.get("sales_percent_fbs"))},
-            "amount": {"logistics": num(c.get("fbs_direct_flow_trans_max_amount")) + num(c.get("fbs_deliv_to_customer_amount")),
-                       "processing": num(c.get("fbs_first_mile_max_amount")), "acquiring": num(it.get("acquiring"))},
-            "notes": {"logistics": "магистраль + последняя миля FBS", "processing": "обработка отправления FBS (максимум)",
-                      "acquiring": "эквайринг Ozon"}}
+    tariff = f"тариф Ozon на {today()}"
+    out = {"cur": cur, "price": num(pr.get("price")), "pct": {"commission": num(c.get("sales_percent_fbs"))},
+           "amount": {"logistics": num(c.get("fbs_direct_flow_trans_max_amount")) + num(c.get("fbs_deliv_to_customer_amount")),
+                      "processing": num(c.get("fbs_first_mile_max_amount")), "acquiring": num(it.get("acquiring"))},
+           "notes": {"commission": f"{tariff}, FBS", "logistics": f"{tariff}: магистраль + последняя миля FBS",
+                     "processing": f"{tariff}: обработка отправления FBS (максимум)", "acquiring": f"{tariff}: эквайринг"}}
+    skus = ((mp["products"].get(ref) or {}).get("skus")) or []
+    fact, where, state = fact_for(ch, skus) if skus else (None, "", "none")
+    if fact:
+        conv = lambda v: to_kzt(v, cur)[0]
+        bits = []
+        if fact.get("commission") is not None:
+            bits.append(f"комиссия {fact['commission']:.1f} %")
+        bits.append(f"логистика {fmt_kzt(conv(fact['logistics']))}")
+        bits.append(f"эквайринг {fact['acquiring']:.1f} %")
+        out["notes"]["commission"] += f"; факт: {where}: " + ", ".join(bits)
+    elif state in ("loading", "error"):
+        out["notes"]["commission"] += f"; факт: {where}"
+    return out
+
+
+def fmt_kzt(v):
+    return "—" if v is None else f"{round(v):,} ₸".replace(",", " ")
 
 
 def _wb_num(v):
@@ -213,7 +244,9 @@ def wb_commissions(ch):
     return oh.cached(f"mpc_kgvp:{ch.key}", 3600, load)
 
 
-def wb_rates(ch, pid, acq_pct):
+def wb_rates(ch, pid):
+    """Комиссия и логистика — тарифы WB на сегодня; эквайринг и приёмка (тарифа в API нет) — из отчёта реализации за 90 дней,
+    по товару, иначе по кабинету; нет продаж — «ждём первые продажи». Факт по комиссии и логистике — в подписи."""
     ref, mp = _ref_for(ch, pid)
     card = (mp["products"].get(ref) or {}) if ref else {}
     if not ref or not card.get("nm"):
@@ -226,13 +259,14 @@ def wb_rates(ch, pid, acq_pct):
     size = next((s for s in g.get("sizes") or [] if str(s.get("sizeID") or s.get("chrtID") or "") == str(ref)), (g.get("sizes") or [{}])[0])
     price = float(size.get("discountedPrice") or size.get("price") or 0)
     cur = str(g.get("currencyIsoCode4217") or "")
-    out = {"cur": cur, "price": price, "pct": {}, "amount": {}, "notes": {}, "missing": {}}
+    out = {"cur": cur, "price": price, "pct": {}, "amount": {}, "notes": {}, "missing": {}, "kzt": set()}
+    tariff = f"тариф WB на {today()}"
     kg = wb_commissions(ch).get(int(card.get("subject") or 0))
     if kg and kg.get("kgvpMarketplace") is not None:
         out["pct"]["commission"] = float(kg["kgvpMarketplace"])
-        out["notes"]["commission"] = f"{kg.get('subjectName', '')}, FBS"
+        out["notes"]["commission"] = f"{tariff}: {kg.get('subjectName', '')}, FBS"
     else:
-        out["missing"]["commission"] = "нет комиссии для категории товара"
+        out["missing"]["commission"] = "WB не вернул комиссию для категории товара"
     dims = card.get("dims") or {}
     liters = (dims.get("length") or 0) * (dims.get("width") or 0) * (dims.get("height") or 0) / 1000
     box = wb_box(ch)
@@ -242,17 +276,185 @@ def wb_rates(ch, pid, acq_pct):
             out["missing"]["logistics"] = note
         else:
             out["amount"]["logistics"] = cost
-            out["notes"]["logistics"] = f"склад {box['wh']}, {liters:.1f} л; {note}".strip("; ")
-            out["kzt_amounts"] = True
+            out["kzt"].add("logistics")
+            out["notes"]["logistics"] = f"{tariff}: склад {box['wh']}, {liters:.1f} л" + (f"; {note}" if note else "")
     else:
-        out["missing"]["logistics"] = "в карточке WB нет габаритов"
-    out["missing"]["processing"] = "в API WB нет"
-    if acq_pct is None:
-        out["missing"]["acquiring"] = "задайте эквайринг WB, %"
+        out["missing"]["logistics"] = "в карточке WB нет габаритов (Content API)"
+    fact, where, state = fact_for(ch, [card["nm"]])
+    f = facts(ch) if fact else {}
+    if fact:
+        out["pct"]["acquiring"] = fact["acquiring"]
+        out["notes"]["acquiring"] = where
+        acc, note = to_kzt(fact["processing"], f.get("cur"))
+        out["amount"]["processing"] = acc
+        out["kzt"].add("processing")
+        out["notes"]["processing"] = f"{where}: приёмка и обработка" + (f"; {note}" if note else "")
+        logi = to_kzt(fact["logistics"], f.get("cur"))[0]
+        out["notes"]["logistics"] = out["notes"].get("logistics", out["missing"].get("logistics", "")) + f"; факт: {fmt_kzt(logi)} на продажу"
+        if fact.get("commission") is not None:
+            out["notes"]["commission"] = out["notes"].get("commission", "") + f"; факт: {fact['commission']:.1f} %"
     else:
-        out["pct"]["acquiring"] = acq_pct
-        out["notes"]["acquiring"] = "настройка владельца"
+        for k in ("acquiring", "processing"):
+            out["missing"][k] = where
     return out
+
+
+# ---------- факт за 90 дней: отчёт реализации WB, транзакции Ozon ----------
+_facts_locks = {}                                     # ключ магазина → замок: отчёт грузится один раз, магазины не ждут друг друга
+
+
+def _bucket():
+    return {"sales": 0, "price": 0.0, "kvv": 0.0, "acq": 0.0, "delivery": 0.0, "accept": 0.0, "proc": 0.0}
+
+
+def _avg(b):
+    """Средние на одну продажу: комиссия и эквайринг — % от цены продажи, логистика и приёмка — ₸ (в валюте отчёта)."""
+    if not b or b["sales"] <= 0 or b["price"] <= 0:
+        return None
+    n = b["sales"]
+    return {"sales": n, "commission": b["kvv"] / b["price"] * 100 if b["kvv"] else None, "acquiring": b["acq"] / b["price"] * 100,
+            "logistics": b["delivery"] / n, "processing": (b["accept"] + b["proc"]) / n}
+
+
+def wb_fin_rows(ch, d1, d2):
+    """Строки детализации отчётов реализации WB за период (частями по rrdId, 1 запрос в минуту)."""
+    rid = 0
+    for page in range(5):
+        if page:
+            time.sleep(61)
+        rows = ch.req("POST", "finance", "/api/finance/v1/sales-reports/detailed",
+                      json={"dateFrom": d1, "dateTo": d2, "limit": 100000, "rrdId": rid, "period": "weekly", "fields": WB_FIN_FIELDS})
+        if not isinstance(rows, list) or not rows:
+            return
+        yield from rows
+        rid = rows[-1].get("rrdId") or 0
+        if len(rows) < 100000 or not rid:
+            return
+
+
+def wb_facts_load(ch):
+    to = datetime.now(mpk.ALMATY)
+    d1, d2 = (to - timedelta(days=FACT_DAYS)).strftime("%Y-%m-%d"), to.strftime("%Y-%m-%d")
+    by, tot, cur, days = {}, _bucket(), "", []
+    for x in wb_fin_rows(ch, d1, d2):
+        num = lambda k: _wb_num(x.get(k)) or 0.0
+        b = by.setdefault(str(x.get("nmId") or ""), _bucket())
+        cur = cur or str(x.get("currency") or "")
+        if x.get("rrDate"):
+            days.append(str(x["rrDate"])[:10])
+        q = int(x.get("quantity") or 0)
+        sale = str(x.get("docTypeName") or "").lower().startswith("продаж") and q > 0
+        for t in (b, tot):
+            if sale:
+                t["sales"] += q
+                t["price"] += num("retailPriceWithDisc") * q
+                t["kvv"] += num("retailPriceWithDisc") * q * num("commissionPercent") / 100
+            t["acq"] += num("acquiringFee")
+            t["delivery"] += num("deliveryService")
+            t["accept"] += num("paidAcceptance")
+    span = f"{min(days)[8:10]}.{min(days)[5:7]}–{max(days)[8:10]}.{max(days)[5:7]}" if days else f"{FACT_DAYS} дней"
+    return {"by": {k: _avg(v) for k, v in by.items()}, "all": _avg(tot), "cur": cur or "KZT", "span": span,
+            "at": int(time.time()), "src": "отчёт реализации WB"}
+
+
+OZ_LOGI = ("logistic", "delivtocustomer", "directflow", "lastmile", "delivery")
+OZ_PROC = ("dropoff", "firstmile", "pickup", "processing", "fulfillment", "packag")
+
+
+def ozon_facts_load(ch):
+    """Транзакции Ozon за 90 дней (по месяцу за запрос): продажи, комиссия, логистика, обработка, эквайринг по SKU."""
+    by, tot = {}, _bucket()
+    now = datetime.now(timezone.utc)
+    days = []
+    for k in range(3):
+        a, b = now - timedelta(days=30 * (k + 1)), now - timedelta(days=30 * k)
+        for page in range(1, 21):
+            res = ch.res(ch.call("/v3/finance/transaction/list", {"filter": {"date": {"from": a.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                                                                                    "to": b.strftime("%Y-%m-%dT%H:%M:%S.000Z")},
+                                                                           "operation_type": [], "posting_number": "", "transaction_type": "all"},
+                                                                "page": page, "page_size": 1000}))
+            for op in res.get("operations") or []:
+                skus = [str(i.get("sku")) for i in op.get("items") or [] if i.get("sku")]
+                if not skus:
+                    continue
+                days.append(str(op.get("operation_date") or "")[:10])
+                share = 1 / len(skus)
+                acc, typ = float(op.get("accruals_for_sale") or 0), str(op.get("operation_type") or "").lower()
+                for sku in skus:
+                    bk = by.setdefault(sku, _bucket())
+                    for t in (bk, tot):
+                        if acc > 0:
+                            t["sales"] += share
+                            t["price"] += acc * share
+                            t["kvv"] += abs(float(op.get("sale_commission") or 0)) * share
+                        if "acquiring" in typ:
+                            t["acq"] += abs(float(op.get("amount") or 0)) * share
+                        for sv in op.get("services") or []:
+                            nm, pr = str(sv.get("name") or "").lower(), abs(float(sv.get("price") or 0)) * share
+                            if any(w in nm for w in OZ_LOGI):
+                                t["delivery"] += pr
+                            elif any(w in nm for w in OZ_PROC):
+                                t["proc"] += pr
+            if page >= int(res.get("page_count") or 0):
+                break
+    days = [d for d in days if d]
+    span = f"{min(days)[8:10]}.{min(days)[5:7]}–{max(days)[8:10]}.{max(days)[5:7]}" if days else f"{FACT_DAYS} дней"
+    return {"by": {k: _avg(v) for k, v in by.items()}, "all": _avg(tot), "cur": "", "span": span, "at": int(time.time()),
+            "src": "транзакции Ozon"}
+
+
+def facts(ch):
+    """Факт по кабинету из кэша (6 ч). Нет в кэше — грузим в фоне (у WB 1 запрос в минуту) и пока отвечаем {"loading": True}.
+    Ошибка доступа WB 401/403 — {"error": "у токена WB нет категории «Финансы»"}."""
+    key = f"mpc_facts:{ch.key}"
+    v = oh._cache.get(key)
+    if v and time.time() - v[0] < FACT_TTL:
+        return v[1]
+    lock = _facts_locks.setdefault(ch.key, threading.Lock())
+    if not lock.acquire(blocking=False):
+        return {"loading": True}
+
+    def run():
+        try:
+            data = wb_facts_load(ch) if isinstance(ch, mpk.WB) else ozon_facts_load(ch)
+        except mpk.ApiError as e:
+            data = {"error": f"у токена {ch.title} нет категории «Финансы»" if isinstance(ch, mpk.WB) and e.code in (401, 403)
+                    else f"отчёт {ch.title} не получен: {e.message}"}
+        except Exception as e:
+            data = {"error": f"отчёт {ch.title} не получен: {str(e)[:200]}"}
+        oh._cache[key] = (time.time() if "error" not in data else time.time() - FACT_TTL + 600, data)   # ошибку повторим через 10 мин
+        print(f"Факт {ch.key}: " + (data.get("error") or f"{data['src']} {data['span']}, продаж в кабинете "
+                                    f"{round((data.get('all') or {}).get('sales') or 0)}"), flush=True)
+    def guarded():
+        try:
+            run()
+        finally:
+            lock.release()
+    if SYNC_FACTS:
+        guarded()
+        return oh._cache[key][1]
+    threading.Thread(target=guarded, daemon=True).start()
+    return {"loading": True}
+
+
+SYNC_FACTS = False                                    # тесты: грузить сразу, без фонового потока
+
+
+def fact_for(ch, ref_keys):
+    """Средние по товару (по любому из ключей: nmID / SKU), иначе по кабинету. → (средние | None, подпись, состояние)."""
+    f = facts(ch)
+    if f.get("loading"):
+        return None, f"загружаю отчёт {ch.title} — обновите через минуту", "loading"
+    if f.get("error"):
+        return None, f["error"], "error"
+    for k in ref_keys:
+        a = (f.get("by") or {}).get(str(k))
+        if a:
+            return a, f"{f['src']} {f['span']}, среднее по товару ({round(a['sales'])} продаж)", "item"
+    a = f.get("all")
+    if a:
+        return a, f"{f['src']} {f['span']}, среднее по кабинету ({round(a['sales'])} продаж)", "all"
+    return None, WAIT, "none"
 
 
 # ---------- расчёт ----------
@@ -296,7 +498,7 @@ def log_line(c):
 
 def channel_calc(ch, pid, prod, st, price_override=None):
     try:
-        raw = ozon_rates(ch, pid) if isinstance(ch, mpk.Ozon) else wb_rates(ch, pid, st["wbacq"])
+        raw = ozon_rates(ch, pid) if isinstance(ch, mpk.Ozon) else wb_rates(ch, pid)
     except mpk.ApiError as e:
         return {"id": ch.key, "title": ch.title, "error": f"{NO_DATA}: {e.message}"}
     except Exception as e:
@@ -307,20 +509,21 @@ def channel_calc(ch, pid, prod, st, price_override=None):
     if price_kzt is None:
         return {"id": ch.key, "title": ch.title, "error": f"цена в {raw['cur']}: {rate_note}"}
     amount = {}
-    for k, v in raw["amount"].items():                  # у Ozon суммы в валюте цены, у WB логистика уже в тенге
-        amount[k] = v if k == "logistics" and raw.get("kzt_amounts") else to_kzt(v, raw["cur"])[0]
+    for k, v in raw["amount"].items():                  # суммы в валюте цены кабинета; что уже в тенге — в raw["kzt"]
+        amount[k] = v if k in raw.get("kzt", ()) else to_kzt(v, raw["cur"])[0]
     pct, cab = dict(raw["pct"]), price_kzt
     if price_override:
         price_kzt = float(price_override)
     for k in ("tax", "ads"):
         if st[k] is not None:
             pct[k] = st[k]
+    own_notes = {"tax": "настройка владельца", "ads": "настройка владельца"}
     r = calc(price_kzt, pct, amount, prod["cost"], st["margin"])
-    notes = dict(raw.get("notes") or {})
+    notes = {**own_notes, **(raw.get("notes") or {})}
     notes["cost"] = prod["costNote"]
     for k, why in (raw.get("missing") or {}).items():
         notes[k] = why
-    for k, label in (("tax", "задайте налог ИП, %"), ("ads", "задайте рекламу, %")):
+    for k, label in (("tax", "задайте налог ИП в настройках расчёта"), ("ads", "задайте % рекламы в настройках расчёта")):
         if st[k] is None:
             notes[k] = label
     for x in r["lines"]:
