@@ -9,8 +9,12 @@
     комиссия: GET common-api /api/v1/tariffs/commission (kgvpMarketplace по subjectID карточки, токен с категорией «Тарифы»);
     логистика FBS: GET common-api /api/v1/tariffs/box (boxDeliveryMarketplaceBase + доп. литры по габаритам карточки).
     Приёмки и обработки FBS и ставки эквайринга в API WB нет: эквайринг WB — настройка владельца, приёмка — «нет в API».
-Закупка — buyPrice МойСклад в валюте закупки × курс Нацбанка РК (с датой курса; нет курса — курс валюты в МойСклад);
-поле «себестоимость, ₸» владельца важнее рассчитанной. Налог ИП, реклама, эквайринг WB и маржа — настройки модуля."""
+Закупка — buyPrice МойСклад в валюте закупки × курс продажи обменника МиГ (mig.kz, слово владельца 28.10.2026), запасной —
+курс Нацбанка РК (с датой), последний — курс валюты в МойСклад;
+поле «себестоимость, ₸» владельца важнее рассчитанной. Налог ИП, реклама, эквайринг WB и маржа — настройки модуля.
+«Поставить цену» на WB (только владелец, с подтверждением): POST discounts-prices-api /api/v2/upload/task — цена для покупателя
+без скидки продавца; статус — /api/v2/buffer/tasks (в обработке) и /api/v2/history/tasks (+ /history/goods/task — ошибки).
+Карточки нет — ничего не создаём; валюта кабинета не тенге — не ставим."""
 import json
 import re
 import time
@@ -24,6 +28,7 @@ import marketplaces as mpk
 import order_hook as oh
 
 NBK_URL = "https://nationalbank.kz/rss/get_rates.cfm?fdate={d}"
+MIG_URL = "https://mig.kz/"
 SETTINGS = {"tax": "mp_calc_tax", "ads": "mp_calc_ads", "wbacq": "mp_calc_wbacq", "margin": "mp_calc_margin"}
 NO_DATA = "нет данных из кабинета"
 
@@ -49,22 +54,54 @@ def nbk_rates():
     return oh.cached("nbk_rates", 3 * 3600, load)
 
 
+def parse_mig(html):
+    """Курсы продажи МиГ со страницы mig.kz: строки таблицы <td class="buy …">покупка</td><td class="currency">USD</td>
+    <td class="sell …">продажа</td>. {"USD": тенге за 1, ...}."""
+    out = {}
+    for code, sell in re.findall(r'<td[^>]*class="currency"[^>]*>\s*([A-Z]{3})\s*</td>\s*<td[^>]*class="sell[^"]*"[^>]*>\s*([\d.,]+)', html):
+        try:
+            out[code] = float(sell.replace(",", "."))
+        except ValueError:
+            continue
+    return out
+
+
+def mig_rates():
+    """Курс продажи обменника МиГ (mig.kz) — по нему владелец покупает валюту; кэш 30 минут, время — когда взяли (Алматы)."""
+    def load():
+        r = requests.get(MIG_URL, timeout=15, headers={"User-Agent": "Mozilla/5.0 (amura-admin)"})
+        r.raise_for_status()
+        rates = parse_mig(r.text)
+        if not rates:
+            raise ValueError("на mig.kz не нашёл таблицу курсов")
+        return {"date": datetime.now(mpk.ALMATY).strftime("%d.%m.%Y %H:%M"), "rates": rates}
+    return oh.cached("mig_rates", 1800, load)
+
+
 def to_kzt(amount, cur, ms_rate=None):
-    """Сумма в тенге и откуда курс: (тенге, «курс НБ РК на дату» / «курс МойСклад»). Не перевели — (None, причина)."""
+    """Сумма в тенге и откуда курс: (тенге, «курс продажи МиГ на время» / «курс НБ РК на дату» / «курс МойСклад»).
+    Не перевели — (None, причина)."""
     cur = (cur or "KZT").upper()
     if cur in ("KZT", "398", ""):
         return float(amount), ""
     if cur in ("RUR", "643"):
         cur = "RUB"
     try:
+        mg = mig_rates()
+        if cur in mg["rates"]:
+            r = mg["rates"][cur]
+            return float(amount) * r, f"курс продажи МиГ {mg['date']}: 1 {cur} = {r:g} ₸"
+    except Exception as e:
+        print("Курс МиГ не получен:", str(e)[:200], flush=True)
+    try:
         nb = nbk_rates()
         if cur in nb["rates"]:
             r = nb["rates"][cur]
-            return float(amount) * r, f"курс НБ РК {nb['date']}: 1 {cur} = {r:g} ₸"
+            return float(amount) * r, f"курс НБ РК {nb['date']}: 1 {cur} = {r:g} ₸ (МиГ не ответил)"
     except Exception as e:
         print("Курс Нацбанка не получен:", str(e)[:200], flush=True)
     if ms_rate:
-        return float(amount) * ms_rate, f"курс МойСклад: 1 {cur} = {ms_rate:g} ₸ (Нацбанк не ответил)"
+        return float(amount) * ms_rate, f"курс МойСклад: 1 {cur} = {ms_rate:g} ₸ (МиГ и Нацбанк не ответили)"
     return None, f"нет курса {cur}"
 
 
@@ -107,7 +144,8 @@ def product(pid):
         note = f"закупка МойСклад {raw:g} {iso}" + (f", {note}" if note else "")
     else:
         cost, note = None, "в МойСклад нет закупочной цены"
-    return {"id": pid, "name": p.get("name", ""), "code": p.get("code", ""), "buy": raw, "buyCur": iso,
+    bars = [str(v) for b in p.get("barcodes") or [] for v in b.values() if v]
+    return {"id": pid, "name": p.get("name", ""), "code": p.get("code", ""), "buy": raw, "buyCur": iso, "barcodes": bars,
             "cost": None if cost is None else round(cost), "costNote": note, "own": own}
 
 
@@ -249,6 +287,13 @@ def calc(price, pct, amount, cost, margin):
             "complete": all(x["sum"] is not None for x in lines)}
 
 
+def log_line(c):
+    if c.get("error"):
+        return c["error"]
+    part = lambda x: f"{x['label'].lower()} " + ("нет" if x["sum"] is None else (f"{x['pct']:g}% = " if x.get("pct") is not None else "") + f"{x['sum']} ₸")
+    return f"цена {c['price']} ₸, " + ", ".join(part(x) for x in c["lines"] if x["key"] in ("commission", "logistics", "processing", "acquiring"))
+
+
 def channel_calc(ch, pid, prod, st, price_override=None):
     try:
         raw = ozon_rates(ch, pid) if isinstance(ch, mpk.Ozon) else wb_rates(ch, pid, st["wbacq"])
@@ -284,6 +329,73 @@ def channel_calc(ch, pid, prod, st, price_override=None):
             "priceNote": rate_note, **r}
 
 
+# ---------- цена на WB (кнопка владельца) ----------
+TASK_STATUS = {1: "в обработке", 3: "цена обновилась", 4: "загрузка отменена", 5: "обработана с ошибками", 6: "не обновилась — ошибки"}
+
+
+def wb_nm(ch, pid, bars):
+    """Артикул WB (nmID) товара МойСклад: по паре канала, иначе поиск карточки по штрихкоду в Content API. Нет — None."""
+    ref, mp = _ref_for(ch, pid)
+    nm = ((mp["products"].get(ref) or {}).get("nm")) if ref else None
+    if nm:
+        return int(nm)
+    for b in bars:
+        j = ch.req("POST", "content", "/content/v2/get/cards/list",
+                   json={"settings": {"cursor": {"limit": 10}, "filter": {"textSearch": b, "withPhoto": -1}}})
+        for c in j.get("cards") or []:
+            if any(b in (sz.get("skus") or []) for sz in c.get("sizes") or []):
+                return int(c["nmID"])
+    return None
+
+
+def wb_set_price(ch, pid, price):
+    """Цена для покупателя на WB без скидки продавца. → {"ok", "task"} или {"ok": False, "error"}; ничего не создаём."""
+    prod = product(pid)
+    nm = wb_nm(ch, pid, prod.get("barcodes") or [])
+    if not nm:
+        return {"ok": False, "error": f"На {ch.title} нет карточки этого товара (искал по штрихкоду {', '.join(prod.get('barcodes') or []) or '—'}) — ничего не создаю"}
+    goods = (ch.req("GET", "discounts-prices", "/api/v2/list/goods/filter", params={"limit": 1, "filterNmID": nm})
+             .get("data") or {}).get("listGoods") or []
+    cur = str((goods[0] if goods else {}).get("currencyIsoCode4217") or "")
+    if cur.upper() not in ("KZT", "398"):
+        return {"ok": False, "error": f"Валюта кабинета {ch.title} — {cur or 'не указана'}, а не тенге: цену не ставлю"}
+    j = ch.req("POST", "discounts-prices", "/api/v2/upload/task", json={"data": [{"nmID": nm, "price": int(price), "discount": 0}]})
+    if j.get("error"):
+        return {"ok": False, "error": f"WB: {j.get('errorText') or 'ошибка загрузки'}"}
+    tid = (j.get("data") or {}).get("id")
+    task = {"id": tid, "nm": nm, "price": int(price), "at": int(time.time()), "status": "в обработке"}
+    mpk.set_setting(f"mp_price_{ch.key}_{pid}", json.dumps(task, ensure_ascii=False))
+    print(f"Цена WB: {ch.key} nm {nm} → {int(price)} ₸, загрузка {tid}", flush=True)
+    return {"ok": True, "task": task}
+
+
+def wb_task(ch, pid, refresh=True):
+    """Последняя загрузка цены по товару и её статус у WB (buffer — ещё в обработке, history — обработана)."""
+    try:
+        task = json.loads(mpk.setting(f"mp_price_{ch.key}_{pid}", "") or "null")
+    except ValueError:
+        task = None
+    if not task or not refresh or not task.get("id") or task.get("final"):
+        return task
+    try:
+        b = (ch.req("GET", "discounts-prices", "/api/v2/buffer/tasks", params={"uploadID": task["id"]}).get("data") or {})
+        if b.get("status") == 1:
+            task["status"] = TASK_STATUS[1]
+        else:
+            h = ch.req("GET", "discounts-prices", "/api/v2/history/tasks", params={"uploadID": task["id"]}).get("data") or {}
+            st = h.get("status")
+            task["status"] = TASK_STATUS.get(st, f"статус {st}")
+            task["final"] = st in (3, 4, 5, 6)
+            if st in (5, 6):
+                g = (ch.req("GET", "discounts-prices", "/api/v2/history/goods/task", params={"uploadID": task["id"], "limit": 10})
+                     .get("data") or {}).get("historyGoods") or []
+                task["errors"] = [str(x.get("errorText") or "") for x in g if x.get("errorText")][:5]
+        mpk.set_setting(f"mp_price_{ch.key}_{pid}", json.dumps(task, ensure_ascii=False))
+    except mpk.ApiError as e:
+        task["status"] = f"не узнал статус: {e.message}"
+    return task
+
+
 # ---------- маршруты ----------
 @mpk.bp.get("/admin/api/mp/calc")
 def calc_route():
@@ -306,6 +418,12 @@ def calc_route():
     chans = [channel_calc(ch, pid, prod, st, prices.get(ch.key)) if ch.keys_set()
              else {"id": ch.key, "title": ch.title, "error": f"{NO_DATA}: на Render не вписаны {ch.env_names()}"}
              for ch in mpk.channels()]
+    for c, ch in zip(chans, mpk.channels()):
+        if isinstance(ch, mpk.WB) and ch.keys_set():
+            c["wb"] = True
+            c["priceTask"] = wb_task(ch, pid, refresh=False)
+    print(f"Калькулятор {prod['code']}: закупка {prod['cost']} ₸ ({prod['costNote']}); "      # для проверки по логам, без ключей
+          + "; ".join(f"{c['id']}: {log_line(c)}" for c in chans), flush=True)
     return jsonify(ok=True, settings=st, product=prod, channels=chans, at=int(time.time()))
 
 
@@ -339,3 +457,32 @@ def calc_settings_route():
                 return jsonify(ok=False, error="Себестоимость — числом, в тенге"), 400
         oh._cache.pop(f"mpc_prod:{d['id']}", None)
     return jsonify(ok=True, settings=settings())
+
+
+@mpk.bp.route("/admin/api/mp/calc/price", methods=["GET", "POST"])
+def price_route():
+    """POST {id, shop, price} — поставить цену на WB (только владелец, кнопка с подтверждением); GET ?id=&shop= — статус загрузки."""
+    _, err = mpk._me(owner_only=True)
+    if err:
+        return err
+    d = (request.get_json(silent=True) or {}) if request.method == "POST" else request.args
+    mpk.channels()
+    ch = mpk.CHANNELS.get(str(d.get("shop") or ""))
+    if not isinstance(ch, mpk.WB) or not ch.keys_set():
+        return jsonify(ok=False, error="Нет такого магазина WB с ключом"), 400
+    pid = str(d.get("id") or "")
+    if not pid:
+        return jsonify(ok=False, error="Не выбран товар"), 400
+    try:
+        if request.method == "GET":
+            return jsonify(ok=True, task=wb_task(ch, pid))
+        try:
+            price = int(round(float(d.get("price"))))
+        except (TypeError, ValueError):
+            return jsonify(ok=False, error="Цена — числом, в тенге"), 400
+        if price < 1:
+            return jsonify(ok=False, error="Цена должна быть больше нуля"), 400
+        r = wb_set_price(ch, pid, price)
+    except mpk.ApiError as e:
+        return jsonify(ok=False, error=f"WB: {e.message}"), 502
+    return (jsonify(**r), 200) if r["ok"] else (jsonify(**r), 409)
