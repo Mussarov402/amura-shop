@@ -97,9 +97,17 @@ class FakeOzonPrices:
         return self.base(url, json=json, headers=headers, timeout=timeout)
 
 
+WB_FIN = [{"rrdId": 1, "nmId": 1, "docTypeName": "Продажа", "quantity": 1, "retailPriceWithDisc": "9900", "commissionPercent": 19,
+           "acquiringFee": "150", "deliveryService": "0", "paidAcceptance": "0", "currency": "KZT", "rrDate": "2026-09-01"},
+          {"rrdId": 2, "nmId": 1, "docTypeName": "Продажа", "quantity": 1, "retailPriceWithDisc": "9900", "commissionPercent": 19,
+           "acquiringFee": "150", "deliveryService": "0", "paidAcceptance": "20", "currency": "KZT", "rrDate": "2026-10-20"},
+          {"rrdId": 3, "nmId": 1, "docTypeName": "", "quantity": 0, "retailPriceWithDisc": "0", "commissionPercent": 0,
+           "acquiringFee": "0", "deliveryService": "400", "paidAcceptance": "0", "currency": "KZT", "rrDate": "2026-10-21"}]
+
+
 class FakeWBTariffs:
     def __init__(self, base):
-        self.base = base
+        self.base, self.fin, self.fin_code = base, list(WB_FIN), 200
 
     def __call__(self, method, url, params=None, json=None, headers=None, timeout=None):
         if "/api/v2/list/goods/filter" in url:
@@ -113,6 +121,11 @@ class FakeWBTariffs:
                 {"warehouseName": "Коледино", "geoName": "Центральный", "boxDeliveryMarketplaceBase": "80", "boxDeliveryMarketplaceLiter": "20"},
                 {"warehouseName": "Алматы Атакент", "geoName": "Казахстан", "boxDeliveryMarketplaceBase": "46,5",
                  "boxDeliveryMarketplaceLiter": "10"}]}}})
+        if "/api/finance/v1/sales-reports/detailed" in url:
+            assert json["fields"] and json["period"] == "weekly"
+            if self.fin_code != 200:
+                return Resp(self.fin_code, {"title": "unauthorized", "detail": "token scope not allowed"})
+            return Resp(200, [x for x in self.fin if x["rrdId"] > json["rrdId"]]) if json["rrdId"] == 0 else Resp(204, None)
         if "/content/v2/get/cards/list" in url:
             return Resp(200, {"cards": [{"nmID": 1, "subjectID": 7, "vendorCode": "00615", "dimensions": {"length": 10, "width": 10, "height": 20},
                                          "sizes": [{"chrtID": 501, "skus": ["8809640738135"]}]}], "cursor": {"total": 1}})
@@ -124,8 +137,10 @@ class Calculator(unittest.TestCase):
 
     def setUp(self):
         tm.Channels.setUp(self)                                                         # те же заглушки Ozon, WB и МойСклад
-        for k in ("nbk_rates", "mpc_prod:p1", "mpc_box:wb", "mpc_kgvp:wb"):
+        for k in ("nbk_rates", "mpc_prod:p1", "mpc_box:wb", "mpc_kgvp:wb", "mpc_facts:wb", "mpc_facts:ozon"):
             oh._cache.pop(k, None)
+        self.patch(mp_calc, "SYNC_FACTS", True)
+        self.addCleanup(lambda: [oh._cache.pop(k, None) for k in ("mpc_facts:wb", "mpc_facts:ozon")])
         oh._cache["nbk_rates"] = (9e18, {"date": "28.10.2026", "rates": {"USD": 470.0, "RUB": 6.0}})
         self.patch(mp_calc, "mig_rates", lambda: (_ for _ in ()).throw(ValueError("МиГ в тестах выключен")))
         self.addCleanup(lambda: [oh._cache.pop(k, None) for k in ("nbk_rates", "mpc_prod:p1", "mpc_box:wb", "mpc_kgvp:wb")])
@@ -165,26 +180,84 @@ class Calculator(unittest.TestCase):
         s = {x["key"]: x["sum"] for x in oz["lines"]}
         self.assertEqual((s["commission"], s["logistics"], s["processing"], s["acquiring"], s["tax"], s["ads"]),
                          (1080, 330, 120, 15, 270, None))
-        self.assertIn("задайте рекламу", {x["key"]: x["note"] for x in oz["lines"]}["ads"])
+        self.assertIn("задайте % рекламы", {x["key"]: x["note"] for x in oz["lines"]}["ads"])
         wb = ch["wb"]
-        s = {x["key"]: x["sum"] for x in wb["lines"]}
+        s, n = {x["key"]: x["sum"] for x in wb["lines"]}, {x["key"]: x["note"] for x in wb["lines"]}
         self.assertEqual(wb["price"], 9900)
-        self.assertEqual(s["commission"], round(9900 * 0.195))
+        self.assertEqual(s["commission"], round(9900 * 0.195))                          # тариф на сегодня
         self.assertEqual(s["logistics"], round((46.5 + 1 * 10) * 6))                    # 2 л: первый + один доп., склад Алматы
-        self.assertIsNone(s["processing"])
-        self.assertIn("Алматы Атакент", {x["key"]: x["note"] for x in wb["lines"]}["logistics"])
-        self.assertFalse(wb["complete"])
+        self.assertEqual((s["acquiring"], s["processing"]), (150, 10))                  # отчёт реализации: 300/19800, приёмка 20/2
+        self.assertIn("Алматы Атакент", n["logistics"])
+        self.assertIn("факт: 200 ₸ на продажу", n["logistics"])
+        self.assertIn("отчёт реализации WB 01.09–21.10, среднее по товару (2 продаж)", n["acquiring"])
+        self.assertIn("тариф WB на", n["commission"])
+        self.assertFalse(wb["complete"])                                                 # реклама не задана
 
     def test_own_cost_and_price(self):
         self.patch(mpk, "_catalog", lambda: CAT)
-        r = self.c.post("/admin/api/mp/calc/settings", json={"id": "p1", "cost": 5000, "ads": 5, "wbacq": 1.5, "margin": 25}).get_json()
+        r = self.c.post("/admin/api/mp/calc/settings", json={"id": "p1", "cost": 5000, "ads": 5, "margin": 25}).get_json()
         self.assertEqual((r["settings"]["ads"], r["settings"]["margin"]), (5, 25))
         j = self.get(id="p1", prices=json.dumps({"wb": 12000}))
         self.assertEqual((j["product"]["cost"], j["product"]["costNote"]), (5000, "себестоимость задана вручную"))
         wb = next(x for x in j["channels"] if x["id"] == "wb")
         self.assertEqual((wb["price"], wb["cabinetPrice"]), (12000, 9900))
-        self.assertEqual({x["key"]: x["sum"] for x in wb["lines"]}["acquiring"], 180)
+        self.assertEqual({x["key"]: x["sum"] for x in wb["lines"]}["acquiring"], round(12000 * 300 / 19800))
+        self.assertNotIn("wbacq", r["settings"])                                         # эквайринг WB вручную больше не задаётся
         self.assertEqual(self.c.post("/admin/api/mp/calc/settings", json={"tax": "много"}).status_code, 400)
+
+    def wb_notes(self):
+        wb = next(x for x in self.get(id="p1")["channels"] if x["id"] == "wb")
+        return {x["key"]: x["sum"] for x in wb["lines"]}, {x["key"]: x["note"] for x in wb["lines"]}
+
+    def test_wb_token_without_finance(self):
+        self.patch(mpk, "_catalog", lambda: CAT)
+        self.patch(mpk.requests, "request", w := FakeWBTariffs(self.wb))
+        w.fin_code = 401
+        s, n = self.wb_notes()
+        self.assertEqual((s["acquiring"], s["processing"]), (None, None))
+        self.assertEqual(n["acquiring"], "у токена WB нет категории «Финансы»")
+
+    def test_wb_wait_first_sales(self):
+        self.patch(mpk, "_catalog", lambda: CAT)
+        self.patch(mpk.requests, "request", w := FakeWBTariffs(self.wb))
+        w.fin = []
+        s, n = self.wb_notes()
+        self.assertEqual((s["acquiring"], n["acquiring"], n["processing"]), (None, "ждём первые продажи", "ждём первые продажи"))
+
+    def test_wb_cabinet_average(self):
+        self.patch(mpk, "_catalog", lambda: CAT)
+        self.patch(mpk.requests, "request", w := FakeWBTariffs(self.wb))
+        w.fin = [dict(x, nmId=99) for x in WB_FIN]                                     # продажи другого товара
+        s, n = self.wb_notes()
+        self.assertEqual(s["acquiring"], 150)
+        self.assertIn("среднее по кабинету", n["acquiring"])
+
+    def test_ozon_fact_in_note(self):
+        self.patch(mpk, "_catalog", lambda: CAT)
+        base = mpk.requests.post
+
+        def oz(url, json=None, headers=None, timeout=None):
+            if url.endswith("/v3/product/info/list"):
+                return Resp(200, {"items": [{"id": 11, "offer_id": "anua-cream", "barcodes": ["8809640738135"], "sources": [{"sku": 5011}]}]})
+            if url.endswith("/v3/finance/transaction/list"):
+                ops = [{"operation_type": "OperationAgentDeliveredToCustomer", "accruals_for_sale": 1500, "sale_commission": -180,
+                        "amount": 1200, "operation_date": "2026-10-01 10:00:00", "items": [{"sku": 5011}],
+                        "services": [{"name": "MarketplaceServiceItemDelivToCustomer", "price": -40},
+                                     {"name": "MarketplaceServiceItemDirectFlowLogistic", "price": -20},
+                                     {"name": "MarketplaceServiceItemDropoffSC", "price": -10}]},
+                       {"operation_type": "MarketplaceRedistributionOfAcquiringOperation", "accruals_for_sale": 0, "sale_commission": 0,
+                        "amount": -22.5, "operation_date": "2026-10-01 10:00:00", "items": [{"sku": 5011}], "services": []}]
+                return Resp(200, {"result": {"operations": ops if json["page"] == 1 and json["filter"]["date"]["to"] > "2026" and not getattr(oz, "done", 0) else [],
+                                             "page_count": 1}})
+            return base(url, json=json, headers=headers, timeout=timeout)
+        self.patch(mpk.requests, "post", oz)
+        oh._cache.pop("mp_map_ozon", None)
+        j = self.get(id="p1")
+        n = {x["key"]: x["note"] for x in next(x for x in j["channels"] if x["id"] == "ozon")["lines"]}
+        self.assertIn("тариф Ozon на", n["commission"])
+        self.assertIn("факт: транзакции Ozon", n["commission"])
+        self.assertIn("комиссия 12.0 %", n["commission"])                               # 180 / 1500
+        self.assertIn("эквайринг 1.5 %", n["commission"])                               # 22.5 / 1500
 
     def test_no_keys_no_invented_rates(self):
         for k in ("OZON_CLIENT_ID", "OZON_API_KEY", "WB_API_TOKEN"):
