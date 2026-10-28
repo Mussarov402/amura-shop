@@ -128,6 +128,64 @@ def _watchdog():
 
 _watchdog()
 
+
+def rss_mb():
+    """Сколько памяти занимает процесс сейчас (МБ), 0 — если не узнать (не Linux)."""
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1]) // 1024
+    except OSError:
+        pass
+    return 0
+
+
+def mem_step(limit, trim=None, log=print):
+    """Один шаг memguard: вернуть системе свободную память и решить, пора ли перезапуск. True — выше limit МБ."""
+    if trim:
+        try:
+            trim(0)
+        except Exception:
+            pass
+    rss = rss_mb()
+    log(f"MEM rss={rss} МБ, потоков {__import__('threading').active_count()}", flush=True)
+    return rss > limit
+
+
+def _memguard():
+    """Раз в 5 минут свободная память возвращается системе (malloc_trim). Если процесс всё равно больше MEM_LIMIT_MB
+    (по умолчанию 430 из 512 МБ на Render) — плавный перезапуск воркера (SIGTERM: текущие запросы дорабатывают,
+    gunicorn сразу поднимает новый), а не SIGKILL от Render посреди запроса."""
+    import ctypes
+    import os
+    import signal
+    import threading
+    import time
+
+    if not os.environ.get("PORT"):
+        return
+    limit = int(os.environ.get("MEM_LIMIT_MB", "430"))
+    try:
+        trim = ctypes.CDLL("libc.so.6").malloc_trim
+    except (OSError, AttributeError):
+        trim = None
+
+    def loop():
+        n = 0
+        while True:
+            time.sleep(300)
+            n += 1
+            if mem_step(limit, trim, log=print if n % 12 == 0 else (lambda *a, **k: None)):
+                print(f"MEM выше {limit} МБ — плавный перезапуск воркера", flush=True)
+                os.kill(os.getpid(), signal.SIGTERM)
+                return
+
+    threading.Thread(target=loop, daemon=True).start()
+
+
+_memguard()
+
 if __import__("os").environ.get("PORT"):          # только на сервере: разделы-дубли МойСклад один раз выключаются (17.10.2026)
     import modules  # noqa: E402
     modules.simplify_1017()
