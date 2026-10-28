@@ -1,6 +1,7 @@
 """Отдельный сервис сайта AMURA на Render (не трогает amura-price-hook).
 Запуск на Render: gunicorn app:app --workers 1 --threads 8 --timeout 60
 (один воркер — коды SMS и вход через Telegram хранятся в памяти процесса)."""
+import os
 import traceback
 
 from flask import Flask, jsonify, redirect, request
@@ -141,24 +142,85 @@ def rss_mb():
     return 0
 
 
+CGROUP = "/sys/fs/cgroup"                          # память всего контейнера (её и считает Render, по ней и SIGKILL)
+
+
+def _read(path):
+    try:
+        with open(path) as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
+def cgroup_mem():
+    """Память контейнера, МБ: {"total", "work" (без неактивного файлового кэша — его ядро отдаёт само), "anon", "file",
+    "shmem" (tmpfs), "kernel", "sock"}; {} — не Linux. cgroup v2 (memory.current) или v1 (memory/memory.usage_in_bytes)."""
+    v2 = _read(f"{CGROUP}/memory.current").strip()
+    if v2:
+        total, raw = int(v2), _read(f"{CGROUP}/memory.stat")
+    else:
+        v1 = _read(f"{CGROUP}/memory/memory.usage_in_bytes").strip()
+        if not v1:
+            return {}
+        total, raw = int(v1), _read(f"{CGROUP}/memory/memory.stat")
+    st = {}
+    for line in raw.splitlines():
+        k, _, v = line.partition(" ")
+        if v.strip().isdigit():
+            st[k] = int(v)
+    g = lambda *ks: next((st[k] for k in ks if k in st), 0)
+    mb = lambda b: b // (1 << 20)
+    inactive = g("total_inactive_file", "inactive_file")      # v1: свой inactive_file — только корень, total_ — со всеми
+    return {"total": mb(total), "work": mb(max(0, total - inactive)), "anon": mb(g("anon", "total_rss")),
+            "file": mb(g("file", "total_cache")), "shmem": mb(g("total_shmem", "shmem")),
+            "kernel": mb(g("kernel", "kernel_stack") + g("slab")), "sock": mb(g("sock"))}
+
+
+def top_procs(n=4):
+    """Самые большие процессы контейнера: [(имя, pid, МБ)] — видно, растёт ли воркер, мастер gunicorn или кто-то ещё."""
+    out = []
+    for pid in os.listdir("/proc") if os.path.isdir("/proc") else []:
+        if not pid.isdigit():
+            continue
+        name, rss = "", 0
+        for line in _read(f"/proc/{pid}/status").splitlines():
+            if line.startswith("Name:"):
+                name = line.split(None, 1)[1].strip() if len(line.split()) > 1 else ""
+            elif line.startswith("VmRSS:"):
+                rss = int(line.split()[1]) // 1024
+        if rss:
+            out.append((name, int(pid), rss))
+    return sorted(out, key=lambda x: -x[2])[:n]
+
+
 def mem_step(limit, trim=None, log=print):
-    """Один шаг memguard: вернуть системе свободную память и решить, пора ли перезапуск. True — выше limit МБ."""
+    """Один шаг memguard: вернуть системе свободную память и решить, что перезапускать.
+    None — всё в порядке; "worker" — воркер сам больше limit МБ; "all" — контейнер (без файлового кэша) больше limit,
+    а воркер нет: растёт что-то другое — перезапускаем весь gunicorn (Render поднимет сервис заново), а не ждём SIGKILL."""
     if trim:
         try:
             trim(0)
         except Exception:
             pass
-    rss = rss_mb()
-    log(f"MEM rss={rss} МБ, потоков {__import__('threading').active_count()}", flush=True)
-    return rss > limit
+    rss, cg = rss_mb(), cgroup_mem()
+    log(f"MEM rss={rss} МБ, потоков {__import__('threading').active_count()}"
+        + (f"; контейнер {cg['total']} МБ (рабочая {cg['work']}: anon {cg['anon']}, файлы {cg['file']}, tmpfs {cg['shmem']}, "
+           f"ядро {cg['kernel']}, сокеты {cg['sock']})" if cg else "")
+        + "; процессы " + ", ".join(f"{nm}[{pid}] {mb}" for nm, pid, mb in top_procs()), flush=True)
+    if rss > limit:
+        return "worker"
+    if cg and cg["work"] > limit:
+        return "all"
+    return None
 
 
 def _memguard():
-    """Раз в 5 минут свободная память возвращается системе (malloc_trim). Если процесс всё равно больше MEM_LIMIT_MB
-    (по умолчанию 430 из 512 МБ на Render) — плавный перезапуск воркера (SIGTERM: текущие запросы дорабатывают,
-    gunicorn сразу поднимает новый), а не SIGKILL от Render посреди запроса."""
+    """Раз в 5 минут свободная память возвращается системе (malloc_trim). Порог MEM_LIMIT_MB (по умолчанию 430 из 512 МБ
+    на Render): воркер больше — плавный перезапуск воркера (SIGTERM себе: запросы дорабатывают, gunicorn поднимает новый);
+    контейнер больше (рост не в воркере) — SIGTERM мастеру gunicorn, Render поднимает сервис заново. Оба лучше SIGKILL
+    посреди запроса. Раз в час — строка «MEM …» с разбивкой памяти контейнера и самыми большими процессами."""
     import ctypes
-    import os
     import signal
     import threading
     import time
@@ -176,9 +238,13 @@ def _memguard():
         while True:
             time.sleep(300)
             n += 1
-            if mem_step(limit, trim, log=print if n % 12 == 0 else (lambda *a, **k: None)):
-                print(f"MEM выше {limit} МБ — плавный перезапуск воркера", flush=True)
-                os.kill(os.getpid(), signal.SIGTERM)
+            what = mem_step(limit, trim, log=print if n % 12 == 1 else (lambda *a, **k: None))
+            if what:
+                mem_step(limit, None)                      # снимок в лог перед перезапуском
+                print(f"MEM выше {limit} МБ — плавный перезапуск " + ("воркера" if what == "worker" else "сервиса"), flush=True)
+                alert("mem", f"память сервера выше {limit} МБ — плавный перезапуск " + ("воркера" if what == "worker" else "сервиса"),
+                      every=3600)
+                os.kill(os.getpid() if what == "worker" else os.getppid(), signal.SIGTERM)
                 return
 
     threading.Thread(target=loop, daemon=True).start()
