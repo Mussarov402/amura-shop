@@ -108,6 +108,7 @@ WB_FIN = [{"rrdId": 1, "nmId": 1, "docTypeName": "Продажа", "quantity": 1
 class FakeWBTariffs:
     def __init__(self, base):
         self.base, self.fin, self.fin_code = base, list(WB_FIN), 200
+        self.camps, self.stats, self.orders = [], [], []
 
     def __call__(self, method, url, params=None, json=None, headers=None, timeout=None):
         if "/api/v2/list/goods/filter" in url:
@@ -121,6 +122,13 @@ class FakeWBTariffs:
                 {"warehouseName": "Коледино", "geoName": "Центральный", "boxDeliveryMarketplaceBase": "80", "boxDeliveryMarketplaceLiter": "20"},
                 {"warehouseName": "Алматы Атакент", "geoName": "Казахстан", "boxDeliveryMarketplaceBase": "46,5",
                  "boxDeliveryMarketplaceLiter": "10"}]}}})
+        if "/adv/v1/promotion/count" in url:
+            return Resp(200, {"adverts": [{"type": 9, "status": 9, "advert_list": [{"advertId": i} for i in self.camps]}] if self.camps else []})
+        if "/adv/v3/fullstats" in url:
+            assert params["ids"] and params["beginDate"] <= params["endDate"]
+            return Resp(200, self.stats)
+        if "/api/v1/supplier/orders" in url:
+            return Resp(200, self.orders)
         if "/api/finance/v1/sales-reports/detailed" in url:
             assert json["fields"] and json["period"] == "weekly"
             if self.fin_code != 200:
@@ -137,10 +145,10 @@ class Calculator(unittest.TestCase):
 
     def setUp(self):
         tm.Channels.setUp(self)                                                         # те же заглушки Ozon, WB и МойСклад
-        for k in ("nbk_rates", "mpc_prod:p1", "mpc_box:wb", "mpc_kgvp:wb", "mpc_facts:wb", "mpc_facts:ozon"):
+        for k in ("nbk_rates", "mpc_prod:p1", "mpc_box:wb", "mpc_kgvp:wb", "mpc_facts:wb", "mpc_facts:ozon", "mpc_ads:wb", "mpc_ads:ozon"):
             oh._cache.pop(k, None)
         self.patch(mp_calc, "SYNC_FACTS", True)
-        self.addCleanup(lambda: [oh._cache.pop(k, None) for k in ("mpc_facts:wb", "mpc_facts:ozon")])
+        self.addCleanup(lambda: [oh._cache.pop(k, None) for k in ("mpc_facts:wb", "mpc_facts:ozon", "mpc_ads:wb", "mpc_ads:ozon")])
         oh._cache["nbk_rates"] = (9e18, {"date": "28.10.2026", "rates": {"USD": 470.0, "RUB": 6.0}})
         self.patch(mp_calc, "mig_rates", lambda: (_ for _ in ()).throw(ValueError("МиГ в тестах выключен")))
         self.addCleanup(lambda: [oh._cache.pop(k, None) for k in ("nbk_rates", "mpc_prod:p1", "mpc_box:wb", "mpc_kgvp:wb")])
@@ -179,8 +187,8 @@ class Calculator(unittest.TestCase):
         self.assertEqual(oz["price"], 9000)                                              # 1500 ₽ × 6
         s = {x["key"]: x["sum"] for x in oz["lines"]}
         self.assertEqual((s["commission"], s["logistics"], s["processing"], s["acquiring"], s["tax"], s["ads"]),
-                         (1080, 330, 120, 15, 270, None))
-        self.assertIn("задайте % рекламы", {x["key"]: x["note"] for x in oz["lines"]}["ads"])
+                         (1080, 330, 120, 15, 270, 900))                                 # реклама — план ДРР 10 % по умолчанию
+        self.assertIn("план ДРР 10 %; нет ключей Ozon Performance", {x["key"]: x["note"] for x in oz["lines"]}["ads"])
         wb = ch["wb"]
         s, n = {x["key"]: x["sum"] for x in wb["lines"]}, {x["key"]: x["note"] for x in wb["lines"]}
         self.assertEqual(wb["price"], 9900)
@@ -191,7 +199,8 @@ class Calculator(unittest.TestCase):
         self.assertIn("факт: 200 ₸ на продажу", n["logistics"])
         self.assertIn("отчёт реализации WB 01.09–21.10, среднее по товару (2 продаж)", n["acquiring"])
         self.assertIn("тариф WB на", n["commission"])
-        self.assertFalse(wb["complete"])                                                 # реклама не задана
+        self.assertTrue(wb["complete"])
+        self.assertIn("план ДРР 10 %; рекламы по товару", n["ads"])
 
     def test_own_cost_and_price(self):
         self.patch(mpk, "_catalog", lambda: CAT)
@@ -258,6 +267,73 @@ class Calculator(unittest.TestCase):
         self.assertIn("факт: транзакции Ozon", n["commission"])
         self.assertIn("комиссия 12.0 %", n["commission"])                               # 180 / 1500
         self.assertIn("эквайринг 1.5 %", n["commission"])                               # 22.5 / 1500
+
+    def test_wb_fact_drr(self):
+        self.patch(mpk, "_catalog", lambda: CAT)
+        self.patch(mpk.requests, "request", w := FakeWBTariffs(self.wb))
+        today = mp_calc.datetime.now(mpk.ALMATY)
+        day = lambda k: (today - mp_calc.timedelta(days=k)).strftime("%Y-%m-%d")
+        w.camps = [5]
+        w.stats = [{"advertId": 5, "currency": "KZT", "days": [
+            {"date": day(2) + "T00:00:00Z", "apps": [{"nms": [{"nmId": 1, "sum": 300}, {"nmId": 2, "sum": 999}]}]},
+            {"date": day(20) + "T00:00:00Z", "apps": [{"nms": [{"nmId": 1, "sum": 600}]}]}]}]
+        w.orders = [{"nmId": 1, "date": day(1) + "T10:00:00", "priceWithDisc": 3000, "isCancel": False},
+                    {"nmId": 1, "date": day(15) + "T10:00:00", "priceWithDisc": 6000, "isCancel": False},
+                    {"nmId": 1, "date": day(3) + "T10:00:00", "priceWithDisc": 5000, "isCancel": True}]
+        mpk.set_setting("mp_calc_ads", "7")
+        s, n = self.wb_notes()
+        self.assertEqual(s["ads"], round(9900 * 0.10))                                  # 900 / 9000 — факт за 30 дней
+        self.assertIn("факт ДРР: 7 дн. 10.0 %, 30 дн. 10.0 %", n["ads"])
+        self.assertIn("план 7 %", n["ads"])
+
+    def test_wb_ads_no_promotion_category(self):
+        self.patch(mpk, "_catalog", lambda: CAT)
+        self.patch(mpk.requests, "request", w := FakeWBTariffs(self.wb))
+        orig = w.__class__.__call__
+        self.patch(w.__class__, "__call__", lambda me, m, url, **k: Resp(401, {"title": "x"}) if "promotion/count" in url else orig(me, m, url, **k))
+        s, n = self.wb_notes()
+        self.assertEqual(s["ads"], round(9900 * 0.10))
+        self.assertIn("план ДРР 10 %; у токена WB нет категории «Продвижение»", n["ads"])
+
+    def test_ozon_perf_drr(self):
+        self.patch(mpk, "_catalog", lambda: CAT)
+        os.environ.update(OZON_PERF_CLIENT_ID="pc", OZON_PERF_CLIENT_SECRET="ps")
+        self.addCleanup(lambda: [os.environ.pop(k, None) for k in ("OZON_PERF_CLIENT_ID", "OZON_PERF_CLIENT_SECRET")])
+        oh._cache.pop("perf_tok:ozon", None)
+        self.addCleanup(lambda: oh._cache.pop("perf_tok:ozon", None))
+        base = mpk.requests.post
+        today = mp_calc.datetime.now(mpk.ALMATY).strftime("%Y-%m-%d")
+
+        def post(url, json=None, headers=None, timeout=None):
+            if url.endswith("/api/client/token"):
+                assert json == {"client_id": "pc", "client_secret": "ps", "grant_type": "client_credentials"}
+                return Resp(200, {"access_token": "T"})
+            if url.endswith("/v3/product/info/list"):
+                return Resp(200, {"items": [{"id": 11, "offer_id": "anua-cream", "barcodes": ["8809640738135"], "sources": [{"sku": 5011}]}]})
+            if url.endswith("/v1/analytics/data"):
+                return Resp(200, {"result": {"data": [{"dimensions": [{"id": "5011"}], "metrics": [20000]}]}})
+            if url.endswith("/v3/finance/transaction/list"):
+                return Resp(200, {"result": {"operations": [], "page_count": 1}})
+            return base(url, json=json, headers=headers, timeout=timeout)
+
+        def get(url, params=None, timeout=None, headers=None):
+            assert headers["Authorization"] == "Bearer T"
+            if url.endswith("/api/client/campaign"):
+                return Resp(200, {"list": [{"id": "77", "title": "Крем"}]})
+            if url.endswith("/api/client/campaign/77/v2/products"):
+                return Resp(200, {"products": [{"sku": "5011"}, {"sku": "5012"}]})
+            if url.endswith("/api/client/statistics/expense/json"):
+                return Resp(200, {"rows": [{"id": "77", "date": today, "moneySpent": "3000,00", "bonusSpent": "0"}]})
+            raise AssertionError(url)
+        self.patch(mpk.requests, "post", post)
+        self.patch(mp_calc.requests, "get", get)
+        oh._cache.pop("mp_map_ozon", None)
+        j = self.get(id="p1")
+        oz = next(x for x in j["channels"] if x["id"] == "ozon")
+        s, n = {x["key"]: x["sum"] for x in oz["lines"]}, {x["key"]: x["note"] for x in oz["lines"]}
+        self.assertEqual(s["ads"], round(9000 * 0.075))                                 # 3000 / 2 товара / 20000
+        self.assertIn("30 дн. 7.5 %", n["ads"])
+        self.assertIn("делится поровну", n["ads"])
 
     def test_no_keys_no_invented_rates(self):
         for k in ("OZON_CLIENT_ID", "OZON_API_KEY", "WB_API_TOKEN"):

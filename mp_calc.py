@@ -11,7 +11,13 @@
     Тарифа на эквайринг и приёмку в API WB нет — они из отчёта реализации: POST finance-api /api/finance/v1/sales-reports/detailed
     (с 2026 вместо /api/v5/supplier/reportDetailByPeriod; токен с категорией «Финансы», 1 запрос в минуту) — средние за 90 дней по
     товару, иначе по кабинету; продаж нет — «ждём первые продажи». Ozon — факт из /v3/finance/transaction/list (по SKU товара).
-    Ставки площадок вручную не вводятся (слово владельца 28.10.2026): только налог ИП, реклама, маржа и своя себестоимость.
+    Ставки площадок вручную не вводятся (слово владельца 28.10.2026): только налог ИП, план ДРР, маржа и своя себестоимость.
+Реклама — фактический ДРР по товару за 7 и 30 дней = расход на рекламу ÷ сумма заказов × 100; нет расходов — план ДРР (10 %).
+  WB: расходы — advert-api /adv/v1/promotion/count (кампании) + GET /adv/v3/fullstats (по дням и nmId, ≤31 дня, ≤50 кампаний,
+    3 запроса в минуту; категория «Продвижение»); заказы — statistics-api /api/v1/supplier/orders (категория «Статистика»).
+  Ozon: расходы — Performance API (свои ключи OZON_PERF_CLIENT_ID / OZON_PERF_CLIENT_SECRET[_N]): токен /api/client/token,
+    кампании /api/client/campaign и их товары /api/client/campaign/{id}/v2/products, расход /api/client/statistics/expense/json;
+    расход кампании делится поровну между её товарами. Заказы — Seller API /v1/analytics/data (revenue по sku).
 Закупка — buyPrice МойСклад в валюте закупки × курс продажи обменника МиГ (mig.kz, слово владельца 28.10.2026), запасной —
 курс Нацбанка РК (с датой), последний — курс валюты в МойСклад;
 поле «себестоимость, ₸» владельца важнее рассчитанной. Налог ИП, реклама, эквайринг WB и маржа — настройки модуля.
@@ -124,6 +130,8 @@ def settings():
             out[k] = None
     if out["margin"] is None:
         out["margin"] = 20.0
+    if out["ads"] is None:
+        out["ads"] = 10.0                                 # план ДРР по умолчанию; факт подставляется, когда есть расходы
     return out
 
 
@@ -197,6 +205,7 @@ def ozon_rates(ch, pid):
            "notes": {"commission": f"{tariff}, FBS", "logistics": f"{tariff}: магистраль + последняя миля FBS",
                      "processing": f"{tariff}: обработка отправления FBS (максимум)", "acquiring": f"{tariff}: эквайринг"}}
     skus = ((mp["products"].get(ref) or {}).get("skus")) or []
+    out["adKeys"] = skus
     fact, where, state = fact_for(ch, skus) if skus else (None, "", "none")
     if fact:
         conv = lambda v: to_kzt(v, cur)[0]
@@ -259,7 +268,7 @@ def wb_rates(ch, pid):
     size = next((s for s in g.get("sizes") or [] if str(s.get("sizeID") or s.get("chrtID") or "") == str(ref)), (g.get("sizes") or [{}])[0])
     price = float(size.get("discountedPrice") or size.get("price") or 0)
     cur = str(g.get("currencyIsoCode4217") or "")
-    out = {"cur": cur, "price": price, "pct": {}, "amount": {}, "notes": {}, "missing": {}, "kzt": set()}
+    out = {"cur": cur, "price": price, "pct": {}, "amount": {}, "notes": {}, "missing": {}, "kzt": set(), "adKeys": [card["nm"]]}
     tariff = f"тариф WB на {today()}"
     kg = wb_commissions(ch).get(int(card.get("subject") or 0))
     if kg and kg.get("kgvpMarketplace") is not None:
@@ -457,6 +466,161 @@ def fact_for(ch, ref_keys):
     return None, WAIT, "none"
 
 
+# ---------- реклама: фактический ДРР за 7 и 30 дней ----------
+ADS_TTL = 3 * 3600
+PERF_URL = "https://api-performance.ozon.ru"
+_ads_locks = {}
+
+
+def _day(dt):
+    return dt.strftime("%Y-%m-%d")
+
+
+def wb_ads_load(ch):
+    """{nmId: {"s7", "s30", "r7", "r30"}} — расход на рекламу и сумма заказов за 7 и 30 дней (валюта профиля / заказов)."""
+    now = datetime.now(mpk.ALMATY)
+    d30, d7 = _day(now - timedelta(days=29)), _day(now - timedelta(days=6))
+    by = {}
+    row = lambda nm: by.setdefault(str(nm), {"s7": 0.0, "s30": 0.0, "r7": 0.0, "r30": 0.0})
+    try:
+        cnt = ch.req("GET", "advert", "/adv/v1/promotion/count")
+    except mpk.ApiError as e:
+        raise mpk.ApiError(e.code, "у токена WB нет категории «Продвижение»" if e.code in (401, 403) else e.message)
+    ids = [a["advertId"] for g in cnt.get("adverts") or [] if g.get("status") in (7, 9, 11)
+           for a in g.get("advert_list") or [] if a.get("advertId")]
+    ads_cur = ""
+    for k in range(0, len(ids), 50):
+        if k:
+            time.sleep(21)                                      # 3 запроса в минуту
+        st = ch.req("GET", "advert", "/adv/v3/fullstats", params={"ids": ",".join(map(str, ids[k:k + 50])), "beginDate": d30, "endDate": _day(now)})
+        for camp in st if isinstance(st, list) else []:
+            ads_cur = ads_cur or str(camp.get("currency") or "")
+            for day in camp.get("days") or []:
+                dd = str(day.get("date") or "")[:10]
+                for app in day.get("apps") or []:
+                    for nm in app.get("nms") or []:
+                        x, v = row(nm.get("nmId")), float(nm.get("sum") or 0)
+                        x["s30"] += v
+                        if dd >= d7:
+                            x["s7"] += v
+    try:
+        orders = ch.req("GET", "statistics", "/api/v1/supplier/orders", params={"dateFrom": d30, "flag": 0})
+    except mpk.ApiError as e:
+        raise mpk.ApiError(e.code, "у токена WB нет категории «Статистика»" if e.code in (401, 403) else e.message)
+    for o in orders if isinstance(orders, list) else []:
+        dd = str(o.get("date") or "")[:10]
+        if o.get("isCancel") or dd < d30:
+            continue
+        x, v = row(o.get("nmId")), float(o.get("priceWithDisc") or 0)
+        x["r30"] += v
+        if dd >= d7:
+            x["r7"] += v
+    return {"by": by, "cur": ads_cur, "span": f"{d30[8:10]}.{d30[5:7]}–{now:%d.%m}", "at": int(time.time())}
+
+
+def perf_token(ch):
+    cid, sec = ch.env("PERF_CLIENT_ID"), ch.env("PERF_CLIENT_SECRET")
+    if not (cid and sec):
+        return None
+
+    def load():
+        r = requests.post(PERF_URL + "/api/client/token", json={"client_id": cid, "client_secret": sec, "grant_type": "client_credentials"},
+                          timeout=20)
+        if r.status_code >= 400:
+            raise mpk.ApiError(r.status_code, f"Ozon Performance не выдал токен (HTTP {r.status_code})")
+        return mpk._json(r).get("access_token")
+    return oh.cached(f"perf_tok:{ch.key}", 20 * 60, load)
+
+
+def perf(ch, path, params=None):
+    r = requests.get(PERF_URL + path, params=params, timeout=30, headers={"Authorization": f"Bearer {perf_token(ch)}"})
+    if r.status_code >= 400:
+        raise mpk.ApiError(r.status_code, f"Ozon Performance {path}: HTTP {r.status_code}")
+    return mpk._json(r)
+
+
+def ozon_ads_load(ch):
+    now = datetime.now(mpk.ALMATY)
+    d30, d7 = _day(now - timedelta(days=29)), _day(now - timedelta(days=6))
+    by = {}
+    row = lambda sku: by.setdefault(str(sku), {"s7": 0.0, "s30": 0.0, "r7": 0.0, "r30": 0.0})
+    if not perf_token(ch):
+        raise mpk.ApiError(0, "нет ключей Ozon Performance" + (f" ({ch.env_prefix}_PERF_CLIENT_ID{ch.sfx} и _SECRET на Render)"))
+    camps = [c for c in perf(ch, "/api/client/campaign").get("list") or [] if c.get("id")]
+    skus = {}
+    for c in camps:
+        try:
+            skus[str(c["id"])] = [str(p.get("sku")) for p in perf(ch, f"/api/client/campaign/{c['id']}/v2/products").get("products") or [] if p.get("sku")]
+        except mpk.ApiError:
+            skus[str(c["id"])] = []
+    if camps:
+        rows = perf(ch, "/api/client/statistics/expense/json", {"campaignIds": ",".join(skus), "dateFrom": d30, "dateTo": _day(now)}).get("rows") or []
+        for x in rows:
+            items = skus.get(str(x.get("id"))) or []
+            if not items:
+                continue
+            v = (_wb_num(x.get("moneySpent")) or 0) + (_wb_num(x.get("bonusSpent")) or 0)
+            for sku in items:
+                y = row(sku)
+                y["s30"] += v / len(items)
+                if str(x.get("date") or "")[:10] >= d7:
+                    y["s7"] += v / len(items)
+    for frm, key in ((d30, "r30"), (d7, "r7")):
+        res = ch.res(ch.call("/v1/analytics/data", {"date_from": frm, "date_to": _day(now), "metrics": ["revenue"], "dimension": ["sku"],
+                                                    "filters": [], "limit": 1000, "offset": 0}))
+        for x in res.get("data") or []:
+            dims, mets = x.get("dimensions") or [{}], x.get("metrics") or [0]
+            row(dims[0].get("id"))[key] += float(mets[0] or 0)
+    return {"by": by, "cur": "", "span": f"{d30[8:10]}.{d30[5:7]}–{now:%d.%m}", "at": int(time.time()),
+            "note": "расход кампании делится поровну между её товарами"}
+
+
+def ads(ch):
+    """Реклама магазина из кэша (3 ч); нет — грузим в фоне, пока {"loading": True}. Ошибка — {"error": текст}."""
+    key = f"mpc_ads:{ch.key}"
+    v = oh._cache.get(key)
+    if v and time.time() - v[0] < ADS_TTL:
+        return v[1]
+    lock = _ads_locks.setdefault(ch.key, threading.Lock())
+    if not lock.acquire(blocking=False):
+        return {"loading": True}
+
+    def run():
+        try:
+            try:
+                data = wb_ads_load(ch) if isinstance(ch, mpk.WB) else ozon_ads_load(ch)
+            except mpk.ApiError as e:
+                data = {"error": e.message}
+            except Exception as e:
+                data = {"error": f"реклама {ch.title} не получена: {str(e)[:200]}"}
+            oh._cache[key] = (time.time() if "error" not in data else time.time() - ADS_TTL + 600, data)
+            print(f"Реклама {ch.key}: " + (data.get("error") or f"{data['span']}, товаров с данными {len(data['by'])}"), flush=True)
+        finally:
+            lock.release()
+    if SYNC_FACTS:
+        run()
+        return oh._cache[key][1]
+    threading.Thread(target=run, daemon=True).start()
+    return {"loading": True}
+
+
+def drr_for(ch, keys, cur_orders=""):
+    """Фактический ДРР товара: → (ДРР 30 дн. | None, подпись). Расходов нет — (None, причина)."""
+    a = ads(ch)
+    if a.get("loading"):
+        return None, "загружаю рекламу — обновите через минуту"
+    if a.get("error"):
+        return None, a["error"]
+    x = next((a["by"].get(str(k)) for k in keys if a["by"].get(str(k))), None)
+    if not x or x["s30"] <= 0:
+        return None, f"рекламы по товару за {a['span']} нет"
+    if x["r30"] <= 0:
+        return None, f"расход на рекламу есть, а заказов за {a['span']} нет"
+    d7 = f"{x['s7'] / x['r7'] * 100:.1f} %" if x["r7"] > 0 else "—"
+    d30 = x["s30"] / x["r30"] * 100
+    return d30, f"факт ДРР: 7 дн. {d7}, 30 дн. {d30:.1f} % ({a['span']})" + (f"; {a['note']}" if a.get("note") else "")
+
+
 # ---------- расчёт ----------
 LINES = [("commission", "Комиссия"), ("logistics", "Логистика и доставка"), ("processing", "Приёмка и обработка FBS"),
          ("acquiring", "Эквайринг"), ("tax", "Налог ИП"), ("ads", "Реклама"), ("cost", "Закупка")]
@@ -514,18 +678,19 @@ def channel_calc(ch, pid, prod, st, price_override=None):
     pct, cab = dict(raw["pct"]), price_kzt
     if price_override:
         price_kzt = float(price_override)
-    for k in ("tax", "ads"):
-        if st[k] is not None:
-            pct[k] = st[k]
-    own_notes = {"tax": "настройка владельца", "ads": "настройка владельца"}
+    if st["tax"] is not None:
+        pct["tax"] = st["tax"]
+    drr, why = drr_for(ch, raw.get("adKeys") or [])
+    pct["ads"] = drr if drr is not None else st["ads"]
+    own_notes = {"tax": "настройка владельца",
+                 "ads": f"{why}; план {st['ads']:g} %" if drr is not None else f"план ДРР {st['ads']:g} %; {why}"}
     r = calc(price_kzt, pct, amount, prod["cost"], st["margin"])
     notes = {**own_notes, **(raw.get("notes") or {})}
     notes["cost"] = prod["costNote"]
     for k, why in (raw.get("missing") or {}).items():
         notes[k] = why
-    for k, label in (("tax", "задайте налог ИП в настройках расчёта"), ("ads", "задайте % рекламы в настройках расчёта")):
-        if st[k] is None:
-            notes[k] = label
+    if st["tax"] is None:
+        notes["tax"] = "задайте налог ИП в настройках расчёта"
     for x in r["lines"]:
         x["note"] = notes.get(x["key"], "")
     return {"id": ch.key, "title": ch.title, "cabinetPrice": round(cab),
