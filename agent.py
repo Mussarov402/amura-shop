@@ -42,6 +42,10 @@ def db():
         d.run(f"CREATE TABLE IF NOT EXISTS agent_log (id {pk}, at DOUBLE PRECISION, ip TEXT, method TEXT, path TEXT, args TEXT, status INTEGER)")
         d.run(f"CREATE TABLE IF NOT EXISTS agent_req (id {pk}, at DOUBLE PRECISION, kind TEXT, shop TEXT, params TEXT, summary TEXT,"
               " comment TEXT, status TEXT, result TEXT, decided DOUBLE PRECISION, who TEXT)")
+        d.run("CREATE TABLE IF NOT EXISTS agent_corridor (shop TEXT, ident TEXT, pid TEXT DEFAULT '', name TEXT DEFAULT '',"
+              " base DOUBLE PRECISION DEFAULT 0, base_note TEXT DEFAULT '', lower DOUBLE PRECISION DEFAULT 0, upper DOUBLE PRECISION DEFAULT 0,"
+              " price DOUBLE PRECISION DEFAULT 0, margin DOUBLE PRECISION DEFAULT 0, calc_at DOUBLE PRECISION DEFAULT 0, note TEXT DEFAULT '',"
+              " full INTEGER DEFAULT 0, last_change DOUBLE PRECISION DEFAULT 0, PRIMARY KEY (shop, ident))")
         d.c.commit()
         _ready[0] = True
     return d
@@ -399,6 +403,8 @@ def execute(rid, who):
     with db() as d:
         d.run("UPDATE agent_req SET status=%s, result=%s, decided=%s, who=%s WHERE id=%s",
               (status, json.dumps(res, ensure_ascii=False, default=str)[:4000], time.time(), who, rid))
+    if status == "done" and kind in PRICE_KINDS:
+        price_changed(key, ident_of(kind, params))
     return status, res
 
 
@@ -419,24 +425,35 @@ def create_route():
     except (ValueError, KeyError, TypeError) as e:
         log(400, f"{kind}: {e}")
         return jsonify(ok=False, error=str(e)), 400
+    rid, status, auto, res = new_request(kind, ch, p, str(b.get("comment") or ""), text)
+    log(200, f"{kind} #{rid}" + (f" auto {status}" if auto else ""))
+    return jsonify(ok=True, id=rid, status=status, auto=auto, **({"result": res} if auto else {}))
+
+
+def new_request(kind, ch, p, comment, text):
+    """Заявка: по правилу — выполняем сразу; иначе — в «На согласование» и сообщение владельцу. → (№, статус, авто, ответ)."""
+    why = ""
+    try:
+        if kind in PRICE_KINDS:
+            auto, why = price_auto(kind, ch, p)
+        else:
+            auto = auto_ok(kind, ch, p)
+    except (mpk.ApiError, ValueError, KeyError) as e:
+        auto, why = False, (f"коридор не проверен: {getattr(e, 'message', str(e))}" if kind in PRICE_KINDS else "")
+    if why:
+        text += f" ({why})"
     with db() as d:
         rid = d.run("INSERT INTO agent_req (at, kind, shop, params, summary, comment, status, result, decided, who) "
                     "VALUES (%s, %s, %s, %s, %s, %s, 'new', '', 0, '')",
-                    (time.time(), kind, ch.key, json.dumps(p, ensure_ascii=False), text, str(b.get("comment") or "")[:1000]), ins=True)
-    try:
-        auto = auto_ok(kind, ch, p)
-    except mpk.ApiError:
-        auto = False
+                    (time.time(), kind, ch.key, json.dumps(p, ensure_ascii=False), text, comment[:1000]), ins=True)
     if auto:
         status, res = execute(rid, "правило владельца")
-        log(200, f"{kind} #{rid} auto {status}")
-        return jsonify(ok=True, id=rid, status=status, auto=True, result=res)
+        return rid, status, True, res
     oh.notify_bg(lambda: oh.tg("sendMessage", chat_id=oh.OWNER,
                                text=f"🧑‍💼 Менеджер WB/Ozon просит согласовать (№ {rid}):\n{text}"
-                                    + (f"\nКомментарий: {b.get('comment')}" if b.get("comment") else "")
+                                    + (f"\nКомментарий: {comment}" if comment else "")
                                     + "\n\nСистема AMURA → Заказы → На согласование"))
-    log(200, f"{kind} #{rid}")
-    return jsonify(ok=True, id=rid, status="new", auto=False)
+    return rid, "new", False, None
 
 
 COLS = "id, at, kind, shop, params, summary, comment, status, result, decided, who"
@@ -464,6 +481,161 @@ def list_route():
     return jsonify(ok=True, items=rows(request.args.get("status") or None))
 
 
+# ---------- цены в коридоре (правило владельца 28.10.2026, по умолчанию выключено) ----------
+PRICE_KINDS = ("wb_price", "ozon_price")
+PR = {"on": ("agent_price_rule", "0"), "margin": ("agent_price_margin", "20"), "margin_new": ("agent_price_margin_new", "15")}
+STEP_PCT, GAP, UP_PCT, NEW_DAYS = 5, 86400, 15, 30
+CCOLS = "shop, ident, pid, name, base, base_note, lower, upper, price, margin, calc_at, note, full, last_change"
+
+
+def price_rules():
+    v = {k: setting(key, dflt) for k, (key, dflt) in PR.items()}
+    num = lambda x, d: float(x) if x.replace(".", "", 1).isdigit() else d
+    return {"on": v["on"] == "1", "margin": num(v["margin"], 20.0), "margin_new": num(v["margin_new"], 15.0)}
+
+
+def ident_of(kind, p):
+    return str(int(p["nmID"])) if kind == "wb_price" else str(p["offer_id"])
+
+
+def corr_row(key, ident):
+    with db() as d:
+        r = d.run(f"SELECT {CCOLS} FROM agent_corridor WHERE shop=%s AND ident=%s", (key, ident), one=True)
+    return dict(zip(CCOLS.split(", "), r)) if r else None
+
+
+def corr_put(key, ident, **f):
+    with db() as d:
+        if d.run("SELECT 1 FROM agent_corridor WHERE shop=%s AND ident=%s", (key, ident), one=True):
+            d.run(f"UPDATE agent_corridor SET {', '.join(k + '=%s' for k in f)} WHERE shop=%s AND ident=%s", (*f.values(), key, ident))
+        else:
+            d.run(f"INSERT INTO agent_corridor (shop, ident{''.join(', ' + k for k in f)}) VALUES (%s, %s{', %s' * len(f)})", (key, ident, *f.values()))
+
+
+def price_changed(key, ident):
+    corr_put(key, ident, last_change=time.time())
+
+
+def ms_match(ch, ident):
+    """Товар площадки → (id товара МойСклад, ключи для первой продажи: nmID / SKU Ozon)."""
+    mp = mpk.mapping(ch)
+    if isinstance(ch, mpk.WB):
+        ref = next((r for r, x in mp["products"].items() if str(x.get("nm")) == ident), None)
+        return (mp["ref"].get(ref) if ref else None), [ident]
+    ref = next((r for r, x in mp["products"].items() if x.get("offer") == ident), None)
+    return mp["offer"].get(ident) or (mp["ref"].get(ref) if ref else None), ((mp["products"].get(ref) or {}).get("skus") or []) if ref else []
+
+
+def cur_price(ch, ident):
+    """Текущая цена для покупателя в кабинете → (цена, скидка продавца %, цена до скидки)."""
+    if isinstance(ch, mpk.WB):
+        g = ((ch.req("GET", "discounts-prices", "/api/v2/list/goods/filter", params={"limit": 1, "filterNmID": int(ident)})
+              .get("data") or {}).get("listGoods") or [{}])[0]
+        sz = (g.get("sizes") or [{}])[0]
+        return float(sz.get("discountedPrice") or sz.get("price") or 0), float(g.get("discount") or 0), float(sz.get("price") or 0)
+    r = ch.call("/v5/product/info/prices", {"filter": {"offer_id": [ident], "visibility": "ALL"}, "cursor": "", "limit": 1})
+    it = ((r.get("items") or ch.res(r).get("items") or [{}])[0]).get("price") or {}
+    v = float(it.get("price") or 0)
+    return v, 0.0, v
+
+
+def corridor(ch, ident):
+    """Пересчёт коридора товара: нижняя — минимальная цена калькулятора для маржи (20 %, товар моложе 30 дней с первой продажи —
+    15 %; настройки владельца), верхняя — базовая +15 %. Базовую задаёт владелец, иначе — цена на момент первого расчёта."""
+    import mp_calc
+    from datetime import datetime, timedelta
+    pid, keys = ms_match(ch, ident)
+    if not pid:
+        raise ValueError("товар площадки не связан с товаром МойСклад")
+    f = mp_calc.facts(ch)                              # первая продажа — из отчёта реализации WB / транзакций Ozon за 90 дней
+    firsts = [x for x in ((f.get("first") or {}).get(str(k)) for k in keys) if x]
+    young = bool(firsts) and min(firsts) >= (datetime.now(mpk.ALMATY) - timedelta(days=NEW_DAYS)).strftime("%Y-%m-%d")
+    pr = price_rules()                                 # продаж ещё нет или отчёт не загружен — строже: обычная маржа
+    margin = pr["margin_new"] if young else pr["margin"]
+    prod = mp_calc.product(pid)
+    c = mp_calc.channel_calc(ch, pid, prod, dict(mp_calc.settings(), margin=margin))
+    price, disc, _ = cur_price(ch, ident)
+    old = corr_row(ch.key, ident) or {}
+    base, base_note = old.get("base") or 0, old.get("base_note") or ""
+    if not base:
+        base, base_note = price, f"цена на момент включения правила ({datetime.now(mpk.ALMATY):%d.%m.%Y})"
+    lower = c.get("minPrice") if not c.get("error") else None
+    missing = [x["label"] for x in c.get("lines") or [] if x.get("sum") is None]
+    note = (c.get("error") or "") or (f"маржа {margin:g} %" + (" (товар моложе 30 дней)" if young else "")
+                                      + ("; без строк: " + ", ".join(missing) if missing else ""))
+    row = {"pid": pid, "name": prod["name"], "base": base, "base_note": base_note, "lower": lower or 0, "upper": round(base * (1 + UP_PCT / 100)),
+           "price": price, "margin": margin, "calc_at": time.time(), "note": note, "full": 1 if (lower and not missing) else 0}
+    corr_put(ch.key, ident, **row)
+    return dict(row, disc=disc, shop=ch.key, ident=ident, last_change=old.get("last_change") or 0)
+
+
+def price_auto(kind, ch, p):
+    """Цена без «Да», если правило включено, цена внутри коридора, шаг не больше 5 % и цену не меняли сутки. → (можно ли, почему)."""
+    if not price_rules()["on"]:
+        return False, ""
+    if rules()["stop"]:
+        return False, "автоматическое остановлено"
+    ident = ident_of(kind, p)
+    c = corridor(ch, ident)
+    if kind == "wb_price":
+        if p.get("price") is None or (p.get("discount") is not None and float(p["discount"]) != c["disc"]):
+            return False, "меняется скидка — через «Да»"
+        new = float(p["price"]) * (1 - c["disc"] / 100)
+    else:
+        new = float(p["price"])
+    if not c["full"]:
+        return False, f"нижняя граница неполная ({c['note']}) — через «Да»"
+    if new < c["lower"]:
+        return False, f"ниже коридора: минимум {round(c['lower'])} ₸"
+    if new > c["upper"]:
+        return False, f"выше коридора: максимум {round(c['upper'])} ₸"
+    step = abs(new - c["price"]) / c["price"] * 100 if c["price"] else 100
+    if step > STEP_PCT:
+        return False, f"шаг {step:.1f} % — больше {STEP_PCT} %"
+    if time.time() - (c["last_change"] or 0) < GAP:
+        return False, "цену этого товара меняли меньше суток назад"
+    return True, f"в коридоре {round(c['lower'])}–{round(c['upper'])} ₸, шаг {step:.1f} %"
+
+
+def recheck_corridors():
+    """Раз в день: нижняя граница выросла выше текущей цены — заявка на повышение владельцу на «Да» (сами не поднимаем)."""
+    if not price_rules()["on"]:
+        return 0
+    with db() as d:
+        items = d.run("SELECT shop, ident FROM agent_corridor", many=True) or []
+    made = 0
+    for key, ident in items:
+        ch = shop(key)
+        if not ch:
+            continue
+        try:
+            c = corridor(ch, ident)
+        except (mpk.ApiError, ValueError) as e:
+            print(f"Коридор {key} {ident}:", str(e)[:200], flush=True)
+            continue
+        if not c["lower"] or c["lower"] <= c["price"]:
+            continue
+        kind = "wb_price" if isinstance(ch, mpk.WB) else "ozon_price"
+        with db() as d:
+            open_ = [r for r in d.run("SELECT params FROM agent_req WHERE status='new' AND kind=%s AND shop=%s", (kind, key), many=True) or []
+                     if ident_of(kind, json.loads(r[0])) == ident]
+        if open_:
+            continue
+        import math
+        p = ({"nmID": int(ident), "price": int(math.ceil(c["lower"] / (1 - c["disc"] / 100)))} if kind == "wb_price"
+             else {"offer_id": ident, "price": int(math.ceil(c["lower"]))})
+        text = summary(kind, ch, p) + f" — нижняя граница коридора {round(c['lower'])} ₸ выше текущей цены {round(c['price'])} ₸"
+        with db() as d:
+            rid = d.run("INSERT INTO agent_req (at, kind, shop, params, summary, comment, status, result, decided, who) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, 'new', '', 0, '')",
+                        (time.time(), kind, key, json.dumps(p, ensure_ascii=False), text, "пересчёт коридора: ставки и себестоимость изменились"),
+                        ins=True)
+        oh.notify_bg(lambda rid=rid, text=text: oh.tg("sendMessage", chat_id=oh.OWNER,
+                                                      text=f"📈 Нужно поднять цену (№ {rid}):\n{text}\n\nСистема AMURA → Заказы → На согласование"))
+        made += 1
+    return made
+
+
 # ---------- система AMURA: владелец ----------
 def _owner():
     import admin
@@ -486,6 +658,8 @@ def owner_view():
         lg = d.run("SELECT at, ip, method, path, args, status FROM agent_log ORDER BY id DESC LIMIT 100", many=True) or []
     return jsonify(ok=True, items=rows(request.args.get("status") or None), rules=rules(),
                    wbShops=[{"key": c.key, "title": c.title} for c in mpk.channels() if isinstance(c, mpk.WB)],
+                   shops=[{"key": c.key, "title": c.title, "wb": isinstance(c, mpk.WB)} for c in mpk.channels() if c.keys_set()],
+                   priceRules=price_rules(), corridor=corr_rows(),
                    token=bool(os.environ.get("MP_AGENT_TOKEN", "").strip()),
                    log=[dict(zip(("at", "ip", "method", "path", "args", "status"), r)) for r in lg])
 
@@ -567,6 +741,10 @@ def _digest_loop():
             from datetime import datetime
             t = datetime.now(mpk.ALMATY)
             day = t.strftime("%Y-%m-%d")
+            if t.hour >= 9 and modules.enabled("agent") and setting("agent_recheck_day", "") != day:
+                with inbox.db() as d:
+                    inbox.set_setting(d, "agent_recheck_day", day)
+                recheck_corridors()
             if t.hour >= DIGEST_HOUR and modules.enabled("agent") and setting("agent_digest_day", "") != day:
                 text = digest()
                 with inbox.db() as d:
@@ -580,3 +758,53 @@ def _digest_loop():
 if os.environ.get("PORT"):
     import bg
     bg.start(_digest_loop)
+
+
+def corr_rows():
+    with db() as d:
+        rs = d.run(f"SELECT {CCOLS} FROM agent_corridor ORDER BY shop, name", many=True) or []
+    return [dict(zip(CCOLS.split(", "), r)) for r in rs]
+
+
+@bp.post("/admin/api/agent/price-rules")
+def set_price_rules():
+    err = _owner()
+    if err:
+        return err
+    b = request.get_json(silent=True) or {}
+    with inbox.db() as d:
+        if "on" in b:
+            inbox.set_setting(d, PR["on"][0], "1" if b["on"] else "0")
+        for k in ("margin", "margin_new"):
+            if k in b:
+                try:
+                    v = float(b[k])
+                except (TypeError, ValueError):
+                    return jsonify(ok=False, error="Маржа — числом, %"), 400
+                if not 0 <= v < 90:
+                    return jsonify(ok=False, error="Маржа — от 0 до 89 %"), 400
+                inbox.set_setting(d, PR[k][0], f"{v:g}")
+    return jsonify(ok=True, priceRules=price_rules())
+
+
+@bp.post("/admin/api/agent/corridor")
+def set_corridor():
+    """Добавить товар в коридор / задать базовую цену / пересчитать: {shop, ident (nmID WB или offer_id Ozon), base?}."""
+    err = _owner()
+    if err:
+        return err
+    b = request.get_json(silent=True) or {}
+    ch, ident = shop(str(b.get("shop") or "")), str(b.get("ident") or "").strip()
+    if not ch or not ident:
+        return jsonify(ok=False, error="Укажите магазин и артикул (WB — nmID, Ozon — артикул продавца)"), 400
+    if b.get("base") not in (None, ""):
+        try:
+            base = max(0.0, float(b["base"]))
+        except (TypeError, ValueError):
+            return jsonify(ok=False, error="Базовая цена — числом, ₸"), 400
+        corr_put(ch.key, ident, base=base, base_note="задана владельцем" if base else "")
+    try:
+        row = corridor(ch, ident)
+    except (mpk.ApiError, ValueError) as e:
+        return jsonify(ok=False, error=getattr(e, "message", str(e))), 400
+    return jsonify(ok=True, row=row)
