@@ -854,3 +854,57 @@ def price_route():
     except mpk.ApiError as e:
         return jsonify(ok=False, error=f"WB: {e.message}"), 502
     return (jsonify(**r), 200) if r["ok"] else (jsonify(**r), 409)
+
+
+# ---------- карточка WB по артикулу (только чтение, только владелец; 28.10.2026) ----------
+def wb_card(nm):
+    """Карточка WB по nmID ключами наших магазинов: Content API (/content/v2/get/cards/list, textSearch) отдаёт только свои
+    карточки — нашли, значит наша; цена, скидка и валюта — /api/v2/list/goods/filter. Ничего не меняет.
+    Чужая карточка — только «не наша»: данные чужих карточек не берём (публичного API без обхода защиты нет)."""
+    shops = [ch for ch in mpk.channels() if isinstance(ch, mpk.WB) and ch.keys_set()]
+    if not shops:
+        return {"ok": False, "error": f"{NO_DATA}: на Render нет ключа WB"}
+    errors = []
+    for ch in shops:
+        try:
+            j = ch.req("POST", "content", "/content/v2/get/cards/list",
+                       json={"settings": {"cursor": {"limit": 10}, "filter": {"textSearch": str(nm), "withPhoto": -1}}})
+        except mpk.ApiError as e:
+            errors.append(f"{ch.title}: {e.message}")
+            continue
+        c = next((x for x in j.get("cards") or [] if int(x.get("nmID") or 0) == nm), None)
+        if not c:
+            continue
+        price = {}
+        try:
+            g = ((ch.req("GET", "discounts-prices", "/api/v2/list/goods/filter", params={"limit": 1, "filterNmID": nm})
+                  .get("data") or {}).get("listGoods") or [{}])[0]
+            sz = (g.get("sizes") or [{}])[0]
+            price = {"price": sz.get("price"), "discounted": sz.get("discountedPrice"), "discount": g.get("discount"),
+                     "currency": g.get("currencyIsoCode4217") or ""}
+        except mpk.ApiError as e:
+            price = {"error": f"цена не получена: {e.message}"}
+        val = lambda v: ", ".join(map(str, v)) if isinstance(v, list) else str(v)
+        dims = c.get("dimensions") or {}
+        return {"ok": True, "ours": True, "shop": ch.title, "nm": nm, "title": c.get("title", ""), "subject": c.get("subjectName", ""),
+                "brand": c.get("brand", ""), "vendorCode": c.get("vendorCode", ""),
+                "barcodes": [b for s in c.get("sizes") or [] for b in s.get("skus") or []],
+                "chars": [{"name": x.get("name", ""), "value": val(x.get("value"))} for x in c.get("characteristics") or []],
+                "description": c.get("description", ""), "photos": len(c.get("photos") or []), "video": 1 if c.get("video") else 0,
+                "dims": {k: dims.get(k) for k in ("length", "width", "height", "weightBrutto")}, "price": price,
+                "updated": c.get("updatedAt", "")}
+    if errors and len(errors) == len(shops):
+        return {"ok": False, "error": f"{NO_DATA}: " + "; ".join(errors)}
+    return {"ok": True, "ours": False, "nm": nm}
+
+
+@mpk.bp.get("/admin/api/mp/wbcard")
+def wbcard_route():
+    _, err = mpk._me(owner_only=True)
+    if err:
+        return err
+    raw = re.sub(r"\D", "", request.args.get("nm", ""))
+    if not raw:
+        return jsonify(ok=False, error="Введите артикул WB — только цифры"), 400
+    r = wb_card(int(raw))
+    return (jsonify(**r), 200) if r["ok"] else (jsonify(**r), 502)
