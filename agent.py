@@ -28,7 +28,10 @@ bp = Blueprint("agent", __name__)
 AGENT_RATE = 60                                     # запросов в минуту
 _hits, _hits_lock = [], threading.Lock()
 _ready = [False]
-SET = {"auto_reviews": "agent_auto_reviews", "auto_questions": "agent_auto_questions", "auto_bids": "agent_auto_bids_limit"}
+SET = {"auto_reviews": "agent_auto_reviews", "auto_questions": "agent_auto_questions", "auto_bids": "agent_auto_bids", "stop": "agent_auto_stop"}
+# решение владельца 28.10.2026: отзывы 4–5★, вопросы и ставки в пределах дневного бюджета — без «Да» (включено по умолчанию);
+# отзывы 1–3★, бюджет, запуск/остановка кампаний, цены, скидки, акции — всегда через «Да»; «Стоп» выключает всё автоматическое
+DEFAULTS = {"auto_reviews": "1", "auto_questions": "1", "auto_bids": "1", "stop": "0"}
 
 
 # ---------- база ----------
@@ -58,10 +61,16 @@ def setting(key, default=""):
         return inbox.get_setting(d, key, default)
 
 
+def budget(key):
+    """Дневной бюджет на рекламу магазина, ₸ (задаёт владелец). 0 — не задан: ставки только через «Да»."""
+    v = setting(f"agent_bid_budget_{key}", "")
+    return int(v) if v.isdigit() else 0
+
+
 def rules():
-    lim = setting(SET["auto_bids"], "")
-    return {"auto_reviews": setting(SET["auto_reviews"], "0") == "1", "auto_questions": setting(SET["auto_questions"], "0") == "1",
-            "auto_bids": int(lim) if lim.isdigit() else 0}
+    out = {k: setting(v, DEFAULTS[k]) == "1" for k, v in SET.items()}
+    out["budgets"] = {c.key: budget(c.key) for c in mpk.channels() if isinstance(c, mpk.WB)}
+    return out
 
 
 # ---------- доступ ----------
@@ -359,15 +368,19 @@ def auto_ok(kind, ch, p):
     if ACTIONS[kind].get("money"):
         return False
     r = rules()
+    if r["stop"]:
+        return False
     if kind == "wb_question_answer":
         return r["auto_questions"]
     if kind == "wb_feedback_answer" and r["auto_reviews"]:
         fb = (ch.req("GET", "feedbacks", "/api/v1/feedback", params={"id": str(p["id"])}).get("data") or {})
         return int(fb.get("productValuation") or 0) >= 4
-    if kind == "wb_bid" and r["auto_bids"] > 0:
+    if kind == "ozon_review_answer" and r["auto_reviews"]:
+        return int(ch.call("/v1/review/info", {"review_id": str(p["id"])}).get("rating") or 0) >= 4
+    if kind == "wb_bid" and r["auto_bids"] and budget(ch.key) > 0:
         lim = ch.req("GET", "advert", "/api/advert/v0/daily-limits", params={"advertIds": str(int(p["advert_id"]))})
         x = next((a for a in lim.get("adverts") or [] if int(a.get("advertId") or 0) == int(p["advert_id"])), None)
-        return bool(x and x.get("enabled") and 0 < float(x.get("dailyLimit") or 0) <= r["auto_bids"])   # без лимита — только через «Да»
+        return bool(x and x.get("enabled") and 0 < float(x.get("dailyLimit") or 0) <= budget(ch.key))   # без лимита — только через «Да»
     return False
 
 
@@ -472,6 +485,7 @@ def owner_view():
     with db() as d:
         lg = d.run("SELECT at, ip, method, path, args, status FROM agent_log ORDER BY id DESC LIMIT 100", many=True) or []
     return jsonify(ok=True, items=rows(request.args.get("status") or None), rules=rules(),
+                   wbShops=[{"key": c.key, "title": c.title} for c in mpk.channels() if isinstance(c, mpk.WB)],
                    token=bool(os.environ.get("MP_AGENT_TOKEN", "").strip()),
                    log=[dict(zip(("at", "ip", "method", "path", "args", "status"), r)) for r in lg])
 
@@ -513,14 +527,56 @@ def set_rules():
     if err:
         return err
     b = request.get_json(silent=True) or {}
+    wb = {c.key for c in mpk.channels() if isinstance(c, mpk.WB)}
     with inbox.db() as d:
-        for k in ("auto_reviews", "auto_questions"):
+        for k in ("auto_reviews", "auto_questions", "auto_bids", "stop"):
             if k in b:
                 inbox.set_setting(d, SET[k], "1" if b[k] else "0")
-        if "auto_bids" in b:
+        for key, v in (b.get("budgets") or {}).items():
+            if key not in wb:
+                return jsonify(ok=False, error="Нет такого магазина WB"), 400
             try:
-                v = max(0, int(b["auto_bids"] or 0))
+                v = max(0, int(v or 0))
             except (TypeError, ValueError):
-                return jsonify(ok=False, error="Лимит — целое число ₸"), 400
-            inbox.set_setting(d, SET["auto_bids"], str(v))
+                return jsonify(ok=False, error="Бюджет — целое число ₸"), 400
+            inbox.set_setting(d, f"agent_bid_budget_{key}", str(v))
     return jsonify(ok=True, rules=rules())
+
+
+# ---------- сводка владельцу раз в день: что сделано без «Да» ----------
+DIGEST_HOUR = 21                                     # по Алматы
+
+
+def digest(now=None):
+    """Сообщение владельцу: заявки, выполненные по правилам за последние сутки. Пусто — ничего не шлём."""
+    now = now or time.time()
+    with db() as d:
+        got = d.run("SELECT id, summary, status FROM agent_req WHERE who='правило владельца' AND decided>=%s ORDER BY id",
+                    (now - 86400,), many=True) or []
+    if not got:
+        return ""
+    lines = [f"№ {i} {'✓' if st == 'done' else '✗'} {sm[:300]}" for i, sm, st in got]
+    return (f"🧑‍💼 Менеджер WB/Ozon без согласования за сутки ({len(got)}):\n" + "\n".join(lines[:40])
+            + ("\n…" if len(lines) > 40 else "") + "\n\nОстановить всё автоматическое: Заказы → На согласование → «Стоп»")
+
+
+def _digest_loop():
+    while True:
+        time.sleep(600)
+        try:
+            from datetime import datetime
+            t = datetime.now(mpk.ALMATY)
+            day = t.strftime("%Y-%m-%d")
+            if t.hour >= DIGEST_HOUR and modules.enabled("agent") and setting("agent_digest_day", "") != day:
+                text = digest()
+                with inbox.db() as d:
+                    inbox.set_setting(d, "agent_digest_day", day)
+                if text:
+                    oh.tg("sendMessage", chat_id=oh.OWNER, text=text)
+        except Exception as e:
+            print("Сводка менеджера:", str(e)[:200], flush=True)
+
+
+if os.environ.get("PORT"):
+    import bg
+    bg.start(_digest_loop)

@@ -34,9 +34,8 @@ class Agent(unittest.TestCase):
         with agent.db() as d:
             d.run("DELETE FROM agent_req")
             d.run("DELETE FROM agent_log")
-        with agent.inbox.db() as d:
-            for k in agent.SET.values():
-                agent.inbox.set_setting(d, k, "")
+        with agent.inbox.db() as d:                                                   # правила — как у нового магазина
+            d.run("DELETE FROM setting WHERE key LIKE 'agent_%'")
         agent._hits.clear()
         self.calls, self.tg = [], []
         self.rating = 5
@@ -105,6 +104,7 @@ class Agent(unittest.TestCase):
 
     # ---- действия: без «Да» ничего ----
     def test_request_waits_for_yes(self):
+        self.rating = 3                                                                # 1–3★ — через «Да»
         r = self.new("wb_feedback_answer", id="f1", text="Спасибо за отзыв!").get_json()
         self.assertEqual((r["status"], r["auto"]), ("new", False))
         self.assertEqual(self.writes(), [])                                            # ничего не отправлено
@@ -133,31 +133,71 @@ class Agent(unittest.TestCase):
         self.assertEqual(self.new("make_money").status_code, 400)
         self.assertEqual(self.new("ozon_review_answer", shop="wb", id="1", text="Спасибо").status_code, 400)   # не тот магазин
 
-    # ---- правила самостоятельности ----
-    def test_rules_off_by_default(self):
-        self.assertEqual(agent.rules(), {"auto_reviews": False, "auto_questions": False, "auto_bids": 0})
-        self.new("wb_question_answer", id="q1", text="Да, подходит")
-        self.assertEqual(self.writes(), [])
+    # ---- правила самостоятельности (решение владельца 28.10.2026) ----
+    def test_rules_defaults(self):
+        self.assertEqual(agent.rules(), {"auto_reviews": True, "auto_questions": True, "auto_bids": True, "stop": False, "budgets": {"wb": 0}})
 
-    def test_auto_reviews_only_4_5(self):
-        self.c.post("/admin/api/agent/rules", json={"auto_reviews": True})
+    def test_questions_auto_by_default(self):
+        r = self.new("wb_question_answer", id="q1", text="Да, подходит").get_json()
+        self.assertEqual((r["status"], r["auto"]), ("done", True))
+        self.assertEqual([x for _, p, x in self.calls if p == "/api/v1/questions"], [{"id": "q1", "answer": {"text": "Да, подходит"}, "state": "wbRu"}])
+
+    def test_reviews_only_4_5(self):
         r = self.new("wb_feedback_answer", id="f1", text="Спасибо!").get_json()
         self.assertEqual((r["status"], r["auto"]), ("done", True))
         self.rating = 2
         r = self.new("wb_feedback_answer", id="f2", text="Нам жаль").get_json()
-        self.assertEqual(r["status"], "new")                                           # 2★ — через «Да»
+        self.assertEqual(r["status"], "new")                                           # 1–3★ — через «Да»
         self.assertEqual(len([1 for _, p, _ in self.calls if p == "/api/v1/feedbacks/answer"]), 1)
 
-    def test_auto_bids_limit_and_money_always_yes(self):
-        self.c.post("/admin/api/agent/rules", json={"auto_bids": 5000, "auto_questions": True})
+    def test_ozon_review_rating(self):
+        sent = []
+
+        def oz(url, json=None, headers=None, timeout=None):
+            if url.endswith("/v1/review/info"):
+                return Resp(200, {"id": json["review_id"], "rating": 5 if json["review_id"] == "r5" else 3})
+            if url.endswith("/v1/review/comment/create"):
+                sent.append(json)
+                return Resp(200, {"comment_id": "c1"})
+            raise AssertionError(url)
+        self.patch(mpk.requests, "post", oz)
+        self.assertEqual(self.new("ozon_review_answer", shop="ozon", id="r5", text="Спасибо!").get_json()["status"], "done")
+        self.assertEqual(self.new("ozon_review_answer", shop="ozon", id="r3", text="Нам жаль").get_json()["status"], "new")
+        self.assertEqual([x["review_id"] for x in sent], ["r5"])
+
+    def test_bids_need_shop_budget(self):
+        self.assertEqual(self.new("wb_bid", advert_id=5, nm_id=1, bid=150).get_json()["status"], "new")      # бюджет 0 — через «Да»
+        self.c.post("/admin/api/agent/rules", json={"budgets": {"wb": 5000}})
         r = self.new("wb_bid", advert_id=5, nm_id=1, bid=150).get_json()
         self.assertEqual(r["status"], "done")                                          # лимит кампании 3000 ≤ 5000
         self.assertEqual([x for _, p, x in self.calls if p == "/api/advert/v1/bids"][0]["bids"][0]["nm_bids"][0]["bid_kopecks"], 15000)
-        self.c.post("/admin/api/agent/rules", json={"auto_bids": 2000})
+        self.c.post("/admin/api/agent/rules", json={"budgets": {"wb": 2000}})
         self.assertEqual(self.new("wb_bid", advert_id=5, nm_id=1, bid=150).get_json()["status"], "new")
-        self.assertEqual(self.new("wb_budget_deposit", advert_id=5, sum=1000).get_json()["status"], "new")   # деньги — всегда «Да»
-        self.assertEqual([1 for _, p, _ in self.calls if p == "/adv/v1/budget/deposit"], [])
+        self.assertEqual(self.c.post("/admin/api/agent/rules", json={"budgets": {"wb9": 1}}).status_code, 400)
 
+    def test_money_prices_campaigns_always_yes(self):
+        self.c.post("/admin/api/agent/rules", json={"budgets": {"wb": 999999}})
+        for kind, p in (("wb_budget_deposit", {"advert_id": 5, "sum": 1000}), ("wb_price", {"nmID": 1, "price": 13500}),
+                        ("wb_campaign", {"advert_id": 5, "action": "start"}), ("wb_promotion", {"promotionID": 1, "nmIDs": [1]})):
+            self.assertEqual(self.new(kind, **p).get_json()["status"], "new", kind)
+        self.assertEqual(self.writes(), [])
+
+    def test_stop_everything(self):
+        self.c.post("/admin/api/agent/rules", json={"stop": True, "budgets": {"wb": 5000}})
+        for kind, p in (("wb_question_answer", {"id": "q1", "text": "Да, подходит"}), ("wb_feedback_answer", {"id": "f1", "text": "Спасибо!"}),
+                        ("wb_bid", {"advert_id": 5, "nm_id": 1, "bid": 150})):
+            self.assertEqual(self.new(kind, **p).get_json()["status"], "new", kind)
+        self.assertEqual(self.writes(), [])
+        self.assertTrue(self.c.get("/admin/api/agent").get_json()["rules"]["stop"])
+
+    def test_daily_digest(self):
+        self.assertEqual(agent.digest(), "")
+        self.new("wb_question_answer", id="q1", text="Да, подходит")
+        self.new("wb_price", nmID=1, price=13500)                                      # через «Да» — не в сводке
+        text = agent.digest()
+        self.assertIn("без согласования за сутки (1)", text)
+        self.assertIn("ответ на вопрос WB", text)
+        self.assertNotIn("цена", text)
 
 if __name__ == "__main__":
     unittest.main()
