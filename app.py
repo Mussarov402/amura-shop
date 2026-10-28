@@ -197,6 +197,28 @@ def top_procs(n=4):
     return sorted(out, key=lambda x: -x[2])[:n]
 
 
+def thread_groups(n=6):
+    """Потоки процесса по именам без номеров: «ThreadPoolExecutor» — рабочие потоки gunicorn (до GUNICORN_THREADS),
+    «Thread (_loop)» — фоновые циклы, «Thread (run)» и т. п. — разовые. → [(имя, сколько)], самые частые первыми."""
+    import re
+    import threading
+    cnt = {}
+    for t in threading.enumerate():
+        k = re.sub(r"[-_]\d+", "", t.name)
+        cnt[k] = cnt.get(k, 0) + 1
+    return sorted(cnt.items(), key=lambda x: -x[1])[:n]
+
+
+def top_objects(n=5):
+    """Самые многочисленные объекты Python (по типам) — видно, если в памяти копятся данные."""
+    import gc
+    cnt = {}
+    for o in gc.get_objects():
+        k = type(o).__name__
+        cnt[k] = cnt.get(k, 0) + 1
+    return sorted(cnt.items(), key=lambda x: -x[1])[:n]
+
+
 def mem_step(limit, trim=None, log=print):
     """Один шаг memguard: вернуть системе свободную память и решить, что перезапускать.
     None — всё в порядке; "worker" — воркер сам больше limit МБ; "all" — контейнер (без файлового кэша) больше limit,
@@ -210,7 +232,9 @@ def mem_step(limit, trim=None, log=print):
     log(f"MEM rss={rss} МБ, потоков {__import__('threading').active_count()}"
         + (f"; контейнер {cg['total']} МБ (рабочая {cg['work']}: anon {cg['anon']}, файлы {cg['file']}, tmpfs {cg['shmem']}, "
            f"ядро {cg['kernel']}, сокеты {cg['sock']})" if cg else "")
-        + "; процессы " + ", ".join(f"{nm}[{pid}] {mb}" for nm, pid, mb in top_procs()), flush=True)
+        + "; процессы " + ", ".join(f"{nm}[{pid}] {mb}" for nm, pid, mb in top_procs())
+        + "; потоки " + ", ".join(f"{k} {v}" for k, v in thread_groups())
+        + "; объекты " + ", ".join(f"{k} {v}" for k, v in top_objects()), flush=True)
     if rss > limit:
         return "worker"
     if cg and cg["work"] > limit:
