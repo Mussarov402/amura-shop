@@ -5,6 +5,7 @@
 - отгрузка строится шаблоном МойСклад по заказу (PUT /entity/demand/new с customerOrder): позиции, цены, скидки,
   склад, контрагент — ровно как в заказе; externalCode = id операции, повтор сначала ищет документ по нему;
 - статус заказа не меняем: смена статуса может запустить сценарий и создать вторую отгрузку."""
+import bg
 import os
 import threading
 import time
@@ -148,4 +149,4 @@ def _loop():
 
 
 if os.environ.get("PORT"):
-    threading.Thread(target=_loop, daemon=True).start()
+    bg.start(_loop)

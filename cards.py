@@ -8,6 +8,7 @@
 Видео — одно на товар, только у нас (МойСклад видео не хранит): сжимается в фоне до 720p H.264 и лежит в product_video;
 отдаётся по /media/product/<id>.mp4 с поддержкой перемотки (Range). Сайт его пока не показывает."""
 import base64
+import bg
 import json
 import os
 import tempfile
@@ -791,4 +792,4 @@ def _loop():
 
 
 if os.environ.get("PORT"):
-    threading.Thread(target=_loop, daemon=True).start()
+    bg.start(_loop)

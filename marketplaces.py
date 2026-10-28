@@ -22,6 +22,7 @@
   Ozon /v4/posting/fbs/list (v3 отключён), /v2/products/stocks, /v3/product/list, /v3/product/info/list, /v2/warehouse/list;
   WB /api/v3/orders, /api/v3/orders/status, PUT /api/v3/stocks/{склад} (по chrtId), /api/v3/warehouses, /content/v2/get/cards/list.
 Выплаты маркетплейсов — следующим шагом."""
+import bg
 import json
 import math
 import os
@@ -624,7 +625,7 @@ def _loop():
 
 
 def start():
-    threading.Thread(target=_loop, daemon=True).start()
+    bg.start(_loop)
 
 
 # ---------- система AMURA: состояние и настройки ----------

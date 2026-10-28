@@ -5,11 +5,14 @@
 
 Память (28.10.2026): со 128 потоками glibc заводит каждому активному потоку свою «арену» памяти, освобождённое в ней
 системе не возвращается — за день процесс дорастал до 512 МБ и Render убивал его (SIGKILL). В воркере до загрузки
-приложения арен не больше MALLOC_ARENAS (по умолчанию 2); остальное — memguard в app.py."""
+приложения арен не больше MALLOC_ARENAS (по умолчанию 2); остальное — memguard в app.py.
+Фоновые потоки (28.10.2026): на Render приложение загружается ещё в мастере — потоки откладываются и стартуют в воркере (bg.py)."""
 import ctypes
 import os
+import sys
 
 M_ARENA_MAX = -8
+os.environ["AMURA_MASTER_PID"] = str(os.getpid())   # файл читает мастер: фоновые потоки — только в воркере (bg.py)
 
 
 def on_starting(server):
@@ -22,3 +25,7 @@ def post_fork(server, worker):
         ctypes.CDLL("libc.so.6").mallopt(M_ARENA_MAX, int(os.environ.get("MALLOC_ARENAS", "2")))
     except (OSError, AttributeError, ValueError):
         pass
+    bg = sys.modules.get("bg")                       # приложение уже загружено в мастере (preload) — запускаем его фон здесь
+    if bg:
+        n = bg.run_pending()
+        server.log.info("Фоновые потоки запущены в воркере: %s", n)

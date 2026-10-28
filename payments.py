@@ -11,6 +11,7 @@
 - после проводки баланс контрагента и остатки денег сразу перечитываются из МойСклад (лёгкие отчёты, только чтение),
   не дожидаясь прохода зеркала.
 Только владелец (маршруты под @guard). Работает при включённом модуле «Финансы»; выключатель — флаг feat_pay_ops."""
+import bg
 import os
 import threading
 import time
@@ -426,4 +427,4 @@ def _loop():
 
 
 if os.environ.get("PORT"):
-    threading.Thread(target=_loop, daemon=True).start()
+    bg.start(_loop)

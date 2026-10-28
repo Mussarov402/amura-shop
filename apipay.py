@@ -11,6 +11,7 @@ freedom.save_draft), в МойСклад пока ничего не пишем. 
 Ключ — только переменная окружения на Render: APIPAY_API_KEY (заголовок X-API-Key). Адрес — APIPAY_API (по умолчанию боевой).
 Выключено по умолчанию: модуль «Оплата Kaspi» (kaspipay) в настройках; без ключа варианта «Kaspi» на сайте нет.
 Справочник: https://apipay.kz/openapi.json (поля сверены 20.10.2026, версия 2.1.0)."""
+import bg
 import os
 import re
 import secrets
@@ -438,4 +439,4 @@ def _loop():
 
 
 def start():
-    threading.Thread(target=_loop, daemon=True).start()
+    bg.start(_loop)

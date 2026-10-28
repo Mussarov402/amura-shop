@@ -8,6 +8,7 @@
 4) продажи за сутки с нулевой себестоимостью (в отчёте МойСклад и в карточке закупка 0).
 Итог считается после сверки (ночью) и утром (в MORNING_HOUR по Алматы) уходит владельцу в Telegram — только если есть замечания и
 включён переключатель «Контроль учёта» (Обзор → Уведомления, по умолчанию включён)."""
+import bg
 import json
 import os
 import threading
@@ -238,4 +239,4 @@ def _loop():
 
 
 if os.environ.get("PORT"):
-    threading.Thread(target=_loop, daemon=True).start()
+    bg.start(_loop)

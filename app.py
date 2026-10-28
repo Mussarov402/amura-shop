@@ -1,6 +1,7 @@
 """Отдельный сервис сайта AMURA на Render (не трогает amura-price-hook).
 Запуск на Render: gunicorn app:app --workers 1 --threads 8 --timeout 60
 (один воркер — коды SMS и вход через Telegram хранятся в памяти процесса)."""
+import bg
 import os
 import traceback
 
@@ -124,7 +125,7 @@ def _watchdog():
                 os._exit(1)
             time.sleep(30)
 
-    threading.Thread(target=loop, daemon=True).start()
+    bg.start(loop)
 
 
 _watchdog()
@@ -247,7 +248,7 @@ def _memguard():
                 os.kill(os.getpid() if what == "worker" else os.getppid(), signal.SIGTERM)
                 return
 
-    threading.Thread(target=loop, daemon=True).start()
+    bg.start(loop)
 
 
 _memguard()
@@ -257,7 +258,7 @@ if __import__("os").environ.get("PORT"):          # только на серве
     modules.simplify_1017()
     import threading  # noqa: E402
     import admin as _admin  # noqa: E402
-    threading.Thread(target=_admin.warm, daemon=True).start()   # первые нажатия после обновления не ждут МойСклад
+    bg.start(_admin.warm)   # первые нажатия после обновления не ждут МойСклад
 
 
 if __name__ == "__main__":
