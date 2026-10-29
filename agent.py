@@ -28,10 +28,11 @@ bp = Blueprint("agent", __name__)
 AGENT_RATE = 60                                     # запросов в минуту
 _hits, _hits_lock = [], threading.Lock()
 _ready = [False]
-SET = {"auto_reviews": "agent_auto_reviews", "auto_questions": "agent_auto_questions", "auto_bids": "agent_auto_bids", "stop": "agent_auto_stop"}
+SET = {"auto_reviews": "agent_auto_reviews", "auto_questions": "agent_auto_questions", "auto_bids": "agent_auto_bids",
+       "auto_cards": "agent_auto_cards", "stop": "agent_auto_stop"}
 # решение владельца 28.10.2026: отзывы 4–5★, вопросы и ставки в пределах дневного бюджета — без «Да» (включено по умолчанию);
 # отзывы 1–3★, бюджет, запуск/остановка кампаний, цены, скидки, акции — всегда через «Да»; «Стоп» выключает всё автоматическое
-DEFAULTS = {"auto_reviews": "1", "auto_questions": "1", "auto_bids": "1", "stop": "0"}
+DEFAULTS = {"auto_reviews": "1", "auto_questions": "1", "auto_bids": "1", "auto_cards": "1", "stop": "0"}   # карточки — слово владельца 29.10.2026
 
 
 # ---------- база ----------
@@ -122,6 +123,8 @@ READ = {
         "warehouses": ("GET", "marketplace", "/api/v3/warehouses", [], "склады продавца"),
         "stocks": ("POST", "marketplace", "/api/v3/stocks/{warehouseId}", ["warehouseId", "chrtIds"], "остатки на складе FBS по chrtId"),
         "cards": ("POST", "content", "/content/v2/get/cards/list", ["settings"], "карточки (Content API)"),
+        "charcs": ("GET", "content", "/content/v2/object/charcs/{subjectId}", ["subjectId", "locale"], "характеристики предмета (справочник)"),
+        "card_errors": ("POST", "content", "/content/v2/cards/error/list", ["cursor", "order"], "ошибки создания и правки карточек"),
         "prices": ("GET", "discounts-prices", "/api/v2/list/goods/filter", ["limit", "offset", "filterNmID"], "цены и скидки"),
         "feedbacks": ("GET", "feedbacks", "/api/v1/feedbacks", ["isAnswered", "nmId", "take", "skip", "order", "dateFrom", "dateTo"], "отзывы"),
         "questions": ("GET", "feedbacks", "/api/v1/questions", ["isAnswered", "nmId", "take", "skip", "order", "dateFrom", "dateTo"], "вопросы"),
@@ -163,7 +166,7 @@ READ = {
 
 
 def _wb_path(path, args):
-    for k in ("warehouseId",):
+    for k in ("warehouseId", "subjectId"):
         if "{" + k + "}" in path:
             path = path.replace("{" + k + "}", str(int(args.pop(k))))
     return path
@@ -256,19 +259,92 @@ def _wb_price(ch, p):
     return ch.req("POST", "discounts-prices", "/api/v2/upload/task", json={"data": [row]})
 
 
-def _wb_card_text(ch, p):
-    """Текст карточки: берём карточку целиком (метод перезаписывает её) и меняем только title / description."""
-    nm = int(p["nmID"])
+def _wb_get_card(ch, nm):
     cards = ch.req("POST", "content", "/content/v2/get/cards/list",
                    json={"settings": {"cursor": {"limit": 10}, "filter": {"textSearch": str(nm), "withPhoto": -1}}}).get("cards") or []
     c = next((x for x in cards if int(x.get("nmID") or 0) == nm), None)
     if not c:
         raise mpk.ApiError(404, "карточка не найдена в нашем кабинете")
-    body = {k: c[k] for k in ("nmID", "vendorCode", "brand", "title", "description", "dimensions", "characteristics", "sizes") if k in c}
+    return c
+
+
+def _wb_body(c):
+    """Тело /content/v2/cards/update из карточки: метод перезаписывает карточку, поэтому передаём всё, что в ней есть;
+    характеристики — как {id, value}. Фото, видео и ярлыки этим методом не меняются (документация WB)."""
+    body = {k: c[k] for k in ("nmID", "vendorCode", "brand", "title", "description", "dimensions", "sizes", "documents", "gtin", "kizMarked")
+            if k in c}
+    body["characteristics"] = [{"id": x["id"], "value": x.get("value")} for x in c.get("characteristics") or [] if x.get("id")]
+    return body
+
+
+def _wb_card_text(ch, p):
+    """Текст карточки: берём карточку целиком и меняем только title / description."""
+    body = _wb_body(_wb_get_card(ch, int(p["nmID"])))
     for k in ("title", "description"):
         if p.get(k):
             body[k] = p[k]
     return ch.req("POST", "content", "/content/v2/cards/update", json=[body])
+
+
+CARD_FIELDS = ("characteristics", "dimensions", "title", "description")
+
+
+def _wb_charcs(ch, subject):
+    j = ch.req("GET", "content", f"/content/v2/object/charcs/{int(subject)}", params={"locale": "ru"})
+    return {int(x["charcID"]): x for x in j.get("data") or [] if x.get("charcID")}
+
+
+def check_chars(chars, ref):
+    """Значения характеристик по справочнику предмета: charcType 1 — список строк (не больше maxCount), 4 — одно число,
+    0 — не используется. → список {id, value} или ValueError."""
+    out = []
+    for x in chars:
+        cid = int(x.get("id"))
+        r = ref.get(cid)
+        if not r:
+            raise ValueError(f"характеристики {cid} нет в справочнике предмета")
+        t, v = int(r.get("charcType") or 0), x.get("value")
+        if t == 0:
+            raise ValueError(f"«{r.get('name')}» не используется в этом предмете")
+        if t == 4:
+            v = v[0] if isinstance(v, list) and len(v) == 1 else v
+            try:
+                v = float(v)
+            except (TypeError, ValueError):
+                raise ValueError(f"«{r.get('name')}» — одно число" + (f" ({r['unitName']})" if r.get("unitName") else ""))
+            v = int(v) if v == int(v) else v
+        else:
+            v = [str(i).strip() for i in (v if isinstance(v, list) else [v]) if str(i).strip()]
+            if not v:
+                raise ValueError(f"«{r.get('name')}» — пустое значение")
+            if int(r.get("maxCount") or 0) and len(v) > int(r["maxCount"]):
+                raise ValueError(f"«{r.get('name')}» — не больше {r['maxCount']} значений")
+        out.append({"id": cid, "value": v})
+    return out
+
+
+def _wb_card_update(ch, p):
+    """Характеристики (по справочнику предмета), габариты, название, описание. Прежние значения тронутых полей — в ответ
+    (поле before) для кнопки «Вернуть как было». p["_restore"] — откат: характеристики заменяются целиком прежним списком."""
+    c = _wb_get_card(ch, int(p["nmID"]))
+    body, before = _wb_body(c), {}
+    if p.get("characteristics") is not None:
+        before["characteristics"] = body["characteristics"]
+        if p.get("_restore"):
+            body["characteristics"] = p["characteristics"]
+        else:
+            new = check_chars(p["characteristics"], _wb_charcs(ch, c.get("subjectID")))
+            ids = {x["id"] for x in new}
+            body["characteristics"] = [x for x in body["characteristics"] if x["id"] not in ids] + new
+    if p.get("dimensions"):
+        before["dimensions"] = body.get("dimensions") or {}
+        body["dimensions"] = {**(body.get("dimensions") or {}), **p["dimensions"]}
+    for k in ("title", "description"):
+        if p.get(k):
+            before[k] = body.get(k, "")
+            body[k] = p[k]
+    res = ch.req("POST", "content", "/content/v2/cards/update", json=[body])
+    return {"before": before, "nmID": int(p["nmID"]), "response": res}
 
 
 def _wb_bid(ch, p):
@@ -322,6 +398,9 @@ ACTIONS = {
     "wb_price": {"shop": mpk.WB, "params": ["nmID", "price?", "discount?"], "about": "цена (₸) и/или скидка (%) WB", "run": _wb_price},
     "wb_card_text": {"shop": mpk.WB, "params": ["nmID", "title?", "description?"], "about": "название и/или описание карточки WB",
                      "run": _wb_card_text},
+    "wb_card_update": {"shop": mpk.WB, "params": ["nmID", "characteristics?", "dimensions?", "title?", "description?"],
+                       "about": "карточка WB: характеристики [{id, value}] по справочнику charcs, габариты {length, width, height, weightBrutto}, "
+                                "название (≤60), описание. Цену, бренд, vendorCode, штрихкоды и фото не меняет", "run": _wb_card_update},
     "wb_bid": {"shop": mpk.WB, "params": ["advert_id", "nm_id", "bid", "placement?"], "about": "ставка в кампании WB, ₸ (combined/search/recommendations)",
                "run": _wb_bid},
     "wb_campaign": {"shop": mpk.WB, "params": ["advert_id", "action"], "about": "кампания WB: start / pause / stop", "run": _wb_campaign},
@@ -348,6 +427,30 @@ def validate(kind, p):
         raise ValueError("нужна цена или скидка")
     if kind == "wb_card_text" and not (p.get("title") or p.get("description")):
         raise ValueError("нужно название или описание")
+    if kind == "wb_card_update":
+        allowed = {x.rstrip("?") for x in a["params"]}
+        bad = [k for k in p if k not in allowed]
+        if bad:
+            raise ValueError("эти поля через wb_card_update не меняются: " + ", ".join(bad))
+        if not any(p.get(k) for k in CARD_FIELDS):
+            raise ValueError("нужно хотя бы одно поле: " + ", ".join(CARD_FIELDS))
+        if p.get("title") and len(p["title"]) > 60:
+            raise ValueError("название — не длиннее 60 символов")
+        if p.get("characteristics") is not None and (not isinstance(p["characteristics"], list)
+                                                     or not all(isinstance(x, dict) and x.get("id") for x in p["characteristics"])):
+            raise ValueError("characteristics — список {id, value}")
+        if p.get("dimensions"):
+            d = p["dimensions"]
+            if not isinstance(d, dict) or set(d) - {"length", "width", "height", "weightBrutto"}:
+                raise ValueError("dimensions — {length, width, height, weightBrutto}")
+            for k, v in d.items():
+                try:
+                    ok = float(v) > 0 and (k == "weightBrutto" or float(v) == int(float(v)))
+                except (TypeError, ValueError):
+                    ok = False
+                if not ok:
+                    raise ValueError(f"{k} — положительное число" + ("" if k == "weightBrutto" else ", целое, см"))
+                d[k] = float(v) if k == "weightBrutto" else int(float(v))
     return p
 
 
@@ -362,6 +465,10 @@ def summary(kind, ch, p):
               "wb_campaign": lambda: f"кампания {p['advert_id']}: {dict(start='запустить', pause='пауза', stop='завершить')[p['action']]}",
               "wb_budget_deposit": lambda: f"кампания {p['advert_id']}: пополнить на {p['sum']} ₸",
               "wb_card_text": lambda: f"nmID {p['nmID']}: " + ("название «" + p["title"][:120] + "» " if p.get("title") else "") + ("новое описание" if p.get("description") else ""),
+              "wb_card_update": lambda: f"nmID {p['nmID']}: " + "; ".join(x for x in (
+                  ("характеристики " + ", ".join(f"{c['id']}={c.get('value')}" for c in p["characteristics"])[:300]) if p.get("characteristics") else "",
+                  ("габариты " + ", ".join(f"{k} {v}" for k, v in p["dimensions"].items())) if p.get("dimensions") else "",
+                  ("название «" + p["title"] + "»") if p.get("title") else "", "новое описание" if p.get("description") else "") if x),
               "wb_promotion": lambda: f"акция {p['promotionID']}: товары {', '.join(map(str, p['nmIDs']))[:200]}",
               "ozon_promotion": lambda: f"акция {p['action_id']}: {len(p['products'])} товаров"}[kind]()
     return f"{ch.title}: {a} — {detail}"
@@ -374,6 +481,8 @@ def auto_ok(kind, ch, p):
     r = rules()
     if r["stop"]:
         return False
+    if kind == "wb_card_update":
+        return r["auto_cards"]
     if kind == "wb_question_answer":
         return r["auto_questions"]
     if kind == "wb_feedback_answer" and r["auto_reviews"]:
@@ -401,8 +510,9 @@ def execute(rid, who):
     except (mpk.ApiError, ValueError, KeyError, TypeError) as e:
         res, status = {"error": getattr(e, "message", str(e))}, "error"
     with db() as d:
-        d.run("UPDATE agent_req SET status=%s, result=%s, decided=%s, who=%s WHERE id=%s",
-              (status, json.dumps(res, ensure_ascii=False, default=str)[:4000], time.time(), who, rid))
+        txt = json.dumps(res, ensure_ascii=False, default=str)
+        d.run("UPDATE agent_req SET status=%s, result=%s, decided=%s, who=%s WHERE id=%s",   # карточка — целиком: в ней прежняя версия для отката
+              (status, txt if kind == "wb_card_update" else txt[:4000], time.time(), who, rid))
     if status == "done" and kind in PRICE_KINDS:
         price_changed(key, ident_of(kind, params))
     return status, res
@@ -808,3 +918,34 @@ def set_corridor():
     except (mpk.ApiError, ValueError) as e:
         return jsonify(ok=False, error=getattr(e, "message", str(e))), 400
     return jsonify(ok=True, row=row)
+
+
+@bp.post("/admin/api/agent/<int:rid>/revert")
+def revert(rid):
+    """«Вернуть как было» для изменения карточки WB: прежние значения тронутых полей (сохранены в ответе заявки) — обратно."""
+    err = _owner()
+    if err:
+        return err
+    with db() as d:
+        row = d.run("SELECT kind, shop, status, result FROM agent_req WHERE id=%s", (rid,), one=True)
+    if not row or row[0] != "wb_card_update" or row[2] != "done":
+        return jsonify(ok=False, error="Вернуть можно только выполненное изменение карточки"), 400
+    res = json.loads(row[3] or "{}")
+    if res.get("reverted"):
+        return jsonify(ok=False, error=f"Уже возвращено (заявка № {res['reverted']})"), 409
+    before = res.get("before") or {}
+    p = {"nmID": res.get("nmID"), "_restore": True, **{k: v for k, v in before.items() if v not in (None, {})}}
+    ch = shop(row[1], mpk.WB)
+    if not ch or len(p) <= 2:
+        return jsonify(ok=False, error="Нечего возвращать или у магазина нет ключа"), 400
+    with db() as d:
+        nid = d.run("INSERT INTO agent_req (at, kind, shop, params, summary, comment, status, result, decided, who) "
+                    "VALUES (%s, 'wb_card_update', %s, %s, %s, %s, 'new', '', 0, '')",
+                    (time.time(), ch.key, json.dumps(p, ensure_ascii=False), f"{ch.title}: вернуть карточку как было — nmID {p['nmID']}",
+                     f"откат заявки № {rid}"), ins=True)
+    status, out = execute(nid, "владелец (откат)")
+    if status == "done":
+        res["reverted"] = nid
+        with db() as d:
+            d.run("UPDATE agent_req SET result=%s WHERE id=%s", (json.dumps(res, ensure_ascii=False, default=str), rid))
+    return jsonify(ok=status == "done", id=nid, status=status, result=out, **({} if status == "done" else {"error": "WB не принял откат"}))

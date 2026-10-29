@@ -135,7 +135,8 @@ class Agent(unittest.TestCase):
 
     # ---- правила самостоятельности (решение владельца 28.10.2026) ----
     def test_rules_defaults(self):
-        self.assertEqual(agent.rules(), {"auto_reviews": True, "auto_questions": True, "auto_bids": True, "stop": False, "budgets": {"wb": 0}})
+        self.assertEqual(agent.rules(), {"auto_reviews": True, "auto_questions": True, "auto_bids": True, "auto_cards": True, "stop": False,
+                                        "budgets": {"wb": 0}})
 
     def test_questions_auto_by_default(self):
         r = self.new("wb_question_answer", id="q1", text="Да, подходит").get_json()
@@ -295,6 +296,95 @@ class PriceCorridor(unittest.TestCase):
         self.assertEqual((x["status"], x["params"]), ("new", {"nmID": 244631445, "price": 16500}))
         self.assertIn("Нужно поднять цену", self.tg[-1])
         self.assertEqual(self.uploads(), [])                                               # сами не поднимаем
+
+
+
+class CardUpdate(unittest.TestCase):
+    """wb_card_update: только характеристики (по справочнику), габариты, название, описание; сразу по правилу владельца;
+    прежняя версия — в заявке, «Вернуть как было»; запрещённые поля — отказ; «Стоп» — через «Да»."""
+    patch = tm.Channels.patch
+
+    def setUp(self):
+        Agent.setUp(self)
+        self.card = {"nmID": 244631445, "imtID": 1, "subjectID": 7, "vendorCode": "00615", "brand": "Anua", "title": "Крем Anua",
+                     "description": "Старое описание", "dimensions": {"length": 10, "width": 10, "height": 20, "weightBrutto": 0.3},
+                     "characteristics": [{"id": 1, "name": "Объём", "value": 50}, {"id": 2, "name": "Назначение", "value": ["увлажнение"]}],
+                     "sizes": [{"chrtID": 501, "techSize": "0", "skus": ["8809640738135"]}], "photos": [{"big": "x"}]}
+        self.updates = []
+        base = mpk.requests.request
+
+        def wb(method, url, params=None, json=None, headers=None, timeout=None):
+            path = url.split(".wildberries.ru", 1)[1]
+            if path == "/content/v2/get/cards/list":
+                return Resp(200, {"cards": [self.card]})
+            if path == "/content/v2/object/charcs/7":
+                return Resp(200, {"data": [{"charcID": 1, "name": "Объём", "charcType": 4, "unitName": "мл"},
+                                           {"charcID": 2, "name": "Назначение", "charcType": 1, "maxCount": 2},
+                                           {"charcID": 3, "name": "Тип кожи", "charcType": 1, "maxCount": 0},
+                                           {"charcID": 9, "name": "Старое поле", "charcType": 0}]})
+            if path == "/content/v2/cards/update":
+                self.updates.append(json)
+                c = json[0]                                                               # WB сохранил — карточка стала такой
+                self.card = dict(self.card, **{k: c[k] for k in ("title", "description", "dimensions")},
+                                 characteristics=[dict(x) for x in c["characteristics"]])
+                return Resp(200, {"error": False})
+            return base(method, url, params=params, json=json, headers=headers, timeout=timeout)
+        self.patch(mpk.requests, "request", wb)
+
+    def upd(self, **p):
+        return self.c.post("/agent/api/requests", headers=self.h, json={"kind": "wb_card_update", "shop": "wb", "params": {"nmID": 244631445, **p}})
+
+    def test_forbidden_fields(self):
+        for bad in ({"price": 13500}, {"brand": "X"}, {"vendorCode": "1"}, {"sizes": []}, {"skus": ["1"]}, {"photos": []}, {"_restore": True}):
+            r = self.upd(title="Новое", **bad)
+            self.assertEqual(r.status_code, 400, bad)
+            self.assertIn("не меняются", r.get_json()["error"])
+        self.assertEqual(self.upd(title="x" * 61).status_code, 400)
+        self.assertEqual(self.upd().status_code, 400)
+        self.assertEqual(self.upd(dimensions={"length": -1}).status_code, 400)
+        self.assertEqual(self.updates, [])
+
+    def test_auto_update_keeps_the_rest(self):
+        r = self.upd(characteristics=[{"id": 1, "value": "60"}, {"id": 3, "value": ["все типы"]}], dimensions={"height": 12},
+                     title="Anua PDRN крем 60 мл").get_json()
+        self.assertEqual((r["status"], r["auto"]), ("done", True))
+        body = self.updates[0][0]
+        self.assertEqual((body["brand"], body["vendorCode"], body["sizes"]), ("Anua", "00615", self.card["sizes"]))
+        self.assertNotIn("photos", body)
+        self.assertEqual(body["characteristics"], [{"id": 2, "value": ["увлажнение"]}, {"id": 1, "value": 60}, {"id": 3, "value": ["все типы"]}])
+        self.assertEqual(body["dimensions"], {"length": 10, "width": 10, "height": 12, "weightBrutto": 0.3})
+        self.assertEqual(r["result"]["before"]["title"], "Крем Anua")
+        self.assertEqual(r["result"]["before"]["characteristics"], [{"id": 1, "value": 50}, {"id": 2, "value": ["увлажнение"]}])
+
+    def test_checked_by_reference(self):
+        for chars in ([{"id": 99, "value": "x"}], [{"id": 9, "value": "x"}], [{"id": 1, "value": "много"}], [{"id": 2, "value": ["a", "b", "c"]}]):
+            r = self.upd(characteristics=chars).get_json()
+            self.assertEqual(r["status"], "error", chars)
+        self.assertEqual(self.updates, [])
+
+    def test_revert(self):
+        rid = self.upd(characteristics=[{"id": 3, "value": ["все типы"]}], title="Новое название", description="Новое").get_json()["id"]
+        self.assertEqual(self.card["title"], "Новое название")
+        j = self.c.post(f"/admin/api/agent/{rid}/revert").get_json()
+        self.assertEqual(j["status"], "done")
+        body = self.updates[-1][0]
+        self.assertEqual((body["title"], body["description"]), ("Крем Anua", "Старое описание"))
+        self.assertEqual(body["characteristics"], [{"id": 1, "value": 50}, {"id": 2, "value": ["увлажнение"]}])   # добавленная — убрана
+        self.assertEqual(self.c.post(f"/admin/api/agent/{rid}/revert").status_code, 409)
+        import admin
+        self.patch(admin, "who", lambda: {"role": "manager", "perms": ["orders"]})
+        self.assertEqual(self.c.post(f"/admin/api/agent/{j['id']}/revert").status_code, 403)
+
+    def test_stop_and_digest(self):
+        self.upd(title="Anua PDRN крем 60 мл")
+        self.assertIn("карточка WB", agent.digest())
+        self.c.post("/admin/api/agent/rules", json={"stop": True})
+        self.assertEqual(self.upd(title="Ещё").get_json()["status"], "new")
+        self.assertEqual(len(self.updates), 1)
+
+    def test_reads(self):
+        j = self.c.get("/agent/api/read/wb/charcs", headers=self.h, query_string={"p": '{"subjectId": 7}'}).get_json()
+        self.assertEqual(len(j["data"]["data"]), 4)
 
 
 if __name__ == "__main__":
