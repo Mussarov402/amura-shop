@@ -46,7 +46,7 @@ def db():
         d.run("CREATE TABLE IF NOT EXISTS agent_corridor (shop TEXT, ident TEXT, pid TEXT DEFAULT '', name TEXT DEFAULT '',"
               " base DOUBLE PRECISION DEFAULT 0, base_note TEXT DEFAULT '', lower DOUBLE PRECISION DEFAULT 0, upper DOUBLE PRECISION DEFAULT 0,"
               " price DOUBLE PRECISION DEFAULT 0, margin DOUBLE PRECISION DEFAULT 0, calc_at DOUBLE PRECISION DEFAULT 0, note TEXT DEFAULT '',"
-              " full INTEGER DEFAULT 0, last_change DOUBLE PRECISION DEFAULT 0, PRIMARY KEY (shop, ident))")
+              " complete INTEGER DEFAULT 0, last_change DOUBLE PRECISION DEFAULT 0, PRIMARY KEY (shop, ident))")
         d.c.commit()
         _ready[0] = True
     return d
@@ -597,7 +597,7 @@ def list_route():
 PRICE_KINDS = ("wb_price", "ozon_price")
 PR = {"on": ("agent_price_rule", "0"), "margin": ("agent_price_margin", "20"), "margin_new": ("agent_price_margin_new", "15")}
 STEP_PCT, GAP, UP_PCT, NEW_DAYS = 5, 86400, 15, 30
-CCOLS = "shop, ident, pid, name, base, base_note, lower, upper, price, margin, calc_at, note, full, last_change"
+CCOLS = "shop, ident, pid, name, base, base_note, lower, upper, price, margin, calc_at, note, complete, last_change"
 
 
 def price_rules():
@@ -676,7 +676,7 @@ def corridor(ch, ident):
     note = (c.get("error") or "") or (f"маржа {margin:g} %" + (" (товар моложе 30 дней)" if young else "")
                                       + ("; без строк: " + ", ".join(missing) if missing else ""))
     row = {"pid": pid, "name": prod["name"], "base": base, "base_note": base_note, "lower": lower or 0, "upper": round(base * (1 + UP_PCT / 100)),
-           "price": price, "margin": margin, "calc_at": time.time(), "note": note, "full": 1 if (lower and not missing) else 0}
+           "price": price, "margin": margin, "calc_at": time.time(), "note": note, "complete": 1 if (lower and not missing) else 0}
     corr_put(ch.key, ident, **row)
     return dict(row, disc=disc, shop=ch.key, ident=ident, last_change=old.get("last_change") or 0)
 
@@ -695,7 +695,7 @@ def price_auto(kind, ch, p):
         new = float(p["price"]) * (1 - c["disc"] / 100)
     else:
         new = float(p["price"])
-    if not c["full"]:
+    if not c["complete"]:
         return False, f"нижняя граница неполная ({c['note']}) — через «Да»"
     if new < c["lower"]:
         return False, f"ниже коридора: минимум {round(c['lower'])} ₸"
