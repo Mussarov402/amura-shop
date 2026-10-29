@@ -387,5 +387,32 @@ class CardUpdate(unittest.TestCase):
         self.assertEqual(len(j["data"]["data"]), 4)
 
 
+
+class WBParams(unittest.TestCase):
+    """GET-параметры WB: булевы — строчными (isAnswered=false), ошибка WB — с её текстом."""
+    patch = tm.Channels.patch
+
+    def setUp(self):
+        Agent.setUp(self)
+        self.urls = []
+
+        def wb(method, url, params=None, json=None, headers=None, timeout=None):
+            import requests
+            self.urls.append(requests.Request(method, url, params=params).prepare().url)
+            if params.get("isAnswered") not in ("true", "false"):
+                return Resp(400, {"data": None, "error": True, "errorText": "Некорректный параметр isAnswered", "additionalErrors": None})
+            return Resp(200, {"data": {"questions": [], "countUnanswered": 1}})
+        self.patch(mpk.requests, "request", wb)
+
+    def test_bool_lowercase(self):
+        j = self.c.get("/agent/api/read/wb/questions", headers=self.h, query_string={"p": '{"isAnswered": false, "take": 50, "skip": 0}'}).get_json()
+        self.assertTrue(j["ok"])
+        self.assertIn("isAnswered=false", self.urls[0])
+
+    def test_error_text(self):
+        j = self.c.get("/agent/api/read/wb/questions", headers=self.h, query_string={"p": '{"isAnswered": "нет", "take": 50, "skip": 0}'}).get_json()
+        self.assertIn("Некорректный параметр isAnswered", j["error"])
+
+
 if __name__ == "__main__":
     unittest.main()

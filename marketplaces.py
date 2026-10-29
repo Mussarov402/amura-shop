@@ -226,12 +226,15 @@ class WB(Channel):
 
     def req(self, method, base, path, **kw):
         url = os.environ.get(f"WB_{base.upper()}_API", f"https://{base}-api.wildberries.ru").rstrip("/") + path
+        if kw.get("params"):                             # requests шлёт False как «False», а WB ждёт «false» — иначе HTTP 400
+            kw["params"] = {k: (str(v).lower() if isinstance(v, bool) else v) for k, v in kw["params"].items()}
         r = requests.request(method, url, timeout=30, headers={"Authorization": self.env("API_TOKEN"),
                                                               "Content-Type": "application/json"}, **kw)
         j = _json(r)
         if r.status_code >= 400:
-            msg = (j[0] if isinstance(j, list) and j else j if isinstance(j, dict) else {}).get("message") or f"HTTP {r.status_code}"
-            raise ApiError(r.status_code, str(msg)[:300])
+            e = j[0] if isinstance(j, list) and j else j if isinstance(j, dict) else {}
+            msg = " — ".join(str(e[k]) for k in ("message", "errorText", "title", "detail") if e.get(k)) or (r.text or "").strip()[:200]
+            raise ApiError(r.status_code, f"HTTP {r.status_code}: {msg}"[:400] if msg else f"HTTP {r.status_code}")
         return j
 
     def fetch(self, since, to):
