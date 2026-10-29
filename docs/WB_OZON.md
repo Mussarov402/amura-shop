@@ -85,3 +85,10 @@
 - Ставка: 10% от цены. Без риска потратить деньги без продаж.
 
 **Отзывы на старте.** Без отзывов конверсия ниже. Первые отзывы — платный сервис площадки («Отзывы за баллы» на WB): предложу отдельно, только с согласия владельца.
+
+## Данные карточек
+
+### Anua PDRN Hyaluronic Acid 100 Moisturizing Cream, 60 мл (00615, EAN 8809640738135)
+Состав (INCI, с коробки, 29.10.2026): Water, Squalane, Glycerin, Niacinamide, Pentylene Glycol, 1,2-Hexanediol, Sodium DNA, Hydrolyzed Collagen, Sodium Hyaluronate, Melia Azadirachta Leaf Extract, Hydrolyzed Hyaluronic Acid, Melia Azadirachta Flower Extract, Coccinia Indica Fruit Extract, Hyaluronic Acid, Aloe Barbadensis Flower Extract, Solanum Melongena (Eggplant) Fruit Extract, Ocimum Sanctum Leaf Extract, Corallina Officinalis Extract, Curcuma Longa (Turmeric) Root Extract, Centella Asiatica Leaf Extract, Diphenylsiloxy Phenyl Trimethicone, PCA Dimethicone, Butylene Glycol, Propanediol, Ammonium Acryloyldimethyltaurate/VP Copolymer, Diglycerin, Hydroxyethyl Acrylate/Sodium Acryloyldimethyl Taurate Copolymer, Acrylates/C10-30 Alkyl Acrylate Crosspolymer, C12-20 Alkyl Glucoside, Methylpropanediol, Ethylhexylglycerin, Adenosine, Sodium Phytate, Aminomethyl Propanediol, PVM/MA Copolymer, Madecassoside, C12-13 Alketh-9, Dimethylsilanol Hyaluronate, Hydrolyzed Sodium Hyaluronate, Asiaticoside, Potassium Hyaluronate, Hydroxypropyltrimonium Hyaluronate, Sodium Hyaluronate Crosspolymer, Sodium Hyaluronate Dimethylsilanol, Sodium Acetylated Hyaluronate, Behenyl Alcohol, C14-22 Alcohols, Carbomer.
+
+По корейскому составу: Sodium DNA (PDRN) — 1 000 ppm (0,1%), гиалуронат натрия — 600 ppm, гидролизованная гиалуроновая кислота — 300 ppm, гиалуроновая кислота — 100 ppm. Отдушки и красителей в составе нет. Упаковка — туба в картонной коробке.
