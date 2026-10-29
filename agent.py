@@ -125,6 +125,7 @@ READ = {
         "cards": ("POST", "content", "/content/v2/get/cards/list", ["settings"], "карточки (Content API)"),
         "charcs": ("GET", "content", "/content/v2/object/charcs/{subjectId}", ["subjectId", "locale"], "характеристики предмета (справочник)"),
         "card_errors": ("POST", "content", "/content/v2/cards/error/list", ["cursor", "order"], "ошибки создания и правки карточек"),
+        "cards_trash": ("POST", "content", "/content/v2/get/cards/trash", ["settings"], "карточки в корзине"),
         "prices": ("GET", "discounts-prices", "/api/v2/list/goods/filter", ["limit", "offset", "filterNmID"], "цены и скидки"),
         "feedbacks": ("GET", "feedbacks", "/api/v1/feedbacks", ["isAnswered", "nmId", "take", "skip", "order", "dateFrom", "dateTo"], "отзывы"),
         "questions": ("GET", "feedbacks", "/api/v1/questions", ["isAnswered", "nmId", "take", "skip", "order", "dateFrom", "dateTo"], "вопросы"),
@@ -349,6 +350,13 @@ def _wb_card_update(ch, p):
     return {"before": before, "nmID": int(p["nmID"]), "response": res}
 
 
+def _wb_trash(ch, p):
+    """В корзину WB (не удаление: из корзины можно вернуть; WB сам удаляет через 30 дней, если нет остатков). p["_recover"] — вернуть."""
+    nms = [int(x) for x in p["nmIDs"]]
+    path = "/content/v2/cards/recover" if p.get("_recover") else "/content/v2/cards/delete/trash"
+    return {"nmIDs": nms, "response": ch.req("POST", "content", path, json={"nmIDs": nms})}
+
+
 def _wb_bid(ch, p):
     return ch.req("PATCH", "advert", "/api/advert/v1/bids", json={"bids": [{"advert_id": int(p["advert_id"]), "nm_bids": [
         {"nm_id": int(p["nm_id"]), "bid_kopecks": int(round(float(p["bid"]) * 100)), "placement": p.get("placement", "combined")}]}]})
@@ -400,6 +408,8 @@ ACTIONS = {
     "wb_price": {"shop": mpk.WB, "params": ["nmID", "price?", "discount?"], "about": "цена (₸) и/или скидка (%) WB", "run": _wb_price},
     "wb_card_text": {"shop": mpk.WB, "params": ["nmID", "title?", "description?"], "about": "название и/или описание карточки WB",
                      "run": _wb_card_text},
+    "wb_card_trash": {"shop": mpk.WB, "params": ["nmIDs"], "about": "убрать карточки WB в корзину (архив) — всегда через «Да»; "
+                      "вернуть — кнопка владельца «Вернуть как было» (/content/v2/cards/recover)", "run": _wb_trash},
     "wb_card_update": {"shop": mpk.WB, "params": ["nmID", "characteristics?", "dimensions?", "title?", "description?"],
                        "about": "карточка WB: характеристики [{id, value}] по справочнику charcs, габариты {length, width, height, weightBrutto}, "
                                 "название (≤60), описание. Цену, бренд, vendorCode, штрихкоды и фото не меняет", "run": _wb_card_update},
@@ -429,6 +439,14 @@ def validate(kind, p):
         raise ValueError("нужна цена или скидка")
     if kind == "wb_card_text" and not (p.get("title") or p.get("description")):
         raise ValueError("нужно название или описание")
+    if kind == "wb_card_trash":
+        nms = p["nmIDs"] if isinstance(p["nmIDs"], list) else [p["nmIDs"]]
+        try:
+            p = {"nmIDs": sorted({int(x) for x in nms})}
+        except (TypeError, ValueError):
+            raise ValueError("nmIDs — список артикулов WB")
+        if not 1 <= len(p["nmIDs"]) <= 1000:
+            raise ValueError("nmIDs — от 1 до 1000 артикулов")
     if kind == "wb_card_update":
         allowed = {x.rstrip("?") for x in a["params"]}
         bad = [k for k in p if k not in allowed]
@@ -467,6 +485,7 @@ def summary(kind, ch, p):
               "wb_campaign": lambda: f"кампания {p['advert_id']}: {dict(start='запустить', pause='пауза', stop='завершить')[p['action']]}",
               "wb_budget_deposit": lambda: f"кампания {p['advert_id']}: пополнить на {p['sum']} ₸",
               "wb_card_text": lambda: f"nmID {p['nmID']}: " + ("название «" + p["title"][:120] + "» " if p.get("title") else "") + ("новое описание" if p.get("description") else ""),
+              "wb_card_trash": lambda: ("вернуть из корзины" if p.get("_recover") else "в корзину") + " nmID " + ", ".join(map(str, p["nmIDs"]))[:300],
               "wb_card_update": lambda: f"nmID {p['nmID']}: " + "; ".join(x for x in (
                   ("характеристики " + ", ".join(f"{c['id']}={c.get('value')}" for c in p["characteristics"])[:300]) if p.get("characteristics") else "",
                   ("габариты " + ", ".join(f"{k} {v}" for k, v in p["dimensions"].items())) if p.get("dimensions") else "",
@@ -930,21 +949,26 @@ def revert(rid):
         return err
     with db() as d:
         row = d.run("SELECT kind, shop, status, result FROM agent_req WHERE id=%s", (rid,), one=True)
-    if not row or row[0] != "wb_card_update" or row[2] != "done":
-        return jsonify(ok=False, error="Вернуть можно только выполненное изменение карточки"), 400
+    if not row or row[0] not in ("wb_card_update", "wb_card_trash") or row[2] != "done":
+        return jsonify(ok=False, error="Вернуть можно только выполненное изменение карточки или перенос в корзину"), 400
     res = json.loads(row[3] or "{}")
     if res.get("reverted"):
         return jsonify(ok=False, error=f"Уже возвращено (заявка № {res['reverted']})"), 409
-    before = res.get("before") or {}
-    p = {"nmID": res.get("nmID"), "_restore": True, **{k: v for k, v in before.items() if v not in (None, {})}}
     ch = shop(row[1], mpk.WB)
-    if not ch or len(p) <= 2:
+    if row[0] == "wb_card_trash":
+        p = {"nmIDs": res.get("nmIDs") or [], "_recover": True}
+        what = f"вернуть из корзины — nmID {', '.join(map(str, p['nmIDs']))[:200]}"
+        enough = bool(p["nmIDs"])
+    else:
+        before = res.get("before") or {}
+        p = {"nmID": res.get("nmID"), "_restore": True, **{k: v for k, v in before.items() if v not in (None, {})}}
+        what, enough = f"вернуть карточку как было — nmID {p['nmID']}", len(p) > 2
+    if not ch or not enough:
         return jsonify(ok=False, error="Нечего возвращать или у магазина нет ключа"), 400
     with db() as d:
         nid = d.run("INSERT INTO agent_req (at, kind, shop, params, summary, comment, status, result, decided, who) "
-                    "VALUES (%s, 'wb_card_update', %s, %s, %s, %s, 'new', '', 0, '')",
-                    (time.time(), ch.key, json.dumps(p, ensure_ascii=False), f"{ch.title}: вернуть карточку как было — nmID {p['nmID']}",
-                     f"откат заявки № {rid}"), ins=True)
+                    "VALUES (%s, %s, %s, %s, %s, %s, 'new', '', 0, '')",
+                    (time.time(), row[0], ch.key, json.dumps(p, ensure_ascii=False), f"{ch.title}: {what}", f"откат заявки № {rid}"), ins=True)
     status, out = execute(nid, "владелец (откат)")
     if status == "done":
         res["reverted"] = nid

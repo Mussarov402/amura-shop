@@ -443,5 +443,46 @@ class PgNames(unittest.TestCase):
         self.assertNotIn(" full", agent.CCOLS)
 
 
+
+class CardTrash(unittest.TestCase):
+    """wb_card_trash: в корзину WB — только после «Да»; «Вернуть как было» — /content/v2/cards/recover."""
+    patch = tm.Channels.patch
+
+    def setUp(self):
+        Agent.setUp(self)
+        self.sent = []
+        base = mpk.requests.request
+
+        def wb(method, url, params=None, json=None, headers=None, timeout=None):
+            path = url.split(".wildberries.ru", 1)[1]
+            if path in ("/content/v2/cards/delete/trash", "/content/v2/cards/recover"):
+                self.sent.append((path, json))
+                return Resp(200, {"data": None, "error": False, "errorText": ""})
+            return base(method, url, params=params, json=json, headers=headers, timeout=timeout)
+        self.patch(mpk.requests, "request", wb)
+
+    def new(self, **p):
+        return self.c.post("/agent/api/requests", headers=self.h, json={"kind": "wb_card_trash", "shop": "wb", "params": p})
+
+    def test_only_with_yes_and_recover(self):
+        r = self.new(nmIDs=[138042931]).get_json()
+        self.assertEqual((r["status"], r["auto"]), ("new", False))                      # даже при включённых правилах
+        self.assertEqual(self.sent, [])
+        self.assertIn("в корзину nmID 138042931", self.tg[-1])
+        self.assertEqual(self.c.post(f"/admin/api/agent/{r['id']}", json={"decision": "yes"}).get_json()["status"], "done")
+        self.assertEqual(self.sent, [("/content/v2/cards/delete/trash", {"nmIDs": [138042931]})])
+        j = self.c.post(f"/admin/api/agent/{r['id']}/revert").get_json()
+        self.assertEqual(j["status"], "done")
+        self.assertEqual(self.sent[-1], ("/content/v2/cards/recover", {"nmIDs": [138042931]}))
+        self.assertEqual(self.c.post(f"/admin/api/agent/{r['id']}/revert").status_code, 409)
+
+    def test_validation_and_no_injection(self):
+        self.assertEqual(self.new(nmIDs=["abc"]).status_code, 400)
+        self.assertEqual(self.new(nmIDs=[]).status_code, 400)
+        r = self.new(nmIDs=[1], _recover=True).get_json()                                # менеджер не может подменить на «вернуть»
+        self.c.post(f"/admin/api/agent/{r['id']}", json={"decision": "yes"})
+        self.assertEqual(self.sent, [("/content/v2/cards/delete/trash", {"nmIDs": [1]})])
+
+
 if __name__ == "__main__":
     unittest.main()
