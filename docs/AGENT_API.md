@@ -46,6 +46,7 @@
 | `stocks` | POST marketplace `/api/v3/stocks/{warehouseId}` | `warehouseId`, `chrtIds` |
 | `cards` | POST content `/content/v2/get/cards/list` | `settings` |
 | `charcs` | GET content `/content/v2/object/charcs/{subjectId}` | `subjectId`, `locale` |
+| `cards_trash` | POST content `/content/v2/get/cards/trash` | `settings` |
 | `card_errors` | POST content `/content/v2/cards/error/list` | `cursor`, `order` |
 | `prices` | GET discounts-prices `/api/v2/list/goods/filter` | `limit`, `offset`, `filterNmID` |
 | `feedbacks` | GET feedbacks `/api/v1/feedbacks` | `isAnswered`, `nmId`, `take`, `skip`, `order`, `dateFrom`, `dateTo` |
@@ -111,6 +112,7 @@ POST /agent/api/requests
 | `wb_price` | WB | `nmID`, `price` (₸) и/или `discount` (%) |
 | `wb_card_text` | WB | `nmID`, `title` и/или `description` (остальное в карточке не меняется) |
 | `wb_card_update` | WB | `nmID` и хотя бы одно из полей: `characteristics` (список `{id, value}`, `id` из справочника `charcs` предмета), `dimensions` (`{length, width, height}` — целые, см; `weightBrutto` — кг), `title` (≤60 символов), `description`. Цену, бренд, vendorCode, штрихкоды и фото менять нельзя — заявка получит `400`. Значения проверяются по справочнику: `charcType` 4 — одно число, 1 — список строк не длиннее `maxCount`, 0 — характеристика не используется. Остальные поля карточки не меняются. Прежняя версия изменённых полей сохраняется в `result.before`. |
+| `wb_card_trash` | WB | `nmIDs` (список). Убирает карточки в корзину WB — это не удаление. Только через «Да». Вернуть — кнопка владельца «Вернуть как было» (`/content/v2/cards/recover`). WB сам удаляет карточки, пролежавшие в корзине больше 30 дней, если на них нет остатков. |
 | `wb_bid` | WB | `advert_id`, `nm_id`, `bid` (₸), `placement` (`combined` / `search` / `recommendations`) |
 | `wb_campaign` | WB | `advert_id`, `action` (`start` / `pause` / `stop`) |
 | `wb_budget_deposit` | WB | `advert_id`, `sum` (₸), `source` (0 — счёт, 1 — баланс, 3 — бонусы). **Всегда через «Да».** |
