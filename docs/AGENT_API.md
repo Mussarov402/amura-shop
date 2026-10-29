@@ -43,6 +43,8 @@
 | `warehouses` | GET marketplace `/api/v3/warehouses` | — |
 | `stocks` | POST marketplace `/api/v3/stocks/{warehouseId}` | `warehouseId`, `chrtIds` |
 | `cards` | POST content `/content/v2/get/cards/list` | `settings` |
+| `charcs` | GET content `/content/v2/object/charcs/{subjectId}` | `subjectId`, `locale` |
+| `card_errors` | POST content `/content/v2/cards/error/list` | `cursor`, `order` |
 | `prices` | GET discounts-prices `/api/v2/list/goods/filter` | `limit`, `offset`, `filterNmID` |
 | `feedbacks` | GET feedbacks `/api/v1/feedbacks` | `isAnswered`, `nmId`, `take`, `skip`, `order`, `dateFrom`, `dateTo` |
 | `questions` | GET feedbacks `/api/v1/questions` | те же |
@@ -106,6 +108,7 @@ POST /agent/api/requests
 | `wb_question_answer` | WB | `id`, `text` |
 | `wb_price` | WB | `nmID`, `price` (₸) и/или `discount` (%) |
 | `wb_card_text` | WB | `nmID`, `title` и/или `description` (остальное в карточке не меняется) |
+| `wb_card_update` | WB | `nmID` и хотя бы одно из полей: `characteristics` (список `{id, value}`, `id` из справочника `charcs` предмета), `dimensions` (`{length, width, height}` — целые, см; `weightBrutto` — кг), `title` (≤60 символов), `description`. Цену, бренд, vendorCode, штрихкоды и фото менять нельзя — заявка получит `400`. Значения проверяются по справочнику: `charcType` 4 — одно число, 1 — список строк не длиннее `maxCount`, 0 — характеристика не используется. Остальные поля карточки не меняются. Прежняя версия изменённых полей сохраняется в `result.before`. |
 | `wb_bid` | WB | `advert_id`, `nm_id`, `bid` (₸), `placement` (`combined` / `search` / `recommendations`) |
 | `wb_campaign` | WB | `advert_id`, `action` (`start` / `pause` / `stop`) |
 | `wb_budget_deposit` | WB | `advert_id`, `sum` (₸), `source` (0 — счёт, 1 — баланс, 3 — бонусы). **Всегда через «Да».** |
@@ -120,6 +123,7 @@ POST /agent/api/requests
 
 - **Ответы на отзывы 4–5★** (WB и Ozon). Оценку сервер проверяет сам: WB — `/api/v1/feedback`, Ozon — `/v1/review/info`. Отзывы 1–3★ — всегда через «Да».
 - **Ответы на вопросы WB.**
+- **Карточки WB** (`wb_card_update`, слово владельца 29.10.2026). У владельца у каждой такой заявки есть кнопка «Вернуть как было»: прежняя версия изменённых полей отправляется обратно.
 - **Ставки WB в пределах дневного бюджета магазина.** Бюджет владелец задаёт по каждому магазину; пока он 0, ставки идут через «Да». Ставка выполняется сразу, только если у кампании включён дневной лимит и он не выше бюджета.
 
 Всегда через «Да»:
