@@ -92,3 +92,15 @@
 Состав (INCI, с коробки, 29.10.2026): Water, Squalane, Glycerin, Niacinamide, Pentylene Glycol, 1,2-Hexanediol, Sodium DNA, Hydrolyzed Collagen, Sodium Hyaluronate, Melia Azadirachta Leaf Extract, Hydrolyzed Hyaluronic Acid, Melia Azadirachta Flower Extract, Coccinia Indica Fruit Extract, Hyaluronic Acid, Aloe Barbadensis Flower Extract, Solanum Melongena (Eggplant) Fruit Extract, Ocimum Sanctum Leaf Extract, Corallina Officinalis Extract, Curcuma Longa (Turmeric) Root Extract, Centella Asiatica Leaf Extract, Diphenylsiloxy Phenyl Trimethicone, PCA Dimethicone, Butylene Glycol, Propanediol, Ammonium Acryloyldimethyltaurate/VP Copolymer, Diglycerin, Hydroxyethyl Acrylate/Sodium Acryloyldimethyl Taurate Copolymer, Acrylates/C10-30 Alkyl Acrylate Crosspolymer, C12-20 Alkyl Glucoside, Methylpropanediol, Ethylhexylglycerin, Adenosine, Sodium Phytate, Aminomethyl Propanediol, PVM/MA Copolymer, Madecassoside, C12-13 Alketh-9, Dimethylsilanol Hyaluronate, Hydrolyzed Sodium Hyaluronate, Asiaticoside, Potassium Hyaluronate, Hydroxypropyltrimonium Hyaluronate, Sodium Hyaluronate Crosspolymer, Sodium Hyaluronate Dimethylsilanol, Sodium Acetylated Hyaluronate, Behenyl Alcohol, C14-22 Alcohols, Carbomer.
 
 По корейскому составу: Sodium DNA (PDRN) — 1 000 ppm (0,1%), гиалуронат натрия — 600 ppm, гидролизованная гиалуроновая кислота — 300 ppm, гиалуроновая кислота — 100 ppm. Отдушки и красителей в составе нет. Упаковка — туба в картонной коробке.
+
+Характеристики WB (план правки; старые значения сверить по карточке через /agent/api, когда будет MP_AGENT_TOKEN):
+- Назначение: увлажнение; восстановление; сияние; упругость кожи.
+- Тип кожи: для всех типов; чувствительная; сухая; нормальная; комбинированная.
+- Область применения: лицо. Время нанесения: утро и вечер.
+- Эффект: увлажняющий; восстанавливающий; укрепление барьера; сияние.
+- Активные компоненты: PDRN (Sodium DNA); гиалуроновая кислота; коллаген; ниацинамид; сквалан; центелла; мадекассозид.
+- Особенности: без отдушек; без красителей. Текстура: гель-крем.
+- Объём: 60 мл. Страна: Республика Корея. Комплектация: крем — 1 шт. Упаковка: туба в коробке.
+- ТН ВЭД: 3304990000. Модель: PDRN Hyaluronic Acid 100 Moisturizing Cream.
+- Состав: INCI выше.
+- Не хватает: срок годности, вес брутто, габариты коробки, номер декларации ЕАЭС.
