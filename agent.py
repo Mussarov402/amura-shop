@@ -213,6 +213,8 @@ def read_route(key, name):
         args = json.loads(request.args.get("p") or "{}")
         if not isinstance(args, dict):
             raise ValueError
+        # параметры можно передать и обычной строкой запроса (?isAnswered=false&take=50) — p важнее
+        args = {**{k: v for k, v in request.args.items() if k != "p"}, **args}
     except ValueError:
         return jsonify(ok=False, error="p — JSON-объект параметров"), 400
     try:

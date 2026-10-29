@@ -414,5 +414,11 @@ class WBParams(unittest.TestCase):
         self.assertIn("Некорректный параметр isAnswered", j["error"])
 
 
+    def test_plain_query_params(self):
+        j = self.c.get("/agent/api/read/wb/questions?isAnswered=false&take=50&skip=0", headers=self.h).get_json()
+        self.assertTrue(j["ok"])
+        self.assertIn("isAnswered=false&take=50&skip=0", self.urls[0])
+
+
 if __name__ == "__main__":
     unittest.main()
