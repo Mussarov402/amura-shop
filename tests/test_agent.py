@@ -420,5 +420,28 @@ class WBParams(unittest.TestCase):
         self.assertIn("isAnswered=false&take=50&skip=0", self.urls[0])
 
 
+
+class PgNames(unittest.TestCase):
+    """Тесты идут на SQLite, а сервер — на Postgres: имена колонок модуля не должны быть зарезервированными словами Postgres
+    (29.10.2026 колонка «full» уронила /agent/api/requests с 500)."""
+    RESERVED = set("all analyse analyze and any array as asc asymmetric authorization binary both case cast check collate collation column "
+                   "concurrently constraint create cross current_catalog current_date current_role current_schema current_time "
+                   "current_timestamp current_user default deferrable desc distinct do else end except false fetch for foreign freeze "
+                   "from full grant group having ilike in initially inner intersect into is isnull join lateral leading left like limit "
+                   "localtime localtimestamp natural not notnull null offset on only or order outer overlaps placing primary references "
+                   "returning right select session_user similar some symmetric system_user table tablesample then to trailing true union "
+                   "unique user using variadic verbose when where window with".split())
+
+    def test_columns(self):
+        import re
+        src = open(agent.__file__, encoding="utf-8").read()
+        tables = re.findall(r"CREATE TABLE IF NOT EXISTS (\w+) \((.*?)\)\"\)", src, re.S)
+        self.assertEqual(len(tables), 3)
+        for name, body in tables:
+            cols = [c.strip().split()[0] for c in re.sub(r'"\s*"', " ", body).split(",") if c.strip() and not c.strip().startswith("PRIMARY")]
+            self.assertFalse([c for c in cols if c.lower() in self.RESERVED], name)
+        self.assertNotIn(" full", agent.CCOLS)
+
+
 if __name__ == "__main__":
     unittest.main()
