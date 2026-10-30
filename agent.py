@@ -16,6 +16,7 @@ import json
 import os
 import threading
 import time
+from datetime import datetime
 
 from flask import Blueprint, abort, jsonify, request
 
@@ -277,11 +278,23 @@ def _wb_get_card(ch, nm):
     return c
 
 
+DOC_FIELDS = ("id", "type", "number", "productNumber", "tradeName", "applicant", "startDate", "endDate", "isEndless")
+
+
+def wb_docs(d, keep_id=True):
+    """documents карточки для /content/v2/cards/update — только поля схемы (ответ cards/list содержит и служебные).
+    WB перезаписывает documents целиком, поэтому неизменённые документы передаём тоже — с id."""
+    d = d if isinstance(d, dict) else {"items": d or []}
+    items = [{k: x[k] for k in DOC_FIELDS if k in x and (keep_id or k != "id")} for x in d.get("items") or [] if isinstance(x, dict)]
+    return {"excludeDocuments": bool(d.get("excludeDocuments")), "items": items}
+
+
 def _wb_body(c):
     """Тело /content/v2/cards/update из карточки: метод перезаписывает карточку, поэтому передаём всё, что в ней есть;
     характеристики — как {id, value}. Фото, видео и ярлыки этим методом не меняются (документация WB)."""
-    body = {k: c[k] for k in ("nmID", "vendorCode", "brand", "title", "description", "dimensions", "sizes", "documents", "gtin", "kizMarked")
-            if k in c}
+    body = {k: c[k] for k in ("nmID", "vendorCode", "brand", "title", "description", "dimensions", "sizes", "gtin", "kizMarked") if k in c}
+    if c.get("documents"):
+        body["documents"] = wb_docs(c["documents"])
     body["characteristics"] = [{"id": x["id"], "value": x.get("value")} for x in c.get("characteristics") or [] if x.get("id")]
     return body
 
@@ -295,7 +308,7 @@ def _wb_card_text(ch, p):
     return ch.req("POST", "content", "/content/v2/cards/update", json=[body])
 
 
-CARD_FIELDS = ("characteristics", "dimensions", "title", "description")
+CARD_FIELDS = ("characteristics", "dimensions", "title", "description", "documents")
 
 
 def _wb_charcs(ch, subject):
@@ -352,7 +365,10 @@ def _wb_card_update(ch, p):
         if p.get(k):
             before[k] = body.get(k, "")
             body[k] = p[k]
-    res = ch.req("POST", "content", "/content/v2/cards/update", json=[body])
+    if p.get("documents"):                      # заменяют все документы карточки; откат — прежние, без id (WB мог их удалить)
+        before["documents"] = body.get("documents") or {"excludeDocuments": False, "items": []}
+        body["documents"] = wb_docs(p["documents"], keep_id=not p.get("_restore"))
+    res = _wb_ok(ch.req("POST", "content", "/content/v2/cards/update", json=[body]))
     return {"before": before, "nmID": int(p["nmID"]), "response": res}
 
 
@@ -592,9 +608,9 @@ ACTIONS = {
                      "run": _wb_card_text},
     "wb_card_trash": {"shop": mpk.WB, "params": ["nmIDs"], "about": "убрать карточки WB в корзину (архив) — всегда через «Да»; "
                       "вернуть — кнопка владельца «Вернуть как было» (/content/v2/cards/recover)", "run": _wb_trash},
-    "wb_card_update": {"shop": mpk.WB, "params": ["nmID", "characteristics?", "dimensions?", "title?", "description?"],
+    "wb_card_update": {"shop": mpk.WB, "params": ["nmID", "characteristics?", "dimensions?", "title?", "description?", "documents?"],
                        "about": "карточка WB: характеристики [{id, value}] по справочнику charcs, габариты {length, width, height, weightBrutto}, "
-                                "название (≤60), описание. Цену, бренд, vendorCode, штрихкоды и фото не меняет", "run": _wb_card_update},
+                                "название (≤60), описание, документы [{type, number, startDate, endDate}] (заменяют все документы карточки). Цену, бренд, vendorCode, штрихкоды и фото не меняет", "run": _wb_card_update},
     "wb_card_create": {"shop": mpk.WB, "params": ["subjectID", "vendorCode", "title", "sizes", "description?", "brand?", "dimensions?",
                                                    "characteristics?", "photos?"],
                        "about": "новая карточка WB (/content/v2/cards/upload) без цены — цена отдельно, wb_price через «Да». "
@@ -715,6 +731,8 @@ def validate(kind, p):
             raise ValueError("нужно хотя бы одно поле: " + ", ".join(CARD_FIELDS))
         if p.get("title") and len(p["title"]) > 60:
             raise ValueError("название — не длиннее 60 символов")
+        if p.get("documents"):
+            p["documents"] = check_docs(p["documents"])
         if p.get("characteristics") is not None and (not isinstance(p["characteristics"], list)
                                                      or not all(isinstance(x, dict) and x.get("id") for x in p["characteristics"])):
             raise ValueError("characteristics — список {id, value}")
@@ -733,6 +751,46 @@ def validate(kind, p):
     return p
 
 
+def _dt(v, name):
+    v = str(v or "").strip()
+    if len(v) == 10:
+        v += "T00:00:00Z"
+    try:
+        datetime.strptime(v[:19], "%Y-%m-%dT%H:%M:%S")
+    except ValueError:
+        raise ValueError(f"{name} — дата ГГГГ-ММ-ДД")
+    return v
+
+
+def check_docs(d):
+    """Новые документы карточки WB: список [{type 1–9, number, startDate, endDate | isEndless, id?…}] → объект documents.
+    Заменяют все документы карточки; excludeDocuments («документы не нужны») через заявку не ставится."""
+    items = d.get("items") if isinstance(d, dict) else d
+    if isinstance(d, dict) and d.get("excludeDocuments"):
+        raise ValueError("excludeDocuments через заявку не ставится — WB сотрёт все документы")
+    if not isinstance(items, list) or not items:
+        raise ValueError("documents — список [{type, number, startDate, endDate}]")
+    out = []
+    for x in items:
+        if not isinstance(x, dict) or set(x) - set(DOC_FIELDS):
+            raise ValueError("документ — только поля " + ", ".join(DOC_FIELDS))
+        try:
+            t = int(x.get("type"))
+        except (TypeError, ValueError):
+            t = 0
+        if t not in (1, 2, 3, 4, 5, 7, 8, 9) or not str(x.get("number") or "").strip():
+            raise ValueError("документ — type (1 сертификат, 2 декларация, 3 СГР…) и number")
+        doc = {**x, "type": t, "number": str(x["number"]).strip(), "startDate": _dt(x.get("startDate"), "startDate")}
+        if x.get("isEndless"):
+            doc.pop("endDate", None)
+        else:
+            doc["endDate"] = _dt(x.get("endDate"), "endDate")
+            if doc["endDate"] <= doc["startDate"]:
+                raise ValueError("endDate — позже startDate")
+        out.append(doc)
+    return {"excludeDocuments": False, "items": out}
+
+
 def summary(kind, ch, p):
     a = ACTIONS[kind]["about"]
     detail = {"wb_feedback_answer": lambda: f"отзыв {p['id']}: «{p['text'][:300]}»", "wb_question_answer": lambda: f"вопрос {p['id']}: «{p['text'][:300]}»",
@@ -749,7 +807,9 @@ def summary(kind, ch, p):
               "wb_card_update": lambda: f"nmID {p['nmID']}: " + "; ".join(x for x in (
                   ("характеристики " + ", ".join(f"{c['id']}={c.get('value')}" for c in p["characteristics"])[:300]) if p.get("characteristics") else "",
                   ("габариты " + ", ".join(f"{k} {v}" for k, v in p["dimensions"].items())) if p.get("dimensions") else "",
-                  ("название «" + p["title"] + "»") if p.get("title") else "", "новое описание" if p.get("description") else "") if x),
+                  ("название «" + p["title"] + "»") if p.get("title") else "", "новое описание" if p.get("description") else "",
+                  ("документы: " + ", ".join(f"{d['number']} до {str(d.get('endDate') or 'бессрочно')[:10]}" for d in p["documents"]["items"]))
+                  if p.get("documents") else "") if x),
               "wb_promotion": lambda: f"акция {p['promotionID']}: товары {', '.join(map(str, p['nmIDs']))[:200]}",
               "ozon_promotion": lambda: f"акция {p['action_id']}: {len(p['products'])} товаров",
               "ozon_card_create": lambda: f"новая карточка {p['offer_id']} «{p['name'][:120]}», цена {p['price']} {p.get('currency_code') or '₸'}, "
@@ -951,7 +1011,7 @@ def corridor(ch, ident):
     """Пересчёт коридора товара: нижняя — минимальная цена калькулятора для маржи (20 %, товар моложе 30 дней с первой продажи —
     15 %; настройки владельца), верхняя — базовая +15 %. Базовую задаёт владелец, иначе — цена на момент первого расчёта."""
     import mp_calc
-    from datetime import datetime, timedelta
+    from datetime import timedelta
     pid, keys = ms_match(ch, ident)
     if not pid:
         raise ValueError("товар площадки не связан с товаром МойСклад")
