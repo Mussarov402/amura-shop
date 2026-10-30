@@ -19,11 +19,13 @@
 <script>
 (function(){
 const { A, make, show, type, caret, cue, E } = G;
-const END = 90;
+const END = 113;
 G.bg(END);
 
 /* сцена: заголовок печатается сверху → стеклянная карточка (динь) → наполнение; в конце — исчезает (вжух) */
-function scene(t0, t1, title, box, fill) {
+let K = 1;
+function scene(t0, t1, title, box, fill, od) {
+  K = od ? Math.max(1, (t1 - t0) / od) : 1;
   const tt = make('<div class="ttl" style="top:230px;opacity:0"></div>');
   const te = type(tt, title, t0 + .15, .045);
   show(tt, t0, t1, .3);
@@ -44,14 +46,14 @@ const row = (p, html, mt = 0) => make(`<div class="row" style="margin-top:${mt}p
 /* 1. Хук 0–6.6 */
 const hook = make('<div class="g-type" style="top:640px;font-size:84px"></div>');
 const he = type(hook, 'Честный знак,<br>КИЗ, маркировка —<br>это одно<br>и то же?', .3, .05);
-const cr = make('<span class="g-caret"></span>', hook); cr.style.opacity = 0; caret(cr, he, 6.2);
-A(hook, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(.9)' }], 6.2, .4, E.io, 'forwards'); cue(6.2, 'whoosh');
+const cr = make('<span class="g-caret"></span>', hook); cr.style.opacity = 0; caret(cr, he, 4.9);
+A(hook, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(.9)' }], 4.9, .4, E.io, 'forwards'); cue(4.9, 'whoosh');
 
 /* 2. Термины 6.6–15.6 */
-scene(6.6, 15.6, 'Да. Но слова<br>разные', [80, 720, 920, 760], (p, t) => {
+scene(5.28, 16.15, 'Да. Но слова<br>разные', [80, 720, 920, 760], (p, t) => {
   [['Маркировка', 'код на каждой коробке'], ['«Честный знак»', 'система маркировки в России'], ['КИЗ', 'сам код — так его называет WB']]
-    .forEach(([a, b], i) => pop(row(p, `<div class="ic">${i + 1}</div><div><div class="rt">${a}</div><div class="rs">${b}</div></div>`, i ? 60 : 0), t + i * 1.4));
-});
+    .forEach(([a, b], i) => pop(row(p, `<div class="ic">${i + 1}</div><div><div class="rt">${a}</div><div class="rs">${b}</div></div>`, i ? 60 : 0), t + K * i * 1.4));
+}, 9);
 
 /* 3. GTIN ≠ КИЗ 15.6–27 */
 function barcode() { let s = '', x = 0; const r = n => (Math.sin(n * 91.7) + 1) / 2; for (let i = 0; x < 300; i++) { const w = 3 + Math.round(r(i) * 7); if (i % 2 === 0) s += `<rect x="${x}" y="0" width="${w}" height="120" fill="#fff"/>`; x += w; } return `<svg width="300" height="120">${s}</svg>`; }
@@ -59,67 +61,67 @@ function matrix() { const N = 14, c = 12; let s = ''; const r = (i, j) => (Math.
   for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) { const on = j === 0 || i === N - 1 || (i === 0 && j % 2 === 0) || (j === N - 1 && i % 2 === 1) || (i > 0 && j > 0 && i < N - 1 && j < N - 1 && Math.abs(r(i, j)) > .5);
     if (on) s += `<rect x="${j * c}" y="${i * c}" width="${c}" height="${c}" fill="#fff"/>`; }
   return `<svg width="${N * c}" height="${N * c}">${s}</svg>`; }
-scene(15.6, 27, 'GTIN и КИЗ —<br>не одно и то же', [80, 570, 920, 1060], (p, t) => {
+scene(16.15, 32.15, 'GTIN и КИЗ —<br>не одно и то же', [80, 570, 920, 1060], (p, t) => {
   const a = pop(make(`<div style="opacity:0"><div class="lbl">GTIN</div><div style="display:flex;gap:36px;align-items:center;margin-top:20px">${barcode()}<div class="rt" style="font-size:40px">880…</div></div>
     <div class="rs" style="font-size:36px">Штрихкод товара с упаковки.<br><b style="color:#fff">Один на все одинаковые кремы</b></div></div>`, p), t);
-  pop(make('<div style="height:1.5px;background:rgba(255,255,255,.25);margin:46px 0;opacity:0"></div>', p), t + 1.8, null);
+  pop(make('<div style="height:1.5px;background:rgba(255,255,255,.25);margin:46px 0;opacity:0"></div>', p), t + K * 1.8, null);
   pop(make(`<div style="opacity:0"><div class="lbl">КИЗ</div><div style="display:flex;gap:36px;align-items:center;margin-top:20px">${matrix()}<div class="rt" style="font-size:38px">Data Matrix</div></div>
-    <div class="rs" style="font-size:36px"><b style="color:#fff">Свой на каждую коробку:</b><br>GTIN + серийный номер + защита</div></div>`, p), t + 3.2);
-});
+    <div class="rs" style="font-size:36px"><b style="color:#fff">Свой на каждую коробку:</b><br>GTIN + серийный номер + защита</div></div>`, p), t + K * 3.2);
+}, 11.4);
 
 /* 4. Когда нужен 27–36.5 */
-scene(27, 36.5, 'Когда нужен?', [80, 740, 920, 720], (p, t) => {
+scene(32.15, 45.84, 'Когда нужен?', [80, 740, 920, 720], (p, t) => {
   pop(row(p, `<div><div style="display:flex;gap:22px;align-items:center"><div class="rt">Россия · WB, Ozon</div><div class="chip y">Да</div></div>
     <div class="rs">Косметика — с 01.10.2025<br>WB без КИЗ не принимает — с 01.07.2026</div></div>`), t);
-  pop(make('<div style="height:1.5px;background:rgba(255,255,255,.25);margin:56px 0;opacity:0"></div>', p), t + 2.4, null);
+  pop(make('<div style="height:1.5px;background:rgba(255,255,255,.25);margin:56px 0;opacity:0"></div>', p), t + K * 2.4, null);
   pop(row(p, `<div><div style="display:flex;gap:22px;align-items:center"><div class="rt">Казахстан</div><div class="chip">Пока нет</div></div>
-    <div class="rs">Планируют на 2027–2029</div></div>`), t + 2.6);
-});
+    <div class="rs">Планируют на 2027–2029</div></div>`), t + K * 2.6);
+}, 9.5);
 
 /* 5. Где взять 36.5–47 */
-scene(36.5, 47, 'Где взять коды?', [80, 660, 920, 880], (p, t) => {
+scene(45.84, 59.25, 'Где взять коды?', [80, 660, 920, 880], (p, t) => {
   pop(make('<div class="rs" style="margin:0 0 50px;opacity:0;font-size:36px;color:#fff">ИП из Казахстана в «Честный знак» не пускают. Три пути:</div>', p), t, null);
   [['Tañba / Naqty Ónim', 'Казахтелеком · обещают в ноябре 2026'], ['Российский посредник', 'его планирует владелец'], ['Своё юрлицо в РФ', '']]
-    .forEach(([a, b], i) => pop(row(p, `<div class="ic">${i + 1}</div><div><div class="rt">${a}</div>${b ? `<div class="rs">${b}</div>` : ''}</div>`, i ? 48 : 0), t + 1.2 + i * 1.3));
-});
+    .forEach(([a, b], i) => pop(row(p, `<div class="ic">${i + 1}</div><div><div class="rt">${a}</div>${b ? `<div class="rs">${b}</div>` : ''}</div>`, i ? 48 : 0), t + K * (1.2 + i * 1.3)));
+}, 10.5);
 
 /* 6. Жизнь кода 47–58.5 */
-scene(47, 58.5, 'Жизнь кода', [80, 510, 920, 1180], (p, t) => {
+scene(59.25, 73.24, 'Жизнь кода', [80, 510, 920, 1180], (p, t) => {
   ['Нанесли', 'Ввели в оборот', 'Передали на WB', 'Вывели из оборота · продали'].forEach((s, i) => {
-    if (i) pop(make('<div class="arr">↓</div>', p), t + i * .9 - .2, null);
-    pop(make(`<div class="glass pill" style="position:relative;padding:22px 34px;text-align:center;font:600 42px/1.1 Inter,sans-serif;opacity:0">${s}</div>`, p), t + i * .9);
+    if (i) pop(make('<div class="arr">↓</div>', p), t + K * (i * .9) - .2, null);
+    pop(make(`<div class="glass pill" style="position:relative;padding:22px 34px;text-align:center;font:600 42px/1.1 Inter,sans-serif;opacity:0">${s}</div>`, p), t + K * i * .9);
   });
   pop(make(`<div style="margin-top:50px;opacity:0"><div class="rs" style="color:#fff">Продажи на WB выводит <b>сам WB</b>.</div>
-    <div class="rs">Продавец выводит сам, если продал мимо маркетплейса или списал товар (брак, просрочка).</div></div>`, p), t + 4.2);
-});
+    <div class="rs">Продавец выводит сам, если продал мимо маркетплейса или списал товар (брак, просрочка).</div></div>`, p), t + K * 4.2);
+}, 11.5);
 
 /* 7. Печать под заказ 58.5–70 */
-scene(58.5, 70, 'Как не сканировать<br>часами', [80, 520, 920, 1160], (p, t) => {
+scene(73.24, 87.13, 'Как не сканировать<br>часами', [80, 520, 920, 1160], (p, t) => {
   pop(make('<div style="opacity:0;text-align:center"><div class="chip y" style="display:inline-block;font-size:38px;padding:14px 34px">Печать под заказ</div></div>', p), t, 'pop');
   ['Система AMURA берёт свободный код из файла', 'Отправляет в WB', 'Термопринтер печатает наклейку', 'Наклейку клеят на коробку'].forEach((s, i) =>
-    pop(row(p, `<div class="ic" style="width:60px;height:60px;font-size:30px">${i + 1}</div><div class="rt" style="font-size:40px;padding-top:6px">${s}</div>`, i ? 30 : 46), t + .9 + i * .85));
+    pop(row(p, `<div class="ic" style="width:60px;height:60px;font-size:30px">${i + 1}</div><div class="rt" style="font-size:40px;padding-top:6px">${s}</div>`, i ? 30 : 46), t + K * (.9 + i * .85)));
   pop(make(`<div style="margin-top:56px;opacity:0;text-align:center"><div class="rs" style="margin:0">100 заказов</div>
-    <div style="font:800 76px/1.1 Inter,sans-serif;letter-spacing:-.02em;margin-top:6px">15–20 минут</div><div class="rs">вместо 1–2 часов</div></div>`, p), t + 4.6, 'pop');
-});
+    <div style="font:800 76px/1.1 Inter,sans-serif;letter-spacing:-.02em;margin-top:6px">15–20 минут</div><div class="rs">вместо 1–2 часов</div></div>`, p), t + K * 4.6, 'pop');
+}, 11.5);
 
 /* 8. Что у AMURA сейчас 70–79.5 */
-scene(70, 79.5, 'Что у AMURA<br>сейчас', [80, 595, 920, 1010], (p, t) => {
+scene(87.13, 102.33, 'Что у AMURA<br>сейчас', [80, 595, 920, 1010], (p, t) => {
   [['Anua на WB', 'помечен «нужна маркировка». Остатки идут по решению владельца, но заказ без кода собрать нельзя'],
    ['Декларация', 'заменена на действующую'], ['Штрихкоды 5 карточек', 'ждут «Да»'], ['Кабинет Ozon в рублях', 'это тоже Россия']]
-    .forEach(([a, b], i) => pop(row(p, `<div class="ic" style="width:24px;height:24px;margin-top:14px;background:#fff"></div><div><div class="rt" style="font-size:42px">${a}</div><div class="rs" style="font-size:32px">${b}</div></div>`, i ? 38 : 0), t + i * 1.1));
-});
+    .forEach(([a, b], i) => pop(row(p, `<div class="ic" style="width:24px;height:24px;margin-top:14px;background:#fff"></div><div><div class="rt" style="font-size:42px">${a}</div><div class="rs" style="font-size:32px">${b}</div></div>`, i ? 38 : 0), t + K * i * 1.1));
+}, 9.5);
 
 /* 9. Следующий шаг 79.5–86.5 */
-scene(79.5, 86.5, 'Следующий шаг', [80, 720, 920, 760], (p, t) => {
+scene(102.33, 109, 'Следующий шаг', [80, 720, 920, 760], (p, t) => {
   ['Выбрать посредника', 'Юрист проверит схему', 'Загрузить коды файлом', 'Купить термопринтер'].forEach((s, i) =>
-    pop(row(p, `<div class="ic">${i + 1}</div><div class="rt" style="padding-top:12px">${s}</div>`, i ? 52 : 0), t + i * .9));
-});
+    pop(row(p, `<div class="ic">${i + 1}</div><div class="rt" style="padding-top:12px">${s}</div>`, i ? 52 : 0), t + K * i * .9));
+}, 7);
 
-/* финал 86.5–90: AMURA. Разобрались. */
+/* финал 109–113: AMURA. Разобрались. */
 const fin = make('<div class="g-type" style="top:820px;font-size:96px"></div>');
-type(fin, 'AMURA.<br>Разобрались.', 86.7, .07);
+type(fin, 'AMURA.<br>Разобрались.', 109.3, .07);
 const pl = make('<div class="glass pill" style="left:340px;top:1150px;width:400px;height:110px;display:flex;align-items:center;justify-content:center;font:700 40px Inter,sans-serif;letter-spacing:.2em;opacity:0">AMURA</div>');
-A(pl, [{ opacity: 0, transform: 'scale(.85)' }, { opacity: 1, transform: 'none' }], 88.2, .4, E.back, 'forwards'); cue(88.2, 'pop');
+A(pl, [{ opacity: 0, transform: 'scale(.85)' }, { opacity: 1, transform: 'none' }], 110.8, .4, E.back, 'forwards'); cue(110.8, 'pop');
 
 window.REEL_END = END;
 })();
