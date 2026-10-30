@@ -130,6 +130,7 @@ POST /agent/api/requests
 | `ozon_review_answer` | Ozon | `id`, `text` |
 | `ozon_price` | Ozon | `offer_id` и хотя бы одно из полей: `price`, `min_price`, `auto_action_enabled`, `auto_add_to_ozon_actions_list_enabled`. Необязательные: `old_price`, `currency_code`. `min_price` — ниже этой цены Ozon не опустит цену в автоакциях; задаётся в ₸, сервер пересчитывает её, как `price`, и включает `min_price_for_auto_actions_enabled`. Флаги автоакций — `ENABLED` / `DISABLED` / `UNKNOWN`. Поле `auto_add_to_ozon_actions_list_enabled` в доступной нам SDK не описано — сервер передаёт его Ozon как есть. Заявка без `price` или с `min_price` / флагами — всегда через «Да». |
 | `ozon_card_create` | Ozon | `offer_id`, `name`, `description_category_id`, `type_id`, `price`, `depth`, `width`, `height` (мм), `weight` (г), `attributes` (список `{id, values: [{value} \| {dictionary_value_id}]}`). Необязательные: `images`, `primary_image` (только `https://`), `barcode`, `old_price`, `vat`, `complex_attributes`. **Всегда через «Да»**: Ozon требует цену в том же запросе (`/v3/product/import`). Ответ — `task_id`, статус — чтение `import_info`. |
+| `ozon_card_update` | Ozon | `offer_id`, `attributes` — `[{id, complex_id?, values: [{value} \| {dictionary_value_id}]}]`, `id` из `category_attributes`. Пример — rich-контент: `{id: 11254, values: [{value: "<JSON rich-контента строкой>"}]}`. Метод — `/v1/product/attributes/update`. Меняются только переданные характеристики. Отдельного поля для названия нет: название — тоже характеристика, её `id` берите из `category_attributes`. Выполняется сразу по правилу «Карточки». Прежние значения сохраняются в `result.before`, у владельца есть «Вернуть как было»; характеристика, которой раньше не было, при откате очищается (`values: []`). Ответ — `task_id`, статус — чтение `import_info`. |
 | `ozon_pictures` | Ozon | `product_id`, `images` (1–30 ссылок `https://`), `color_image`, `images360`. Выполняется сразу по правилу «Карточки». |
 | `ozon_promotion` | Ozon | `action_id`, `products` (список `{product_id, action_price, stock}`). `action_price` — в валюте кабинета. Если цена в ₸ ниже «Мин. цены в акциях», заявка получит `400`. |
 | `ozon_promotion_exit` | Ozon | `action_id`, `product_ids` — выйти из акции (`/v1/actions/products/deactivate`). Через «Да». Такие заявки создаёт и сторож акций. |
@@ -163,7 +164,7 @@ POST /agent/api/requests
 
 - **Ответы на отзывы 4–5★** (WB и Ozon). Оценку сервер проверяет сам: WB — `/api/v1/feedback`, Ozon — `/v1/review/info`. Отзывы 1–3★ — всегда через «Да».
 - **Ответы на вопросы WB.**
-- **Карточки WB** (`wb_card_update`, слово владельца 29.10.2026; `wb_card_create`, `wb_card_media` — 30.10.2026). У изменений и фото у владельца есть кнопка «Вернуть как было»: прежняя версия отправляется обратно.
+- **Карточки WB** (`wb_card_update`, слово владельца 29.10.2026; `wb_card_create`, `wb_card_media`, `ozon_card_update` — 30.10.2026). У изменений и фото у владельца есть кнопка «Вернуть как было»: прежняя версия отправляется обратно.
 - **Ставки WB в пределах дневного бюджета магазина.** Бюджет владелец задаёт по каждому магазину; пока он 0, ставки идут через «Да». Ставка выполняется сразу, только если у кампании включён дневной лимит и он не выше бюджета.
 
 Всегда через «Да»:

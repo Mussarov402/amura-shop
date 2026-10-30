@@ -588,6 +588,27 @@ def _oz_pictures(ch, p):
     return ch.call("/v1/product/pictures/import", body)
 
 
+def oz_attrs(ch, offer):
+    """Характеристики товара Ozon: /v4/product/info/attributes → {(id, complex_id): {id, complex_id, values}}."""
+    r = ch.call("/v4/product/info/attributes", {"filter": {"offer_id": [str(offer)], "visibility": "ALL"}, "limit": 1})
+    it = next((x for x in (r.get("result") or ch.res(r).get("result") or []) if str(x.get("offer_id")) == str(offer)), None)
+    if not it:
+        raise mpk.ApiError(404, f"товара {offer} нет в кабинете Ozon")
+    return {(int(a["id"]), int(a.get("complex_id") or 0)): {"id": int(a["id"]), "complex_id": int(a.get("complex_id") or 0),
+            "values": [{k: v for k, v in x.items() if k in ("dictionary_value_id", "value")} for x in a.get("values") or []]}
+            for a in it.get("attributes") or []}
+
+
+def _oz_card_update(ch, p):
+    """Характеристики карточки Ozon (/v1/product/attributes/update), например rich-контент (11254). Прежние значения тронутых
+    характеристик — в before для «Вернуть как было»; характеристики, которых не было, при откате очищаются (values: [])."""
+    cur = oz_attrs(ch, p["offer_id"])
+    new = [{"id": int(a["id"]), "complex_id": int(a.get("complex_id") or 0), "values": a["values"]} for a in p["attributes"]]
+    before = [cur.get((a["id"], a["complex_id"])) or {"id": a["id"], "complex_id": a["complex_id"], "values": []} for a in new]
+    r = ch.call("/v1/product/attributes/update", {"items": [{"offer_id": str(p["offer_id"]), "attributes": new}]})
+    return {"offer_id": str(p["offer_id"]), "before": {"attributes": before}, "task_id": r.get("task_id") or ch.res(r).get("task_id"), "response": r}
+
+
 def _oz_review(ch, p):
     return ch.call("/v1/review/comment/create", {"review_id": str(p["id"]), "text": p["text"], "mark_review_as_processed": True})
 
@@ -836,6 +857,10 @@ ACTIONS = {
                                                        "currency_code?", "vat?", "dimension_unit?", "weight_unit?", "complex_attributes?"],
                          "about": "новая карточка Ozon (/v3/product/import). Ozon требует цену в том же запросе — поэтому всегда через «Да». "
                                   "Картинки — публичные https-ссылки", "run": _oz_card_create},
+    "ozon_card_update": {"shop": mpk.Ozon, "params": ["offer_id", "attributes"],
+                         "about": "характеристики карточки Ozon (/v1/product/attributes/update): attributes [{id, complex_id?, values: [{value} | "
+                                  "{dictionary_value_id}]}], id — из category_attributes; например 11254 «Rich-контент JSON». Правило «Карточки», "
+                                  "у владельца «Вернуть как было». Статус — чтение import_info по task_id", "run": _oz_card_update},
     "ozon_pictures": {"shop": mpk.Ozon, "params": ["product_id", "images", "color_image?", "images360?"],
                       "about": "картинки карточки Ozon по https-ссылкам (/v1/product/pictures/import), правило «Карточки»", "run": _oz_pictures},
     "ozon_promotion": {"shop": mpk.Ozon, "params": ["action_id", "products"], "about": "добавить товары в акцию Ozon (product_id, action_price, stock?)",
@@ -919,6 +944,18 @@ def validate(kind, p):
         if p.get("characteristics") is not None and (not isinstance(p["characteristics"], list)
                                                      or not all(isinstance(x, dict) and x.get("id") for x in p["characteristics"])):
             raise ValueError("characteristics — список {id, value}")
+    if kind == "ozon_card_update":
+        if set(p) - {"offer_id", "attributes"}:
+            raise ValueError("ozon_card_update — только offer_id и attributes (название — тоже характеристика, id из category_attributes)")
+        at = p["attributes"]
+        if not isinstance(at, list) or not 1 <= len(at) <= 100 or not all(
+                isinstance(a, dict) and not set(a) - {"id", "complex_id", "values"} and str(a.get("id", "")).isdigit()
+                and isinstance(a.get("values"), list) and all(isinstance(v, dict) and v and not set(v) - {"value", "dictionary_value_id"}
+                                                              for v in a["values"]) for a in at):
+            raise ValueError("attributes — [{id, complex_id?, values: [{value} | {dictionary_value_id}]}]")
+        if len({(int(a["id"]), int(a.get("complex_id") or 0)) for a in at}) != len(at):
+            raise ValueError("характеристика повторяется")
+        p = {"offer_id": str(p["offer_id"]).strip(), "attributes": at}
     if kind == "price_floor":
         if set(p) - {"id", "floor"}:
             raise ValueError("price_floor — {id, floor}")
@@ -1056,6 +1093,9 @@ def summary(kind, ch, p):
               "ozon_pictures": lambda: f"картинки товара {p['product_id']}: {len(p['images'])} шт.",
               "wb_card_create": lambda: f"новая карточка {p['vendorCode']} «{p['title']}», предмет {p['subjectID']}, EAN "
                                         + ", ".join(x for s in p["sizes"] for x in s["skus"]) + f", фото {len(p.get('photos') or [])}",
+              "ozon_card_update": lambda: f"{p['offer_id']}: характеристики " + ", ".join(
+                  f"{a['id']}" + (" (rich-контент)" if int(a["id"]) == 11254 else "") + f" = {json.dumps(a['values'], ensure_ascii=False)[:120]}"
+                  for a in p["attributes"])[:500],
               "price_floor": lambda: f"{p['id']}: мин. цена в акциях " + (f"{p['floor']} ₸" if p["floor"] else "— снять")
                                      + (f" (сейчас {round(floor_of(ch.key, p['id']))} ₸)" if floor_of(ch.key, p["id"]) else ""),
               "ozon_promotion_exit": lambda: f"акция {p['action_id']}: выйти товарам {', '.join(map(str, p['product_ids']))[:200]}",
@@ -1074,7 +1114,7 @@ def auto_ok(kind, ch, p):
     r = rules()
     if r["stop"]:
         return False
-    if kind in ("wb_card_update", "wb_card_create", "wb_card_media", "ozon_pictures"):   # штрихкоды (wb_card_barcodes) — только «Да»
+    if kind in ("wb_card_update", "wb_card_create", "wb_card_media", "ozon_pictures", "ozon_card_update"):   # штрихкоды (wb_card_barcodes) — только «Да»
         return r["auto_cards"]
     if kind == "wb_question_answer":
         return r["auto_questions"]
@@ -1090,7 +1130,7 @@ def auto_ok(kind, ch, p):
     return False
 
 
-FULL_RESULT = ("wb_card_update", "wb_card_media", "wb_card_barcodes")
+FULL_RESULT = ("wb_card_update", "wb_card_media", "wb_card_barcodes", "ozon_card_update")
 
 
 def execute(rid, who):
@@ -1579,13 +1619,16 @@ def revert(rid):
         return err
     with db() as d:
         row = d.run("SELECT kind, shop, status, result FROM agent_req WHERE id=%s", (rid,), one=True)
-    if not row or row[0] not in ("wb_card_update", "wb_card_trash", "wb_card_media") or row[2] != "done":
+    if not row or row[0] not in ("wb_card_update", "wb_card_trash", "wb_card_media", "ozon_card_update") or row[2] != "done":
         return jsonify(ok=False, error="Вернуть можно только выполненное изменение карточки или перенос в корзину"), 400
     res = json.loads(row[3] or "{}")
     if res.get("reverted"):
         return jsonify(ok=False, error=f"Уже возвращено (заявка № {res['reverted']})"), 409
-    ch = shop(row[1], mpk.WB)
-    if row[0] == "wb_card_trash":
+    ch = shop(row[1], mpk.Ozon if row[0] == "ozon_card_update" else mpk.WB)
+    if row[0] == "ozon_card_update":
+        p = {"offer_id": res.get("offer_id"), "attributes": (res.get("before") or {}).get("attributes") or [], "_restore": True}
+        what, enough = f"вернуть характеристики как было — {p['offer_id']}", bool(p["attributes"])
+    elif row[0] == "wb_card_trash":
         p = {"nmIDs": res.get("nmIDs") or [], "_recover": True}
         what = f"вернуть из корзины — nmID {', '.join(map(str, p['nmIDs']))[:200]}"
         enough = bool(p["nmIDs"])
