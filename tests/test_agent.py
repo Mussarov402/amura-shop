@@ -484,5 +484,62 @@ class CardTrash(unittest.TestCase):
         self.assertEqual(self.sent, [("/content/v2/cards/delete/trash", {"nmIDs": [1]})])
 
 
+
+class OzonCard(unittest.TestCase):
+    """ozon_card_create — только «Да» (Ozon требует цену в том же запросе); ozon_pictures — по правилу «Карточки»."""
+    patch = tm.Channels.patch
+    CARD = {"offer_id": "00615", "name": "Anua PDRN Hyaluronic Acid 100 Moisturizing Cream, 60 мл", "description_category_id": 17028922,
+            "type_id": 970895715, "price": 16500, "depth": 60, "width": 60, "height": 120, "weight": 150,
+            "images": ["https://amura.kz/cards/anua-00615/g1.png"], "barcode": "8809640738135",
+            "attributes": [{"id": 85, "values": [{"value": "Anua"}]}]}
+
+    def setUp(self):
+        Agent.setUp(self)
+        self.sent = []
+
+        def oz(url, json=None, headers=None, timeout=None):
+            path = url[len(mpk.CHANNELS["ozon"].api()):]
+            self.sent.append((path, json))
+            if path == "/v3/product/import":
+                return Resp(200, {"result": {"task_id": 555}})
+            if path == "/v1/product/pictures/import":
+                return Resp(200, {"result": {"pictures": []}})
+            if path == "/v1/description-category/tree":
+                return Resp(200, {"result": [{"description_category_id": 1, "category_name": "Красота"}]})
+            raise AssertionError(path)
+        self.patch(mpk.requests, "post", oz)
+
+    def new(self, kind, **p):
+        return self.c.post("/agent/api/requests", headers=self.h, json={"kind": kind, "shop": "ozon", "params": p})
+
+    def test_create_only_with_yes(self):
+        r = self.new("ozon_card_create", **self.CARD).get_json()
+        self.assertEqual((r["status"], r["auto"]), ("new", False))                      # правило «Карточки» включено, но цена — «Да»
+        self.assertEqual(self.sent, [])
+        self.assertIn("новая карточка 00615", self.tg[-1])
+        j = self.c.post(f"/admin/api/agent/{r['id']}", json={"decision": "yes"}).get_json()
+        self.assertEqual((j["status"], j["result"]["task_id"]), ("done", 555))
+        item = self.sent[0][1]["items"][0]
+        self.assertEqual((item["price"], item["currency_code"], item["dimension_unit"], item["weight_unit"]), ("16500", "KZT", "mm", "g"))
+
+    def test_validation(self):
+        self.assertEqual(self.new("ozon_card_create", **dict(self.CARD, images=["http://x/1.png"])).status_code, 400)
+        self.assertEqual(self.new("ozon_card_create", **dict(self.CARD, evil=1)).status_code, 400)
+        self.assertEqual(self.new("ozon_card_create", **dict(self.CARD, price=0)).status_code, 400)
+        self.assertEqual(self.new("ozon_card_create", **{k: v for k, v in self.CARD.items() if k != "attributes"}).status_code, 400)
+        self.assertEqual(self.sent, [])
+
+    def test_pictures_by_rule(self):
+        r = self.new("ozon_pictures", product_id=777, images=["https://amura.kz/cards/anua-00615/g1.png"]).get_json()
+        self.assertEqual((r["status"], r["auto"]), ("done", True))
+        self.assertEqual(self.sent[0], ("/v1/product/pictures/import", {"product_id": 777, "images": ["https://amura.kz/cards/anua-00615/g1.png"]}))
+        self.c.post("/admin/api/agent/rules", json={"stop": True})
+        self.assertEqual(self.new("ozon_pictures", product_id=777, images=["https://amura.kz/x.png"]).get_json()["status"], "new")
+
+    def test_read_tree(self):
+        j = self.c.get("/agent/api/read/ozon/category_tree", headers=self.h, query_string={"p": '{"language": "DEFAULT"}'}).get_json()
+        self.assertEqual(j["data"]["result"][0]["category_name"], "Красота")
+
+
 if __name__ == "__main__":
     unittest.main()
