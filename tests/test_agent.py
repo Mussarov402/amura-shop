@@ -334,6 +334,28 @@ class CardUpdate(unittest.TestCase):
     def upd(self, **p):
         return self.c.post("/agent/api/requests", headers=self.h, json={"kind": "wb_card_update", "shop": "wb", "params": {"nmID": 244631445, **p}})
 
+    OLD_DOCS = {"excludeDocuments": False, "items": [{"id": "0ce08737", "type": 2, "number": "ЕАЭС N RU Д-CA.АИ33.В.05392/20",
+                                                      "startDate": "2020-12-07T00:00:00Z", "endDate": "2025-12-06T00:00:00Z", "verdict": "ok"}]}
+
+    def test_documents_kept_replaced_and_reverted(self):
+        self.card["documents"] = json.loads(json.dumps(self.OLD_DOCS))
+        self.upd(title="Новое")                                                          # без documents — текущие уходят как есть, с id
+        self.assertEqual(self.updates[-1][0]["documents"]["items"], [{k: v for k, v in self.OLD_DOCS["items"][0].items() if k != "verdict"}])
+        for bad in ([{"type": 2, "number": "X", "startDate": "09.04.2026", "endDate": "2031-04-08"}],
+                    [{"type": 6, "number": "X", "startDate": "2026-04-09", "endDate": "2031-04-08"}],
+                    [{"type": 2, "number": "X", "startDate": "2026-04-09", "endDate": "2025-04-08"}],
+                    {"excludeDocuments": True, "items": []}, [{"type": 2, "number": "X", "startDate": "2026-04-09", "file": "x"}]):
+            self.assertEqual(self.upd(documents=bad).status_code, 400, bad)
+        new = [{"type": 2, "number": "ЕАЭС N RU Д-KR.РА03.В.26158/26", "startDate": "2026-04-09", "endDate": "2031-04-08"}]
+        r = self.upd(documents=new).get_json()
+        self.assertEqual(r["status"], "done")
+        self.assertEqual(self.updates[-1][0]["documents"], {"excludeDocuments": False, "items": [
+            {"type": 2, "number": "ЕАЭС N RU Д-KR.РА03.В.26158/26", "startDate": "2026-04-09T00:00:00Z", "endDate": "2031-04-08T00:00:00Z"}]})
+        self.assertEqual(r["result"]["before"]["documents"]["items"][0]["id"], "0ce08737")
+        self.assertEqual(self.c.post(f"/admin/api/agent/{r['id']}/revert").get_json()["status"], "done")
+        self.assertEqual(self.updates[-1][0]["documents"]["items"], [{"type": 2, "number": "ЕАЭС N RU Д-CA.АИ33.В.05392/20",
+                                                                      "startDate": "2020-12-07T00:00:00Z", "endDate": "2025-12-06T00:00:00Z"}])
+
     def test_forbidden_fields(self):
         for bad in ({"price": 13500}, {"brand": "X"}, {"vendorCode": "1"}, {"sizes": []}, {"skus": ["1"]}, {"photos": []}, {"_restore": True}):
             r = self.upd(title="Новое", **bad)
