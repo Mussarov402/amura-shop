@@ -427,19 +427,6 @@ def parse(payload):
 def handle(m):
     """Одно входящее сообщение -> инбокс (так же, как из Telegram)."""
     import inbox
-    if not m.get("echo") and m["type"] == "text":                 # код входа на сайт: не в «Сообщения», ответ — обычным текстом
-        try:
-            reply = oh.handle_wa_login(m["text"], m["phone"], m["name"])
-        except Exception as e:                                      # МойСклад не ответил — покупатель узнает сразу
-            print("WA: вход не выполнен:", e, flush=True)
-            reply = "Не получилось войти — нажмите «Войти через WhatsApp» на сайте AMURA ещё раз." if oh.WA_LOGIN_RE.search(m["text"] or "") else None
-        if reply:
-            remember_line("wa:" + m["phone"], m.get("line", ""))
-            try:
-                send_text("wa:" + m["phone"], reply)
-            except Exception as e:
-                print("WA: ответ на вход не отправлен:", e, flush=True)
-            return None
     remember_line("wa:" + m["phone"], m.get("line", ""))
     if m.get("echo"):
         return inbox.on_manager_echo("wa:" + m["phone"], m["text"])
