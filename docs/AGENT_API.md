@@ -126,12 +126,30 @@ POST /agent/api/requests
 | `wb_bid` | WB | `advert_id`, `nm_id`, `bid` (₸), `placement` (`combined` / `search` / `recommendations`) |
 | `wb_campaign` | WB | `advert_id`, `action` (`start` / `pause` / `stop`) |
 | `wb_budget_deposit` | WB | `advert_id`, `sum` (₸), `source` (0 — счёт, 1 — баланс, 3 — бонусы). **Всегда через «Да».** |
-| `wb_promotion` | WB | `promotionID`, `nmIDs` (список) |
+| `wb_promotion` | WB | `promotionID`, `nmIDs` (список). Сервер берёт плановую цену акции (`planPrice` из `promotions/nomenclatures`). Если она ниже «Мин. цены в акциях», заявка получит `400`. |
 | `ozon_review_answer` | Ozon | `id`, `text` |
-| `ozon_price` | Ozon | `offer_id`, `price`, `old_price` |
+| `ozon_price` | Ozon | `offer_id` и хотя бы одно из полей: `price`, `min_price`, `auto_action_enabled`, `auto_add_to_ozon_actions_list_enabled`. Необязательные: `old_price`, `currency_code`. `min_price` — ниже этой цены Ozon не опустит цену в автоакциях; задаётся в ₸, сервер пересчитывает её, как `price`, и включает `min_price_for_auto_actions_enabled`. Флаги автоакций — `ENABLED` / `DISABLED` / `UNKNOWN`. Поле `auto_add_to_ozon_actions_list_enabled` в доступной нам SDK не описано — сервер передаёт его Ozon как есть. Заявка без `price` или с `min_price` / флагами — всегда через «Да». |
 | `ozon_card_create` | Ozon | `offer_id`, `name`, `description_category_id`, `type_id`, `price`, `depth`, `width`, `height` (мм), `weight` (г), `attributes` (список `{id, values: [{value} \| {dictionary_value_id}]}`). Необязательные: `images`, `primary_image` (только `https://`), `barcode`, `old_price`, `vat`, `complex_attributes`. **Всегда через «Да»**: Ozon требует цену в том же запросе (`/v3/product/import`). Ответ — `task_id`, статус — чтение `import_info`. |
 | `ozon_pictures` | Ozon | `product_id`, `images` (1–30 ссылок `https://`), `color_image`, `images360`. Выполняется сразу по правилу «Карточки». |
-| `ozon_promotion` | Ozon | `action_id`, `products` (список `{product_id, action_price, stock}`) |
+| `ozon_promotion` | Ozon | `action_id`, `products` (список `{product_id, action_price, stock}`). `action_price` — в валюте кабинета. Если цена в ₸ ниже «Мин. цены в акциях», заявка получит `400`. |
+| `ozon_promotion_exit` | Ozon | `action_id`, `product_ids` — выйти из акции (`/v1/actions/products/deactivate`). Через «Да». Такие заявки создаёт и сторож акций. |
+| `price_floor` | WB или Ozon | `id` (nmID WB или offer_id Ozon), `floor` (₸; 0 — снять) — «Мин. цена в акциях». **Всегда через «Да».** Владелец задаёт её и сам на экране «На согласование». |
+
+## Мин. цена в акциях
+
+Слово владельца 30.10.2026: в акциях участвовать можно, но не ниже определённой цены.
+
+- **Пол цены** хранится в системе AMURA, по товару и магазину, в ₸. Ставит владелец или заявка `price_floor` через «Да». Прочитать: `GET /agent/api/floor` → `floors` и `watch` (последняя проверка: `found`, `errors`).
+- **Заявки в акции** `wb_promotion` / `ozon_promotion` с ценой ниже пола отклоняются (`400`). Повторно цена проверяется в момент «Да».
+- **Сторож акций**: раз в сутки (9:00 по Алматы) или кнопкой владельца читает:
+  - WB — `/api/v1/calendar/promotions` и `promotions/nomenclatures` (`inAction=true`);
+  - Ozon — `/v1/actions` и `/v1/actions/products`.
+
+  Если товар в акции дешевле пола:
+  - владельцу — Telegram и push;
+  - по Ozon — заявка `ozon_promotion_exit` (одна на акцию, пока открыта);
+  - по WB — тревога «выйдите в кабинете WB»: API выхода из акции у WB нет.
+- **Автоакции WB** сторож не видит: метод `nomenclatures` для них неприменим (документация WB).
 
 ## Валюта Ozon
 
@@ -155,7 +173,8 @@ POST /agent/api/requests
 - акции;
 - тексты карточек;
 - штрихкоды карточек WB (`wb_card_barcodes`);
-- «не выставлять» товар (`mp_noshow`).
+- «не выставлять» товар (`mp_noshow`);
+- мин. цена в акциях (`price_floor`), выход из акции Ozon (`ozon_promotion_exit`), `ozon_price` с `min_price` или флагами автоакций.
 
 Кнопка владельца «Стоп» отключает всё автоматическое: каждая заявка ждёт «Да».
 

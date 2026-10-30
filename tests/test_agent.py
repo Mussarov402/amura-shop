@@ -458,7 +458,7 @@ class PgNames(unittest.TestCase):
         import re
         src = open(agent.__file__, encoding="utf-8").read()
         tables = re.findall(r"CREATE TABLE IF NOT EXISTS (\w+) \((.*?)\)\"\)", src, re.S)
-        self.assertEqual(len(tables), 3)
+        self.assertEqual(len(tables), 4)
         for name, body in tables:
             cols = [c.strip().split()[0] for c in re.sub(r'"\s*"', " ", body).split(",") if c.strip() and not c.strip().startswith("PRIMARY")]
             self.assertFalse([c for c in cols if c.lower() in self.RESERVED], name)
@@ -626,6 +626,110 @@ class WBCardCreate(unittest.TestCase):
         self.assertEqual(agent.add_sku([{"chrtID": 1, "skus": ["2040705169877"]}], 1, "8809640738135")[0]["skus"],
                          ["2040705169877", "8809640738135"])
         self.assertEqual(self.sent, [])
+
+
+class PriceFloor(unittest.TestCase):
+    """«Мин. цена в акциях»: min_price Ozon, пол цены только через «Да», акции ниже пола — отказ, сторож акций."""
+    patch = tm.Channels.patch
+
+    def setUp(self):
+        Agent.setUp(self)
+        with agent.db() as d:
+            d.run("DELETE FROM agent_floor")
+        self.sent, self.oz_actions, self.oz_prods, self.wb_promos, self.wb_noms = [], [], [], [], []
+        oh._cache.pop("oz_cur:ozon", None)
+        self.addCleanup(lambda: oh._cache.pop("oz_cur:ozon", None))
+        import mp_calc
+        self.patch(mp_calc, "to_kzt", lambda amount, cur, ms_rate=None: (float(amount) * (6.0 if cur == "RUB" else 1.0), "МиГ: 1 RUB = 6 ₸"))
+        self.patch(mpk, "mapping", lambda ch: {"products": {"777": {"offer": "00615", "nm": None}}} if ch.key == "ozon" else {"products": {}})
+        self.patch(mpk, "goods", lambda ch: [{"id": "00615", "name": "Anua PDRN"}] if ch.key == "ozon" else [{"id": "244631445", "name": "Крем Anua"}])
+        import push
+        self.patch(push, "notify", lambda *a, **k: self.tg.append("PUSH " + a[0]))
+
+        def oz(url, json=None, headers=None, timeout=None):
+            path = url[len(mpk.CHANNELS["ozon"].api()):]
+            if path == "/v5/product/info/prices":
+                return Resp(200, {"items": [{"offer_id": "x", "price": {"price": "1490", "currency_code": "RUB"}}]})
+            if path == "/v1/actions/products":
+                return Resp(200, {"result": {"products": self.oz_prods if json["offset"] == 0 else [], "total": len(self.oz_prods)}})
+            self.sent.append((path, json))
+            return Resp(200, {"result": {"product_ids": [777], "rejected": []}})
+        self.patch(mpk.requests, "post", oz)
+        self.patch(mpk.requests, "get",
+                   lambda url, **k: Resp(200, {"result": self.oz_actions}))
+        base = mpk.requests.request
+
+        def wb(method, url, params=None, json=None, headers=None, timeout=None):
+            path = url.split(".wildberries.ru", 1)[1]
+            if path == "/api/v1/calendar/promotions":
+                return Resp(200, {"data": {"promotions": self.wb_promos}})
+            if path == "/api/v1/calendar/promotions/nomenclatures":
+                return Resp(200, {"data": {"nomenclatures": [x for x in self.wb_noms if str(x["inAction"]).lower() == params["inAction"]]}})
+            if path == "/api/v1/calendar/promotions/upload":
+                self.sent.append((path, json))
+                return Resp(200, {"data": {"alreadyExists": False}})
+            return base(method, url, params=params, json=json, headers=headers, timeout=timeout)
+        self.patch(mpk.requests, "request", wb)
+
+    def new(self, kind, shop="ozon", **p):
+        return self.c.post("/agent/api/requests", headers=self.h, json={"kind": kind, "shop": shop, "params": p})
+
+    def yes(self, rid):
+        return self.c.post(f"/admin/api/agent/{rid}", json={"decision": "yes"}).get_json()
+
+    def test_ozon_min_price_and_auto_actions(self):
+        r = self.new("ozon_price", offer_id="00615", min_price=12000, auto_action_enabled="ENABLED",
+                     auto_add_to_ozon_actions_list_enabled="DISABLED").get_json()
+        self.assertEqual(r["status"], "new")                                               # без цены — только «Да»
+        self.assertIn("мин. цена в автоакциях 12000 ₸", self.tg[-1])
+        self.yes(r["id"])
+        self.assertEqual(self.sent[-1], ("/v1/product/import/prices", {"prices": [{
+            "offer_id": "00615", "currency_code": "RUB", "min_price": "2000", "auto_action_enabled": "ENABLED",
+            "auto_add_to_ozon_actions_list_enabled": "DISABLED", "min_price_for_auto_actions_enabled": True}]}))
+        self.assertEqual(self.new("ozon_price", offer_id="00615").status_code, 400)
+        self.assertEqual(self.new("ozon_price", offer_id="00615", auto_action_enabled="yes").status_code, 400)
+        self.assertEqual(self.new("ozon_price", offer_id="00615", min_price=-1).status_code, 400)
+
+    def test_floor_only_with_yes_and_promotions_checked(self):
+        r = self.new("price_floor", id="00615", floor=12000).get_json()
+        self.assertEqual((r["status"], r["auto"]), ("new", False))
+        self.assertEqual(agent.floor_of("ozon", "00615"), 0)
+        self.yes(r["id"])
+        self.assertEqual(agent.floor_of("ozon", "00615"), 12000)
+        self.assertEqual(self.new("price_floor", id="00615", floor="много").status_code, 400)
+        bad = self.new("ozon_promotion", action_id=5, products=[{"product_id": 777, "action_price": 1900}])   # 1900 RUB = 11400 ₸
+        self.assertEqual(bad.status_code, 400)
+        self.assertIn("ниже минимальной", bad.get_json()["error"])
+        ok = self.new("ozon_promotion", action_id=5, products=[{"product_id": 777, "action_price": 2100}]).get_json()
+        self.assertEqual(self.yes(ok["id"])["status"], "done")
+        agent.floor_set(mpk.CHANNELS["wb"], "244631445", 9000, "владелец")                  # WB: плановая цена акции
+        self.wb_noms = [{"id": 244631445, "inAction": False, "planPrice": 8500, "currencyCode": "KZT"}]
+        self.assertEqual(self.new("wb_promotion", shop="wb", promotionID=10, nmIDs=[244631445]).status_code, 400)
+        self.wb_noms[0]["planPrice"] = 9500
+        self.assertEqual(self.new("wb_promotion", shop="wb", promotionID=10, nmIDs=[244631445]).status_code, 200)
+
+    def test_watch(self):
+        agent.floor_set(mpk.CHANNELS["ozon"], "00615", 12000, "владелец")
+        agent.floor_set(mpk.CHANNELS["wb"], "244631445", 9000, "владелец")
+        self.oz_actions = [{"id": 5, "title": "Распродажа", "is_participating": True}, {"id": 6, "title": "Чужая", "is_participating": False}]
+        self.oz_prods = [{"id": 777, "price": 2500, "action_price": 1900}]
+        self.wb_promos = [{"id": 10, "name": "Чёрная пятница", "type": "regular", "endDateTime": "2099-01-01T00:00:00Z"},
+                          {"id": 11, "name": "Авто", "type": "auto", "endDateTime": "2099-01-01T00:00:00Z"}]
+        self.wb_noms = [{"id": 244631445, "inAction": True, "planPrice": 8500, "currencyCode": "KZT"}]
+        found, errors = agent.floor_watch()
+        self.assertEqual(errors, [])
+        self.assertEqual(sorted((x["shop"], x["ident"], x["price"]) for x in found), [("ozon", "00615", 11400), ("wb", "244631445", 8500)])
+        reqs = agent.rows("new")
+        self.assertEqual([(x["kind"], x["params"]) for x in reqs], [("ozon_promotion_exit", {"action_id": 5, "product_ids": [777]})])
+        self.assertTrue(any("выйдите в кабинете WB" in (t or "") for t in self.tg))
+        self.assertTrue(any((t or "").startswith("PUSH") for t in self.tg))
+        agent.floor_watch()
+        self.assertEqual(len(agent.rows("new")), 1)                                          # заявка на выход не дублируется
+        self.assertEqual(self.yes(reqs[0]["id"])["status"], "done")
+        self.assertEqual(self.sent[-1], ("/v1/actions/products/deactivate", {"action_id": 5, "product_ids": [777]}))
+        j = self.c.get("/agent/api/floor", headers=self.h).get_json()
+        self.assertEqual(len(j["floors"]), 2)
+        self.assertEqual(len(j["watch"]["found"]), 2)
 
 
 class OzonCard(unittest.TestCase):
