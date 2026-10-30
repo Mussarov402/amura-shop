@@ -58,7 +58,7 @@ class FakeOzon:
 
 class FakeWB:
     def __init__(self, tok="tok"):
-        self.orders, self.status, self.stocks, self.tok = [], {}, [], tok
+        self.orders, self.status, self.stocks, self.tok, self.kiz = [], {}, [], tok, False
 
     def __call__(self, method, url, params=None, json=None, headers=None, timeout=None):
         assert headers["Authorization"] == self.tok
@@ -69,7 +69,7 @@ class FakeWB:
             return Resp(200, {"orders": [dict(self.status.get(i, {"supplierStatus": "new", "wbStatus": "waiting"}), id=i)
                                          for i in json["orders"]]})
         if path == "/content/v2/get/cards/list":
-            return Resp(200, {"cards": [{"nmID": 1, "vendorCode": "00615", "sizes": [{"chrtID": 501, "skus": ["8809640738135"]}]}],
+            return Resp(200, {"cards": [{"nmID": 1, "vendorCode": "00615", "needKiz": self.kiz, "sizes": [{"chrtID": 501, "skus": ["8809640738135"]}]}],
                               "cursor": {"total": 1}})
         if path == "/api/v3/warehouses":
             return Resp(200, [{"id": 9001, "name": "Алматы"}])
@@ -94,6 +94,8 @@ class Channels(unittest.TestCase):
             for k in (f"mp_map_{ch.key}", f"mp_wh_{ch.key}"):
                 oh._cache.pop(k, None)
         mpk.set_setting("mp_reserve", "20")
+        for k in ("mp_kiz_on", "mp_ozon_noshow", "mp_wb_noshow"):
+            mpk.set_setting(k, "")
         oh._cache.pop("ms_order_states", None)
         modules.update("marketplaces", on=True)
         self.addCleanup(lambda: modules.update("marketplaces", on=False))
@@ -221,6 +223,33 @@ class Channels(unittest.TestCase):
         wb = mpk.CHANNELS["wb"]
         mpk.push_stocks(wb)
         self.assertEqual(self.wb.stocks[0], ("/api/v3/stocks/9001", [{"chrtId": 501, "amount": 8}]))
+
+    def test_noshow_and_kiz(self):
+        """«Не выставлять» и «нужна маркировка» — остаток 0; отметку ставит владелец; КИЗ включили — снова выставляем."""
+        import admin
+        app = Flask(__name__)
+        app.register_blueprint(mpk.bp)
+        c = app.test_client()
+        self.patch(admin, "who", lambda: {"role": "owner", "perms": []})
+        wb, oz = mpk.CHANNELS["wb"], mpk.CHANNELS["ozon"]
+        self.wb.kiz = True
+        mpk.push_stocks(wb)
+        self.assertEqual(self.wb.stocks[-1][1], [{"chrtId": 501, "amount": 0}])           # needKiz, маркировки нет — 0
+        g = next(x for x in c.get("/admin/api/mp/status").get_json()["channels"] if x["id"] == "wb")["goods"]
+        self.assertEqual((g[0]["id"], g[0]["hidden"]), ("1", "нужна маркировка"))
+        c.post("/admin/api/mp/settings", json={"kiz": True})
+        mpk.push_stocks(wb)
+        self.assertEqual(self.wb.stocks[-1][1], [{"chrtId": 501, "amount": 8}])
+        self.assertEqual(c.post("/admin/api/mp/settings", json={"noshow": {"shop": "ozon", "id": "", "hide": True}}).status_code, 400)
+        j = c.post("/admin/api/mp/settings", json={"noshow": {"shop": "ozon", "id": "TON-1", "hide": True}}).get_json()
+        self.assertTrue(j["ok"])
+        mpk.push_stocks(oz)
+        self.assertEqual({s["offer_id"]: s["stock"] for s in self.oz.stocks[-1]}, {"anua-cream": 8, "TON-1": 0})
+        c.post("/admin/api/mp/settings", json={"noshow": {"shop": "ozon", "id": "TON-1", "hide": False}})
+        mpk.push_stocks(oz)
+        self.assertEqual({s["offer_id"]: s["stock"] for s in self.oz.stocks[-1]}, {"TON-1": 2})
+        self.patch(admin, "who", lambda: {"role": "manager", "perms": ["orders"]})
+        self.assertEqual(c.post("/admin/api/mp/settings", json={"noshow": {"shop": "ozon", "id": "TON-1", "hide": True}}).status_code, 403)
 
     def test_routes(self):
         import admin

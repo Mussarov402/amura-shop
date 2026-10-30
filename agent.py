@@ -495,6 +495,13 @@ def _wb_barcodes(ch, p):
     return {"added": added, "response": res}
 
 
+def _noshow(ch, p):
+    """«Не выставлять» товар в магазине: остаток уходит 0 со следующей сверкой. Только «Да»."""
+    hide = p.get("hide", True) is not False
+    mpk.set_noshow(ch, p["id"], hide, "менеджер, «Да» владельца")
+    return {"id": p["id"], "hide": hide}
+
+
 def _wb_bid(ch, p):
     return ch.req("PATCH", "advert", "/api/advert/v1/bids", json={"bids": [{"advert_id": int(p["advert_id"]), "nm_bids": [
         {"nm_id": int(p["nm_id"]), "bid_kopecks": int(round(float(p["bid"]) * 100)), "placement": p.get("placement", "combined")}]}]})
@@ -620,6 +627,8 @@ ACTIONS = {
                       "заменяет все фото; прежние сохраняются для «Вернуть как было». Правило «Карточки»", "run": _wb_media},
     "wb_card_barcodes": {"shop": mpk.WB, "params": ["items"], "about": "добавить заводской EAN в карточки WB — items [{nmID, ean, chrtID?}]. "
                          "Баркоды только добавляются, удалить нельзя. Всегда через «Да»", "run": _wb_barcodes},
+    "mp_noshow": {"shop": None, "params": ["id", "hide?"], "about": "не выставлять товар в магазине (остаток 0): id — nmID WB или offer_id Ozon; "
+                  "hide: false — снова выставлять. Всегда через «Да»", "run": _noshow},
     "wb_bid": {"shop": mpk.WB, "params": ["advert_id", "nm_id", "bid", "placement?"], "about": "ставка в кампании WB, ₸ (combined/search/recommendations)",
                "run": _wb_bid},
     "wb_campaign": {"shop": mpk.WB, "params": ["advert_id", "action"], "about": "кампания WB: start / pause / stop", "run": _wb_campaign},
@@ -704,6 +713,10 @@ def validate(kind, p):
         if p.get("characteristics") is not None and (not isinstance(p["characteristics"], list)
                                                      or not all(isinstance(x, dict) and x.get("id") for x in p["characteristics"])):
             raise ValueError("characteristics — список {id, value}")
+    if kind == "mp_noshow":
+        if set(p) - {"id", "hide"} or not isinstance(p.get("hide", True), bool):
+            raise ValueError("mp_noshow — {id, hide: true | false}")
+        p = {"id": str(p["id"]).strip(), "hide": p.get("hide", True)}
     if kind == "wb_card_barcodes":
         items = p["items"] if isinstance(p["items"], list) else []
         if not 1 <= len(items) <= 100:
@@ -817,6 +830,8 @@ def summary(kind, ch, p):
               "ozon_pictures": lambda: f"картинки товара {p['product_id']}: {len(p['images'])} шт.",
               "wb_card_create": lambda: f"новая карточка {p['vendorCode']} «{p['title']}», предмет {p['subjectID']}, EAN "
                                         + ", ".join(x for s in p["sizes"] for x in s["skus"]) + f", фото {len(p.get('photos') or [])}",
+              "mp_noshow": lambda: ("не выставлять (остаток 0): " if p["hide"] else "снова выставлять: ") + p["id"] + (
+                  f" «{next((g['name'] for g in mpk.goods(ch) or [] if g['id'] == p['id']), '')[:80]}»"),
               "wb_card_media": lambda: f"nmID {p['nmID']}: фото {len(p['photos'])} шт. (заменят прежние)",
               "wb_card_barcodes": lambda: "; ".join(f"{r['nmID']} «{r['wb'][:50]}» + EAN {r['ean']} → МойСклад {r['msCode']} {r['msName'][:60]}".strip()
                                                     for r in p.get("_rows") or [])[:1500] or f"{len(p['items'])} карточек"}[kind]()
