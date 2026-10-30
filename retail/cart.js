@@ -922,11 +922,6 @@ renderAuth = function(){
     $("#aAgree").onchange = e => { CONSENT.auth = e.target.checked; const h = $("#aAgreeH"); h.hidden = CONSENT.auth; h.classList.remove("bad"); sync(); };
     $("#af").addEventListener("submit", e => { if(!CONSENT.auth){ e.preventDefault(); e.stopImmediatePropagation(); consentNeed("aAgree"); } }, true);
   }
-  const wb = $("#waBox"), form = $("#af");   // WhatsApp — под формой: галочки согласия выше относятся и к нему
-  if(wb && form && !wb.dataset.r){
-    wb.dataset.r = "1"; form.after(wb); wb.insertAdjacentHTML("afterbegin", `<div class="or">или</div>`);
-    wb.addEventListener("click", e => { if(e.target.closest("#waLogin") && LEGAL() && !CONSENT.auth){ e.preventDefault(); e.stopImmediatePropagation(); consentNeed("aAgree"); } }, true);
-  }
 };
 /* «Запомнить меня»: по умолчанию вход хранится на устройстве (180 дней); без галочки — только до закрытия браузера */
 const REM = "amura-r-remember";
@@ -944,7 +939,6 @@ api = async function(path, opts){
   if(path === "/auth/sms/verify" && LEGAL() && CONSENT.auth && opts && opts.body){   // сервер запишет согласие клиенту
     try{ opts = { ...opts, body: JSON.stringify({ ...JSON.parse(opts.body), consent: true }) }; }catch{}
   }
-  if(path.startsWith("/auth/wa/poll") && LEGAL() && CONSENT.auth) path += "&consent=1";
   try{ return await _api(path, opts); }
   catch(e){ if(path === "/auth/sms/send" && /telegram/i.test(e.message)) throw new Error("Вход по SMS временно недоступен. Попробуйте позже или напишите нам в WhatsApp"); throw e; }
 };

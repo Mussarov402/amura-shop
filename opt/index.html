@@ -1429,9 +1429,9 @@ async function api(path, opts = {}){
   if(!r.ok || j.ok === false) throw new Error(j.error || "Сервер не ответил, попробуйте ещё раз");
   return j;
 }
-let tgNonce = "", tgPoll = 0, waNonce = "", waLink = "", waPoll = 0;
+let tgNonce = "", tgPoll = 0;
 async function renderMe(){
-  clearInterval(tgPoll); clearInterval(waPoll);
+  clearInterval(tgPoll);
   if(!AUTH.token) return renderAuth();
   $("#meTitle").textContent = "Мой кабинет";
   if(AUTH.profile) paintMe(AUTH.profile, null);
@@ -1498,8 +1498,6 @@ function renderAuth(){
     <div class="panel">
       <a class="btn tg" id="tgLogin" href="#" target="_blank" rel="noopener">Войти или зарегистрироваться через Telegram</a>
       <div class="kv" id="tgHint">Откроется наш бот — нажмите «Старт» и вернитесь сюда.</div>
-      <div id="waBox" style="display:none;margin-top:12px"><a class="btn wa" id="waLogin" href="#" target="_blank" rel="noopener">Войти или зарегистрироваться через WhatsApp</a>
-      <div class="kv" id="waHint">Откроется WhatsApp с готовым сообщением — отправьте его и вернитесь сюда.</div></div>
       <div class="or">или по номеру телефона</div>
       <form class="co" id="af" novalidate>
         <div class="field"><label for="aPhone">Номер телефона</label><input id="aPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+7 7__ ___ __ __" value="${esc(smsPhone ? "+" + smsPhone : "")}" ${smsPhone ? "readonly" : ""}></div>
@@ -1516,24 +1514,7 @@ function renderAuth(){
     $("#aResend").onclick = () => sendCode(smsPhone);
     tickResend();
   }
-  prepareTg(); prepareWa();
-}
-async function prepareWa(){            // кнопка — только если WhatsApp подключён (сервер выдал номер линии)
-  try{ if(!waNonce){ const j = await api("/auth/wa/start", { method: "POST" }); waNonce = j.nonce; waLink = `https://wa.me/${j.phone}?text=${encodeURIComponent(j.text)}`; } }
-  catch(e){ return; }
-  const a = $("#waLogin"); if(!a || !a.isConnected) return;
-  a.href = waLink; $("#waBox").style.display = "";
-  a.onclick = () => startWaPoll();
-}
-function startWaPoll(){
-  clearInterval(waPoll);
-  const t0 = Date.now();
-  $("#waHint").textContent = "Ждём ваше сообщение в WhatsApp…";
-  waPoll = setInterval(async () => {
-    if(VIEW !== "me" || Date.now() - t0 > 600000){ clearInterval(waPoll); return; }
-    try{ const j = await api("/auth/wa/poll?nonce=" + encodeURIComponent(waNonce)); if(j.token){ clearInterval(waPoll); waNonce = ""; loggedIn(j); } }
-    catch(e){ clearInterval(waPoll); waNonce = ""; $("#waHint").textContent = e.message; prepareWa(); }
-  }, 2000);
+  prepareTg();
 }
 function tickResend(){
   clearInterval(smsTimer);
@@ -1588,8 +1569,6 @@ document.addEventListener("visibilitychange", () => { if(document.visibilityStat
 function demoApi(path, opts){
   if(path.startsWith("/auth/tg/start")) return Promise.resolve({ ok: true, nonce: "demo" });
   if(path.startsWith("/auth/tg/poll")) return Promise.resolve({ ok: true, token: null });
-  if(path.startsWith("/auth/wa/start")) return Promise.resolve({ ok: true, nonce: "demo", phone: "77000000000", text: "Код входа AMURA: login_demo" });
-  if(path.startsWith("/auth/wa/poll")) return Promise.resolve({ ok: true, token: null });
   if(path === "/auth/sms/send"){ return Promise.resolve({ ok: true }); }
   if(path === "/auth/sms/verify"){ const b = JSON.parse(opts.body); if(b.code !== "123456") return Promise.reject(new Error("Неверный код (в демо — 123456)")); DEMO_PROFILE.phone = b.phone; return Promise.resolve({ ok: true, token: "demo", needProfile: !DEMO_PROFILE.city }); }
   if(path === "/me"){ if(opts.method === "PATCH"){ const b = JSON.parse(opts.body); Object.assign(DEMO_PROFILE, { name: b.name, city: b.city }); } return Promise.resolve({ ok: true, profile: DEMO_PROFILE, orders: DEMO_ORDERS }); }
