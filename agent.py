@@ -363,6 +363,122 @@ def _wb_trash(ch, p):
     return {"nmIDs": nms, "response": ch.req("POST", "content", path, json={"nmIDs": nms})}
 
 
+WB_NEW = ("subjectID", "vendorCode", "title", "description", "brand", "dimensions", "characteristics", "sizes", "photos")
+PHOTO_TRIES, PHOTO_WAIT = 4, 5                       # новая карточка появляется в списке не сразу — ждём до ~20 с
+
+
+def _wb_ok(res):
+    """Контент WB отвечает 200 и при ошибке — тогда error: true и текст."""
+    if isinstance(res, dict) and res.get("error"):
+        raise mpk.ApiError(200, "WB: " + (str(res.get("errorText") or "") + " " + json.dumps(res.get("additionalErrors") or "", ensure_ascii=False)).strip()[:400])
+    return res
+
+
+def _wb_find_vendor(ch, vendor):
+    cards = ch.req("POST", "content", "/content/v2/get/cards/list",
+                   json={"settings": {"cursor": {"limit": 10}, "filter": {"textSearch": vendor, "withPhoto": -1}}}).get("cards") or []
+    return next((c for c in cards if str(c.get("vendorCode")) == vendor), None)
+
+
+def _wb_card_create(ch, p):
+    """Новая карточка WB: POST /content/v2/cards/upload без цены (цена — отдельно, wb_price через «Да»).
+    Фото — /content/v3/media/save, когда карточка появится в списке (nmID); не появилась за ~20 с — фото отдельной заявкой wb_card_media."""
+    c = {k: p[k] for k in ("vendorCode", "title", "description", "brand") if p.get(k)}
+    if p.get("dimensions"):
+        c["dimensions"] = p["dimensions"]
+    if p.get("characteristics"):
+        c["characteristics"] = check_chars(p["characteristics"], _wb_charcs(ch, p["subjectID"]))
+    c["sizes"] = p["sizes"]
+    res = _wb_ok(ch.req("POST", "content", "/content/v2/cards/upload", json=[{"subjectID": int(p["subjectID"]), "variants": [c]}]))
+    out = {"vendorCode": p["vendorCode"], "response": res, "nmID": None}
+    for i in range(PHOTO_TRIES if p.get("photos") else 0):
+        time.sleep(PHOTO_WAIT)
+        card = _wb_find_vendor(ch, p["vendorCode"])
+        if card:
+            out["nmID"] = card.get("nmID")
+            out["photos"] = _wb_ok(ch.req("POST", "content", "/content/v3/media/save", json={"nmId": int(card["nmID"]), "data": p["photos"]}))
+            break
+    else:
+        if p.get("photos"):
+            out["photos"] = "карточка ещё не появилась в списке WB — фото пришлите заявкой wb_card_media, когда будет nmID (чтение cards или card_errors)"
+    return out
+
+
+def _wb_media(ch, p):
+    """Фото карточки WB по ссылкам (/content/v3/media/save). Метод заменяет все фото — прежние ссылки сохраняем для отката."""
+    before = [x.get("big") for x in _wb_get_card(ch, int(p["nmID"])).get("photos") or [] if x.get("big")]
+    res = _wb_ok(ch.req("POST", "content", "/content/v3/media/save", json={"nmId": int(p["nmID"]), "data": p["photos"]}))
+    return {"nmID": int(p["nmID"]), "before": before, "response": res}
+
+
+def ean_ok(s):
+    """EAN-8 / EAN-13 / UPC-A (12) с верной контрольной цифрой."""
+    s = str(s).strip()
+    if not s.isdigit() or len(s) not in (8, 12, 13):
+        return False
+    d = [int(x) for x in s]
+    body = d[:-1][::-1]
+    return (10 - sum(x * (3 if i % 2 == 0 else 1) for i, x in enumerate(body)) % 10) % 10 == d[-1]
+
+
+def add_sku(sizes, chrt, ean):
+    """Новый список размеров карточки: EAN дописан к skus размера chrt. Баркоды не удаляются никогда — проверяем."""
+    out = []
+    for s in sizes:
+        s = dict(s, skus=list(s.get("skus") or []))
+        if str(s.get("chrtID")) == str(chrt) and ean not in s["skus"]:
+            s["skus"].append(ean)
+        out.append(s)
+    if len(out) != len(sizes) or any(not set(map(str, a.get("skus") or [])) <= set(map(str, b["skus"])) for a, b in zip(sizes, out)):
+        raise ValueError("штрихкоды карточки удалять нельзя")
+    return out
+
+
+def barcode_rows(ch, items):
+    """Таблица для владельца: nmID — название WB — EAN — товар МойСклад (код, название). Проверяем, что EAN нет на других карточках."""
+    prods = ch.products()
+    try:
+        bar = {str(i.get("barcode")): i for i in oh.panel_catalog().values() if i.get("barcode")}
+    except Exception:
+        bar = {}
+    rows = []
+    for it in items:
+        sizes = {r: x for r, x in prods.items() if str(x.get("nm")) == str(it["nmID"])}
+        if not sizes:
+            raise ValueError(f"карточки {it['nmID']} нет в кабинете {ch.title}")
+        if it.get("chrtID"):
+            if str(it["chrtID"]) not in sizes:
+                raise ValueError(f"у карточки {it['nmID']} нет размера {it['chrtID']}")
+        elif len(sizes) > 1:
+            raise ValueError(f"у карточки {it['nmID']} несколько размеров — укажите chrtID")
+        else:
+            it["chrtID"] = int(next(iter(sizes)))
+        if it["ean"] in sizes[str(it["chrtID"])]["barcodes"]:
+            raise ValueError(f"EAN {it['ean']} уже есть у карточки {it['nmID']}")
+        other = next((x for r, x in prods.items() if it["ean"] in x["barcodes"]), None)
+        if other:
+            raise ValueError(f"EAN {it['ean']} уже стоит на другой карточке WB — {other.get('nm')} «{other['name'][:60]}»")
+        ms = bar.get(it["ean"]) or {}
+        rows.append({"nmID": it["nmID"], "chrtID": it["chrtID"], "wb": sizes[str(it["chrtID"])]["name"], "ean": it["ean"],
+                     "msCode": ms.get("code") or "", "msName": ms.get("name") or "нет в МойСклад"})
+    return rows
+
+
+def _wb_barcodes(ch, p):
+    """Заводской EAN в sizes[].skus существующих карточек WB (/content/v2/cards/update; WB разрешает только добавлять баркоды).
+    Пакетом, одним запросом. После — сброс кэша пар «маркетплейс ↔ МойСклад», чтобы остатки пошли сразу."""
+    bodies, added = [], []
+    for it in p["items"]:
+        body = _wb_body(_wb_get_card(ch, int(it["nmID"])))
+        body["sizes"] = add_sku(body.get("sizes") or [], it["chrtID"], str(it["ean"]))
+        bodies.append(body)
+        added.append({"nmID": int(it["nmID"]), "ean": str(it["ean"])})
+    res = _wb_ok(ch.req("POST", "content", "/content/v2/cards/update", json=bodies))
+    for k in [k for k in oh._cache if k.startswith("mp_map_wb")]:
+        oh._cache.pop(k, None)
+    return {"added": added, "response": res}
+
+
 def _wb_bid(ch, p):
     return ch.req("PATCH", "advert", "/api/advert/v1/bids", json={"bids": [{"advert_id": int(p["advert_id"]), "nm_bids": [
         {"nm_id": int(p["nm_id"]), "bid_kopecks": int(round(float(p["bid"]) * 100)), "placement": p.get("placement", "combined")}]}]})
@@ -479,6 +595,15 @@ ACTIONS = {
     "wb_card_update": {"shop": mpk.WB, "params": ["nmID", "characteristics?", "dimensions?", "title?", "description?"],
                        "about": "карточка WB: характеристики [{id, value}] по справочнику charcs, габариты {length, width, height, weightBrutto}, "
                                 "название (≤60), описание. Цену, бренд, vendorCode, штрихкоды и фото не меняет", "run": _wb_card_update},
+    "wb_card_create": {"shop": mpk.WB, "params": ["subjectID", "vendorCode", "title", "sizes", "description?", "brand?", "dimensions?",
+                                                   "characteristics?", "photos?"],
+                       "about": "новая карточка WB (/content/v2/cards/upload) без цены — цена отдельно, wb_price через «Да». "
+                                "sizes — [{skus: [EAN], techSize?, wbSize?}]; фото — https-ссылки (/content/v3/media/save). Правило «Карточки»",
+                       "run": _wb_card_create},
+    "wb_card_media": {"shop": mpk.WB, "params": ["nmID", "photos"], "about": "фото карточки WB по https-ссылкам (/content/v3/media/save) — "
+                      "заменяет все фото; прежние сохраняются для «Вернуть как было». Правило «Карточки»", "run": _wb_media},
+    "wb_card_barcodes": {"shop": mpk.WB, "params": ["items"], "about": "добавить заводской EAN в карточки WB — items [{nmID, ean, chrtID?}]. "
+                         "Баркоды только добавляются, удалить нельзя. Всегда через «Да»", "run": _wb_barcodes},
     "wb_bid": {"shop": mpk.WB, "params": ["advert_id", "nm_id", "bid", "placement?"], "about": "ставка в кампании WB, ₸ (combined/search/recommendations)",
                "run": _wb_bid},
     "wb_campaign": {"shop": mpk.WB, "params": ["advert_id", "action"], "about": "кампания WB: start / pause / stop", "run": _wb_campaign},
@@ -539,6 +664,48 @@ def validate(kind, p):
             raise ValueError("nmIDs — список артикулов WB")
         if not 1 <= len(p["nmIDs"]) <= 1000:
             raise ValueError("nmIDs — от 1 до 1000 артикулов")
+    if kind in ("wb_card_create", "wb_card_media"):
+        bad = [k for k in p if k not in {x.rstrip("?") for x in a["params"]}]
+        if bad:
+            raise ValueError("лишние поля: " + ", ".join(bad) + (" — цену ставит wb_price через «Да»" if "price" in bad else ""))
+        pics = p.get("photos") or []
+        if not isinstance(pics, list) or not all(isinstance(u, str) and u.startswith("https://") for u in pics):
+            raise ValueError("photos — список публичных ссылок https:// прямо на файл")
+        if len(pics) > 30 or (kind == "wb_card_media" and not pics):
+            raise ValueError("photos — от 1 до 30 ссылок")
+    if kind == "wb_card_create":
+        if len(str(p["title"])) > 60 or len(str(p["vendorCode"])) > 72:
+            raise ValueError("название — до 60 символов, vendorCode — до 72")
+        if not isinstance(p["sizes"], list) or not p["sizes"]:
+            raise ValueError("sizes — [{skus: [EAN]}]")
+        for s in p["sizes"]:
+            if not isinstance(s, dict) or set(s) - {"skus", "techSize", "wbSize"}:
+                raise ValueError("sizes — только skus, techSize, wbSize" + (" (цену ставит wb_price через «Да»)" if isinstance(s, dict) and "price" in s else ""))
+            s["skus"] = [str(x).strip() for x in s.get("skus") or []]
+            bad = [x for x in s["skus"] if not ean_ok(x)]
+            if not s["skus"] or bad:
+                raise ValueError("skus — заводские EAN-13 (EAN-8) с верной контрольной цифрой" + (": " + ", ".join(bad) if bad else ""))
+        if p.get("characteristics") is not None and (not isinstance(p["characteristics"], list)
+                                                     or not all(isinstance(x, dict) and x.get("id") for x in p["characteristics"])):
+            raise ValueError("characteristics — список {id, value}")
+    if kind == "wb_card_barcodes":
+        items = p["items"] if isinstance(p["items"], list) else []
+        if not 1 <= len(items) <= 100:
+            raise ValueError("items — от 1 до 100 карточек [{nmID, ean}]")
+        out = []
+        for it in items:
+            if not isinstance(it, dict) or set(it) - {"nmID", "ean", "chrtID"}:
+                raise ValueError("items — [{nmID, ean, chrtID?}]; штрихкоды через это действие только добавляются")
+            try:
+                row = {"nmID": int(it["nmID"]), "ean": str(it["ean"]).strip(), **({"chrtID": int(it["chrtID"])} if it.get("chrtID") else {})}
+            except (KeyError, TypeError, ValueError):
+                raise ValueError("items — [{nmID, ean, chrtID?}]")
+            if not ean_ok(row["ean"]):
+                raise ValueError(f"{row['ean']} — не заводской EAN (8, 12 или 13 цифр с верной контрольной)")
+            out.append(row)
+        if len({(x["nmID"], x["ean"]) for x in out}) != len(out):
+            raise ValueError("в заявке повторяется карточка с тем же EAN")
+        p = {"items": out}
     if kind == "wb_card_update":
         allowed = {x.rstrip("?") for x in a["params"]}
         bad = [k for k in p if k not in allowed]
@@ -551,18 +718,18 @@ def validate(kind, p):
         if p.get("characteristics") is not None and (not isinstance(p["characteristics"], list)
                                                      or not all(isinstance(x, dict) and x.get("id") for x in p["characteristics"])):
             raise ValueError("characteristics — список {id, value}")
-        if p.get("dimensions"):
-            d = p["dimensions"]
-            if not isinstance(d, dict) or set(d) - {"length", "width", "height", "weightBrutto"}:
-                raise ValueError("dimensions — {length, width, height, weightBrutto}")
-            for k, v in d.items():
-                try:
-                    ok = float(v) > 0 and (k == "weightBrutto" or float(v) == int(float(v)))
-                except (TypeError, ValueError):
-                    ok = False
-                if not ok:
-                    raise ValueError(f"{k} — положительное число" + ("" if k == "weightBrutto" else ", целое, см"))
-                d[k] = float(v) if k == "weightBrutto" else int(float(v))
+    if kind in ("wb_card_update", "wb_card_create") and p.get("dimensions"):
+        d = p["dimensions"]
+        if not isinstance(d, dict) or set(d) - {"length", "width", "height", "weightBrutto"}:
+            raise ValueError("dimensions — {length, width, height, weightBrutto}")
+        for k, v in d.items():
+            try:
+                ok = float(v) > 0 and (k == "weightBrutto" or float(v) == int(float(v)))
+            except (TypeError, ValueError):
+                ok = False
+            if not ok:
+                raise ValueError(f"{k} — положительное число" + ("" if k == "weightBrutto" else ", целое, см"))
+            d[k] = float(v) if k == "weightBrutto" else int(float(v))
     return p
 
 
@@ -587,7 +754,12 @@ def summary(kind, ch, p):
               "ozon_promotion": lambda: f"акция {p['action_id']}: {len(p['products'])} товаров",
               "ozon_card_create": lambda: f"новая карточка {p['offer_id']} «{p['name'][:120]}», цена {p['price']} {p.get('currency_code') or '₸'}, "
                                           f"категория {p['description_category_id']}/{p['type_id']}, картинок {len(p.get('images') or [])}",
-              "ozon_pictures": lambda: f"картинки товара {p['product_id']}: {len(p['images'])} шт."}[kind]()
+              "ozon_pictures": lambda: f"картинки товара {p['product_id']}: {len(p['images'])} шт.",
+              "wb_card_create": lambda: f"новая карточка {p['vendorCode']} «{p['title']}», предмет {p['subjectID']}, EAN "
+                                        + ", ".join(x for s in p["sizes"] for x in s["skus"]) + f", фото {len(p.get('photos') or [])}",
+              "wb_card_media": lambda: f"nmID {p['nmID']}: фото {len(p['photos'])} шт. (заменят прежние)",
+              "wb_card_barcodes": lambda: "; ".join(f"{r['nmID']} «{r['wb'][:50]}» + EAN {r['ean']} → МойСклад {r['msCode']} {r['msName'][:60]}".strip()
+                                                    for r in p.get("_rows") or [])[:1500] or f"{len(p['items'])} карточек"}[kind]()
     return f"{ch.title}: {a} — {detail}"
 
 
@@ -598,7 +770,7 @@ def auto_ok(kind, ch, p):
     r = rules()
     if r["stop"]:
         return False
-    if kind in ("wb_card_update", "ozon_pictures"):
+    if kind in ("wb_card_update", "wb_card_create", "wb_card_media", "ozon_pictures"):   # штрихкоды (wb_card_barcodes) — только «Да»
         return r["auto_cards"]
     if kind == "wb_question_answer":
         return r["auto_questions"]
@@ -612,6 +784,9 @@ def auto_ok(kind, ch, p):
         x = next((a for a in lim.get("adverts") or [] if int(a.get("advertId") or 0) == int(p["advert_id"])), None)
         return bool(x and x.get("enabled") and 0 < float(x.get("dailyLimit") or 0) <= budget(ch.key))   # без лимита — только через «Да»
     return False
+
+
+FULL_RESULT = ("wb_card_update", "wb_card_media", "wb_card_barcodes")
 
 
 def execute(rid, who):
@@ -629,7 +804,7 @@ def execute(rid, who):
     with db() as d:
         txt = json.dumps(res, ensure_ascii=False, default=str)
         d.run("UPDATE agent_req SET status=%s, result=%s, decided=%s, who=%s WHERE id=%s",   # карточка — целиком: в ней прежняя версия для отката
-              (status, txt if kind == "wb_card_update" else txt[:4000], time.time(), who, rid))
+              (status, txt if kind in FULL_RESULT else txt[:4000], time.time(), who, rid))
     if status == "done" and kind in PRICE_KINDS:
         price_changed(key, ident_of(kind, params))
     return status, res
@@ -648,7 +823,12 @@ def create_route():
         return jsonify(ok=False, error="Нет такого магазина с ключом для этого действия"), 400
     try:
         p = validate(kind, p)
+        if kind == "wb_card_barcodes":            # таблица для владельца и проверка, что EAN нет на других карточках
+            p["_rows"] = barcode_rows(ch, p["items"])
         text = summary(kind, ch, p)
+    except mpk.ApiError as e:
+        log(502, f"{kind}: {e.message}")
+        return jsonify(ok=False, error=e.message), 502
     except (ValueError, KeyError, TypeError) as e:
         log(400, f"{kind}: {e}")
         return jsonify(ok=False, error=str(e)), 400
@@ -1047,7 +1227,7 @@ def revert(rid):
         return err
     with db() as d:
         row = d.run("SELECT kind, shop, status, result FROM agent_req WHERE id=%s", (rid,), one=True)
-    if not row or row[0] not in ("wb_card_update", "wb_card_trash") or row[2] != "done":
+    if not row or row[0] not in ("wb_card_update", "wb_card_trash", "wb_card_media") or row[2] != "done":
         return jsonify(ok=False, error="Вернуть можно только выполненное изменение карточки или перенос в корзину"), 400
     res = json.loads(row[3] or "{}")
     if res.get("reverted"):
@@ -1057,6 +1237,9 @@ def revert(rid):
         p = {"nmIDs": res.get("nmIDs") or [], "_recover": True}
         what = f"вернуть из корзины — nmID {', '.join(map(str, p['nmIDs']))[:200]}"
         enough = bool(p["nmIDs"])
+    elif row[0] == "wb_card_media":
+        p = {"nmID": res.get("nmID"), "photos": res.get("before") or [], "_restore": True}
+        what, enough = f"вернуть прежние фото — nmID {p['nmID']}", bool(p["photos"])
     else:
         before = res.get("before") or {}
         p = {"nmID": res.get("nmID"), "_restore": True, **{k: v for k, v in before.items() if v not in (None, {})}}

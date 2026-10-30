@@ -485,6 +485,104 @@ class CardTrash(unittest.TestCase):
 
 
 
+class WBCardCreate(unittest.TestCase):
+    """wb_card_create — сразу по правилу «Карточки», без цены, фото через media/save; wb_card_barcodes — только «Да»,
+    баркоды только добавляются, таблица для владельца, сброс кэша пар."""
+    patch = tm.Channels.patch
+
+    def setUp(self):
+        Agent.setUp(self)
+        self.patch(agent, "PHOTO_WAIT", 0)
+        self.cards = [{"nmID": 111, "subjectID": 7, "vendorCode": "00615", "brand": "Anua", "title": "Крем Anua PDRN",
+                       "sizes": [{"chrtID": 501, "techSize": "0", "skus": ["2040705169877"]}], "photos": [{"big": "https://cdn.wb/old1.webp"}]},
+                      {"nmID": 222, "subjectID": 7, "vendorCode": "00700", "brand": "Anua", "title": "Тонер Anua",
+                       "sizes": [{"chrtID": 601, "skus": ["8809640730016"]}]}]
+        self.sent = []
+        base = mpk.requests.request
+
+        def wb(method, url, params=None, json=None, headers=None, timeout=None):
+            path = url.split(".wildberries.ru", 1)[1]
+            if path == "/content/v2/get/cards/list":
+                return Resp(200, {"cards": self.cards})
+            if path == "/content/v2/object/charcs/7":
+                return Resp(200, {"data": [{"charcID": 1, "name": "Объём", "charcType": 4}]})
+            if path in ("/content/v2/cards/upload", "/content/v3/media/save", "/content/v2/cards/update"):
+                self.sent.append((path, json))
+                if path == "/content/v2/cards/upload":
+                    v = json[0]["variants"][0]
+                    self.cards.append({"nmID": 333, "subjectID": json[0]["subjectID"], "vendorCode": v["vendorCode"], "title": v["title"],
+                                       "sizes": [{"chrtID": 701, "skus": v["sizes"][0]["skus"]}]})
+                return Resp(200, {"data": None, "error": False, "errorText": ""})
+            return base(method, url, params=params, json=json, headers=headers, timeout=timeout)
+        self.patch(mpk.requests, "request", wb)
+        self.patch(oh, "panel_catalog", lambda: {"m1": {"id": "m1", "code": "00615", "name": "Anua PDRN крем 60 мл", "barcode": "8809640738135"}})
+
+    def new(self, kind, **p):
+        return self.c.post("/agent/api/requests", headers=self.h, json={"kind": kind, "shop": "wb", "params": p})
+
+    NEW = {"subjectID": 7, "vendorCode": "00800", "title": "Сыворотка Anua", "brand": "Anua", "description": "Описание",
+           "dimensions": {"length": 5, "width": 5, "height": 15, "weightBrutto": 0.2}, "characteristics": [{"id": 1, "value": 30}],
+           "sizes": [{"skus": ["8809640738135"]}], "photos": ["https://amura.kz/cards/00800/1.png"]}
+
+    def test_create_auto_without_price_with_photos(self):
+        r = self.new("wb_card_create", **self.NEW).get_json()
+        self.assertEqual((r["status"], r["auto"]), ("done", True))
+        up = self.sent[0]
+        self.assertEqual(up[0], "/content/v2/cards/upload")
+        self.assertNotIn("price", json.dumps(up[1]))
+        self.assertEqual(up[1][0]["variants"][0]["characteristics"], [{"id": 1, "value": 30}])
+        self.assertEqual(self.sent[1], ("/content/v3/media/save", {"nmId": 333, "data": ["https://amura.kz/cards/00800/1.png"]}))
+        self.assertEqual(r["result"]["nmID"], 333)
+
+    def test_create_rejects_price_and_bad_ean(self):
+        for bad in ({"price": 9000}, {"sizes": [{"skus": ["8809640738135"], "price": 9000}]}, {"sizes": [{"skus": ["8809640738136"]}]},
+                    {"sizes": []}, {"photos": ["http://x/1.jpg"]}, {"title": "x" * 61}):
+            r = self.new("wb_card_create", **{**self.NEW, **bad})
+            self.assertEqual(r.status_code, 400, bad)
+        self.assertEqual(self.sent, [])
+
+    def test_create_waits_for_yes_when_stopped(self):
+        self.c.post("/admin/api/agent/rules", json={"stop": True})
+        r = self.new("wb_card_create", **self.NEW).get_json()
+        self.assertEqual((r["status"], r["auto"]), ("new", False))
+        self.assertEqual(self.sent, [])
+
+    def test_media_auto_and_revert(self):
+        r = self.new("wb_card_media", nmID=111, photos=["https://amura.kz/cards/00615/1.png"]).get_json()
+        self.assertEqual(r["status"], "done")
+        self.assertEqual(r["result"]["before"], ["https://cdn.wb/old1.webp"])
+        j = self.c.post(f"/admin/api/agent/{r['id']}/revert").get_json()
+        self.assertEqual(j["status"], "done")
+        self.assertEqual(self.sent[-1], ("/content/v3/media/save", {"nmId": 111, "data": ["https://cdn.wb/old1.webp"]}))
+
+    def test_barcodes_only_with_yes_table_and_cache(self):
+        oh._cache["mp_map_wb"] = (9e12, {"x": 1})
+        oh._cache["mp_map_wb2"] = (9e12, {"x": 1})
+        r = self.new("wb_card_barcodes", items=[{"nmID": 111, "ean": "8809640738135"}]).get_json()
+        self.assertEqual((r["status"], r["auto"]), ("new", False))                      # при включённых правилах — всё равно «Да»
+        self.assertEqual(self.sent, [])
+        item = next(x for x in self.c.get("/admin/api/agent").get_json()["items"] if x["id"] == r["id"])
+        self.assertEqual(item["params"]["_rows"], [{"nmID": 111, "chrtID": 501, "wb": "Крем Anua PDRN", "ean": "8809640738135",
+                                                    "msCode": "00615", "msName": "Anua PDRN крем 60 мл"}])
+        self.assertIn("8809640738135", self.tg[-1])
+        self.assertEqual(self.c.post(f"/admin/api/agent/{r['id']}", json={"decision": "yes"}).get_json()["status"], "done")
+        path, body = self.sent[0]
+        self.assertEqual(path, "/content/v2/cards/update")
+        self.assertEqual(body[0]["sizes"][0]["skus"], ["2040705169877", "8809640738135"])  # баркод WB остался
+        self.assertNotIn("mp_map_wb", oh._cache)
+        self.assertNotIn("mp_map_wb2", oh._cache)
+
+    def test_barcodes_never_removed(self):
+        for bad in ({"nmID": 111, "ean": "8809640738135", "skus": []}, {"nmID": 111, "ean": "8809640738135", "remove": "2040705169877"},
+                    {"nmID": 111, "ean": "123"}, {"nmID": 111, "ean": "8809640738136"}):
+            self.assertEqual(self.new("wb_card_barcodes", items=[bad]).status_code, 400, bad)
+        self.assertEqual(self.new("wb_card_barcodes", items=[{"nmID": 111, "ean": "8809640730016"}]).status_code, 400)  # EAN другой карточки
+        self.assertEqual(self.new("wb_card_barcodes", items=[{"nmID": 999, "ean": "8809640738135"}]).status_code, 400)  # не наша карточка
+        self.assertEqual(agent.add_sku([{"chrtID": 1, "skus": ["2040705169877"]}], 1, "8809640738135")[0]["skus"],
+                         ["2040705169877", "8809640738135"])
+        self.assertEqual(self.sent, [])
+
+
 class OzonCard(unittest.TestCase):
     """ozon_card_create — только «Да» (Ozon требует цену в том же запросе); ozon_pictures — по правилу «Карточки»."""
     patch = tm.Channels.patch
