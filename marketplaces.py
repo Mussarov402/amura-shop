@@ -280,7 +280,8 @@ class WB(Channel):
                     if s.get("chrtID"):
                         out[str(s["chrtID"])] = {"offer": str(c.get("vendorCode") or ""), "barcodes": [str(b) for b in s.get("skus") or [] if b],
                                                  "name": str(c.get("title") or c.get("vendorCode") or ""), "archived": False,
-                                                 "nm": c.get("nmID"), "subject": c.get("subjectID"), "dims": c.get("dimensions") or {}}
+                                                 "nm": c.get("nmID"), "subject": c.get("subjectID"), "dims": c.get("dimensions") or {},
+                                                 "kiz": bool(c.get("needKiz"))}
             cur = j.get("cursor") or {}
             if len(cards) < 100 or not cur.get("nmID"):
                 break
@@ -571,14 +572,64 @@ def sync_orders(ch, now=None):
 
 
 # ---------- остатки: МойСклад → маркетплейс ----------
+# ---------- «не выставлять»: товар магазина с остатком 0 ----------
+def kiz_on():
+    """«Маркировка подключена» (КИЗ). Пока выключено, карточки WB с needKiz получают остаток 0 — собрать заказ без КИЗ нельзя."""
+    return setting("mp_kiz_on", "0") == "1"
+
+
+def ident(ch, x):
+    """Товар магазина для отметки: WB — nmID, Ozon — артикул продавца (offer_id)."""
+    return str(x.get("nm") or "") if isinstance(ch, WB) else str(x.get("offer") or "")
+
+
+def noshow(ch):
+    try:
+        return json.loads(setting(f"mp_{ch.key}_noshow", "") or "{}")
+    except ValueError:
+        return {}
+
+
+def set_noshow(ch, idt, hide, who):
+    d = noshow(ch)
+    if hide:
+        d[str(idt)] = {"who": who, "at": int(time.time())}
+    else:
+        d.pop(str(idt), None)
+    set_setting(f"mp_{ch.key}_noshow", json.dumps(d, ensure_ascii=False))
+    return d
+
+
+def hidden(ch, x, marks=None):
+    """Почему остаток товара не выставляем (→ 0): отметка «не выставлять» или нужна маркировка. Пусто — выставляем."""
+    if ident(ch, x) in (noshow(ch) if marks is None else marks):
+        return "не выставлять"
+    if isinstance(ch, WB) and x.get("kiz") and not kiz_on():
+        return "нужна маркировка"
+    return ""
+
+
+def goods(ch):
+    """Товары магазина для экрана «Ozon и WB» (из последней сверки): ident, название, есть ли пара в МойСклад, причина «не выставлять»."""
+    m = oh._cache.get(f"mp_map_{ch.key}")
+    if not m:
+        return None
+    mp, marks, out = m[1], noshow(ch), {}
+    for ref, x in mp["products"].items():
+        i = ident(ch, x)
+        if i and not x["archived"] and i not in out:
+            out[i] = {"id": i, "offer": x["offer"], "name": x["name"], "pair": bool(mp["ref"].get(ref)), "hidden": hidden(ch, x, marks)}
+    return sorted(out.values(), key=lambda g: (not g["hidden"], g["name"].lower()))
+
+
 def push_stocks(ch, force=False):
-    mp, cat, pct, share = mapping(ch), _catalog(), reserve_pct(), share_pct(ch)
+    mp, cat, pct, share, marks = mapping(ch), _catalog(), reserve_pct(), share_pct(ch), noshow(ch)
     want = []
     for ref, x in mp["products"].items():
         mid = mp["ref"].get(ref)
         if not mid or x["archived"]:
             continue
-        n = shown((cat.get(mid) or {}).get("qty"), pct, share)
+        n = 0 if hidden(ch, x, marks) else shown((cat.get(mid) or {}).get("qty"), pct, share)
         if force or ch.sent.get(ref) != n:
             want.append({"ref": ref, "offer": x["offer"], "stock": n})
     errors = ch.push_stocks(want) if want else []
@@ -641,14 +692,14 @@ def status():
             return json.loads(setting(f"mp_{ch.key}_{kind}", "") or "null")
         except ValueError:
             return None
-    out = {"on": modules.enabled("marketplaces"), "reserve": reserve_pct(), "channels": []}
+    out = {"on": modules.enabled("marketplaces"), "reserve": reserve_pct(), "kiz": kiz_on(), "channels": []}
     with db() as d:
         for ch in channels():
             rows = d.run(f"SELECT {COLS} FROM mp_order WHERE mp=%s ORDER BY created DESC LIMIT 20", (ch.key,), many=True) or []
             m = oh._cache.get(f"mp_map_{ch.key}")
             out["channels"].append({"id": ch.key, "title": ch.title, "keys": ch.keys_set(), "env": ch.env_names(),
                                     "share": share_pct(ch), "orders": last(ch, "orders"),
-                                    "stocks": last(ch, "stocks"), "lost": (m[1]["lost"][:50] if m else []),
+                                    "stocks": last(ch, "stocks"), "lost": (m[1]["lost"][:50] if m else []), "goods": goods(ch),
                                     "recent": [dict(zip(COLS.split(", "), r)) for r in rows]})
     return out
 
@@ -692,6 +743,14 @@ def settings_route():
             except (TypeError, ValueError):
                 return jsonify(ok=False, error="Доля остатка — целое число процентов"), 400
             known[k].sent.clear()
+    if "kiz" in d:
+        set_setting("mp_kiz_on", "1" if d["kiz"] else "0")
+    if isinstance(d.get("noshow"), dict):
+        x = d["noshow"]
+        ch = {c.key: c for c in channels()}.get(str(x.get("shop") or ""))
+        if not ch or not str(x.get("id") or "").strip():
+            return jsonify(ok=False, error="Нет такого магазина или товара"), 400
+        set_noshow(ch, str(x["id"]).strip(), bool(x.get("hide")), "владелец")
     if d.get("run") and on():
         for ch in channels():
             ch.last.update(orders=0, stocks=0)

@@ -507,6 +507,29 @@ class CardTrash(unittest.TestCase):
 
 
 
+class NoShow(unittest.TestCase):
+    """mp_noshow — «не выставлять» товар: только после «Да», при любых правилах."""
+    patch = tm.Channels.patch
+
+    def setUp(self):
+        Agent.setUp(self)
+        mpk.set_setting("mp_wb_noshow", "")
+        self.addCleanup(lambda: mpk.set_setting("mp_wb_noshow", ""))
+
+    def test_only_with_yes(self):
+        new = lambda **p: self.c.post("/agent/api/requests", headers=self.h, json={"kind": "mp_noshow", "shop": "wb", "params": p})
+        self.assertEqual(new(id="1", hide="да").status_code, 400)
+        self.assertEqual(new(id="1", stock=5).status_code, 400)
+        r = new(id="244631445").get_json()
+        self.assertEqual((r["status"], r["auto"]), ("new", False))
+        self.assertEqual(mpk.noshow(mpk.CHANNELS["wb"]), {})
+        self.assertEqual(self.c.post(f"/admin/api/agent/{r['id']}", json={"decision": "yes"}).get_json()["status"], "done")
+        self.assertIn("244631445", mpk.noshow(mpk.CHANNELS["wb"]))
+        r = new(id="244631445", hide=False).get_json()
+        self.c.post(f"/admin/api/agent/{r['id']}", json={"decision": "yes"})
+        self.assertEqual(mpk.noshow(mpk.CHANNELS["wb"]), {})
+
+
 class WBCardCreate(unittest.TestCase):
     """wb_card_create — сразу по правилу «Карточки», без цены, фото через media/save; wb_card_barcodes — только «Да»,
     баркоды только добавляются, таблица для владельца, сброс кэша пар."""
