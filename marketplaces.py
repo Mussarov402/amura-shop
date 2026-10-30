@@ -234,6 +234,9 @@ class WB(Channel):
         if r.status_code >= 400:
             e = j[0] if isinstance(j, list) and j else j if isinstance(j, dict) else {}
             msg = " — ".join(str(e[k]) for k in ("message", "errorText", "title", "detail") if e.get(k)) or (r.text or "").strip()[:200]
+            extra = {k: e[k] for k in ("additionalErrors", "errors", "data", "origin", "requestId") if e.get(k)}   # «bad request» без подробностей
+            if extra:
+                msg += " " + json.dumps(extra, ensure_ascii=False)[:300]
             raise ApiError(r.status_code, f"HTTP {r.status_code}: {msg}"[:400] if msg else f"HTTP {r.status_code}")
         return j
 

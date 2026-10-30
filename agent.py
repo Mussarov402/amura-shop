@@ -387,19 +387,51 @@ OZ_ITEM = ("offer_id", "name", "description_category_id", "type_id", "price", "o
            "depth", "width", "height", "dimension_unit", "weight", "weight_unit", "images", "primary_image", "attributes", "complex_attributes")
 
 
+def oz_currency(ch):
+    """Валюта кабинета Ozon (цены всех товаров в одной валюте договора): currency_code из /v5/product/info/prices; кэш 6 ч.
+    Товаров ещё нет — OZON_CURRENCY[_N] на Render; не знаем — None."""
+    def load():
+        r = ch.call("/v5/product/info/prices", {"filter": {"visibility": "ALL"}, "cursor": "", "limit": 1})
+        it = (r.get("items") or ch.res(r).get("items") or [{}])[0]
+        return str((it.get("price") or {}).get("currency_code") or "")
+    try:
+        cur = oh.cached(f"oz_cur:{ch.key}", 6 * 3600, load)
+    except mpk.ApiError:
+        cur = ""
+    return (cur or ch.env("CURRENCY") or "").upper() or None
+
+
+def oz_money(ch, p):
+    """Цена заявки Ozon — в ₸ (как во всей системе), если не указан currency_code. → (цены для Ozon {price, old_price?},
+    валюта, пояснение). Кабинет не в тенге — пересчёт по курсу продажи МиГ (запасной — НБ РК), как в калькуляторе."""
+    import mp_calc
+    if p.get("currency_code"):
+        cur = str(p["currency_code"]).upper()
+        return {k: float(p[k]) for k in ("price", "old_price") if p.get(k) is not None}, cur, f"цена в {cur} — как прислал менеджер"
+    cur = oz_currency(ch)
+    if not cur:
+        raise ValueError("не знаю валюту кабинета Ozon — укажите currency_code или OZON_CURRENCY на Render")
+    if cur in ("KZT", "398"):
+        return {k: float(p[k]) for k in ("price", "old_price") if p.get(k) is not None}, "KZT", ""
+    rate, note = mp_calc.to_kzt(1, cur)
+    if not rate:
+        raise ValueError(f"нет курса {cur} — цену не пересчитать")
+    out = {k: round(float(p[k]) / rate) for k in ("price", "old_price") if p.get(k) is not None}
+    return out, cur, f"{p['price']} ₸ → {out['price']} {cur} ({note})"
+
+
 def _oz_card_create(ch, p):
     """Новая карточка Ozon: POST /v3/product/import (Ozon требует цену в том же запросе — поэтому всегда через «Да»).
     Ответ — task_id; статус и ошибки модерации — чтение import_info."""
     item = {k: p[k] for k in OZ_ITEM if p.get(k) not in (None, "", [])}
-    for k in ("price", "old_price"):
-        if k in item:
-            item[k] = str(item[k])
-    item.setdefault("currency_code", "KZT")
+    money, cur, note = oz_money(ch, p)
+    item.update({k: f"{v:g}" for k, v in money.items()}, currency_code=cur)
     item.setdefault("dimension_unit", "mm")
     item.setdefault("weight_unit", "g")
     item.setdefault("vat", "0")
     r = ch.call("/v3/product/import", {"items": [item]})
-    return {"task_id": (ch.res(r) or {}).get("task_id"), "offer_id": item["offer_id"], "response": r}
+    return {"task_id": (ch.res(r) or {}).get("task_id"), "offer_id": item["offer_id"], "price_kzt": p["price"] if not p.get("currency_code") else None,
+            "price": money["price"], "currency": cur, "note": note, "response": r}
 
 
 def _oz_pictures(ch, p):
@@ -415,10 +447,11 @@ def _oz_review(ch, p):
 
 
 def _oz_price(ch, p):
-    row = {"offer_id": str(p["offer_id"]), "price": str(p["price"])}
-    if p.get("old_price") is not None:
-        row["old_price"] = str(p["old_price"])
-    return ch.call("/v1/product/import/prices", {"prices": [row]})
+    """Цена Ozon: в заявке — ₸ (или в currency_code), Ozon получает цену в валюте кабинета."""
+    money, cur, note = oz_money(ch, p)
+    row = {"offer_id": str(p["offer_id"]), "currency_code": cur, **{k: f"{v:g}" for k, v in money.items()}}
+    r = ch.call("/v1/product/import/prices", {"prices": [row]})
+    return {"price_kzt": p["price"] if not p.get("currency_code") else None, "price": money["price"], "currency": cur, "note": note, "response": r}
 
 
 def _oz_promo(ch, p):
@@ -453,7 +486,8 @@ ACTIONS = {
                           "run": _wb_deposit, "money": True},
     "wb_promotion": {"shop": mpk.WB, "params": ["promotionID", "nmIDs"], "about": "добавить товары в акцию WB", "run": _wb_promo},
     "ozon_review_answer": {"shop": mpk.Ozon, "params": ["id", "text"], "about": "ответ на отзыв Ozon", "run": _oz_review},
-    "ozon_price": {"shop": mpk.Ozon, "params": ["offer_id", "price", "old_price?"], "about": "цена Ozon", "run": _oz_price},
+    "ozon_price": {"shop": mpk.Ozon, "params": ["offer_id", "price", "old_price?", "currency_code?"],
+                   "about": "цена Ozon в ₸ (сервер пересчитает в валюту кабинета по курсу МиГ) или в currency_code", "run": _oz_price},
     "ozon_card_create": {"shop": mpk.Ozon, "params": ["offer_id", "name", "description_category_id", "type_id", "price", "depth", "width",
                                                        "height", "weight", "attributes", "images?", "primary_image?", "barcode?", "old_price?",
                                                        "currency_code?", "vat?", "dimension_unit?", "weight_unit?", "complex_attributes?"],
@@ -538,7 +572,8 @@ def summary(kind, ch, p):
               "ozon_review_answer": lambda: f"отзыв {p['id']}: «{p['text'][:300]}»",
               "wb_price": lambda: f"nmID {p['nmID']}: " + ", ".join(x for x in (f"цена {p['price']} ₸" if p.get("price") is not None else "",
                                                                                  f"скидка {p['discount']} %" if p.get("discount") is not None else "") if x),
-              "ozon_price": lambda: f"{p['offer_id']}: цена {p['price']}" + (f", до скидки {p['old_price']}" if p.get("old_price") else ""),
+              "ozon_price": lambda: f"{p['offer_id']}: цена {p['price']} {p.get('currency_code') or '₸'}"
+                                    + (f", до скидки {p['old_price']}" if p.get("old_price") else ""),
               "wb_bid": lambda: f"кампания {p['advert_id']}, nmID {p['nm_id']}: ставка {p['bid']} ₸ ({p.get('placement', 'combined')})",
               "wb_campaign": lambda: f"кампания {p['advert_id']}: {dict(start='запустить', pause='пауза', stop='завершить')[p['action']]}",
               "wb_budget_deposit": lambda: f"кампания {p['advert_id']}: пополнить на {p['sum']} ₸",
@@ -550,7 +585,7 @@ def summary(kind, ch, p):
                   ("название «" + p["title"] + "»") if p.get("title") else "", "новое описание" if p.get("description") else "") if x),
               "wb_promotion": lambda: f"акция {p['promotionID']}: товары {', '.join(map(str, p['nmIDs']))[:200]}",
               "ozon_promotion": lambda: f"акция {p['action_id']}: {len(p['products'])} товаров",
-              "ozon_card_create": lambda: f"новая карточка {p['offer_id']} «{p['name'][:120]}», цена {p['price']} {p.get('currency_code', 'KZT')}, "
+              "ozon_card_create": lambda: f"новая карточка {p['offer_id']} «{p['name'][:120]}», цена {p['price']} {p.get('currency_code') or '₸'}, "
                                           f"категория {p['description_category_id']}/{p['type_id']}, картинок {len(p.get('images') or [])}",
               "ozon_pictures": lambda: f"картинки товара {p['product_id']}: {len(p['images'])} шт."}[kind]()
     return f"{ch.title}: {a} — {detail}"
@@ -725,9 +760,10 @@ def cur_price(ch, ident):
               .get("data") or {}).get("listGoods") or [{}])[0]
         sz = (g.get("sizes") or [{}])[0]
         return float(sz.get("discountedPrice") or sz.get("price") or 0), float(g.get("discount") or 0), float(sz.get("price") or 0)
+    import mp_calc
     r = ch.call("/v5/product/info/prices", {"filter": {"offer_id": [ident], "visibility": "ALL"}, "cursor": "", "limit": 1})
     it = ((r.get("items") or ch.res(r).get("items") or [{}])[0]).get("price") or {}
-    v = float(it.get("price") or 0)
+    v = mp_calc.to_kzt(float(it.get("price") or 0), it.get("currency_code") or "KZT")[0] or 0   # коридор — в ₸
     return v, 0.0, v
 
 
@@ -774,7 +810,8 @@ def price_auto(kind, ch, p):
             return False, "меняется скидка — через «Да»"
         new = float(p["price"]) * (1 - c["disc"] / 100)
     else:
-        new = float(p["price"])
+        import mp_calc
+        new = float(p["price"]) if not p.get("currency_code") else (mp_calc.to_kzt(float(p["price"]), p["currency_code"])[0] or 0)
     if not c["complete"]:
         return False, f"нижняя граница неполная ({c['note']}) — через «Да»"
     if new < c["lower"]:

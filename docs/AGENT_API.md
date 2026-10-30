@@ -125,9 +125,15 @@ POST /agent/api/requests
 | `wb_promotion` | WB | `promotionID`, `nmIDs` (список) |
 | `ozon_review_answer` | Ozon | `id`, `text` |
 | `ozon_price` | Ozon | `offer_id`, `price`, `old_price` |
-| `ozon_card_create` | Ozon | `offer_id`, `name`, `description_category_id`, `type_id`, `price`, `depth`, `width`, `height` (мм), `weight` (г), `attributes` (список `{id, values: [{value} \| {dictionary_value_id}]}`). Необязательные: `images`, `primary_image` (только `https://`), `barcode`, `old_price`, `currency_code` (по умолчанию KZT), `vat`, `complex_attributes`. **Всегда через «Да»**: Ozon требует цену в том же запросе (`/v3/product/import`). Ответ — `task_id`, статус — чтение `import_info`. |
+| `ozon_card_create` | Ozon | `offer_id`, `name`, `description_category_id`, `type_id`, `price`, `depth`, `width`, `height` (мм), `weight` (г), `attributes` (список `{id, values: [{value} \| {dictionary_value_id}]}`). Необязательные: `images`, `primary_image` (только `https://`), `barcode`, `old_price`, `vat`, `complex_attributes`. **Всегда через «Да»**: Ozon требует цену в том же запросе (`/v3/product/import`). Ответ — `task_id`, статус — чтение `import_info`. |
 | `ozon_pictures` | Ozon | `product_id`, `images` (1–30 ссылок `https://`), `color_image`, `images360`. Выполняется сразу по правилу «Карточки». |
 | `ozon_promotion` | Ozon | `action_id`, `products` (список `{product_id, action_price, stock}`) |
+
+## Валюта Ozon
+
+Все цены в заявках Ozon (`ozon_card_create`, `ozon_price`) — в тенге, как во всей системе AMURA. Сервер сам узнаёт валюту кабинета по `currency_code` в `/v5/product/info/prices`; если товаров ещё нет — берёт `OZON_CURRENCY` на Render. Если кабинет не в тенге, сервер пересчитывает цену по курсу продажи МиГ (запасной — НБ РК), как калькулятор. В `result` заявки записываются обе суммы — `price_kzt` и `price` с `currency` — и курс (`note`).
+
+Можно сразу прислать цену в валюте кабинета — тогда передайте `currency_code` (например `RUB`), и пересчёта не будет.
 
 ## Правила самостоятельности
 
