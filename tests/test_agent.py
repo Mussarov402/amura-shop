@@ -497,11 +497,22 @@ class OzonCard(unittest.TestCase):
         Agent.setUp(self)
         self.sent = []
 
+        self.cab = "RUB"                                                              # кабинет Ozon в рублях, как у нас
+        oh._cache.pop("oz_cur:ozon", None)
+        self.addCleanup(lambda: oh._cache.pop("oz_cur:ozon", None))
+        import mp_calc
+        self.patch(mp_calc, "to_kzt", lambda amount, cur, ms_rate=None: (float(amount) * (6.0 if cur == "RUB" else 1.0),
+                                                                           "курс продажи МиГ 30.10.2026 12:00: 1 RUB = 6 ₸" if cur == "RUB" else ""))
+
         def oz(url, json=None, headers=None, timeout=None):
             path = url[len(mpk.CHANNELS["ozon"].api()):]
+            if path == "/v5/product/info/prices":
+                return Resp(200, {"items": [{"offer_id": "x", "price": {"price": "1490", "currency_code": self.cab}}]})
             self.sent.append((path, json))
             if path == "/v3/product/import":
                 return Resp(200, {"result": {"task_id": 555}})
+            if path == "/v1/product/import/prices":
+                return Resp(200, {"result": [{"offer_id": "00615", "updated": True}]})
             if path == "/v1/product/pictures/import":
                 return Resp(200, {"result": {"pictures": []}})
             if path == "/v1/description-category/tree":
@@ -520,7 +531,23 @@ class OzonCard(unittest.TestCase):
         j = self.c.post(f"/admin/api/agent/{r['id']}", json={"decision": "yes"}).get_json()
         self.assertEqual((j["status"], j["result"]["task_id"]), ("done", 555))
         item = self.sent[0][1]["items"][0]
-        self.assertEqual((item["price"], item["currency_code"], item["dimension_unit"], item["weight_unit"]), ("16500", "KZT", "mm", "g"))
+        self.assertEqual((item["price"], item["currency_code"], item["dimension_unit"], item["weight_unit"]), ("2750", "RUB", "mm", "g"))
+        self.assertEqual((j["result"]["price_kzt"], j["result"]["price"], j["result"]["currency"]), (16500, 2750, "RUB"))   # обе суммы
+        self.assertIn("16500 ₸ → 2750 RUB (курс продажи МиГ", j["result"]["note"])
+
+    def test_tenge_cabinet_and_explicit_currency(self):
+        self.cab = "KZT"
+        r = self.new("ozon_card_create", **self.CARD).get_json()
+        self.c.post(f"/admin/api/agent/{r['id']}", json={"decision": "yes"})
+        self.assertEqual((self.sent[-1][1]["items"][0]["price"], self.sent[-1][1]["items"][0]["currency_code"]), ("16500", "KZT"))
+        self.cab = "RUB"
+        oh._cache.pop("oz_cur:ozon", None)
+        r = self.new("ozon_price", offer_id="00615", price=2700, currency_code="RUB").get_json()          # цена в валюте кабинета
+        self.c.post(f"/admin/api/agent/{r['id']}", json={"decision": "yes"})
+        self.assertEqual(self.sent[-1][1]["prices"][0], {"offer_id": "00615", "currency_code": "RUB", "price": "2700"})
+        r = self.new("ozon_price", offer_id="00615", price=16500, old_price=18000).get_json()            # в ₸ — пересчёт
+        self.c.post(f"/admin/api/agent/{r['id']}", json={"decision": "yes"})
+        self.assertEqual(self.sent[-1][1]["prices"][0], {"offer_id": "00615", "currency_code": "RUB", "price": "2750", "old_price": "3000"})
 
     def test_validation(self):
         self.assertEqual(self.new("ozon_card_create", **dict(self.CARD, images=["http://x/1.png"])).status_code, 400)
@@ -539,6 +566,15 @@ class OzonCard(unittest.TestCase):
     def test_read_tree(self):
         j = self.c.get("/agent/api/read/ozon/category_tree", headers=self.h, query_string={"p": '{"language": "DEFAULT"}'}).get_json()
         self.assertEqual(j["data"]["result"][0]["category_name"], "Красота")
+
+
+    def test_error_details(self):
+        def wb(method, url, params=None, json=None, headers=None, timeout=None):
+            return Resp(400, {"title": "bad request", "detail": "", "additionalErrors": {"nmIDs": "карточка в объединении"}})
+        self.patch(mpk.requests, "request", wb)
+        j = self.c.get("/agent/api/read/wb/questions?isAnswered=false&take=1&skip=0", headers=self.h).get_json()
+        self.assertIn("bad request", j["error"])
+        self.assertIn("карточка в объединении", j["error"])
 
 
 if __name__ == "__main__":
