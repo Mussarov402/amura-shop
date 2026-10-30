@@ -628,6 +628,50 @@ class WBCardCreate(unittest.TestCase):
         self.assertEqual(self.sent, [])
 
 
+class OzonCardUpdate(unittest.TestCase):
+    """ozon_card_update — характеристики Ozon (rich-контент 11254) сразу по правилу «Карточки»; прежние — в before, «Вернуть как было»."""
+    patch = tm.Channels.patch
+    RICH = '{"content":[{"widgetName":"raShowcase","type":"roll","blocks":[]}],"version":0.3}'
+
+    def setUp(self):
+        Agent.setUp(self)
+        self.sent = []
+        self.attrs = [{"id": 85, "complex_id": 0, "values": [{"dictionary_value_id": 5, "value": "Anua"}]}]
+
+        def oz(url, json=None, headers=None, timeout=None):
+            path = url[len(mpk.CHANNELS["ozon"].api()):]
+            if path == "/v4/product/info/attributes":
+                return Resp(200, {"result": [{"offer_id": "00615", "attributes": self.attrs}]})
+            self.sent.append((path, json))
+            return Resp(200, {"task_id": 4242})
+        self.patch(mpk.requests, "post", oz)
+
+    def new(self, **p):
+        return self.c.post("/agent/api/requests", headers=self.h, json={"kind": "ozon_card_update", "shop": "ozon", "params": p})
+
+    def test_rich_auto_and_revert(self):
+        r = self.new(offer_id="00615", attributes=[{"id": 11254, "values": [{"value": self.RICH}]}]).get_json()
+        self.assertEqual((r["status"], r["auto"], r["result"]["task_id"]), ("done", True, 4242))
+        self.assertEqual(self.sent[-1], ("/v1/product/attributes/update", {"items": [{"offer_id": "00615", "attributes": [
+            {"id": 11254, "complex_id": 0, "values": [{"value": self.RICH}]}]}]}))
+        self.assertEqual(r["result"]["before"], {"attributes": [{"id": 11254, "complex_id": 0, "values": []}]})   # rich не было
+        j = self.c.post(f"/admin/api/agent/{r['id']}/revert").get_json()
+        self.assertEqual(j["status"], "done")
+        self.assertEqual(self.sent[-1][1]["items"][0]["attributes"], [{"id": 11254, "complex_id": 0, "values": []}])
+        r = self.new(offer_id="00615", attributes=[{"id": 85, "values": [{"dictionary_value_id": 6}]}]).get_json()
+        self.assertEqual(r["result"]["before"]["attributes"], self.attrs)                    # прежнее значение — для отката
+
+    def test_validation_and_stop(self):
+        for bad in ({"offer_id": "00615", "attributes": [{"id": 11254, "values": "x"}]}, {"offer_id": "00615", "attributes": []},
+                    {"offer_id": "00615", "attributes": [{"id": 1, "values": [{"value": "a"}]}], "price": 1},
+                    {"offer_id": "00615", "attributes": [{"id": 1, "values": [{"value": "a"}]}, {"id": 1, "values": [{"value": "b"}]}]}):
+            self.assertEqual(self.new(**bad).status_code, 400, bad)
+        self.c.post("/admin/api/agent/rules", json={"stop": True})
+        r = self.new(offer_id="00615", attributes=[{"id": 11254, "values": [{"value": self.RICH}]}]).get_json()
+        self.assertEqual((r["status"], r["auto"]), ("new", False))
+        self.assertEqual(self.sent, [])
+
+
 class PriceFloor(unittest.TestCase):
     """«Мин. цена в акциях»: min_price Ozon, пол цены только через «Да», акции ниже пола — отказ, сторож акций."""
     patch = tm.Channels.patch
