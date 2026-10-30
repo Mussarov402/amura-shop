@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -21,11 +22,15 @@ JPG = b"\xff\xd8\xff\xe0" + b"0" * 2000
 
 
 class FakeImgMS:
-    """Фото товара в МойСклад: GET список, POST добавить, DELETE удалить; fail — исключения для очередных POST."""
+    """Фото товара в МойСклад: GET список, POST добавить, DELETE удалить; fail — исключения для очередных POST.
+    Пишет только вызовы потока теста: фоновые потоки сервиса (проверка МойСклад при запуске order_hook через 3 с и др.)
+    в это время тоже зовут oh.ms — им пустой ответ, в calls они не попадают (из-за них test_photo_validation падал раз в несколько прогонов)."""
     def __init__(self):
-        self.imgs, self.calls, self.fail = {}, [], []
+        self.imgs, self.calls, self.fail, self.owner = {}, [], [], threading.get_ident()
 
     def __call__(self, method, path, params=None, json=None, **kw):
+        if threading.get_ident() != self.owner:
+            return {}
         self.calls.append((method, path))
         parts = path.strip("/").split("/")          # entity/product/<pid>/images[/<iid>]
         pid = parts[2]
@@ -52,7 +57,9 @@ class FakeImgMS:
 class CardsTest(unittest.TestCase):
     def setUp(self):
         oh.ORDER_SECRET = b"x"
+        old_ms = oh.ms
         self.ms = oh.ms = FakeImgMS()
+        self.addCleanup(setattr, oh, "ms", old_ms)          # подмена — только на время теста
         self.c = app.app.test_client()
         self.h = {"Authorization": "Bearer " + admin.make_admin_token()}
         with mirror.db() as d:
@@ -103,6 +110,9 @@ class CardsTest(unittest.TestCase):
         self.assertEqual(self.ms.imgs["p1"], [])
 
     def test_photo_validation(self):
+        t = threading.Thread(target=oh.ms, args=("GET", "/entity/organization"))   # как проверка МойСклад при запуске сервера
+        t.start()
+        t.join()
         self.assertEqual(self.up(mime="image/gif").status_code, 400)
         self.assertEqual(self.up(data=b"0" * (cards.PHOTO_MAX + 1)).status_code, 400)
         self.assertEqual(self.ms.calls, [])
