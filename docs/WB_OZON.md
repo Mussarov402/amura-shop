@@ -103,4 +103,10 @@
 - Объём: 60 мл. Страна: Республика Корея. Комплектация: крем — 1 шт. Упаковка: туба в коробке.
 - ТН ВЭД: 3304990000. Модель: PDRN Hyaluronic Acid 100 Moisturizing Cream.
 - Состав: INCI выше.
-- Не хватает: срок годности, вес брутто, габариты коробки, номер декларации ЕАЭС.
+- Срок годности 36 мес. Вес брутто 100 г (91 г в коробке + пупырка), габариты 18×7×7 см.
+- Декларация ЕАЭС N RU Д-KR.РА03.В.26158/26 (09.04.2026–08.04.2031, изготовитель COSMAX; проверена владельцем 29.10.2026). В карточке WB поля декларации через API не меняются — правит владелец в кабинете.
+- WB: nmID 244631445, характеристики обновлены 29.10.2026.
+
+Картинки (PNG, выложил Дизайн-монтажёр в Glif, 30.10.2026), префикс `https://i.glifusercontent.com/unsafe/raw/plain/s3://glif-assets-production/img/`:
+- галерея 900×1200: g1 `lwm4lcs5h4l7wtt966hrj.png`, g2 `siwk0fsrsxvknb3rl2wh1.png`, g3 `d6z44x5vw5kzn2x48lasd.png`, g4 `211nj67iaxf3wegqkhos3.png`, g5 `sv5kgwxurpj8vpydvku2n.png`, g6 `ejgq3ya19n3ztd2urewtm.png`, g7 `ngp573mp32bwvz4msqcfc.png`, g1o (без текста) `bf0rbciu047cd1wbp8nlm.png`;
+- рич 1440×900: r1 `bceb4gyle1e644xmj61ti.png`, r2 `8bmebqqdj1mjp87kputwf.png`, r3 `gets27h3kz7d42g5ud0jh.png`, r4 `9k0nzfphhxoyucm8jz5jt.png`.
