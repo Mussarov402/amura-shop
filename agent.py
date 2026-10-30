@@ -48,6 +48,8 @@ def db():
               " base DOUBLE PRECISION DEFAULT 0, base_note TEXT DEFAULT '', lower DOUBLE PRECISION DEFAULT 0, upper DOUBLE PRECISION DEFAULT 0,"
               " price DOUBLE PRECISION DEFAULT 0, margin DOUBLE PRECISION DEFAULT 0, calc_at DOUBLE PRECISION DEFAULT 0, note TEXT DEFAULT '',"
               " complete INTEGER DEFAULT 0, last_change DOUBLE PRECISION DEFAULT 0, PRIMARY KEY (shop, ident))")
+        d.run("CREATE TABLE IF NOT EXISTS agent_floor (shop TEXT, ident TEXT, name TEXT DEFAULT '', floor DOUBLE PRECISION DEFAULT 0,"
+              " who TEXT DEFAULT '', at DOUBLE PRECISION DEFAULT 0, PRIMARY KEY (shop, ident))")
         d.c.commit()
         _ready[0] = True
     return d
@@ -518,6 +520,7 @@ def _wb_deposit(ch, p):
 
 
 def _wb_promo(ch, p):
+    check_floor("wb_promotion", ch, p)
     return ch.req("POST", "dp-calendar", "/api/v1/calendar/promotions/upload",
                   json={"data": {"promotionID": int(p["promotionID"]), "uploadNow": True, "nomenclatures": [int(x) for x in p["nmIDs"]]}})
 
@@ -540,23 +543,27 @@ def oz_currency(ch):
     return (cur or ch.env("CURRENCY") or "").upper() or None
 
 
+MONEY = ("price", "old_price", "min_price")
+OZ_AUTO = ("auto_action_enabled", "auto_add_to_ozon_actions_list_enabled")          # ENABLED / DISABLED / UNKNOWN
+
+
 def oz_money(ch, p):
     """Цена заявки Ozon — в ₸ (как во всей системе), если не указан currency_code. → (цены для Ozon {price, old_price?},
     валюта, пояснение). Кабинет не в тенге — пересчёт по курсу продажи МиГ (запасной — НБ РК), как в калькуляторе."""
     import mp_calc
     if p.get("currency_code"):
         cur = str(p["currency_code"]).upper()
-        return {k: float(p[k]) for k in ("price", "old_price") if p.get(k) is not None}, cur, f"цена в {cur} — как прислал менеджер"
+        return {k: float(p[k]) for k in MONEY if p.get(k) is not None}, cur, f"цена в {cur} — как прислал менеджер"
     cur = oz_currency(ch)
     if not cur:
         raise ValueError("не знаю валюту кабинета Ozon — укажите currency_code или OZON_CURRENCY на Render")
     if cur in ("KZT", "398"):
-        return {k: float(p[k]) for k in ("price", "old_price") if p.get(k) is not None}, "KZT", ""
+        return {k: float(p[k]) for k in MONEY if p.get(k) is not None}, "KZT", ""
     rate, note = mp_calc.to_kzt(1, cur)
     if not rate:
         raise ValueError(f"нет курса {cur} — цену не пересчитать")
-    out = {k: round(float(p[k]) / rate) for k in ("price", "old_price") if p.get(k) is not None}
-    return out, cur, f"{p['price']} ₸ → {out['price']} {cur} ({note})"
+    out = {k: round(float(p[k]) / rate) for k in MONEY if p.get(k) is not None}
+    return out, cur, ", ".join(f"{p[k]} ₸ → {out[k]} {cur}" for k in out) + f" ({note})"
 
 
 def _oz_card_create(ch, p):
@@ -588,12 +595,191 @@ def _oz_review(ch, p):
 def _oz_price(ch, p):
     """Цена Ozon: в заявке — ₸ (или в currency_code), Ozon получает цену в валюте кабинета."""
     money, cur, note = oz_money(ch, p)
-    row = {"offer_id": str(p["offer_id"]), "currency_code": cur, **{k: f"{v:g}" for k, v in money.items()}}
+    row = {"offer_id": str(p["offer_id"]), "currency_code": cur, **{k: f"{v:g}" for k, v in money.items()},
+           **{k: p[k] for k in OZ_AUTO if p.get(k)}}
+    if "min_price" in money:                    # Ozon учитывает минимальную цену в автоакциях, только если включить
+        row["min_price_for_auto_actions_enabled"] = True
     r = ch.call("/v1/product/import/prices", {"prices": [row]})
-    return {"price_kzt": p["price"] if not p.get("currency_code") else None, "price": money["price"], "currency": cur, "note": note, "response": r}
+    return {"price_kzt": p.get("price") if not p.get("currency_code") else None, "price": money.get("price"), "min_price": money.get("min_price"),
+            "currency": cur, "note": note, "response": r}
+
+
+# ---------- «Мин. цена в акциях»: пол цены товара в ₸ (слово владельца 30.10.2026) ----------
+def floor_of(key, ident):
+    with db() as d:
+        r = d.run("SELECT floor FROM agent_floor WHERE shop=%s AND ident=%s", (key, str(ident)), one=True)
+    return float(r[0]) if r and r[0] else 0.0
+
+
+def floor_set(ch, ident, value, who):
+    """Пол цены товара в магазине, ₸; 0 — снять. ident: WB — nmID, Ozon — offer_id."""
+    ident = str(ident).strip()
+    name = next((g["name"] for g in mpk.goods(ch) or [] if g["id"] == ident), "")
+    with db() as d:
+        d.run("DELETE FROM agent_floor WHERE shop=%s AND ident=%s", (ch.key, ident))
+        if value:
+            d.run("INSERT INTO agent_floor (shop, ident, name, floor, who, at) VALUES (%s, %s, %s, %s, %s, %s)",
+                  (ch.key, ident, name, float(value), who, time.time()))
+    return {"ident": ident, "floor": float(value or 0)}
+
+
+def floor_rows():
+    with db() as d:
+        rs = d.run("SELECT shop, ident, name, floor, who, at FROM agent_floor ORDER BY shop, name, ident", many=True) or []
+    return [dict(zip(("shop", "ident", "name", "floor", "who", "at"), r)) for r in rs]
+
+
+def _kzt(amount, cur):
+    """Сумма площадки → ₸ (WB currencyCode 398 / KZT, Ozon — валюта кабинета) по курсу МиГ, как калькулятор."""
+    cur = str(cur or "KZT").upper()
+    if cur in ("KZT", "398", ""):
+        return float(amount)
+    import mp_calc
+    v = mp_calc.to_kzt(float(amount), {"643": "RUB"}.get(cur, cur))[0]
+    if not v:
+        raise ValueError(f"нет курса {cur} — не сравнить с минимальной ценой")
+    return v
+
+
+def oz_pid2offer(ch):
+    """product_id Ozon → offer_id (пол цены хранится по offer_id)."""
+    return {ref: x["offer"] for ref, x in mpk.mapping(ch)["products"].items()}
+
+
+def wb_plan(ch, promo, states=("true", "false")):
+    """Товары акции WB с плановой ценой: nmID → (planPrice, валюта). Для автоакций WB этот метод не работает (документация WB)."""
+    out = {}
+    for in_action in states:
+        for off in range(0, 10000, 1000):
+            rows = (ch.req("GET", "dp-calendar", "/api/v1/calendar/promotions/nomenclatures",
+                           params={"promotionID": int(promo), "inAction": in_action, "limit": 1000, "offset": off}).get("data") or {}).get("nomenclatures") or []
+            for x in rows:
+                out[str(x.get("id"))] = (float(x.get("planPrice") or 0), x.get("currencyCode"), bool(x.get("inAction")))
+            if len(rows) < 1000:
+                break
+    return out
+
+
+def check_floor(kind, ch, p):
+    """Акция ниже «Мин. цены в акциях» — отказ (ValueError). WB: плановая цена акции; Ozon: action_price в валюте кабинета."""
+    low = []
+    if kind == "wb_promotion":
+        floors = {str(nm): floor_of(ch.key, nm) for nm in p["nmIDs"]}
+        if any(floors.values()):
+            plan = wb_plan(ch, p["promotionID"])
+            for nm, f in floors.items():
+                if f and nm in plan and plan[nm][0] and _kzt(plan[nm][0], plan[nm][1]) < f:
+                    low.append(f"{nm}: цена в акции {round(_kzt(plan[nm][0], plan[nm][1]))} ₸ < минимум {round(f)} ₸")
+    elif kind == "ozon_promotion":
+        offers, cur = oz_pid2offer(ch), None
+        for x in p["products"]:
+            f = floor_of(ch.key, offers.get(str(x["product_id"]), ""))
+            if f:
+                cur = cur or oz_currency(ch) or "KZT"
+                v = _kzt(x["action_price"], cur)
+                if v < f:
+                    low.append(f"{offers[str(x['product_id'])]}: цена в акции {round(v)} ₸ < минимум {round(f)} ₸")
+    if low:
+        raise ValueError("ниже минимальной цены в акциях — " + "; ".join(low)[:600])
+
+
+def floor_watch(now=None):
+    """Сторож акций (раз в сутки): наш товар в акции с ценой ниже «Мин. цены в акциях» — владельцу Telegram и push,
+    Ozon — заявка на выход (ozon_promotion_exit, через «Да»), WB — тревога «выйти в кабинете» (API выхода из акции у WB нет).
+    Автоакции WB по API не читаются (nomenclatures для них неприменим) — их Сторож не видит."""
+    from datetime import datetime, timedelta, timezone
+    now = now or time.time()
+    floors = {}
+    for f in floor_rows():
+        floors.setdefault(f["shop"], {})[f["ident"]] = f
+    found, errors = [], []
+    for key, fl in floors.items():
+        ch = shop(key)
+        if not ch:
+            continue
+        try:
+            if isinstance(ch, mpk.WB):
+                t = datetime.fromtimestamp(now, timezone.utc)
+                promos = (ch.req("GET", "dp-calendar", "/api/v1/calendar/promotions", params={
+                    "startDateTime": (t - timedelta(days=60)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "endDateTime": (t + timedelta(days=60)).strftime("%Y-%m-%dT%H:%M:%SZ"), "allPromo": "true", "limit": 1000}
+                ).get("data") or {}).get("promotions") or []
+                for pr in promos:
+                    if pr.get("type") == "auto" or str(pr.get("endDateTime") or "") < t.strftime("%Y-%m-%dT%H:%M:%S"):
+                        continue
+                    for nm, (plan, cur, _) in wb_plan(ch, pr["id"], ("true",)).items():
+                        f = fl.get(nm)
+                        if f and plan and _kzt(plan, cur) < f["floor"]:
+                            found.append({"shop": key, "title": ch.title, "promo": pr["id"], "promoName": pr.get("name") or "", "ident": nm,
+                                          "name": f["name"], "price": round(_kzt(plan, cur)), "floor": round(f["floor"])})
+            else:
+                offers, cur = oz_pid2offer(ch), oz_currency(ch) or "KZT"
+                j = read(ch, "actions", {})
+                acts = j.get("result") if isinstance(j, dict) else j
+                for a in acts or []:
+                    if not a.get("is_participating") and not a.get("participating_products_count"):
+                        continue
+                    prods = []
+                    for off in range(0, 5000, 100):
+                        part = (ch.call("/v1/actions/products", {"action_id": a["id"], "limit": 100, "offset": off}).get("result") or {}).get("products") or []
+                        prods += part
+                        if len(part) < 100:
+                            break
+                    for x in prods:
+                        off = offers.get(str(int(x.get("id") or 0)), "")
+                        f = fl.get(off)
+                        if f and _kzt(x.get("action_price") or 0, cur) < f["floor"]:
+                            found.append({"shop": key, "title": ch.title, "promo": a["id"], "promoName": a.get("title") or "", "ident": off,
+                                          "pid": int(x["id"]), "name": f["name"], "price": round(_kzt(x["action_price"], cur)), "floor": round(f["floor"])})
+        except (mpk.ApiError, ValueError, KeyError) as e:
+            errors.append(f"{ch.title}: {getattr(e, 'message', str(e))}"[:300])
+    _floor_alert(found)
+    with inbox.db() as d:
+        inbox.set_setting(d, "agent_floor_watch", json.dumps({"at": int(now), "found": found, "errors": errors}, ensure_ascii=False)[:20000])
+    return found, errors
+
+
+def _floor_alert(found):
+    """Находки сторожа: Ozon — по заявке на выход на акцию (повтор не создаём, пока открыта прежняя); всем — сообщение владельцу."""
+    import push
+    by = {}
+    for x in found:
+        by.setdefault((x["shop"], x["promo"]), []).append(x)
+    for (key, promo), xs in by.items():
+        ch = shop(key)
+        lines = "\n".join(f"• {x['ident']} {x['name'][:50]}: {x['price']} ₸ < минимум {x['floor']} ₸" for x in xs)
+        what = f"{xs[0]['title']}, акция {promo} «{xs[0]['promoName'][:60]}»"
+        if isinstance(ch, mpk.Ozon):
+            pids = sorted({x["pid"] for x in xs})
+            with db() as d:
+                open_ = [r for r in d.run("SELECT params FROM agent_req WHERE status='new' AND kind='ozon_promotion_exit' AND shop=%s", (key,), many=True) or []
+                         if json.loads(r[0]).get("action_id") == int(promo)]
+            if open_:
+                continue
+            p = {"action_id": int(promo), "product_ids": pids}
+            with db() as d:
+                rid = d.run("INSERT INTO agent_req (at, kind, shop, params, summary, comment, status, result, decided, who) "
+                            "VALUES (%s, %s, %s, %s, %s, %s, 'new', '', 0, '')",
+                            (time.time(), "ozon_promotion_exit", key, json.dumps(p), summary("ozon_promotion_exit", ch, p) + " — цена ниже минимальной",
+                             "сторож акций"), ins=True)
+            text = f"⚠️ {what}: цена ниже минимальной\n{lines}\n\nЗаявка на выход № {rid}: Система AMURA → Заказы → На согласование"
+        else:
+            text = f"⚠️ {what}: цена ниже минимальной\n{lines}\n\nУ WB нет API выхода из акции — выйдите в кабинете WB"
+        oh.notify_bg(lambda text=text: oh.tg("sendMessage", chat_id=oh.OWNER, text=text))
+        push.notify("Акция ниже минимальной цены", f"{what}: {len(xs)} товар(а)", "/admin", perm="orders", tag=f"floor-{key}-{promo}")
+
+
+def _floor(ch, p):
+    return floor_set(ch, p["id"], p["floor"], "менеджер, «Да» владельца")
+
+
+def _oz_exit(ch, p):
+    """Выйти из акции Ozon: /v1/actions/products/deactivate."""
+    return ch.call("/v1/actions/products/deactivate", {"action_id": int(p["action_id"]), "product_ids": [int(x) for x in p["product_ids"]]})
 
 
 def _oz_promo(ch, p):
+    check_floor("ozon_promotion", ch, p)
     return ch.call("/v1/actions/products/activate", {"action_id": int(p["action_id"]), "products": [
         {"product_id": int(x["product_id"]), "action_price": float(x["action_price"]), **({"stock": int(x["stock"])} if x.get("stock") else {})}
         for x in p["products"]]})
@@ -627,6 +813,10 @@ ACTIONS = {
                       "заменяет все фото; прежние сохраняются для «Вернуть как было». Правило «Карточки»", "run": _wb_media},
     "wb_card_barcodes": {"shop": mpk.WB, "params": ["items"], "about": "добавить заводской EAN в карточки WB — items [{nmID, ean, chrtID?}]. "
                          "Баркоды только добавляются, удалить нельзя. Всегда через «Да»", "run": _wb_barcodes},
+    "price_floor": {"shop": None, "params": ["id", "floor"], "about": "мин. цена в акциях, ₸: id — nmID WB или offer_id Ozon; floor 0 — снять. "
+                    "Акции ниже неё сервер не принимает; раз в сутки проверяет акции. Всегда через «Да»", "run": _floor},
+    "ozon_promotion_exit": {"shop": mpk.Ozon, "params": ["action_id", "product_ids"], "about": "выйти из акции Ozon (/v1/actions/products/deactivate)",
+                            "run": _oz_exit},
     "mp_noshow": {"shop": None, "params": ["id", "hide?"], "about": "не выставлять товар в магазине (остаток 0): id — nmID WB или offer_id Ozon; "
                   "hide: false — снова выставлять. Всегда через «Да»", "run": _noshow},
     "wb_bid": {"shop": mpk.WB, "params": ["advert_id", "nm_id", "bid", "placement?"], "about": "ставка в кампании WB, ₸ (combined/search/recommendations)",
@@ -636,8 +826,11 @@ ACTIONS = {
                           "run": _wb_deposit, "money": True},
     "wb_promotion": {"shop": mpk.WB, "params": ["promotionID", "nmIDs"], "about": "добавить товары в акцию WB", "run": _wb_promo},
     "ozon_review_answer": {"shop": mpk.Ozon, "params": ["id", "text"], "about": "ответ на отзыв Ozon", "run": _oz_review},
-    "ozon_price": {"shop": mpk.Ozon, "params": ["offer_id", "price", "old_price?", "currency_code?"],
-                   "about": "цена Ozon в ₸ (сервер пересчитает в валюту кабинета по курсу МиГ) или в currency_code", "run": _oz_price},
+    "ozon_price": {"shop": mpk.Ozon, "params": ["offer_id", "price?", "old_price?", "min_price?", "currency_code?", "auto_action_enabled?",
+                                                 "auto_add_to_ozon_actions_list_enabled?"],
+                   "about": "цена Ozon в ₸ (сервер пересчитает в валюту кабинета по курсу МиГ) или в currency_code; min_price — ниже неё Ozon "
+                            "не опустит цену в автоакциях; auto_action_enabled / auto_add_to_ozon_actions_list_enabled — ENABLED / DISABLED / UNKNOWN",
+                   "run": _oz_price},
     "ozon_card_create": {"shop": mpk.Ozon, "params": ["offer_id", "name", "description_category_id", "type_id", "price", "depth", "width",
                                                        "height", "weight", "attributes", "images?", "primary_image?", "barcode?", "old_price?",
                                                        "currency_code?", "vat?", "dimension_unit?", "weight_unit?", "complex_attributes?"],
@@ -659,6 +852,19 @@ def validate(kind, p):
         p["text"] = _txt(p)
     if kind == "wb_campaign" and p["action"] not in ("start", "pause", "stop"):
         raise ValueError("action — start, pause или stop")
+    if kind == "ozon_price":
+        if all(p.get(k) is None for k in ("price", "min_price")) and not any(p.get(k) for k in OZ_AUTO):
+            raise ValueError("нужна цена, min_price или настройка автоакций")
+        for k in OZ_AUTO:
+            if p.get(k) and p[k] not in ("ENABLED", "DISABLED", "UNKNOWN"):
+                raise ValueError(f"{k} — ENABLED, DISABLED или UNKNOWN")
+        for k in MONEY:
+            if p.get(k) is not None:
+                try:
+                    if float(p[k]) <= 0:
+                        raise ValueError
+                except (TypeError, ValueError):
+                    raise ValueError(f"{k} — положительное число")
     if kind == "wb_price" and p.get("price") is None and p.get("discount") is None:
         raise ValueError("нужна цена или скидка")
     if kind == "wb_card_text" and not (p.get("title") or p.get("description")):
@@ -713,6 +919,22 @@ def validate(kind, p):
         if p.get("characteristics") is not None and (not isinstance(p["characteristics"], list)
                                                      or not all(isinstance(x, dict) and x.get("id") for x in p["characteristics"])):
             raise ValueError("characteristics — список {id, value}")
+    if kind == "price_floor":
+        if set(p) - {"id", "floor"}:
+            raise ValueError("price_floor — {id, floor}")
+        try:
+            p = {"id": str(p["id"]).strip(), "floor": round(float(p["floor"]))}
+        except (TypeError, ValueError):
+            raise ValueError("floor — число, ₸")
+        if p["floor"] < 0 or not p["id"]:
+            raise ValueError("price_floor — id и floor ≥ 0 (0 — снять)")
+    if kind == "ozon_promotion_exit":
+        try:
+            p = {"action_id": int(p["action_id"]), "product_ids": sorted({int(x) for x in p["product_ids"]})}
+        except (TypeError, ValueError):
+            raise ValueError("ozon_promotion_exit — action_id и product_ids (список)")
+        if not p["product_ids"]:
+            raise ValueError("product_ids — хотя бы один товар")
     if kind == "mp_noshow":
         if set(p) - {"id", "hide"} or not isinstance(p.get("hide", True), bool):
             raise ValueError("mp_noshow — {id, hide: true | false}")
@@ -810,8 +1032,12 @@ def summary(kind, ch, p):
               "ozon_review_answer": lambda: f"отзыв {p['id']}: «{p['text'][:300]}»",
               "wb_price": lambda: f"nmID {p['nmID']}: " + ", ".join(x for x in (f"цена {p['price']} ₸" if p.get("price") is not None else "",
                                                                                  f"скидка {p['discount']} %" if p.get("discount") is not None else "") if x),
-              "ozon_price": lambda: f"{p['offer_id']}: цена {p['price']} {p.get('currency_code') or '₸'}"
-                                    + (f", до скидки {p['old_price']}" if p.get("old_price") else ""),
+              "ozon_price": lambda: f"{p['offer_id']}: " + ", ".join(x for x in (
+                  f"цена {p['price']} {p.get('currency_code') or '₸'}" if p.get("price") is not None else "",
+                  f"до скидки {p['old_price']}" if p.get("old_price") else "",
+                  f"мин. цена в автоакциях {p['min_price']} {p.get('currency_code') or '₸'}" if p.get("min_price") is not None else "",
+                  *(f"{dict(auto_action_enabled='автоакции', auto_add_to_ozon_actions_list_enabled='автодобавление в акции')[k]}: "
+                    f"{dict(ENABLED='вкл', DISABLED='выкл', UNKNOWN='как было')[p[k]]}" for k in OZ_AUTO if p.get(k))) if x),
               "wb_bid": lambda: f"кампания {p['advert_id']}, nmID {p['nm_id']}: ставка {p['bid']} ₸ ({p.get('placement', 'combined')})",
               "wb_campaign": lambda: f"кампания {p['advert_id']}: {dict(start='запустить', pause='пауза', stop='завершить')[p['action']]}",
               "wb_budget_deposit": lambda: f"кампания {p['advert_id']}: пополнить на {p['sum']} ₸",
@@ -830,6 +1056,9 @@ def summary(kind, ch, p):
               "ozon_pictures": lambda: f"картинки товара {p['product_id']}: {len(p['images'])} шт.",
               "wb_card_create": lambda: f"новая карточка {p['vendorCode']} «{p['title']}», предмет {p['subjectID']}, EAN "
                                         + ", ".join(x for s in p["sizes"] for x in s["skus"]) + f", фото {len(p.get('photos') or [])}",
+              "price_floor": lambda: f"{p['id']}: мин. цена в акциях " + (f"{p['floor']} ₸" if p["floor"] else "— снять")
+                                     + (f" (сейчас {round(floor_of(ch.key, p['id']))} ₸)" if floor_of(ch.key, p["id"]) else ""),
+              "ozon_promotion_exit": lambda: f"акция {p['action_id']}: выйти товарам {', '.join(map(str, p['product_ids']))[:200]}",
               "mp_noshow": lambda: ("не выставлять (остаток 0): " if p["hide"] else "снова выставлять: ") + p["id"] + (
                   f" «{next((g['name'] for g in mpk.goods(ch) or [] if g['id'] == p['id']), '')[:80]}»"),
               "wb_card_media": lambda: f"nmID {p['nmID']}: фото {len(p['photos'])} шт. (заменят прежние)",
@@ -900,6 +1129,8 @@ def create_route():
         p = validate(kind, p)
         if kind == "wb_card_barcodes":            # таблица для владельца и проверка, что EAN нет на других карточках
             p["_rows"] = barcode_rows(ch, p["items"])
+        if kind in ("wb_promotion", "ozon_promotion"):
+            check_floor(kind, ch, p)
         text = summary(kind, ch, p)
     except mpk.ApiError as e:
         log(502, f"{kind}: {e.message}")
@@ -1058,6 +1289,8 @@ def price_auto(kind, ch, p):
         return False, ""
     if rules()["stop"]:
         return False, "автоматическое остановлено"
+    if kind == "ozon_price" and (p.get("price") is None or p.get("min_price") is not None or any(p.get(k) for k in OZ_AUTO)):
+        return False, "минимальная цена и автоакции — через «Да»"
     ident = ident_of(kind, p)
     c = corridor(ch, ident)
     if kind == "wb_price":
@@ -1143,7 +1376,7 @@ def owner_view():
     return jsonify(ok=True, items=rows(request.args.get("status") or None), rules=rules(),
                    wbShops=[{"key": c.key, "title": c.title} for c in mpk.channels() if isinstance(c, mpk.WB)],
                    shops=[{"key": c.key, "title": c.title, "wb": isinstance(c, mpk.WB)} for c in mpk.channels() if c.keys_set()],
-                   priceRules=price_rules(), corridor=corr_rows(),
+                   priceRules=price_rules(), corridor=corr_rows(), floors=floor_rows(), floorWatch=watch_state(),
                    token=bool(os.environ.get("MP_AGENT_TOKEN", "").strip()),
                    log=[dict(zip(("at", "ip", "method", "path", "args", "status"), r)) for r in lg])
 
@@ -1177,6 +1410,46 @@ def decide(rid):
             d.run("UPDATE agent_req SET params=%s WHERE id=%s", (json.dumps(p, ensure_ascii=False), rid))
     status, res = execute(rid, "владелец")
     return jsonify(ok=True, status=status, result=res)
+
+
+def watch_state():
+    try:
+        return json.loads(setting("agent_floor_watch", "") or "null")
+    except ValueError:
+        return None
+
+
+@bp.get("/agent/api/floor")
+def floor_route():
+    log(200, "floor")
+    return jsonify(ok=True, floors=floor_rows(), watch=watch_state())
+
+
+@bp.post("/admin/api/agent/floor")
+def set_floor():
+    """Владелец сам задаёт «Мин. цену в акциях» (₸; 0 — снять)."""
+    err = _owner()
+    if err:
+        return err
+    b = request.get_json(silent=True) or {}
+    ch = shop(b.get("shop"))
+    try:
+        v = round(float(b.get("floor") or 0))
+        if not ch or not str(b.get("id") or "").strip() or v < 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        return jsonify(ok=False, error="Магазин, товар (nmID или артикул Ozon) и цена ≥ 0"), 400
+    floor_set(ch, b["id"], v, "владелец")
+    return jsonify(ok=True, floors=floor_rows())
+
+
+@bp.post("/admin/api/agent/floor-watch")
+def run_floor_watch():
+    err = _owner()
+    if err:
+        return err
+    found, errors = floor_watch()
+    return jsonify(ok=True, floorWatch=watch_state())
 
 
 @bp.post("/admin/api/agent/rules")
@@ -1229,6 +1502,10 @@ def _digest_loop():
                 with inbox.db() as d:
                     inbox.set_setting(d, "agent_recheck_day", day)
                 recheck_corridors()
+                try:
+                    floor_watch()
+                except Exception as e:
+                    print("Сторож акций:", str(e)[:200], flush=True)
             if t.hour >= DIGEST_HOUR and modules.enabled("agent") and setting("agent_digest_day", "") != day:
                 text = digest()
                 with inbox.db() as d:
