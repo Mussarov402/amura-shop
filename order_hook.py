@@ -1923,6 +1923,19 @@ def auth_sms_send():
     return jsonify(ok=True)
 
 
+def login_phone(phone, name=""):
+    """Вход по проверенному номеру (SMS или WhatsApp): тот же клиент МойСклад, что и раньше по этому номеру; нет — новый. → (cp, новый ли)."""
+    cp = cp_by_phone(phone)       # номер подтверждён — если клиент уже покупал, увидит свою историю
+    new = cp is None
+    if new:
+        cp = ms("POST", "/entity/counterparty", json={
+            "name": name or "Новый клиент сайта", "companyType": "individual", "tags": ["сайт"],
+            "phone": "+" + phone, "description": "Клиент с сайта"})
+    elif "сайт" not in (cp.get("tags") or []):
+        ms("PUT", f"/entity/counterparty/{cp['id']}", json={"tags": sorted(set((cp.get("tags") or []) + ["сайт"]))})
+    return cp, new
+
+
 @bp.route("/auth/sms/verify", methods=["POST", "OPTIONS"])
 def auth_sms_verify():
     if request.method == "OPTIONS":
@@ -1939,14 +1952,7 @@ def auth_sms_verify():
     if not hmac.compare_digest(v["h"], hashlib.sha256((code + phone).encode()).hexdigest()):
         return jsonify(ok=False, error="Неверный код"), 400
     _codes.pop(phone, None)
-    cp = cp_by_phone(phone)       # номер подтверждён SMS — если клиент уже покупал, увидит свою историю
-    new = cp is None
-    if new:
-        cp = ms("POST", "/entity/counterparty", json={
-            "name": "Новый клиент сайта", "companyType": "individual", "tags": ["сайт"],
-            "phone": "+" + phone, "description": "Клиент с сайта"})
-    elif "сайт" not in (cp.get("tags") or []):
-        ms("PUT", f"/entity/counterparty/{cp['id']}", json={"tags": sorted(set((cp.get("tags") or []) + ["сайт"]))})
+    cp, new = login_phone(phone)
     if d.get("consent") is True:
         try:
             save_consent(cp["id"], "вход по SMS")
@@ -2003,6 +2009,80 @@ def handle_tg_login(nonce, user, chat):
     v.update(token=make_token(cid), new=new)
     tg("sendMessage", chat_id=chat, text="Готово, вы вошли в AMURA ✅\nВернитесь на сайт — личный кабинет уже открыт.",
        reply_markup=json.dumps({"inline_keyboard": [[{"text": "Открыть сайт", "url": v.get("site", OPT_URL) + "/#me"}]]}))
+
+
+# ---------- вход через WhatsApp (слово владельца 31.10.2026) ----------
+# Покупатель сам пишет на основную линию готовый текст с кодом — первое сообщение от покупателя Meta не тарифицирует,
+# ответ в окне 24 ч — обычный текст, без платного шаблона. Номер отправителя (wa_id) WhatsApp уже проверил.
+_wa_login = {}   # nonce -> {"t": время, "token": ..., "new": bool}
+WA_LOGIN_TTL = 600
+WA_LOGIN_TEXT = "Код входа AMURA: login_{nonce}"
+WA_LOGIN_RE = re.compile(r"login_([A-Za-z0-9]{20,40})")
+
+
+def wa_phone():
+    """Номер основной линии WhatsApp цифрами — для ссылки wa.me (кэш сутки)."""
+    import wa
+    def load():
+        return re.sub(r"\D", "", str(wa.check().get("display_phone_number") or ""))
+    return cached("wa_login_phone", 86400, load)
+
+
+@bp.route("/auth/wa/start", methods=["POST", "OPTIONS"])
+def auth_wa_start():
+    if request.method == "OPTIONS":
+        return "", 204
+    import wa
+    if not wa.configured():
+        return jsonify(ok=False, error="Вход через WhatsApp пока недоступен"), 503
+    if too_many("wa:" + client_ip(), limit=20, window=600):
+        return jsonify(ok=False, error="Слишком много попыток"), 429
+    try:
+        phone = wa_phone()
+    except Exception as e:
+        print("Вход через WhatsApp: номер линии не получен:", e, flush=True)
+        phone = ""
+    if not phone:
+        return jsonify(ok=False, error="Вход через WhatsApp пока недоступен"), 503
+    now = time.time()
+    for k in [k for k, v in _wa_login.items() if now - v["t"] > WA_LOGIN_TTL]:
+        _wa_login.pop(k, None)
+    nonce = secrets.token_urlsafe(18).replace("-", "a").replace("_", "b")
+    _wa_login[nonce] = {"t": now, "token": None, "new": False}
+    return jsonify(ok=True, nonce=nonce, phone=phone, text=WA_LOGIN_TEXT.format(nonce=nonce))
+
+
+@bp.route("/auth/wa/poll")
+def auth_wa_poll():
+    n = request.args.get("nonce", "")
+    v = _wa_login.get(n)
+    if not v or time.time() - v["t"] > WA_LOGIN_TTL:
+        _wa_login.pop(n, None)
+        return jsonify(ok=False, error="Ссылка устарела, нажмите «Войти через WhatsApp» ещё раз"), 404
+    if v["token"]:
+        _wa_login.pop(n, None)
+        if request.args.get("consent") == "1":            # розница: галочка согласия отмечена до входа
+            try:
+                save_consent(v["cid"], "вход через WhatsApp")
+            except Exception:
+                pass
+        return jsonify(ok=True, token=v["token"], needProfile=v["new"])
+    return jsonify(ok=True, token=None)
+
+
+def handle_wa_login(text, phone, name=""):
+    """Входящее WhatsApp с кодом входа. Не код — None (обычное сообщение, в «Сообщения»). Код — ответ покупателю (текст);
+    диалог в «Сообщениях» не заводим и менеджеров не будим. Номер отправителя проверен WhatsApp — клиент тот же, что по SMS."""
+    m = WA_LOGIN_RE.search(text or "")
+    if not m or len((text or "").strip()) > 120:
+        return None
+    v = _wa_login.get(m.group(1))
+    if not v or time.time() - v["t"] > WA_LOGIN_TTL or v["token"]:
+        return "Код входа устарел. Нажмите «Войти через WhatsApp» на сайте AMURA ещё раз."
+    phone = re.sub(r"\D", "", str(phone))
+    cp, new = login_phone(phone, name)
+    v.update(token=make_token(cp["id"]), cid=cp["id"], new=new or not profile(cp)["city"])
+    return "Вы вошли на сайт AMURA, вернитесь на страницу."
 
 
 def handle_owner_callback(cq):
