@@ -86,6 +86,12 @@ Seller API. Тело запроса передаётся как есть.
 | `queries` | `/v1/analytics/product-queries` |
 | `transactions` | `/v3/finance/transaction/list` |
 | `actions` | GET `/v1/actions` |
+| `category_tree` | `/v1/description-category/tree` |
+| `category_attributes` | `/v1/description-category/attribute` |
+| `attribute_values` | `/v1/description-category/attribute/values` |
+| `attribute_search` | `/v1/description-category/attribute/values/search` |
+| `import_info` | `/v1/product/import/info` |
+| `pictures_info` | `/v2/product/pictures/info` |
 | `action_candidates` | `/v1/actions/candidates` |
 
 Пока не подключено: вопросы Ozon (метода нет в проверенной документации) и Ozon Performance (реклама Ozon; расходы видны в калькуляторе прибыли).
@@ -119,6 +125,8 @@ POST /agent/api/requests
 | `wb_promotion` | WB | `promotionID`, `nmIDs` (список) |
 | `ozon_review_answer` | Ozon | `id`, `text` |
 | `ozon_price` | Ozon | `offer_id`, `price`, `old_price` |
+| `ozon_card_create` | Ozon | `offer_id`, `name`, `description_category_id`, `type_id`, `price`, `depth`, `width`, `height` (мм), `weight` (г), `attributes` (список `{id, values: [{value} \| {dictionary_value_id}]}`). Необязательные: `images`, `primary_image` (только `https://`), `barcode`, `old_price`, `currency_code` (по умолчанию KZT), `vat`, `complex_attributes`. **Всегда через «Да»**: Ozon требует цену в том же запросе (`/v3/product/import`). Ответ — `task_id`, статус — чтение `import_info`. |
+| `ozon_pictures` | Ozon | `product_id`, `images` (1–30 ссылок `https://`), `color_image`, `images360`. Выполняется сразу по правилу «Карточки». |
 | `ozon_promotion` | Ozon | `action_id`, `products` (список `{product_id, action_price, stock}`) |
 
 ## Правила самостоятельности

@@ -162,6 +162,12 @@ READ = {
         "transactions": ("POST", "", "/v3/finance/transaction/list", ["*"], "финансовые операции"),
         "actions": ("GET", "", "/v1/actions", [], "акции"),
         "action_candidates": ("POST", "", "/v1/actions/candidates", ["*"], "товары, которые можно добавить в акцию"),
+        "category_tree": ("POST", "", "/v1/description-category/tree", ["*"], "дерево категорий и типов товаров"),
+        "category_attributes": ("POST", "", "/v1/description-category/attribute", ["*"], "характеристики категории и типа"),
+        "attribute_values": ("POST", "", "/v1/description-category/attribute/values", ["*"], "справочник значений характеристики"),
+        "attribute_search": ("POST", "", "/v1/description-category/attribute/values/search", ["*"], "поиск по справочнику значений"),
+        "import_info": ("POST", "", "/v1/product/import/info", ["*"], "статус создания карточки (task_id)"),
+        "pictures_info": ("POST", "", "/v2/product/pictures/info", ["*"], "статус загрузки картинок"),
     },
 }
 
@@ -377,6 +383,33 @@ def _wb_promo(ch, p):
                   json={"data": {"promotionID": int(p["promotionID"]), "uploadNow": True, "nomenclatures": [int(x) for x in p["nmIDs"]]}})
 
 
+OZ_ITEM = ("offer_id", "name", "description_category_id", "type_id", "price", "old_price", "currency_code", "vat", "barcode",
+           "depth", "width", "height", "dimension_unit", "weight", "weight_unit", "images", "primary_image", "attributes", "complex_attributes")
+
+
+def _oz_card_create(ch, p):
+    """Новая карточка Ozon: POST /v3/product/import (Ozon требует цену в том же запросе — поэтому всегда через «Да»).
+    Ответ — task_id; статус и ошибки модерации — чтение import_info."""
+    item = {k: p[k] for k in OZ_ITEM if p.get(k) not in (None, "", [])}
+    for k in ("price", "old_price"):
+        if k in item:
+            item[k] = str(item[k])
+    item.setdefault("currency_code", "KZT")
+    item.setdefault("dimension_unit", "mm")
+    item.setdefault("weight_unit", "g")
+    item.setdefault("vat", "0")
+    r = ch.call("/v3/product/import", {"items": [item]})
+    return {"task_id": (ch.res(r) or {}).get("task_id"), "offer_id": item["offer_id"], "response": r}
+
+
+def _oz_pictures(ch, p):
+    body = {"product_id": int(p["product_id"]), "images": p["images"]}
+    for k in ("color_image", "images360"):
+        if p.get(k):
+            body[k] = p[k]
+    return ch.call("/v1/product/pictures/import", body)
+
+
 def _oz_review(ch, p):
     return ch.call("/v1/review/comment/create", {"review_id": str(p["id"]), "text": p["text"], "mark_review_as_processed": True})
 
@@ -421,6 +454,13 @@ ACTIONS = {
     "wb_promotion": {"shop": mpk.WB, "params": ["promotionID", "nmIDs"], "about": "добавить товары в акцию WB", "run": _wb_promo},
     "ozon_review_answer": {"shop": mpk.Ozon, "params": ["id", "text"], "about": "ответ на отзыв Ozon", "run": _oz_review},
     "ozon_price": {"shop": mpk.Ozon, "params": ["offer_id", "price", "old_price?"], "about": "цена Ozon", "run": _oz_price},
+    "ozon_card_create": {"shop": mpk.Ozon, "params": ["offer_id", "name", "description_category_id", "type_id", "price", "depth", "width",
+                                                       "height", "weight", "attributes", "images?", "primary_image?", "barcode?", "old_price?",
+                                                       "currency_code?", "vat?", "dimension_unit?", "weight_unit?", "complex_attributes?"],
+                         "about": "новая карточка Ozon (/v3/product/import). Ozon требует цену в том же запросе — поэтому всегда через «Да». "
+                                  "Картинки — публичные https-ссылки", "run": _oz_card_create},
+    "ozon_pictures": {"shop": mpk.Ozon, "params": ["product_id", "images", "color_image?", "images360?"],
+                      "about": "картинки карточки Ozon по https-ссылкам (/v1/product/pictures/import), правило «Карточки»", "run": _oz_pictures},
     "ozon_promotion": {"shop": mpk.Ozon, "params": ["action_id", "products"], "about": "добавить товары в акцию Ozon (product_id, action_price, stock?)",
                        "run": _oz_promo},
 }
@@ -439,6 +479,24 @@ def validate(kind, p):
         raise ValueError("нужна цена или скидка")
     if kind == "wb_card_text" and not (p.get("title") or p.get("description")):
         raise ValueError("нужно название или описание")
+    if kind in ("ozon_card_create", "ozon_pictures"):
+        pics = list(p.get("images") or []) + [p[k] for k in ("primary_image", "color_image") if p.get(k)] + list(p.get("images360") or [])
+        if not all(isinstance(u, str) and u.startswith("https://") for u in pics):
+            raise ValueError("картинки — публичные ссылки https://")
+        if kind == "ozon_pictures" and not 1 <= len(p["images"]) <= 30:
+            raise ValueError("images — от 1 до 30 ссылок")
+    if kind == "ozon_card_create":
+        bad = [k for k in p if k not in OZ_ITEM]
+        if bad:
+            raise ValueError("лишние поля: " + ", ".join(bad))
+        try:
+            if float(p["price"]) <= 0 or any(float(p[k]) <= 0 for k in ("depth", "width", "height", "weight")):
+                raise ValueError
+        except (TypeError, ValueError):
+            raise ValueError("цена, габариты и вес — положительные числа")
+        if not isinstance(p["attributes"], list) or not all(isinstance(a, dict) and a.get("id") and isinstance(a.get("values"), list)
+                                                             for a in p["attributes"]):
+            raise ValueError("attributes — список {id, values: [{value | dictionary_value_id}]}")
     if kind == "wb_card_trash":
         nms = p["nmIDs"] if isinstance(p["nmIDs"], list) else [p["nmIDs"]]
         try:
@@ -491,7 +549,10 @@ def summary(kind, ch, p):
                   ("габариты " + ", ".join(f"{k} {v}" for k, v in p["dimensions"].items())) if p.get("dimensions") else "",
                   ("название «" + p["title"] + "»") if p.get("title") else "", "новое описание" if p.get("description") else "") if x),
               "wb_promotion": lambda: f"акция {p['promotionID']}: товары {', '.join(map(str, p['nmIDs']))[:200]}",
-              "ozon_promotion": lambda: f"акция {p['action_id']}: {len(p['products'])} товаров"}[kind]()
+              "ozon_promotion": lambda: f"акция {p['action_id']}: {len(p['products'])} товаров",
+              "ozon_card_create": lambda: f"новая карточка {p['offer_id']} «{p['name'][:120]}», цена {p['price']} {p.get('currency_code', 'KZT')}, "
+                                          f"категория {p['description_category_id']}/{p['type_id']}, картинок {len(p.get('images') or [])}",
+              "ozon_pictures": lambda: f"картинки товара {p['product_id']}: {len(p['images'])} шт."}[kind]()
     return f"{ch.title}: {a} — {detail}"
 
 
@@ -502,7 +563,7 @@ def auto_ok(kind, ch, p):
     r = rules()
     if r["stop"]:
         return False
-    if kind == "wb_card_update":
+    if kind in ("wb_card_update", "ozon_pictures"):
         return r["auto_cards"]
     if kind == "wb_question_answer":
         return r["auto_questions"]
