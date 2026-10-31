@@ -549,7 +549,7 @@ OZ_AUTO = ("auto_action_enabled", "auto_add_to_ozon_actions_list_enabled")      
 
 def oz_money(ch, p):
     """Цена заявки Ozon — в ₸ (как во всей системе), если не указан currency_code. → (цены для Ozon {price, old_price?},
-    валюта, пояснение). Кабинет не в тенге — пересчёт по курсу продажи МиГ (запасной — НБ РК), как в калькуляторе."""
+    валюта, пояснение). Кабинет не в тенге — пересчёт по курсу покупки МиГ (запасной — НБ РК), как в калькуляторе."""
     import mp_calc
     if p.get("currency_code"):
         cur = str(p["currency_code"]).upper()
