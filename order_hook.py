@@ -1057,7 +1057,15 @@ def _create_order_impl(key):
         return jsonify(ok=False, error=SITE_CLOSED), 503
     ip = request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip()
     d = request.get_json(silent=True) or {}
-    payload, status = order_core(d, key, ip, session_cid())
+    me = session_cid()
+    if me:                                            # вошедший клиент: в заказ — его подтверждённый номер (SMS / Telegram)
+        mine = norm_phone(ms("GET", f"/entity/counterparty/{me}").get("phone"))
+        if len(mine) < 10:
+            return jsonify(ok=False, error="Подтвердите номер телефона в кабинете — без него заказ не оформить", needPhone=True), 403
+        d = {**d, "phone": mine}
+    if len(norm_phone(d.get("phone"))) < 10:          # номер обязателен (слово владельца 01.11.2026), Telegram — дополнительно
+        return jsonify(ok=False, error="Укажите номер телефона — он нужен для связи по заказу"), 400
+    payload, status = order_core(d, key, ip, me)
     payload.pop("_data", None)
     if status == 200 and payload.get("ok") and payload.get("number"):
         import meta_capi
@@ -1606,6 +1614,9 @@ def tg_webhook(secret):
     text = msg.get("text", "")
     if not chat:
         return "", 200
+    if str(chat) in _tg_wait and not text.startswith("/"):    # вход через Telegram ждёт номер — не в «Сообщения»
+        handle_tg_phone(msg, chat)
+        return "", 200
     if msg.get("reply_to_message") and _is_staff(chat):   # менеджер ответил на уведомление о клиенте — текст или голос клиенту
         try:
             import inbox
@@ -1931,6 +1942,23 @@ def auth_sms_send():
     return jsonify(ok=True)
 
 
+def login_phone(phone, name="", cid=None, tg_note=""):
+    """Вход по проверенному номеру (SMS или Telegram «Поделиться номером»): тот же клиент МойСклад, что и раньше по этому номеру.
+    Нет такого — номер записываем клиенту cid (вошёл раньше без номера / меняет номер), иначе новый. → (cp, новый ли)."""
+    cp = cp_by_phone(phone)       # номер подтверждён — если клиент уже покупал, увидит свою историю
+    if not cp and cid:
+        ms("PUT", f"/entity/counterparty/{cid}", json={"phone": "+" + phone})
+        cp = ms("GET", f"/entity/counterparty/{cid}")
+    new = cp is None
+    if new:
+        cp = ms("POST", "/entity/counterparty", json={
+            "name": name or "Новый клиент сайта", "companyType": "individual", "tags": ["сайт"],
+            "phone": "+" + phone, "description": "Клиент с сайта" + (f"\n{tg_note}" if tg_note else "")})
+    elif "сайт" not in (cp.get("tags") or []):
+        ms("PUT", f"/entity/counterparty/{cp['id']}", json={"tags": sorted(set((cp.get("tags") or []) + ["сайт"]))})
+    return cp, new
+
+
 @bp.route("/auth/sms/verify", methods=["POST", "OPTIONS"])
 def auth_sms_verify():
     if request.method == "OPTIONS":
@@ -1947,14 +1975,7 @@ def auth_sms_verify():
     if not hmac.compare_digest(v["h"], hashlib.sha256((code + phone).encode()).hexdigest()):
         return jsonify(ok=False, error="Неверный код"), 400
     _codes.pop(phone, None)
-    cp = cp_by_phone(phone)       # номер подтверждён SMS — если клиент уже покупал, увидит свою историю
-    new = cp is None
-    if new:
-        cp = ms("POST", "/entity/counterparty", json={
-            "name": "Новый клиент сайта", "companyType": "individual", "tags": ["сайт"],
-            "phone": "+" + phone, "description": "Клиент с сайта"})
-    elif "сайт" not in (cp.get("tags") or []):
-        ms("PUT", f"/entity/counterparty/{cp['id']}", json={"tags": sorted(set((cp.get("tags") or []) + ["сайт"]))})
+    cp, new = login_phone(phone, cid=session_cid())        # вошёл без номера (Telegram) и подтверждает его — тот же клиент
     if d.get("consent") is True:
         try:
             save_consent(cp["id"], "вход по SMS")
@@ -1977,7 +1998,7 @@ def auth_tg_start():
     for k in [k for k, v in _tg_login.items() if now - v["t"] > 900]:
         _tg_login.pop(k, None)
     nonce = secrets.token_urlsafe(18).replace("-", "a").replace("_", "b")
-    _tg_login[nonce] = {"t": now, "token": None, "new": False,
+    _tg_login[nonce] = {"t": now, "token": None, "new": False, "me": session_cid(),
                         "site": RTL_URL if request.headers.get("Origin", "") in (RTL_URL, "https://www.amura.kz") else OPT_URL}
     return jsonify(ok=True, nonce=nonce)
 
@@ -1998,23 +2019,55 @@ def auth_tg_poll():
     return jsonify(ok=True, token=None)
 
 
+_tg_wait = {}   # chat -> nonce: вход ждёт номер («📱 Поделиться номером»)
+TG_ASK = "Чтобы войти, поделитесь номером телефона — кнопка ниже. Номер нужен для связи по заказам."
+TG_KB = json.dumps({"keyboard": [[{"text": "📱 Поделиться номером", "request_contact": True}]], "resize_keyboard": True, "one_time_keyboard": True})
+
+
 def handle_tg_login(nonce, user, chat):
+    """/start login_<nonce>: вход не выдаём сразу — просим номер кнопкой (слово владельца 01.11.2026: номер обязателен)."""
     v = _tg_login.get(nonce)
     if not v:
         tg("sendMessage", chat_id=chat, text="Ссылка для входа устарела. Нажмите «Войти через Telegram» на сайте ещё раз.")
         return
+    v.update(user=user, chat=chat)
+    _tg_wait[str(chat)] = nonce
+    tg("sendMessage", chat_id=chat, text=TG_ASK, reply_markup=TG_KB)
+
+
+def handle_tg_phone(msg, chat):
+    """Ответ в чате, где вход ждёт номер. Принимаем только свой контакт (contact.user_id == from.id — номер проверен Telegram).
+    Текст или чужой контакт — просим нажать кнопку, вход не выдаём. Клиент — тот же, что по SMS с этим номером."""
+    nonce = _tg_wait.get(str(chat))
+    v = _tg_login.get(nonce or "")
+    if not v:
+        _tg_wait.pop(str(chat), None)
+        tg("sendMessage", chat_id=chat, text="Ссылка для входа устарела. Нажмите «Войти через Telegram» на сайте ещё раз.",
+           reply_markup=json.dumps({"remove_keyboard": True}))
+        return
+    c, frm = msg.get("contact") or {}, msg.get("from") or {}
+    if not c or not frm.get("id") or str(c.get("user_id") or "") != str(frm["id"]):
+        tg("sendMessage", chat_id=chat, text=("Это не ваш номер. " if c else "") + "Пожалуйста, нажмите кнопку «📱 Поделиться номером» ниже — "
+           "так Telegram подтвердит ваш номер.", reply_markup=TG_KB)
+        return
+    phone = norm_phone(c.get("phone_number"))
+    if len(phone) < 10:
+        tg("sendMessage", chat_id=chat, text="Не удалось прочитать номер. Нажмите кнопку «📱 Поделиться номером» ещё раз.", reply_markup=TG_KB)
+        return
+    user = v.get("user") or frm
     tg_id, username = str(user.get("id", chat)), user.get("username", "")
-    name = " ".join(x for x in (user.get("first_name"), user.get("last_name")) if x) or username or "Клиент"
-    cp = cp_by_tg(tg_id, username)
-    if cp:
-        cid, new = cp["id"], not profile(cp)["city"]
-    else:
-        cid, new = ms("POST", "/entity/counterparty", json={
-            "name": name, "companyType": "individual", "tags": ["сайт"],
-            "description": "Клиент с сайта" + (f"\nTelegram: @{username}" if username else f"\nTelegram ID: {tg_id}")})["id"], True
-    set_tg_id(cid, tg_id)
-    v.update(token=make_token(cid), cid=cid, new=new)
+    name = " ".join(x for x in (user.get("first_name"), user.get("last_name")) if x) or username or ""
+    note = f"Telegram: @{username}" if username else f"Telegram ID: {tg_id}"
+    old = v.get("me") or (cp_by_tg(tg_id, username) or {}).get("id")      # вошёл раньше через Telegram без номера — тот же клиент
+    cp, new = login_phone(phone, name, cid=old, tg_note=note)
+    set_tg_id(cp["id"], tg_id)
+    if username and f"@{username}".lower() not in (cp.get("description") or "").lower():     # Telegram — дополнительно к номеру
+        ms("PUT", f"/entity/counterparty/{cp['id']}", json={"description": ((cp.get("description") or "").rstrip() + "\n" + note).strip()})
+    _tg_wait.pop(str(chat), None)
+    v.update(token=make_token(cp["id"]), cid=cp["id"], new=new or not profile(cp)["city"])
     tg("sendMessage", chat_id=chat, text="Готово, вы вошли в AMURA ✅\nВернитесь на сайт — личный кабинет уже открыт.",
+       reply_markup=json.dumps({"remove_keyboard": True}))
+    tg("sendMessage", chat_id=chat, text="Сайт AMURA:",
        reply_markup=json.dumps({"inline_keyboard": [[{"text": "Открыть сайт", "url": v.get("site", OPT_URL) + "/#me"}]]}))
 
 
@@ -2041,12 +2094,10 @@ def me():
         name, city = str(d.get("name", "")).strip()[:80], str(d.get("city", "")).strip()[:80]
         if not name or not city:
             return jsonify(ok=False, error="Укажите имя и город"), 400
-        ph = norm_phone(d.get("phone"))
+        ph = ""                                      # номер — только подтверждённый (SMS или Telegram), не из поля (01.11.2026)
 
         def put(cur):
             body = {"name": f"{name} ({city})", "actualAddress": city}
-            if ph and not cur.get("phone"):          # телефон, подтверждённый SMS, не меняем
-                body["phone"] = "+" + ph
             ms("PUT", f"/entity/counterparty/{cid}", json=body)
         cur = ms("GET", f"/entity/counterparty/{cid}")
         try:
