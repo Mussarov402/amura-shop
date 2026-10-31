@@ -84,7 +84,7 @@ ul{{padding-left:20px}}li{{margin:6px 0}}</style></head>
 
 
 def legal_footer(r):
-    links = "".join(f'<a href="/shop/legal/{k}.html">{t}</a>' for k, t in LEGAL) + '<a href="/#coop" data-coop>Сотрудничество</a>'
+    links = "".join(f'<a href="/shop/legal/{k}.html">{t}</a>' for k, t in LEGAL) + '<a href="/#coop" data-coop>Сотрудничество</a>' + '<a href="#" data-cookieset hidden>Настройки cookie</a>'
     return (f'<footer class="rlegal"><nav>{links}</nav><div>{r.get("seller", "")} · ИИН {r.get("iin", "")} · '
             f'Оплата картами Visa и Mastercard</div></footer>\n')
 

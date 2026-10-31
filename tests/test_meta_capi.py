@@ -47,12 +47,18 @@ class MetaCapi(unittest.TestCase):
         self.assertEqual(self.order().status_code, 200)
         self.assertEqual(self.sent, [])
         os.environ["META_PIXEL_ID"] = "123"                                             # одного ID мало — нужен и токен
-        self.order(mode="retail")
+        self.order(mode="retail", adsConsent=True)
+        self.assertEqual(self.sent, [])
+
+    def test_no_consent_nothing_sent(self):
+        os.environ.update(META_PIXEL_ID="123", META_CAPI_TOKEN="tok")
+        for extra in ({}, {"adsConsent": False}, {"adsConsent": "true"}):            # согласие — только явное true из браузера
+            self.assertEqual(self.order(fbp="fb.1.1.2", **extra).status_code, 200)
         self.assertEqual(self.sent, [])
 
     def test_purchase_same_event_id_no_personal_data(self):
         os.environ.update(META_PIXEL_ID="123", META_CAPI_TOKEN="tok")
-        self.assertTrue(self.order(mode="retail", fbp="fb.1.1.2").get_json()["ok"])
+        self.assertTrue(self.order(mode="retail", fbp="fb.1.1.2", adsConsent=True).get_json()["ok"])
         url, params, body = self.sent[0]
         self.assertEqual((url, params), ("https://graph.facebook.com/v21.0/123/events", {"access_token": "tok"}))
         e = body["data"][0]
@@ -67,7 +73,7 @@ class MetaCapi(unittest.TestCase):
     def test_meta_error_does_not_break_order(self):
         os.environ.update(META_PIXEL_ID="123", META_CAPI_TOKEN="tok")
         self.patch(meta_capi.requests, "post", lambda *a, **k: (_ for _ in ()).throw(meta_capi.requests.ConnectionError("нет")))
-        self.assertEqual(self.order().get_json()["number"], "1801")
+        self.assertEqual(self.order(adsConsent=True).get_json()["number"], "1801")
 
 
 if __name__ == "__main__":
