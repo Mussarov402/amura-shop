@@ -655,6 +655,7 @@ def calc(price, pct, amount, cost, margin):
     return {"price": round(price), "lines": lines, "profit": profit,
             "margin": round(profit / price * 100, 1) if price and profit is not None else None,
             "minPrice": round(fixed / den) if den > 0 else None,
+            "zeroPrice": round(fixed / (1 - known_pct / 100)) if known_pct < 100 else None,        # безубыточность: ниже — продажа в минус
             "complete": all(x["sum"] is not None for x in lines)}
 
 
@@ -769,6 +770,61 @@ def wb_task(ch, pid, refresh=True):
     return task
 
 
+# ---------- цена на Ozon (кнопка владельца, 31.10.2026) ----------
+def oz_rate(ch):
+    """Валюта кабинета Ozon и курс ₸ за 1 единицу (МиГ, как везде в калькуляторе). → (валюта, курс, пояснение)."""
+    import agent
+    cur = agent.oz_currency(ch) or "KZT"
+    if cur in ("KZT", "398"):
+        return "KZT", 1.0, ""
+    rate, note = to_kzt(1, cur)
+    return cur, rate, note
+
+
+def oz_set_price(ch, pid, price):
+    """Цена Ozon в ₸ → валюта кабинета по курсу МиГ; /v1/product/import/prices, без зачёркнутой цены (old_price 0).
+    → {"ok", "task"} или {"ok": False, "error"}; карточек не создаём."""
+    ref, mp = _ref_for(ch, pid)
+    offer = (mp["products"].get(ref) or {}).get("offer") if ref else None
+    if not offer:
+        return {"ok": False, "error": f"На {ch.title} нет товара в паре с этим товаром МойСклад — ничего не создаю"}
+    cur, rate, note = oz_rate(ch)
+    if not rate:
+        return {"ok": False, "error": f"Нет курса {cur} — цену не пересчитать: {note}"}
+    cab = int(round(price / rate)) if cur != "KZT" else int(price)
+    j = ch.call("/v1/product/import/prices", {"prices": [{"offer_id": offer, "price": str(cab), "old_price": "0", "currency_code": cur}]})
+    res = (j.get("result") or [{}])[0] if isinstance(j.get("result"), list) else {}
+    errs = [str(e.get("message") or e.get("code") or "") for e in res.get("errors") or []]
+    task = {"offer": offer, "price": int(price), "cab": cab, "cur": cur, "note": note, "at": int(time.time()),
+            "status": "не обновилась — ошибки" if errs or res.get("updated") is False else "отправлена, Ozon применяет",
+            "errors": errs[:5], "final": bool(errs)}
+    mpk.set_setting(f"mp_price_{ch.key}_{pid}", json.dumps(task, ensure_ascii=False))
+    print(f"Цена Ozon: {ch.key} {offer} → {int(price)} ₸ = {cab} {cur}", flush=True)
+    return {"ok": True, "task": task}
+
+
+def oz_task(ch, pid, refresh=True):
+    """Последняя загрузка цены Ozon: статус — по повторному чтению цены в кабинете (/v5/product/info/prices)."""
+    try:
+        task = json.loads(mpk.setting(f"mp_price_{ch.key}_{pid}", "") or "null")
+    except ValueError:
+        task = None
+    if not task or not refresh or task.get("final"):
+        return task
+    try:
+        r = ch.call("/v5/product/info/prices", {"filter": {"offer_id": [task["offer"]], "visibility": "ALL"}, "cursor": "", "limit": 1})
+        p = ((r.get("items") or ch.res(r).get("items") or [{}])[0]).get("price") or {}
+        now = float(p.get("price") or 0)
+        if abs(now - task["cab"]) < 1:
+            task.update(status="цена обновилась", final=True)
+        else:
+            task["status"] = f"в кабинете пока {now:g} {p.get('currency_code') or task['cur']} — Ozon ещё применяет"
+        mpk.set_setting(f"mp_price_{ch.key}_{pid}", json.dumps(task, ensure_ascii=False))
+    except mpk.ApiError as e:
+        task["status"] = f"не узнал статус: {e.message}"
+    return task
+
+
 # ---------- маршруты ----------
 @mpk.bp.get("/admin/api/mp/calc")
 def calc_route():
@@ -795,6 +851,18 @@ def calc_route():
         if isinstance(ch, mpk.WB) and ch.keys_set():
             c["wb"] = True
             c["priceTask"] = wb_task(ch, pid, refresh=False)
+        elif isinstance(ch, mpk.Ozon) and ch.keys_set() and not c.get("error"):
+            c["oz"] = True
+            c["priceTask"] = oz_task(ch, pid, refresh=False)
+            try:
+                cur, rate, _ = oz_rate(ch)
+                c["rate"] = {"cur": cur, "kzt": rate}
+                ref, mp = _ref_for(ch, pid)
+                offer = (mp["products"].get(ref) or {}).get("offer") if ref else None
+                import agent
+                c["floor"] = agent.floor_of(ch.key, offer) if offer else 0      # «Мин. цена в акциях», если задана
+            except Exception as e:
+                print("Калькулятор Ozon: курс или минимум не получены:", str(e)[:200], flush=True)
     print(f"Калькулятор {prod['code']}: закупка {prod['cost']} ₸ ({prod['costNote']}); "      # для проверки по логам, без ключей
           + "; ".join(f"{c['id']}: {log_line(c)}" for c in chans), flush=True)
     return jsonify(ok=True, settings=st, product=prod, channels=chans, at=int(time.time()))
@@ -834,30 +902,31 @@ def calc_settings_route():
 
 @mpk.bp.route("/admin/api/mp/calc/price", methods=["GET", "POST"])
 def price_route():
-    """POST {id, shop, price} — поставить цену на WB (только владелец, кнопка с подтверждением); GET ?id=&shop= — статус загрузки."""
+    """POST {id, shop, price} — поставить цену на WB или Ozon (только владелец, кнопка с подтверждением); GET ?id=&shop= — статус загрузки."""
     _, err = mpk._me(owner_only=True)
     if err:
         return err
     d = (request.get_json(silent=True) or {}) if request.method == "POST" else request.args
     mpk.channels()
     ch = mpk.CHANNELS.get(str(d.get("shop") or ""))
-    if not isinstance(ch, mpk.WB) or not ch.keys_set():
-        return jsonify(ok=False, error="Нет такого магазина WB с ключом"), 400
+    if not isinstance(ch, (mpk.WB, mpk.Ozon)) or not ch.keys_set():
+        return jsonify(ok=False, error="Нет такого магазина с ключом"), 400
+    oz = isinstance(ch, mpk.Ozon)
     pid = str(d.get("id") or "")
     if not pid:
         return jsonify(ok=False, error="Не выбран товар"), 400
     try:
         if request.method == "GET":
-            return jsonify(ok=True, task=wb_task(ch, pid))
+            return jsonify(ok=True, task=oz_task(ch, pid) if oz else wb_task(ch, pid))
         try:
             price = int(round(float(d.get("price"))))
         except (TypeError, ValueError):
             return jsonify(ok=False, error="Цена — числом, в тенге"), 400
         if price < 1:
             return jsonify(ok=False, error="Цена должна быть больше нуля"), 400
-        r = wb_set_price(ch, pid, price)
+        r = oz_set_price(ch, pid, price) if oz else wb_set_price(ch, pid, price)
     except mpk.ApiError as e:
-        return jsonify(ok=False, error=f"WB: {e.message}"), 502
+        return jsonify(ok=False, error=f"{'Ozon' if oz else 'WB'}: {e.message}"), 502
     return (jsonify(**r), 200) if r["ok"] else (jsonify(**r), 409)
 
 
