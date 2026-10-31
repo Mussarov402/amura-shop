@@ -18,7 +18,8 @@
   Ozon: расходы — Performance API (свои ключи OZON_PERF_CLIENT_ID / OZON_PERF_CLIENT_SECRET[_N]): токен /api/client/token,
     кампании /api/client/campaign и их товары /api/client/campaign/{id}/v2/products, расход /api/client/statistics/expense/json;
     расход кампании делится поровну между её товарами. Заказы — Seller API /v1/analytics/data (revenue по sku).
-Закупка — buyPrice МойСклад в валюте закупки × курс продажи обменника МиГ (mig.kz, слово владельца 28.10.2026), запасной —
+Закупка — buyPrice МойСклад в валюте закупки × курс продажи обменника МиГ (mig.kz, слово владельца 28.10.2026); деньги Ozon и WB
+в рублях — по курсу покупки МиГ (рубли продаём обменнику, слово владельца 31.10.2026); запасной —
 курс Нацбанка РК (с датой), последний — курс валюты в МойСклад;
 поле «себестоимость, ₸» владельца важнее рассчитанной. Налог ИП, реклама, эквайринг WB и маржа — настройки модуля.
 «Поставить цену» на WB (только владелец, с подтверждением): POST discounts-prices-api /api/v2/upload/task — цена для покупателя
@@ -68,33 +69,36 @@ def nbk_rates():
     return oh.cached("nbk_rates", 3 * 3600, load)
 
 
-def parse_mig(html):
-    """Курсы продажи МиГ со страницы mig.kz: строки таблицы <td class="buy …">покупка</td><td class="currency">USD</td>
-    <td class="sell …">продажа</td>. {"USD": тенге за 1, ...}."""
+def parse_mig(html, side="sell"):
+    """Курсы МиГ со страницы mig.kz: строки таблицы <td class="buy …">покупка</td><td class="currency">USD</td>
+    <td class="sell …">продажа</td>. side — "sell" (продажа) или "buy" (покупка). {"USD": тенге за 1, ...}."""
     out = {}
-    for code, sell in re.findall(r'<td[^>]*class="currency"[^>]*>\s*([A-Z]{3})\s*</td>\s*<td[^>]*class="sell[^"]*"[^>]*>\s*([\d.,]+)', html):
+    for buy, code, sell in re.findall(r'<td[^>]*class="buy[^"]*"[^>]*>\s*([\d.,]+)\s*</td>\s*<td[^>]*class="currency"[^>]*>\s*([A-Z]{3})\s*</td>'
+                                      r'\s*<td[^>]*class="sell[^"]*"[^>]*>\s*([\d.,]+)', html):
         try:
-            out[code] = float(sell.replace(",", "."))
+            out[code] = float((sell if side == "sell" else buy).replace(",", "."))
         except ValueError:
             continue
     return out
 
 
 def mig_rates():
-    """Курс продажи обменника МиГ (mig.kz) — по нему владелец покупает валюту; кэш 30 минут, время — когда взяли (Алматы)."""
+    """Курсы обменника МиГ (mig.kz): rates — продажа (по нему владелец покупает валюту для закупки), buy — покупка
+    (по нему обменник покупает рубли, которые платят Ozon и WB); кэш 30 минут, время — когда взяли (Алматы)."""
     def load():
         r = requests.get(MIG_URL, timeout=15, headers={"User-Agent": "Mozilla/5.0 (amura-admin)"})
         r.raise_for_status()
         rates = parse_mig(r.text)
         if not rates:
             raise ValueError("на mig.kz не нашёл таблицу курсов")
-        return {"date": datetime.now(mpk.ALMATY).strftime("%d.%m.%Y %H:%M"), "rates": rates}
+        return {"date": datetime.now(mpk.ALMATY).strftime("%d.%m.%Y %H:%M"), "rates": rates, "buy": parse_mig(r.text, "buy")}
     return oh.cached("mig_rates", 1800, load)
 
 
-def to_kzt(amount, cur, ms_rate=None):
-    """Сумма в тенге и откуда курс: (тенге, «курс продажи МиГ на время» / «курс НБ РК на дату» / «курс МойСклад»).
-    Не перевели — (None, причина)."""
+def to_kzt(amount, cur, ms_rate=None, side="buy"):
+    """Сумма в тенге и откуда курс: (тенге, «курс покупки/продажи МиГ на время» / «курс НБ РК на дату» / «курс МойСклад»).
+    side "buy" — деньги маркетплейсов (рубли продаём обменнику по курсу покупки, слово владельца 31.10.2026);
+    "sell" — закупка (валюту владелец покупает по курсу продажи). Не перевели — (None, причина)."""
     cur = (cur or "KZT").upper()
     if cur in ("KZT", "398", ""):
         return float(amount), ""
@@ -102,9 +106,10 @@ def to_kzt(amount, cur, ms_rate=None):
         cur = "RUB"
     try:
         mg = mig_rates()
-        if cur in mg["rates"]:
-            r = mg["rates"][cur]
-            return float(amount) * r, f"курс продажи МиГ {mg['date']}: 1 {cur} = {r:g} ₸"
+        rates = mg["rates"] if side == "sell" else (mg.get("buy") or {})
+        if cur in rates:
+            r = rates[cur]
+            return float(amount) * r, f"курс {'продажи' if side == 'sell' else 'покупки'} МиГ {mg['date']}: 1 {cur} = {r:g} ₸"
     except Exception as e:
         print("Курс МиГ не получен:", str(e)[:200], flush=True)
     try:
@@ -156,7 +161,7 @@ def product(pid):
     if own is not None:
         cost, note = own, "себестоимость задана вручную"
     elif raw:
-        cost, note = to_kzt(raw, iso, cur.get("rate"))
+        cost, note = to_kzt(raw, iso, cur.get("rate"), side="sell")
         note = f"закупка МойСклад {raw:g} {iso}" + (f", {note}" if note else "")
     else:
         cost, note = None, "в МойСклад нет закупочной цены"

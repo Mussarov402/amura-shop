@@ -58,12 +58,16 @@ class Rates(unittest.TestCase):
 
     def test_mig_first(self):
         self.assertEqual(mp_calc.parse_mig(MIG_HTML), {"USD": 480.0, "EUR": 545.9, "RUB": 5.95})
+        self.assertEqual(mp_calc.parse_mig(MIG_HTML, "buy"), {"USD": 476.5, "EUR": 540.1, "RUB": 5.7})
         old = mp_calc.requests.get
         mp_calc.requests.get = lambda url, **k: type("R", (), {"text": MIG_HTML, "raise_for_status": lambda s: None})()
         self.addCleanup(lambda: setattr(mp_calc.requests, "get", old))
-        v, note = mp_calc.to_kzt(12.51, "USD")
+        v, note = mp_calc.to_kzt(12.51, "USD", side="sell")                             # закупка: валюту покупаем — продажа МиГ
         self.assertEqual(round(v), 6005)                                                 # Anua 00615: около 6 000 ₸
         self.assertIn("курс продажи МиГ", note)
+        v, note = mp_calc.to_kzt(1000, "RUB")                                            # рубли Ozon / WB продаём — покупка МиГ
+        self.assertEqual(round(v), 5700)
+        self.assertIn("курс покупки МиГ", note)
 
     def test_nbk_parse_and_convert(self):
         old = mp_calc.requests.get
