@@ -2,6 +2,8 @@
 import os
 import sys
 import tempfile
+import time
+import types
 import unittest
 from unittest import mock
 
@@ -63,8 +65,16 @@ class EstimateTest(unittest.TestCase):
 
     def test_run(self):
         delivery.save({"yandex": {"token": "t"}, "cdek": {"client_id": "id", "secret": "s"}, "store": {"wh_addr": "Райымбека 221"}})
+        old_ms = oh.ms
         oh.ms = lambda *a, **k: {"rows": ORDERS}
-        de.time.sleep = lambda s: None
+        self.addCleanup(setattr, oh, "ms", old_ms)
+        # без пауз — только в модуле расчёта: общий time.sleep не трогаем (раньше подмена оставалась на весь прогон,
+        # и фоновый поток каталога order_hook крутился без пауз — полный прогон тестов иногда зависал)
+        fast = types.SimpleNamespace(**{k: getattr(time, k) for k in dir(time) if not k.startswith("_")})
+        fast.sleep = lambda s: None
+        self.patch_time = mock.patch.object(de, "time", fast)
+        self.patch_time.start()
+        self.addCleanup(self.patch_time.stop)
 
         def get(url, params=None, **k):
             if "nominatim" in url:
