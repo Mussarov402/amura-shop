@@ -310,7 +310,7 @@ def _wb_card_text(ch, p):
     return ch.req("POST", "content", "/content/v2/cards/update", json=[body])
 
 
-CARD_FIELDS = ("characteristics", "dimensions", "title", "description", "documents")
+CARD_FIELDS = ("characteristics", "dimensions", "title", "description", "documents", "brand")
 
 
 def _wb_charcs(ch, subject):
@@ -363,7 +363,7 @@ def _wb_card_update(ch, p):
     if p.get("dimensions"):
         before["dimensions"] = body.get("dimensions") or {}
         body["dimensions"] = {**(body.get("dimensions") or {}), **p["dimensions"]}
-    for k in ("title", "description"):
+    for k in ("title", "description", "brand"):
         if p.get(k):
             before[k] = body.get(k, "")
             body[k] = p[k]
@@ -822,9 +822,9 @@ ACTIONS = {
                      "run": _wb_card_text},
     "wb_card_trash": {"shop": mpk.WB, "params": ["nmIDs"], "about": "убрать карточки WB в корзину (архив) — всегда через «Да»; "
                       "вернуть — кнопка владельца «Вернуть как было» (/content/v2/cards/recover)", "run": _wb_trash},
-    "wb_card_update": {"shop": mpk.WB, "params": ["nmID", "characteristics?", "dimensions?", "title?", "description?", "documents?"],
+    "wb_card_update": {"shop": mpk.WB, "params": ["nmID", "characteristics?", "dimensions?", "title?", "description?", "documents?", "brand?"],
                        "about": "карточка WB: характеристики [{id, value}] по справочнику charcs, габариты {length, width, height, weightBrutto}, "
-                                "название (≤60), описание, документы [{type, number, startDate, endDate}] (заменяют все документы карточки). Цену, бренд, vendorCode, штрихкоды и фото не меняет", "run": _wb_card_update},
+                                "название (≤60), описание, документы [{type, number, startDate, endDate}] (заменяют все документы карточки), бренд. Цену, vendorCode, штрихкоды и фото не меняет", "run": _wb_card_update},
     "wb_card_create": {"shop": mpk.WB, "params": ["subjectID", "vendorCode", "title", "sizes", "description?", "brand?", "dimensions?",
                                                    "characteristics?", "photos?"],
                        "about": "новая карточка WB (/content/v2/cards/upload) без цены — цена отдельно, wb_price через «Да». "
@@ -1003,6 +1003,10 @@ def validate(kind, p):
             raise ValueError("нужно хотя бы одно поле: " + ", ".join(CARD_FIELDS))
         if p.get("title") and len(p["title"]) > 60:
             raise ValueError("название — не длиннее 60 символов")
+        if p.get("brand") is not None:
+            p["brand"] = str(p["brand"]).strip()
+            if not p["brand"] or len(p["brand"]) > 100:
+                raise ValueError("бренд — от 1 до 100 символов")
         if p.get("documents"):
             p["documents"] = check_docs(p["documents"])
         if p.get("characteristics") is not None and (not isinstance(p["characteristics"], list)
@@ -1084,6 +1088,7 @@ def summary(kind, ch, p):
                   ("характеристики " + ", ".join(f"{c['id']}={c.get('value')}" for c in p["characteristics"])[:300]) if p.get("characteristics") else "",
                   ("габариты " + ", ".join(f"{k} {v}" for k, v in p["dimensions"].items())) if p.get("dimensions") else "",
                   ("название «" + p["title"] + "»") if p.get("title") else "", "новое описание" if p.get("description") else "",
+                  ("бренд «" + p["brand"] + "»") if p.get("brand") else "",
                   ("документы: " + ", ".join(f"{d['number']} до {str(d.get('endDate') or 'бессрочно')[:10]}" for d in p["documents"]["items"]))
                   if p.get("documents") else "") if x),
               "wb_promotion": lambda: f"акция {p['promotionID']}: товары {', '.join(map(str, p['nmIDs']))[:200]}",

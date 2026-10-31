@@ -356,8 +356,19 @@ class CardUpdate(unittest.TestCase):
         self.assertEqual(self.updates[-1][0]["documents"]["items"], [{"type": 2, "number": "ЕАЭС N RU Д-CA.АИ33.В.05392/20",
                                                                       "startDate": "2020-12-07T00:00:00Z", "endDate": "2025-12-06T00:00:00Z"}])
 
+    def test_brand_and_revert(self):
+        self.card["brand"] = "Ануа"
+        self.assertEqual(self.upd(brand="  ").status_code, 400)
+        r = self.upd(brand="Anua").get_json()
+        self.assertEqual((r["status"], r["auto"]), ("done", True))
+        self.assertEqual(self.updates[-1][0]["brand"], "Anua")
+        self.assertEqual(self.updates[-1][0]["vendorCode"], "00615")                       # остальное — как было
+        self.assertEqual(r["result"]["before"], {"brand": "Ануа"})
+        self.assertEqual(self.c.post(f"/admin/api/agent/{r['id']}/revert").get_json()["status"], "done")
+        self.assertEqual(self.updates[-1][0]["brand"], "Ануа")
+
     def test_forbidden_fields(self):
-        for bad in ({"price": 13500}, {"brand": "X"}, {"vendorCode": "1"}, {"sizes": []}, {"skus": ["1"]}, {"photos": []}, {"_restore": True}):
+        for bad in ({"price": 13500}, {"vendorCode": "1"}, {"sizes": []}, {"skus": ["1"]}, {"photos": []}, {"_restore": True}):
             r = self.upd(title="Новое", **bad)
             self.assertEqual(r.status_code, 400, bad)
             self.assertIn("не меняются", r.get_json()["error"])
