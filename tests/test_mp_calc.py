@@ -409,11 +409,61 @@ class SetPrice(Calculator):
 
     def test_owner_only_and_checks(self):
         import admin
-        self.assertEqual(self.post(id="p1", shop="ozon", price=100).status_code, 400)    # только WB
+        self.assertEqual(self.post(id="p1", shop="kaspi", price=100).status_code, 400)   # нет такого магазина
         self.assertEqual(self.post(id="p1", shop="wb", price=0).status_code, 400)
         self.patch(admin, "who", lambda: {"role": "manager", "perms": ["orders"]})
         self.assertEqual(self.post(id="p1", shop="wb", price=13500).status_code, 403)
         self.assertEqual(self.w.uploads, [])
+
+
+class OzonSetPrice(Calculator):
+    """«Поставить цену на Ozon» (31.10.2026): ₸ → валюта кабинета по курсу, без зачёркнутой цены; статус — по повторному чтению цены."""
+    def setUp(self):
+        super().setUp()
+        self.patch(mpk, "_catalog", lambda: CAT)
+        import agent
+        self.patch(agent, "oz_currency", lambda ch: "RUB")
+        self.uploads, self.cab, self.errors = [], 1500, []
+        base = mpk.requests.post
+
+        def oz(url, json=None, headers=None, timeout=None):
+            if url.endswith("/v1/product/import/prices"):
+                self.uploads.append(json)
+                return Resp(200, {"result": [{"offer_id": "anua-cream", "updated": not self.errors, "errors": self.errors}]})
+            if url.endswith("/v5/product/info/prices") and "offer_id" in json["filter"]:
+                return Resp(200, {"items": [{"offer_id": "anua-cream", "price": {"price": str(self.cab), "currency_code": "RUB"}}]})
+            return base(url, json=json, headers=headers, timeout=timeout)
+        self.patch(mpk.requests, "post", oz)
+        mpk.set_setting("mp_price_ozon_p1", "")
+
+    def post(self, **b):
+        return self.c.post("/admin/api/mp/calc/price", json=b)
+
+    def test_set_price_rub_and_status(self):
+        j = self.get(id="p1")
+        oz = next(x for x in j["channels"] if x["id"] == "ozon")
+        self.assertTrue(oz["oz"])
+        self.assertEqual(oz["rate"], {"cur": "RUB", "kzt": 6.0})                          # подсказка «уйдёт ≈ ₽»
+        self.assertGreater(oz["minPrice"], oz["zeroPrice"])                              # безубыточность ниже цены для маржи
+        r = self.post(id="p1", shop="ozon", price=14000).get_json()
+        self.assertTrue(r["ok"])
+        self.assertEqual(self.uploads, [{"prices": [{"offer_id": "anua-cream", "price": "2333", "old_price": "0", "currency_code": "RUB"}]}])
+        self.assertEqual((r["task"]["price"], r["task"]["cab"], r["task"]["cur"]), (14000, 2333, "RUB"))
+        st = self.c.get("/admin/api/mp/calc/price", query_string={"id": "p1", "shop": "ozon"}).get_json()["task"]
+        self.assertIn("в кабинете пока 1500", st["status"])
+        self.cab = 2333
+        st = self.c.get("/admin/api/mp/calc/price", query_string={"id": "p1", "shop": "ozon"}).get_json()["task"]
+        self.assertEqual((st["status"], st["final"]), ("цена обновилась", True))
+        self.assertEqual(next(x for x in self.get(id="p1")["channels"] if x["id"] == "ozon")["priceTask"]["price"], 14000)
+
+    def test_ozon_errors_and_no_pair(self):
+        self.errors = [{"code": "PRICE_TOO_LOW", "message": "цена ниже минимальной"}]
+        r = self.post(id="p1", shop="ozon", price=14000).get_json()
+        self.assertEqual((r["task"]["status"], r["task"]["errors"]), ("не обновилась — ошибки", ["цена ниже минимальной"]))
+        self.patch(mp_calc, "_ref_for", lambda ch, pid: (None, {"products": {}}))
+        r = self.post(id="p1", shop="ozon", price=14000)
+        self.assertEqual(r.status_code, 409)
+        self.assertEqual(len(self.uploads), 1)                                           # без пары — ничего не отправили
 
 
 class WBCard(unittest.TestCase):
