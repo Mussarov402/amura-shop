@@ -459,6 +459,7 @@ const CONFIG = {
   orderUrl: "https://amura-shop-api.onrender.com/order",
   botUsername: "amuraorders_bot",                            // бот, который присылает PDF
   managerWa: "77003671350",
+  metaPixelId: "",                                            // пиксель Meta (ID из Events Manager); пусто — код пикселя не загружается
   tierMid: 10,                                                // цена «от 10 шт» (тип цены «От 10шт» в МойСклад)
   liveUrl: "https://amura-shop-api.onrender.com/catalog",  // живые остатки и цены из МойСклад
   refreshMs: 120000,                                          // обновлять каждые 2 минуты (новый товар на сайте за 2–4 минуты)
@@ -1589,6 +1590,51 @@ const DEMO_ITEMS = [
   { id:"d5", name:"Пример: тканевая маска, 10 шт", brand:"Пример В", code:"00005", qty:300, opt:1650, mid:1550, box:1450, boxQty:150 },
   { id:"d6", name:"Пример: крем для век 30 мл", brand:"Пример В", code:"00006", qty:36, opt:3990 }
 ];
+/* ===== Пиксель Meta (слово владельца 31.10.2026): статистика и реклама. Без CONFIG.metaPixelId ничего не грузится.
+   События: PageView, ViewContent, AddToCart, InitiateCheckout, Purchase (eventID = номер заказа — для дедупликации
+   с Conversions API на сервере), Contact. Во всех — site: opt / retail. Личных данных (телефон, имя, адрес) не передаём.
+   Хуки — обёртки openProduct / save / fetch: розничные скрипты (make_shop.py) оборачивают их поверх и вызывают эти. */
+const PX = (() => {
+  const id = String(CONFIG.metaPixelId || "").trim(), site = RETAIL ? "retail" : "opt";
+  if(!id) return { on: false, ev(){} };
+  !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+    if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version="2.0";n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;
+    s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,"script","https://connect.facebook.net/en_US/fbevents.js");
+  fbq("set", "autoConfig", false, id);        // без автоматического сбора полей и кнопок страницы — только наши события
+  fbq("init", id);
+  const ev = (name, p, eventID) => { try{ fbq("track", name, { ...(p || {}), site }, eventID ? { eventID: String(eventID) } : {}); }catch{} };
+  ev("PageView");
+  return { on: true, ev };
+})();
+if(PX.on){
+  const one = it => promoPrice(unitPrice(it, 1));
+  const _openPx = openProduct;
+  openProduct = function(it){ const r = _openPx.apply(this, arguments); if(it && it.id) PX.ev("ViewContent", { content_ids: [it.id], content_type: "product", value: one(it), currency: "KZT" }); return r; };
+  const _savePx = save;
+  let cartPx = { ...cart };
+  save = function(k, v){
+    if(k === "amura-cart2" && v) Object.keys(v).forEach(id => { const d = v[id] - (cartPx[id] || 0), it = byId(id);
+      if(d > 0 && it) PX.ev("AddToCart", { content_ids: [id], content_type: "product", value: promoPrice(unitPrice(it, v[id])) * d, currency: "KZT", num_items: d }); });
+    if(k === "amura-cart2") cartPx = { ...(v || {}) };
+    return _savePx.apply(this, arguments);
+  };
+  let coKey = "";                              // оформление открыто: один раз на состав корзины
+  new MutationObserver(() => { if(!$("#co") && !$(".rco")) return; const t = totals(""), key = t.ls.map(l => l.it.id + ":" + l.q).join(",");
+    if(key && key !== coKey){ coKey = key; PX.ev("InitiateCheckout", { content_ids: t.ls.map(l => l.it.id), content_type: "product", value: t.goods, currency: "KZT", num_items: t.count }); } })
+    .observe($("#drawerBody"), { childList: true, subtree: true });
+  const ck = n => (document.cookie.match(new RegExp("(?:^|; )" + n + "=([^;]*)")) || [])[1] || "";
+  const _fetchPx = fetch;
+  fetch = function(u, o){
+    if(typeof u !== "string" || u !== CONFIG.orderUrl || !o || o.method !== "POST") return _fetchPx.apply(this, arguments);
+    let body = {};
+    try{ body = JSON.parse(o.body); o = { ...o, body: JSON.stringify({ ...body, fbp: ck("_fbp") || undefined, fbc: ck("_fbc") || undefined }) }; }catch{}
+    return _fetchPx.call(this, u, o).then(r => { r.clone().json().then(j => { if(r.ok && j.ok && j.number){ const items = body.items || [];
+      PX.ev("Purchase", { content_ids: items.map(i => i.id), content_type: "product", value: j.total || body.clientTotal || 0, currency: "KZT",
+        num_items: items.reduce((s, i) => s + (i.qty || 0), 0) }, j.number); } }).catch(() => {}); return r; });
+  };
+  document.addEventListener("click", e => { const a = e.target.closest('a[href*="wa.me/"], a[href*="t.me/"], #waSend');
+    if(a && a.id !== "tgLogin") PX.ev("Contact", { channel: /t\.me\//.test(a.href || "") ? "telegram" : "whatsapp" }); }, true);
+}
 document.body.dataset.view = "home";
 { const h = location.hash.slice(1); if(h === "cart" || h === "me" || h === "fav") go(h, true); }
 boot();

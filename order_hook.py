@@ -1056,8 +1056,16 @@ def _create_order_impl(key):
     if not site_on("rtl" if (request.get_json(silent=True) or {}).get("mode") == "retail" else "opt"):
         return jsonify(ok=False, error=SITE_CLOSED), 503
     ip = request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip()
-    payload, status = order_core(request.get_json(silent=True) or {}, key, ip, session_cid())
+    d = request.get_json(silent=True) or {}
+    payload, status = order_core(d, key, ip, session_cid())
     payload.pop("_data", None)
+    if status == 200 and payload.get("ok") and payload.get("number"):
+        import meta_capi
+        if meta_capi.configured():             # покупка — в Meta с сервера (без переменных Render ничего не уходит)
+            kw = dict(number=payload["number"], total=payload.get("total"), items=d.get("items") or [],
+                      site="retail" if d.get("mode") == "retail" else "opt", ip=ip, ua=request.headers.get("User-Agent", "")[:400],
+                      url=request.headers.get("Referer", "")[:500], fbp=str(d.get("fbp") or "")[:200], fbc=str(d.get("fbc") or "")[:300])
+            notify_bg(lambda: meta_capi.send_purchase(**kw))
     return jsonify(**payload) if status == 200 else (jsonify(**payload), status)
 
 
