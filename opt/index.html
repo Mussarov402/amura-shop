@@ -1005,8 +1005,8 @@ function renderCart(){
       <div class="field"><label for="fName">Имя</label><input id="fName" autocomplete="name" value="${esc(f.name||"")}" required></div>
       <div class="field"><label>Куда прислать накладную</label>
         <div class="seg" role="group"><button type="button" data-c="wa" aria-pressed="${f.contact!=="tg"}">WhatsApp</button><button type="button" data-c="tg" aria-pressed="${f.contact==="tg"}">Telegram</button></div></div>
-      <div class="field" id="waField" ${f.contact==="tg"?"hidden":""}><label for="fPhone">Номер WhatsApp</label><input id="fPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+7 7__ ___ __ __" value="${esc(f.phone||"")}"></div>
-      <div class="field" id="tgField" ${f.contact==="tg"?"":"hidden"}><label for="fTg">Telegram username</label><input id="fTg" autocapitalize="off" placeholder="@username" value="${esc(f.tg||"")}"></div>
+      <div class="field" id="waField"><label for="fPhone">Номер телефона (WhatsApp)</label><input id="fPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+7 7__ ___ __ __" value="${esc(f.phone||"")}"></div>
+      <div class="field" id="tgField" ${f.contact==="tg"?"":"hidden"}><label for="fTg">Telegram username (необязательно)</label><input id="fTg" autocapitalize="off" placeholder="@username" value="${esc(f.tg||"")}"></div>
       <div class="field"><label for="fCity">Город</label><input id="fCity" autocomplete="address-level2" value="${esc(f.city||"")}"></div>
       <div class="field"><label>${RETAIL ? "Способ получения" : "Способ отправки"}</label>
         <div class="ship${RETAIL ? " dlvs" : ""}">${CONFIG.shipping.map(s => `<label class="${f.ship===s.id?"on":""}" data-m="${s.id}"><input type="radio" name="ship" value="${s.id}" ${f.ship===s.id?"checked":""}><span>${esc(RETAIL && s.id === "cdek" ? "Пункт выдачи СДЭК" : RETAIL && s.id === "courier" ? "Курьер" : s.name)}${RETAIL ? `<small class="dlvn"></small>` : ""}</span>${RETAIL ? `<em class="dlvp"></em>` : ""}</label>`).join("")}</div></div>
@@ -1154,7 +1154,7 @@ function readForm(){
 $("#drawerBody").addEventListener("click", e => {
   if(e.target.id === "promoBtn"){ promoApply(); return; }
   const seg = e.target.closest(".seg button");
-  if(seg){ document.querySelectorAll(".seg button").forEach(b => b.setAttribute("aria-pressed", b === seg)); $("#waField").hidden = seg.dataset.c !== "wa"; $("#tgField").hidden = seg.dataset.c !== "tg"; readForm(); return; }
+  if(seg){ document.querySelectorAll(".seg button").forEach(b => b.setAttribute("aria-pressed", b === seg)); $("#tgField").hidden = seg.dataset.c !== "tg"; readForm(); return; }
   if(e.target.id === "clear"){ cart = {}; save("amura-cart2", cart); renderCartCount(); render(); renderCart(); return; }
   const line = e.target.closest(".line"); if(!line) return;
   const it = byId(line.dataset.id); if(!it) return;
@@ -1199,8 +1199,8 @@ $("#drawerBody").addEventListener("submit", async e => {
   const f = readForm(), err = $("#err");
   const digits = f.phone.replace(/\D/g, "");
   if(!f.name) return fail("Укажите имя", "#fName");
-  if(f.contact === "wa" && digits.length < 10) return fail("Укажите номер WhatsApp", "#fPhone");
-  if(f.contact === "tg" && !/^[A-Za-z0-9_]{4,32}$/.test(f.tg)) return fail("Укажите Telegram username", "#fTg");
+  if(digits.length < 10) return fail("Укажите номер телефона — он нужен для связи по заказу", "#fPhone");   // номер обязателен (01.11.2026)
+  if(f.contact === "tg" && f.tg && !/^[A-Za-z0-9_]{4,32}$/.test(f.tg)) return fail("Проверьте Telegram username", "#fTg");
   if(!f.city) return fail("Укажите город", "#fCity");
   if(!f.ship) return fail("Выберите способ отправки");
   if(["kamaz", "rail", "avia"].includes(f.ship) && !f.logistics) return fail("Укажите, через какую логистику отправить", "#fLogi");
@@ -1218,7 +1218,7 @@ $("#drawerBody").addEventListener("submit", async e => {
   const t = totals(f.ship);
   const payload = {
     name: f.name, contact: f.contact,
-    phone: f.contact === "wa" ? normPhone(digits) : "",
+    phone: normPhone(digits),
     telegram: f.contact === "tg" ? f.tg : "",
     city: f.city, shipping: f.ship,
     logistics: f.logistics, recipient: f.recipient, zip: f.zip, address: f.address,
@@ -1243,6 +1243,7 @@ $("#drawerBody").addEventListener("submit", async e => {
       catch(e){ throw new Error(e.name === "AbortError" ? "Сервер долго отвечает — нажмите «Отправить заказ» ещё раз, дубль не создастся" : "Нет связи с сервером"); }
       finally{ clearTimeout(tm); clearTimeout(busy); }
       res = await r.json().catch(() => ({}));
+      if(res.needPhone){ btn.disabled = false; btn.textContent = "Отправить заказ"; toast(res.error); return go("me"); }   // вошёл без номера — подтвердить в кабинете
       if(!r.ok || !res.ok) throw new Error(res.error || "Сервер не ответил");
     }
     showDone(res, f, t);
@@ -1438,7 +1439,7 @@ async function api(path, opts = {}){
 }
 let tgNonce = "", tgPoll = 0;
 async function renderMe(){
-  clearInterval(tgPoll);
+  clearInterval(tgPoll); clearInterval(phPoll);
   if(!AUTH.token) return renderAuth();
   $("#meTitle").textContent = "Мой кабинет";
   if(AUTH.profile) paintMe(AUTH.profile, null);
@@ -1450,12 +1451,12 @@ const STATUS_TONE = s => /отгруж|выполн|достав|закрыт/i.
 function paintMe(p, orders){
   $("#meTitle").textContent = "Мой кабинет";
   const contact = [p.phone ? "+" + p.phone : "", p.telegram ? "@" + p.telegram : ""].filter(Boolean).join(" · ");
-  $("#meBody").innerHTML = `
+  $("#meBody").innerHTML = `${p.phone ? "" : phoneStepHTML()}
     <div class="panel" id="profile">
       <div><div class="brand">Профиль</div><h4 style="font-size:19px;margin-top:2px">${esc(p.name || "Без имени")}</h4>
       <div class="kv">${esc(contact || "контакт не указан")}${p.city ? " · " + esc(p.city) : ""}</div></div>
-      ${!p.city || !p.phone ? `<div class="warn">Добавьте ${!p.phone ? "телефон" : ""}${!p.phone && !p.city ? " и " : ""}${!p.city ? "город" : ""} — так менеджеру проще связаться и отправить заказ.</div>` : ""}
-      <button class="btn ghost" type="button" id="editProfile">Изменить данные</button>
+      ${!p.city && p.phone ? `<div class="warn">Добавьте город — так менеджеру проще отправить заказ.</div>` : ""}
+      ${p.phone ? `<button class="btn ghost" type="button" id="editProfile">Изменить данные</button><button type="button" class="smslink" id="phoneChange">Изменить номер — с подтверждением</button>` : ""}
     </div>
     <h2 class="page-h" style="font-size:18px;margin-top:22px">История заказов</h2>
     <div class="list" id="orders">${orders === null ? `<div class="kv">Загружаем…</div>`
@@ -1470,7 +1471,9 @@ function paintMe(p, orders){
     <button class="btn ghost" type="button" id="logout" style="margin-top:10px">Выйти</button>`;
   document.querySelectorAll("[data-pdf]").forEach(b => b.onclick = () => { const o = orders[+b.dataset.pdf]; sharePdf(o.pdfUrl, o.number, b); });
   $("#logout").onclick = () => { setAuth("", null); renderMe(); };
-  $("#editProfile").onclick = () => editProfile(p);
+  if($("#editProfile")) $("#editProfile").onclick = () => editProfile(p);
+  if($("#phoneChange")) $("#phoneChange").onclick = () => { $("#profile").insertAdjacentHTML("afterend", phoneStepHTML(true)); $("#phoneChange").remove(); bindPhoneStep(); };
+  bindPhoneStep();
   $("#orders").onclick = e => {
     const b = e.target.closest("[data-repeat]"); if(!b || !orders) return;
     let added = 0, missing = 0;
@@ -1483,7 +1486,6 @@ function paintMe(p, orders){
 function editProfile(p, first){
   $("#profile").innerHTML = `<form class="co" id="pf" novalidate>
     <div class="field"><label for="pName">Имя</label><input id="pName" autocomplete="name" value="${esc(p.name)}"></div>
-    ${p.phone && !first ? "" : first ? "" : `<div class="field"><label for="pPhone">Телефон (WhatsApp)</label><input id="pPhone" type="tel" inputmode="tel" placeholder="+7 7__ ___ __ __"></div>`}
     <div class="field"><label for="pCity">Город</label><input id="pCity" value="${esc(p.city)}"></div>
     <div class="err" id="pErr"></div>
     <button class="btn" type="submit">${first ? "Готово" : "Сохранить"}</button>${first ? "" : `<button class="btn ghost" type="button" id="pCancel">Отмена</button>`}</form>`;
@@ -1492,10 +1494,44 @@ function editProfile(p, first){
     e.preventDefault();
     const name = $("#pName").value.trim(), city = $("#pCity").value.trim();
     if(!name || !city){ $("#pErr").textContent = "Укажите имя и город"; return; }
-    try{ const j = await api("/me", { method: "PATCH", body: JSON.stringify({ name, city, phone: $("#pPhone")?.value || "" }) }); AUTH.profile = j.profile; save("amura-auth", AUTH); paintMe(j.profile, j.orders); toast("Сохранено"); }
+    try{ const j = await api("/me", { method: "PATCH", body: JSON.stringify({ name, city }) }); AUTH.profile = j.profile; save("amura-auth", AUTH); paintMe(j.profile, j.orders); toast("Сохранено"); }
     catch(ex){ $("#pErr").textContent = ex.message; }
   };
 }
+/* Подтверждение номера для вошедших без него (входили через Telegram до 01.11.2026) и смена номера: бот «📱 Поделиться
+   номером» или код по SMS. Без номера заказ не оформить — сервер отвечает needPhone. Номер из поля профиля не принимается. */
+function phoneStepHTML(change){
+  return `<div class="panel" id="phoneStep" style="margin:${change ? "14px 0 0" : "0 0 14px"}"><div class="brand">${change ? "Новый номер" : "Подтвердите номер телефона"}</div>
+    <p class="kv" style="margin:4px 0 10px">${change ? "Подтвердите новый номер — через Telegram или код по SMS." : "Номер нужен для связи по заказам — без него заказ не оформить."}</p>
+    <a class="btn tg" id="phTg" href="#" target="_blank" rel="noopener">Подтвердить через Telegram</a>
+    <div class="kv" id="phTgHint">Откроется бот — нажмите «📱 Поделиться номером» и вернитесь сюда.</div>
+    <button type="button" class="smslink" id="phSmsOpen">Нет Telegram? Подтвердить по SMS</button>
+    <form class="co" id="phf" novalidate hidden><div class="field"><label for="phPhone">Номер телефона</label><input id="phPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+7 7__ ___ __ __"></div>
+      <div class="field" id="phCodeF" hidden><label for="phCode">Код из SMS</label><input id="phCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6 цифр"></div>
+      <div class="err" id="phErr"></div><button class="btn" type="submit" id="phSend">Получить код по SMS</button></form></div>`;
+}
+let phNonce = "", phPoll = 0, phNum = "";
+async function bindPhoneStep(){
+  const a = $("#phTg"); if(!a) return;
+  $("#phSmsOpen").onclick = () => { $("#phSmsOpen").hidden = true; $("#phf").hidden = false; $("#phPhone").focus(); };
+  $("#phf").onsubmit = async e => {
+    e.preventDefault(); const err = $("#phErr"); err.textContent = "";
+    try{
+      if(!phNum){ const p = normPhone($("#phPhone").value.replace(/\D/g, "")); if(!/^77\d{9}$/.test(p)){ err.textContent = "Укажите казахстанский номер: +7 7__ ___ __ __"; return; }
+        await api("/auth/sms/send", { method: "POST", body: JSON.stringify({ phone: p }) }); phNum = p; $("#phPhone").readOnly = true; $("#phCodeF").hidden = false; $("#phSend").textContent = "Подтвердить"; $("#phCode").focus(); toast(DEMO ? "Демо: введите код 123456" : "Код отправлен по SMS"); return; }
+      const j = await api("/auth/sms/verify", { method: "POST", body: JSON.stringify({ phone: phNum, code: $("#phCode").value.replace(/\D/g, "") }) });
+      phNum = ""; phoneDone(j);
+    }catch(ex){ err.textContent = ex.message; }
+  };
+  a.onclick = e => { if(!phNonce){ e.preventDefault(); toast("Секунду, готовим…"); return; }
+    clearInterval(phPoll); const t0 = Date.now(); $("#phTgHint").textContent = "Нажмите в боте «📱 Поделиться номером». Ждём…";
+    phPoll = setInterval(async () => { if(VIEW !== "me" || !$("#phTg") || Date.now() - t0 > 600000){ clearInterval(phPoll); return; }
+      try{ const j = await api("/auth/tg/poll?nonce=" + encodeURIComponent(phNonce)); if(j.token){ clearInterval(phPoll); phNonce = ""; phoneDone(j); } }
+      catch(ex){ clearInterval(phPoll); phNonce = ""; $("#phTgHint").textContent = ex.message; bindPhoneStep(); } }, 2000); };
+  try{ if(!phNonce){ const j = await api("/auth/tg/start", { method: "POST" }); phNonce = j.nonce; } if(a.isConnected) a.href = `https://t.me/${CONFIG.botUsername}?start=login_${phNonce}`; }
+  catch(ex){ if(a.isConnected) $("#phTgHint").textContent = "Telegram сейчас недоступен: " + ex.message; }
+}
+function phoneDone(j){ setAuth(j.token); AUTH.profile = null; toast("Номер подтверждён"); renderMe(); }   // номер чужого клиента = вход в его кабинет (общая история)
 let smsPhone = "", smsTimer = 0, smsOpen = false;   // Telegram — главный вход, SMS — запасной (слово владельца 31.10.2026)
 function renderAuth(){
   $("#meTitle").textContent = "Вход или регистрация";
@@ -1545,7 +1581,7 @@ async function prepareTg(){
 function startPoll(){
   clearInterval(tgPoll);
   const t0 = Date.now();
-  $("#tgHint").textContent = "Ждём подтверждения из Telegram…";
+  $("#tgHint").textContent = "Подтвердите номер в боте: кнопка «📱 Поделиться номером». Ждём…";
   tgPoll = setInterval(async () => {
     if(VIEW !== "me" || Date.now() - t0 > 600000){ clearInterval(tgPoll); return; }
     try{ const j = await api("/auth/tg/poll?nonce=" + encodeURIComponent(tgNonce)); if(j.token){ clearInterval(tgPoll); tgNonce = ""; loggedIn(j); } }

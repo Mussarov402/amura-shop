@@ -45,7 +45,7 @@ class Sites(unittest.TestCase):
         return json.loads(self.c.put("/admin/api/sites", data=json.dumps({"id": sid, "on": on}), content_type="application/json").data)
 
     def order(self, mode=None):
-        return self.c.post("/order", data=json.dumps({"name": "А", "mode": mode}), content_type="application/json")
+        return self.c.post("/order", data=json.dumps({"name": "А", "mode": mode, "phone": "77011112233"}), content_type="application/json")
 
     def test_retail_off(self):
         r = self.put("rtl", False)

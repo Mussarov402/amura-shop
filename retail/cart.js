@@ -227,7 +227,7 @@ function stepCheckout(f){
       <section class="rcard"><h3>Получатель</h3>
         ${AUTH.token ? `<div class="rrcp">
           <div class="field"><label for="rName">Имя</label><input id="rName" autocomplete="name" value="${esc(f.name)}"></div>
-          <div class="field"><label for="rPhone">Телефон</label><input id="rPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+7 7__ ___ __ __" value="${esc(f.phone)}"></div></div>
+          <div class="field"><label for="rPhone">Телефон</label><input id="rPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+7 7__ ___ __ __" value="${esc(pr.phone ? "+" + pr.phone : f.phone)}" ${pr.phone ? "readonly" : ""}></div></div>
           ${pr.telegram && !pr.phone ? `<div class="kv">Номер нужен курьеру и СДЭК для связи с вами.</div>` : ""}`
         : `<div class="rlogin"><p>Войдите или зарегистрируйтесь, чтобы оформить заказ. Это быстро — по номеру телефона или через Telegram, без пароля.</p>
           <button type="button" class="btn ghost" data-rlogin>Войти или зарегистрироваться</button></div>`}</section>
@@ -553,6 +553,7 @@ async function submit(){
       finally{ clearTimeout(tm); }
       res = await r.json().catch(() => ({}));
       if(r.status === 401 && res.login){ setAuth("", null); toast("Войдите заново"); return toLogin(); }
+      if(res.needPhone){ toast(res.error); return go("me"); }    // вошёл без номера (Telegram) — подтвердить в кабинете
       if(!r.ok || !res.ok) throw new Error(res.error || "Сервер не ответил");
     }
     const df = { ...f, pvz: DLV.pvzSel, slot: DLV.slotSel, address: f.address || "" };
