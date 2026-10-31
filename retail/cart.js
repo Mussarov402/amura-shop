@@ -904,23 +904,23 @@ function supportEntry(){
 renderCart = renderRetailCart;
 const _shipName = dlvShipName;
 dlvShipName = function(f){ return f.ship === "express" ? "Срочный курьер по Алматы (Яндекс Экспресс) — " + (f.address || "") : _shipName(f); };
-/* розница: вход и регистрация только по номеру телефона (код по SMS), без Telegram */
-prepareTg = function(){};
+/* розница: вход через Telegram-бот — главный, по SMS — запасной (слово владельца 31.10.2026). «Запомнить меня» и согласие
+   с офертой — над кнопкой Telegram: относятся к обоим способам; без галочки не открывается ни бот, ни код по SMS */
 const _renderAuth = renderAuth;
 renderAuth = function(){
   _renderAuth();
-  ["#tgLogin", "#tgHint", "#meBody .or"].forEach(sel => { const el = $(sel); if(el) el.remove(); });
-  const send = $("#aSend");
-  if(send && !$("#aRemember")){
-    send.insertAdjacentHTML("beforebegin", `<label class="rremember"><input type="checkbox" id="aRemember" ${remember() ? "checked" : ""}><span>Запомнить меня<small>Снимите на чужом телефоне — вход сбросится, когда закроете браузер</small></span></label>`);
+  const tgb = $("#tgLogin"), send = $("#aSend");
+  if(tgb && !$("#aRemember")){
+    tgb.insertAdjacentHTML("beforebegin", `<label class="rremember"><input type="checkbox" id="aRemember" ${remember() ? "checked" : ""}><span>Запомнить меня<small>Снимите на чужом телефоне — вход сбросится, когда закроете браузер</small></span></label>`);
     $("#aRemember").onchange = e => { try{ localStorage.setItem(REM, e.target.checked ? "1" : "0"); }catch{} };
   }
-  if(send && LEGAL() && !$("#aAgree")){   // согласие — до «Получить код» (и остаётся отмеченным на шаге с кодом)
-    send.insertAdjacentHTML("beforebegin", consentHTML("aAgree", CONSENT.auth));
-    const sync = () => CONSENT.auth ? send.removeAttribute("aria-disabled") : send.setAttribute("aria-disabled", "true");
+  if(tgb && LEGAL() && !$("#aAgree")){   // согласие — до входа (и остаётся отмеченным на шаге с кодом SMS)
+    tgb.insertAdjacentHTML("beforebegin", consentHTML("aAgree", CONSENT.auth));
+    const sync = () => [tgb, send].forEach(b => { if(b) CONSENT.auth ? b.removeAttribute("aria-disabled") : b.setAttribute("aria-disabled", "true"); });
     sync();
     $("#aAgree").onchange = e => { CONSENT.auth = e.target.checked; const h = $("#aAgreeH"); h.hidden = CONSENT.auth; h.classList.remove("bad"); sync(); };
     $("#af").addEventListener("submit", e => { if(!CONSENT.auth){ e.preventDefault(); e.stopImmediatePropagation(); consentNeed("aAgree"); } }, true);
+    tgb.parentElement.addEventListener("click", e => { if(e.target.closest("#tgLogin") && !CONSENT.auth){ e.preventDefault(); e.stopImmediatePropagation(); consentNeed("aAgree"); } }, true);
   }
 };
 /* «Запомнить меня»: по умолчанию вход хранится на устройстве (180 дней); без галочки — только до закрытия браузера */
@@ -939,6 +939,7 @@ api = async function(path, opts){
   if(path === "/auth/sms/verify" && LEGAL() && CONSENT.auth && opts && opts.body){   // сервер запишет согласие клиенту
     try{ opts = { ...opts, body: JSON.stringify({ ...JSON.parse(opts.body), consent: true }) }; }catch{}
   }
+  if(path.startsWith("/auth/tg/poll") && LEGAL() && CONSENT.auth) path += "&consent=1";
   try{ return await _api(path, opts); }
   catch(e){ if(path === "/auth/sms/send" && /telegram/i.test(e.message)) throw new Error("Вход по SMS временно недоступен. Попробуйте позже или напишите нам в WhatsApp"); throw e; }
 };

@@ -231,6 +231,7 @@ html.retail .brandsBar{display:none}   /* розница: ряд брендов 
 .pill{display:inline-block;border-radius:99px;padding:2px 10px;font-size:12px;font-weight:700;background:var(--mint);color:var(--green-3)}
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px;display:grid;gap:10px}
 .panel h4{margin:0;font-size:16px}
+.smslink{display:block;margin:4px auto 0;background:none;border:0;padding:6px;color:var(--muted);font-size:13.5px;text-decoration:underline;cursor:pointer}.smslink[hidden],form.co[hidden]{display:none}
 .or{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:13px}
 .or::before,.or::after{content:"";flex:1;height:1px;background:var(--line)}
 .warn{background:var(--warn-bg);color:var(--warn-fg);border-radius:12px;padding:12px 14px;font-size:14px}
@@ -1844,17 +1845,17 @@ function editProfile(p, first){
     catch(ex){ $("#pErr").textContent = ex.message; }
   };
 }
-let smsPhone = "", smsTimer = 0;
+let smsPhone = "", smsTimer = 0, smsOpen = false;   // Telegram — главный вход, SMS — запасной (слово владельца 31.10.2026)
 function renderAuth(){
   $("#meTitle").textContent = "Вход или регистрация";
   $("#meBody").innerHTML = `
     <p class="kv" style="font-size:14px;margin:0 0 6px">Личный кабинет: история заказов, повтор заказа в одно нажатие, данные для доставки сохраняются. Пароль не нужен.</p>
-    <p style="font-size:14px;font-weight:700;margin:0 0 14px;color:var(--green-3)">Впервые у нас? Введите номер — зарегистрируем автоматически.</p>
+    <p style="font-size:14px;font-weight:700;margin:0 0 14px;color:var(--green-3)">Впервые у нас? Войдите через Telegram — зарегистрируем автоматически.</p>
     <div class="panel">
-      <a class="btn tg" id="tgLogin" href="#" target="_blank" rel="noopener">Войти или зарегистрироваться через Telegram</a>
+      <a class="btn tg" id="tgLogin" href="#" target="_blank" rel="noopener">Войти через Telegram</a>
       <div class="kv" id="tgHint">Откроется наш бот — нажмите «Старт» и вернитесь сюда.</div>
-      <div class="or">или по номеру телефона</div>
-      <form class="co" id="af" novalidate>
+      <button type="button" class="smslink" id="smsOpen" ${smsOpen || smsPhone ? "hidden" : ""}>Нет Telegram? Войти по SMS</button>
+      <form class="co" id="af" novalidate ${smsOpen || smsPhone ? "" : "hidden"}>
         <div class="field"><label for="aPhone">Номер телефона</label><input id="aPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+7 7__ ___ __ __" value="${esc(smsPhone ? "+" + smsPhone : "")}" ${smsPhone ? "readonly" : ""}></div>
         ${smsPhone ? `<div class="field"><label for="aCode">Код из SMS</label><input id="aCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6 цифр"></div>` : ""}
         <div class="err" id="aErr"></div>
@@ -1863,6 +1864,7 @@ function renderAuth(){
       </form>
     </div>`;
   $("#af").onsubmit = submitAuth;
+  $("#smsOpen").onclick = () => { smsOpen = true; $("#smsOpen").hidden = true; $("#af").hidden = false; $("#aPhone").focus(); };
   if(smsPhone){
     $("#aCode").focus();
     $("#aChange").onclick = () => { smsPhone = ""; renderAuth(); };
@@ -3181,23 +3183,23 @@ function supportEntry(){
 renderCart = renderRetailCart;
 const _shipName = dlvShipName;
 dlvShipName = function(f){ return f.ship === "express" ? "Срочный курьер по Алматы (Яндекс Экспресс) — " + (f.address || "") : _shipName(f); };
-/* розница: вход и регистрация только по номеру телефона (код по SMS), без Telegram */
-prepareTg = function(){};
+/* розница: вход через Telegram-бот — главный, по SMS — запасной (слово владельца 31.10.2026). «Запомнить меня» и согласие
+   с офертой — над кнопкой Telegram: относятся к обоим способам; без галочки не открывается ни бот, ни код по SMS */
 const _renderAuth = renderAuth;
 renderAuth = function(){
   _renderAuth();
-  ["#tgLogin", "#tgHint", "#meBody .or"].forEach(sel => { const el = $(sel); if(el) el.remove(); });
-  const send = $("#aSend");
-  if(send && !$("#aRemember")){
-    send.insertAdjacentHTML("beforebegin", `<label class="rremember"><input type="checkbox" id="aRemember" ${remember() ? "checked" : ""}><span>Запомнить меня<small>Снимите на чужом телефоне — вход сбросится, когда закроете браузер</small></span></label>`);
+  const tgb = $("#tgLogin"), send = $("#aSend");
+  if(tgb && !$("#aRemember")){
+    tgb.insertAdjacentHTML("beforebegin", `<label class="rremember"><input type="checkbox" id="aRemember" ${remember() ? "checked" : ""}><span>Запомнить меня<small>Снимите на чужом телефоне — вход сбросится, когда закроете браузер</small></span></label>`);
     $("#aRemember").onchange = e => { try{ localStorage.setItem(REM, e.target.checked ? "1" : "0"); }catch{} };
   }
-  if(send && LEGAL() && !$("#aAgree")){   // согласие — до «Получить код» (и остаётся отмеченным на шаге с кодом)
-    send.insertAdjacentHTML("beforebegin", consentHTML("aAgree", CONSENT.auth));
-    const sync = () => CONSENT.auth ? send.removeAttribute("aria-disabled") : send.setAttribute("aria-disabled", "true");
+  if(tgb && LEGAL() && !$("#aAgree")){   // согласие — до входа (и остаётся отмеченным на шаге с кодом SMS)
+    tgb.insertAdjacentHTML("beforebegin", consentHTML("aAgree", CONSENT.auth));
+    const sync = () => [tgb, send].forEach(b => { if(b) CONSENT.auth ? b.removeAttribute("aria-disabled") : b.setAttribute("aria-disabled", "true"); });
     sync();
     $("#aAgree").onchange = e => { CONSENT.auth = e.target.checked; const h = $("#aAgreeH"); h.hidden = CONSENT.auth; h.classList.remove("bad"); sync(); };
     $("#af").addEventListener("submit", e => { if(!CONSENT.auth){ e.preventDefault(); e.stopImmediatePropagation(); consentNeed("aAgree"); } }, true);
+    tgb.parentElement.addEventListener("click", e => { if(e.target.closest("#tgLogin") && !CONSENT.auth){ e.preventDefault(); e.stopImmediatePropagation(); consentNeed("aAgree"); } }, true);
   }
 };
 /* «Запомнить меня»: по умолчанию вход хранится на устройстве (180 дней); без галочки — только до закрытия браузера */
@@ -3216,6 +3218,7 @@ api = async function(path, opts){
   if(path === "/auth/sms/verify" && LEGAL() && CONSENT.auth && opts && opts.body){   // сервер запишет согласие клиенту
     try{ opts = { ...opts, body: JSON.stringify({ ...JSON.parse(opts.body), consent: true }) }; }catch{}
   }
+  if(path.startsWith("/auth/tg/poll") && LEGAL() && CONSENT.auth) path += "&consent=1";
   try{ return await _api(path, opts); }
   catch(e){ if(path === "/auth/sms/send" && /telegram/i.test(e.message)) throw new Error("Вход по SMS временно недоступен. Попробуйте позже или напишите нам в WhatsApp"); throw e; }
 };

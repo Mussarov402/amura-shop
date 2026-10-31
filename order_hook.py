@@ -1989,6 +1989,11 @@ def auth_tg_poll():
         return jsonify(ok=False, error="Ссылка устарела, нажмите «Войти через Telegram» ещё раз"), 404
     if v["token"]:
         _tg_login.pop(request.args["nonce"], None)
+        if request.args.get("consent") == "1" and v.get("cid"):      # розница: галочка согласия отмечена до входа
+            try:
+                save_consent(v["cid"], "вход через Telegram")
+            except Exception:
+                pass
         return jsonify(ok=True, token=v["token"], needProfile=v["new"])
     return jsonify(ok=True, token=None)
 
@@ -2008,7 +2013,7 @@ def handle_tg_login(nonce, user, chat):
             "name": name, "companyType": "individual", "tags": ["сайт"],
             "description": "Клиент с сайта" + (f"\nTelegram: @{username}" if username else f"\nTelegram ID: {tg_id}")})["id"], True
     set_tg_id(cid, tg_id)
-    v.update(token=make_token(cid), new=new)
+    v.update(token=make_token(cid), cid=cid, new=new)
     tg("sendMessage", chat_id=chat, text="Готово, вы вошли в AMURA ✅\nВернитесь на сайт — личный кабинет уже открыт.",
        reply_markup=json.dumps({"inline_keyboard": [[{"text": "Открыть сайт", "url": v.get("site", OPT_URL) + "/#me"}]]}))
 
