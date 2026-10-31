@@ -290,6 +290,9 @@ form.co{display:grid;gap:12px;padding-top:6px}
 .specs th{text-align:left;font-weight:600;color:var(--muted);padding:7px 12px 7px 0;width:40%;vertical-align:top;border-bottom:1px solid var(--line)}
 .specs td{padding:7px 0;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums;word-break:break-word}
 .sheet>.x{position:absolute;right:12px;top:12px;z-index:2}
+.ck{position:fixed;left:50%;bottom:calc(92px + max(8px,calc(env(safe-area-inset-bottom,0px) - 12px)));transform:translateX(-50%);width:min(560px,calc(100% - 32px));background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:14px;box-shadow:0 8px 28px rgba(8,25,18,.18);padding:14px 16px;z-index:55;font-size:13.5px;line-height:1.45}
+.ck[hidden]{display:none}.ck p{margin:0 0 10px}.ck a{color:var(--green-3)}.ck .row{display:flex;gap:8px}.ck .btn{padding:10px 14px}
+.cklink{display:block;margin:18px auto 0;background:none;border:0;color:var(--muted);font-size:12.5px;text-decoration:underline;cursor:pointer}
 .toast{position:fixed;left:50%;bottom:calc(92px + max(8px,calc(env(safe-area-inset-bottom,0px) - 12px)));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:12px;font-weight:600;z-index:60;display:none;max-width:calc(100% - 32px);text-align:center}
 .demo{background:var(--brass);color:#1b1408;text-align:center;font-size:13px;font-weight:700;padding:6px 16px}
 
@@ -326,6 +329,7 @@ form.co{display:grid;gap:12px;padding-top:6px}
   .topnav{display:flex}
   body{padding-bottom:0}
   .toast{bottom:24px}
+  .ck{bottom:24px}
 }
 @media (pointer:coarse) and (max-height:500px) and (min-width:561px){
   /* телефон горизонтально: больше товаров в ряд, низкая нижняя панель */
@@ -336,6 +340,7 @@ form.co{display:grid;gap:12px;padding-top:6px}
   .tabbar svg{width:22px;height:22px}
   body{padding-bottom:calc(52px + env(safe-area-inset-bottom,0px))}
   .toast{bottom:calc(58px + env(safe-area-inset-bottom,0px))}
+  .ck{bottom:calc(58px + env(safe-area-inset-bottom,0px))}
 }
 @media (max-width:360px){
   /* маленькие телефоны (iPhone SE и т.п.) */
@@ -1939,21 +1944,45 @@ const DEMO_ITEMS = [
   { id:"d5", name:"Пример: тканевая маска, 10 шт", brand:"Пример В", code:"00005", qty:300, opt:1650, mid:1550, box:1450, boxQty:150 },
   { id:"d6", name:"Пример: крем для век 30 мл", brand:"Пример В", code:"00006", qty:36, opt:3990 }
 ];
-/* ===== Пиксель Meta (слово владельца 31.10.2026): статистика и реклама. Без CONFIG.metaPixelId ничего не грузится.
+/* ===== Пиксель Meta (слово владельца 31.10.2026): статистика и реклама. Без CONFIG.metaPixelId ничего не грузится и баннера нет.
+   Согласие до загрузки (закон РК о персональных данных, проверил Юрист 31.10.2026): пока посетитель не нажал «Принять»
+   в окне о cookie, fbq не загружается совсем; «Отклонить» — такая же кнопка; передумать — «Настройки cookie».
    События: PageView, ViewContent, AddToCart, InitiateCheckout, Purchase (eventID = номер заказа — для дедупликации
    с Conversions API на сервере), Contact. Во всех — site: opt / retail. Личных данных (телефон, имя, адрес) не передаём.
    Хуки — обёртки openProduct / save / fetch: розничные скрипты (make_shop.py) оборачивают их поверх и вызывают эти. */
 const PX = (() => {
-  const id = String(CONFIG.metaPixelId || "").trim(), site = RETAIL ? "retail" : "opt";
-  if(!id) return { on: false, ev(){} };
-  !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};
-    if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version="2.0";n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;
-    s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,"script","https://connect.facebook.net/en_US/fbevents.js");
-  fbq("set", "autoConfig", false, id);        // без автоматического сбора полей и кнопок страницы — только наши события
-  fbq("init", id);
-  const ev = (name, p, eventID) => { try{ fbq("track", name, { ...(p || {}), site }, eventID ? { eventID: String(eventID) } : {}); }catch{} };
-  ev("PageView");
-  return { on: true, ev };
+  const id = String(CONFIG.metaPixelId || "").trim(), site = RETAIL ? "retail" : "opt", KEY = "amura-cookie-ads";
+  if(!id) return { on: false, ok: () => false, ev(){} };
+  const get = () => { try{ return localStorage.getItem(KEY) || ""; }catch{ return ""; } };
+  const put = v => { try{ localStorage.setItem(KEY, v); }catch{} };
+  let loaded = false;
+  function load(){
+    if(loaded) return; loaded = true;
+    !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+      if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version="2.0";n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;
+      s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,"script","https://connect.facebook.net/en_US/fbevents.js");
+    fbq("set", "autoConfig", false, id);      // без автоматического сбора полей и кнопок страницы — только наши события
+    fbq("init", id);
+    ev("PageView");
+  }
+  function ev(name, p, eventID){ if(!loaded) return; try{ fbq("track", name, { ...(p || {}), site }, eventID ? { eventID: String(eventID) } : {}); }catch{} }
+  const box = document.createElement("div");
+  box.className = "ck"; box.id = "cookieBox"; box.hidden = true; box.setAttribute("role", "dialog"); box.setAttribute("aria-label", "Cookie");
+  box.innerHTML = `<p>Мы используем cookie и пиксель Meta для статистики и рекламы. Это передаёт сведения о ваших действиях на сайте и IP-адрес компании Meta (в том числе в США). Без вашего согласия пиксель не подключается. Подробнее — в <a href="${RETAIL ? "/shop/legal/" : "https://amura.kz/shop/legal/"}privacy.html" target="_blank" rel="noopener">Политике конфиденциальности</a>.</p>
+    <div class="row"><button class="btn" type="button" data-ck="yes">Принять</button><button class="btn" type="button" data-ck="no">Отклонить</button></div>`;
+  document.body.appendChild(box);
+  box.addEventListener("click", e => { const b = e.target.closest("[data-ck]"); if(!b) return;
+    const was = get(); put(b.dataset.ck); box.hidden = true;
+    if(b.dataset.ck === "yes") load(); else if(was === "yes" && loaded) location.reload();   // отозвал согласие — пиксель выгружаем перезагрузкой
+  });
+  const show = () => { box.hidden = false; };
+  document.addEventListener("click", e => { if(e.target.closest("[data-cookieset]")){ e.preventDefault(); show(); } });
+  document.querySelectorAll("[data-cookieset]").forEach(a => a.hidden = false);          // ссылка в подвале розницы
+  new MutationObserver(() => { const m = $("#meBody"); if(m && m.firstChild && !m.querySelector("[data-cookieset]"))   // и в «Я» на обоих сайтах
+    m.insertAdjacentHTML("beforeend", `<button type="button" class="cklink" data-cookieset>Настройки cookie</button>`); })
+    .observe($("#meBody"), { childList: true });
+  if(get() === "yes") load(); else if(!get()) show();
+  return { on: true, ok: () => get() === "yes", ev };
 })();
 if(PX.on){
   const one = it => promoPrice(unitPrice(it, 1));
@@ -1976,7 +2005,7 @@ if(PX.on){
   fetch = function(u, o){
     if(typeof u !== "string" || u !== CONFIG.orderUrl || !o || o.method !== "POST") return _fetchPx.apply(this, arguments);
     let body = {};
-    try{ body = JSON.parse(o.body); o = { ...o, body: JSON.stringify({ ...body, fbp: ck("_fbp") || undefined, fbc: ck("_fbc") || undefined }) }; }catch{}
+    try{ body = JSON.parse(o.body); if(PX.ok()) o = { ...o, body: JSON.stringify({ ...body, adsConsent: true, fbp: ck("_fbp") || undefined, fbc: ck("_fbc") || undefined }) }; }catch{}
     return _fetchPx.call(this, u, o).then(r => { r.clone().json().then(j => { if(r.ok && j.ok && j.number){ const items = body.items || [];
       PX.ev("Purchase", { content_ids: items.map(i => i.id), content_type: "product", value: j.total || body.clientTotal || 0, currency: "KZT",
         num_items: items.reduce((s, i) => s + (i.qty || 0), 0) }, j.number); } }).catch(() => {}); return r; });
@@ -2143,7 +2172,7 @@ boot();
   if(st.token){ poll(); schedule(); }
 })();
 </script>
-<footer class="rlegal"><nav><a href="/shop/legal/offer.html">Оферта</a><a href="/shop/legal/privacy.html">Конфиденциальность</a><a href="/shop/legal/delivery.html">Доставка и оплата</a><a href="/shop/legal/returns.html">Возврат и обмен</a><a href="/shop/legal/contacts.html">Контакты</a><a href="/#coop" data-coop>Сотрудничество</a></nav><div>ИП «AMURA» · ИИН 030202500244 · Оплата картами Visa и Mastercard</div></footer>
+<footer class="rlegal"><nav><a href="/shop/legal/offer.html">Оферта</a><a href="/shop/legal/privacy.html">Конфиденциальность</a><a href="/shop/legal/delivery.html">Доставка и оплата</a><a href="/shop/legal/returns.html">Возврат и обмен</a><a href="/shop/legal/contacts.html">Контакты</a><a href="/#coop" data-coop>Сотрудничество</a><a href="#" data-cookieset hidden>Настройки cookie</a></nav><div>ИП «AMURA» · ИИН 030202500244 · Оплата картами Visa и Mastercard</div></footer>
 <script>window.AMURA_LEGAL = true;</script>
 <script>
 /* Розничный сайт: карточки товаров как на WB и «полёт» товара в корзину.

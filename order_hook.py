@@ -1061,7 +1061,7 @@ def _create_order_impl(key):
     payload.pop("_data", None)
     if status == 200 and payload.get("ok") and payload.get("number"):
         import meta_capi
-        if meta_capi.configured():             # покупка — в Meta с сервера (без переменных Render ничего не уходит)
+        if meta_capi.configured() and d.get("adsConsent") is True:   # покупка — в Meta с сервера: переменные Render и согласие посетителя
             kw = dict(number=payload["number"], total=payload.get("total"), items=d.get("items") or [],
                       site="retail" if d.get("mode") == "retail" else "opt", ip=ip, ua=request.headers.get("User-Agent", "")[:400],
                       url=request.headers.get("Referer", "")[:500], fbp=str(d.get("fbp") or "")[:200], fbc=str(d.get("fbc") or "")[:300])
