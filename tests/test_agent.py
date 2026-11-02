@@ -787,6 +787,72 @@ class PriceFloor(unittest.TestCase):
         self.assertEqual(len(j["watch"]["found"]), 2)
 
 
+class OzonKzCardCreate(unittest.TestCase):
+    """Ozon KZ (ozon2): новые карточки — сразу по правилу «Карточки», цена не ниже безубыточности по калькулятору
+    (слово владельца 02.11.2026). Ozon RU — как раньше, через «Да»."""
+    patch = tm.Channels.patch
+    CARD = {"offer_id": "01087", "name": "Крем Anua", "description_category_id": 1, "type_id": 2, "price": 16000,
+            "depth": 60, "width": 60, "height": 120, "weight": 150, "attributes": [{"id": 85, "values": [{"value": "Anua"}]}]}
+
+    def setUp(self):
+        os.environ.update(OZON_CLIENT_ID_2="cid2", OZON_API_KEY_2="key2")
+        self.addCleanup(lambda: [os.environ.pop(k, None) for k in ("OZON_CLIENT_ID_2", "OZON_API_KEY_2")])
+        Agent.setUp(self)
+        mpk.channels()
+        self.sent, self.items = [], [{"offer_id": "x", "price": {"price": "9000", "currency_code": "KZT"}, "acquiring": 100,
+                                      "commissions": {"sales_percent_fbs": 15, "fbs_direct_flow_trans_max_amount": 400,
+                                                      "fbs_deliv_to_customer_amount": 300, "fbs_first_mile_max_amount": 200}},
+                                     {"offer_id": "y", "price": {"price": "5000", "currency_code": "KZT"}, "acquiring": 50,
+                                      "commissions": {"sales_percent_fbs": 12, "fbs_direct_flow_trans_max_amount": 300,
+                                                      "fbs_deliv_to_customer_amount": 200, "fbs_first_mile_max_amount": 100}}]
+        oh._cache.pop("oz_cur:ozon2", None)
+        self.addCleanup(lambda: oh._cache.pop("oz_cur:ozon2", None))
+        import mp_calc
+        self.patch(oh, "panel_catalog", lambda: {"m1": {"id": "m1", "code": "01087", "barcode": "8809640730016"}})
+        self.patch(mp_calc, "product", lambda pid: {"cost": 5000})
+        self.patch(mp_calc, "settings", lambda: {"tax": 4.0, "ads": 10.0, "margin": 10.0})
+
+        def oz(url, json=None, headers=None, timeout=None):
+            path = url.split(".ozon.ru", 1)[1] if ".ozon.ru" in url else url
+            if path == "/v5/product/info/prices":
+                return Resp(200, {"items": self.items})
+            self.sent.append((path, json))
+            return Resp(200, {"result": {"task_id": 777}})
+        self.patch(mpk.requests, "post", oz)
+
+    def new(self, shop="ozon2", **p):
+        return self.c.post("/agent/api/requests", headers=self.h, json={"kind": "ozon_card_create", "shop": shop, "params": {**self.CARD, **p}})
+
+    def test_kz_auto_when_above_break_even(self):
+        # безубыточность: (5000 + 400+300+200+100) / (1 − (15+4+10)/100) = 6000 / 0,71 ≈ 8451 ₸
+        r = self.new().get_json()
+        self.assertEqual((r["status"], r["auto"]), ("done", True))
+        self.assertEqual(self.sent[-1][0], "/v3/product/import")
+        self.assertEqual(self.sent[-1][1]["items"][0]["price"], "16000")
+
+    def test_kz_below_break_even_rejected(self):
+        r = self.new(price=8000)
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("минимум 8451 ₸", r.get_json()["error"])
+        self.assertEqual(self.sent, [])
+
+    def test_kz_unknown_cost_waits_for_yes(self):
+        self.patch(oh, "panel_catalog", lambda: {})
+        r = self.new().get_json()
+        self.assertEqual((r["status"], r["auto"]), ("new", False))
+        self.assertIn("нет в МойСклад", self.tg[-1])
+        self.assertEqual(self.sent, [])
+
+    def test_ru_still_needs_yes_and_stop_respected(self):
+        self.patch(agent, "oz_currency", lambda ch: "KZT")
+        r = self.new(shop="ozon").get_json()
+        self.assertEqual((r["status"], r["auto"]), ("new", False))
+        self.c.post("/admin/api/agent/rules", json={"stop": True})
+        r = self.new().get_json()
+        self.assertEqual((r["status"], r["auto"]), ("new", False))
+        self.assertEqual(self.sent, [])
+
+
 class OzonCard(unittest.TestCase):
     """ozon_card_create — только «Да» (Ozon требует цену в том же запросе); ozon_pictures — по правилу «Карточки»."""
     patch = tm.Channels.patch

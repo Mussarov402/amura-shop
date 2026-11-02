@@ -566,6 +566,43 @@ def oz_money(ch, p):
     return out, cur, ", ".join(f"{p[k]} ₸ → {out[k]} {cur}" for k in out) + f" ({note})"
 
 
+AUTO_OZ_CREATE = {"ozon2"}            # Ozon KZ: новые карточки — сразу по правилу «Карточки» (слово владельца 02.11.2026)
+
+
+def oz_new_floor(ch, p):
+    """Безубыточность новой карточки Ozon, ₸ — по калькулятору, консервативно: себестоимость из МойСклад (товар — по артикулу
+    или штрихкоду) и самые высокие ставки Ozon среди товаров этого магазина (своих ставок у новой карточки ещё нет),
+    налог и ДРР — из настроек калькулятора. → (безубыточность, пояснение); не посчитать — ValueError с причиной."""
+    import mp_calc
+    keys = {str(p.get(k) or "").strip().lower() for k in ("offer_id", "barcode")} - {""}
+    pid = next((i["id"] for i in oh.panel_catalog().values()
+                if keys & {str(i.get(k) or "").strip().lower() for k in ("code", "article", "barcode")}), None)
+    if not pid:
+        raise ValueError("товара с таким артикулом или штрихкодом нет в МойСклад — себестоимость неизвестна")
+    cost = mp_calc.product(pid).get("cost")
+    if cost is None:
+        raise ValueError("в МойСклад нет закупочной цены товара")
+    r = ch.call("/v5/product/info/prices", {"filter": {"visibility": "ALL"}, "cursor": "", "limit": 1000})
+    items = r.get("items") or ch.res(r).get("items") or []
+    if not items:
+        raise ValueError("в магазине ещё нет товаров — ставок Ozon для расчёта нет")
+    num = lambda v: float(v or 0)
+    cur = str(((items[0].get("price") or {}).get("currency_code")) or "KZT")
+    pct = max(num((i.get("commissions") or {}).get("sales_percent_fbs")) for i in items)
+    fixed = max(num((i.get("commissions") or {}).get("fbs_direct_flow_trans_max_amount")) + num((i.get("commissions") or {}).get("fbs_deliv_to_customer_amount"))
+                + num((i.get("commissions") or {}).get("fbs_first_mile_max_amount")) + num(i.get("acquiring")) for i in items)
+    fixed_kzt = mp_calc.to_kzt(fixed, cur)[0]
+    if fixed_kzt is None:
+        raise ValueError(f"нет курса {cur}")
+    st = mp_calc.settings()
+    total_pct = pct + (st.get("tax") or 0) + (st.get("ads") or 0)
+    if total_pct >= 100:
+        raise ValueError("ставки и налог больше 100 % цены")
+    zero = (cost + fixed_kzt) / (1 - total_pct / 100)
+    return round(zero), (f"себестоимость {round(cost)} ₸, комиссия до {pct:g} %, налог {st.get('tax') or 0:g} %, ДРР {st.get('ads') or 0:g} %, "
+                         f"логистика и эквайринг до {round(fixed_kzt)} ₸ (самые высокие ставки магазина)")
+
+
 def _oz_card_create(ch, p):
     """Новая карточка Ozon: POST /v3/product/import (Ozon требует цену в том же запросе — поэтому всегда через «Да»).
     Ответ — task_id; статус и ошибки модерации — чтение import_info."""
@@ -855,8 +892,9 @@ ACTIONS = {
     "ozon_card_create": {"shop": mpk.Ozon, "params": ["offer_id", "name", "description_category_id", "type_id", "price", "depth", "width",
                                                        "height", "weight", "attributes", "images?", "primary_image?", "barcode?", "old_price?",
                                                        "currency_code?", "vat?", "dimension_unit?", "weight_unit?", "complex_attributes?"],
-                         "about": "новая карточка Ozon (/v3/product/import). Ozon требует цену в том же запросе — поэтому всегда через «Да». "
-                                  "Картинки — публичные https-ссылки", "run": _oz_card_create},
+                         "about": "новая карточка Ozon (/v3/product/import). Ozon требует цену в том же запросе. Ozon KZ (ozon2) — сразу по правилу "
+                                  "«Карточки», цена не ниже безубыточности по калькулятору; Ozon RU — через «Да». Картинки — публичные https-ссылки",
+                         "run": _oz_card_create},
     "ozon_card_update": {"shop": mpk.Ozon, "params": ["offer_id", "attributes"],
                          "about": "характеристики карточки Ozon (/v1/product/attributes/update): attributes [{id, complex_id?, values: [{value} | "
                                   "{dictionary_value_id}]}], id — из category_attributes; например 11254 «Rich-контент JSON». Правило «Карточки», "
@@ -1094,7 +1132,9 @@ def summary(kind, ch, p):
               "wb_promotion": lambda: f"акция {p['promotionID']}: товары {', '.join(map(str, p['nmIDs']))[:200]}",
               "ozon_promotion": lambda: f"акция {p['action_id']}: {len(p['products'])} товаров",
               "ozon_card_create": lambda: f"новая карточка {p['offer_id']} «{p['name'][:120]}», цена {p['price']} {p.get('currency_code') or '₸'}, "
-                                          f"категория {p['description_category_id']}/{p['type_id']}, картинок {len(p.get('images') or [])}",
+                                          f"категория {p['description_category_id']}/{p['type_id']}, картинок {len(p.get('images') or [])}"
+                                          + (f" (безубыточность {p['_floor']['zero']} ₸)" if p.get("_floor") else "")
+                                          + (f" (безубыточность не посчитана: {p['_floor_why']} — нужно «Да»)" if p.get("_floor_why") else ""),
               "ozon_pictures": lambda: f"картинки товара {p['product_id']}: {len(p['images'])} шт.",
               "wb_card_create": lambda: f"новая карточка {p['vendorCode']} «{p['title']}», предмет {p['subjectID']}, EAN "
                                         + ", ".join(x for s in p["sizes"] for x in s["skus"]) + f", фото {len(p.get('photos') or [])}",
@@ -1121,6 +1161,8 @@ def auto_ok(kind, ch, p):
         return False
     if kind in ("wb_card_update", "wb_card_create", "wb_card_media", "ozon_pictures", "ozon_card_update"):   # штрихкоды (wb_card_barcodes) — только «Да»
         return r["auto_cards"]
+    if kind == "ozon_card_create":            # Ozon KZ — сразу, если цена проверена на безубыточность; Ozon RU — через «Да»
+        return r["auto_cards"] and ch.key in AUTO_OZ_CREATE and bool(p.get("_floor"))
     if kind == "wb_question_answer":
         return r["auto_questions"]
     if kind == "wb_feedback_answer" and r["auto_reviews"]:
@@ -1176,6 +1218,18 @@ def create_route():
             p["_rows"] = barcode_rows(ch, p["items"])
         if kind in ("wb_promotion", "ozon_promotion"):
             check_floor(kind, ch, p)
+        if kind == "ozon_card_create" and ch.key in AUTO_OZ_CREATE:      # Ozon KZ: цена не ниже безубыточности
+            try:
+                zero, why = oz_new_floor(ch, p)
+            except Exception as e:                    # МойСклад или Ozon не ответили — не гадаем, заявка ждёт «Да»
+                zero, why = None, getattr(e, "message", str(e))[:200]
+            if zero is not None:
+                price = float(p["price"]) if not p.get("currency_code") else (__import__("mp_calc").to_kzt(float(p["price"]), p["currency_code"])[0] or 0)
+                if price < zero:
+                    raise ValueError(f"цена {round(price)} ₸ ниже безубыточности: минимум {zero} ₸ ({why})")
+                p["_floor"] = {"zero": zero, "note": why}
+            else:
+                p["_floor_why"] = why                 # не посчитать — заявка ждёт «Да», причина видна владельцу
         text = summary(kind, ch, p)
     except mpk.ApiError as e:
         log(502, f"{kind}: {e.message}")
