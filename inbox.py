@@ -22,8 +22,8 @@ OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 TRANSCRIBE_MODEL = os.environ.get("OPENAI_TRANSCRIBE_MODEL", "whisper-1")
 HANDOFF = "[[MANAGER]]"
 # первое сообщение в каждом новом диалоге с ИИ (юрист, 02.11.2026) — сайт, WhatsApp, Telegram, Instagram
-AI_HELLO = ("Здравствуйте! Вам отвечает ИИ-помощник AMURA. Сообщения обрабатываются сервисом OpenAI (США) по нашей Политике "
-            "конфиденциальности: https://amura.kz/shop/legal/privacy.html. Чтобы связаться с сотрудником, напишите «оператор».")
+AI_HELLO = ("Здравствуйте! Я ИИ-помощник AMURA. Если нужен сотрудник — напишите «оператор». "
+            "Подробнее о данных: https://amura.kz/shop/legal/privacy.html")
 OPERATOR_ACK = "Передал сотруднику — он ответит в ближайшее время."
 _OPERATOR = re.compile(r"(?<![а-яё])оператор", re.I)
 
