@@ -1,4 +1,4 @@
-"""Согласие с офертой и политикой (розница): факт и время — в комментарии заказа и у клиента при входе по SMS; опт не трогаем."""
+"""Согласие (оба сайта): факт, время и версия — в комментарии заказа и у клиента; первое сообщение ИИ и «оператор»."""
 import hashlib
 import json
 import os
@@ -48,7 +48,8 @@ class Consent(unittest.TestCase):
         self.assertIn(oh.CONSENT_TXT + ": ", self.order(mode="retail", consent=True))
         self.assertIn("(Алматы)", self.posted[-1]["description"])
         self.assertNotIn(oh.CONSENT_TXT, self.order(mode="retail"))
-        self.assertNotIn(oh.CONSENT_TXT, self.order(consent=True))              # опт — без строки согласия
+        self.assertIn(oh.CONSENT_TXT, self.order(consent=True))                 # опт — тоже (юрист, 02.11.2026)
+        self.assertIn("политика от 03.11.2026", self.posted[-1]["description"])  # версия — дата редакции политики
         self.assertNotIn(oh.CONSENT_TXT, self.order(mode="retail", consent="1"))  # только настоящая галочка
 
     def test_pay_card_mark(self):
@@ -116,6 +117,27 @@ class Consent(unittest.TestCase):
         v = oh.get_consent("cid-77")
         self.assertEqual(v["how"], "вход по SMS")
         self.assertIn("(Алматы)", v["at"])
+        self.assertEqual(v["ver"], "политика от 03.11.2026")
+        self.assertIn("OpenAI (США)", v["text"])
+
+    def test_ai_hello_operator_mask(self):
+        import inbox
+        sent, calls = [], []
+        self.patch(inbox, "send_text", lambda chat, text, human=True: sent.append(text) or "x")
+        self.patch(inbox, "ai_on", lambda d, chat: True)
+        self.patch(inbox, "ai_reply", lambda d, hist, text, *a, **k: calls.append(text) or ("Ответ ИИ", False))
+        self.patch(oh, "notif_on", lambda k: False)
+        chat = "tg:hello-" + str(time.time())
+        inbox.on_client_message(chat, {"first_name": "Аня"}, "Здравствуйте")
+        self.assertEqual(sent, [inbox.AI_HELLO, "Ответ ИИ"])                    # новый диалог — сначала предупреждение
+        inbox.on_client_message(chat, {"first_name": "Аня"}, "Цена?")
+        self.assertEqual(sent[2:], ["Ответ ИИ"])                                # дальше — без повтора
+        inbox.on_client_message(chat, {"first_name": "Аня"}, "Позовите Оператора")
+        self.assertEqual(sent[3:], [inbox.OPERATOR_ACK])                        # «оператор» — сразу сотруднику, без ИИ
+        self.assertEqual(len(calls), 2)
+        with inbox.db() as d:
+            self.assertEqual(d.run("SELECT status FROM conv WHERE chat_id=%s", (chat,), one=True)[0], "manager")
+        self.assertEqual(inbox.mask_pd("ИИН 030202 500244, тел 77011112233"), "ИИН [ИИН скрыт], тел 77011112233")
 
 
 if __name__ == "__main__":

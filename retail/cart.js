@@ -157,14 +157,14 @@ function payHTML(){
 const CONSENT = { cart: false, auth: false, news: false };
 function consentHTML(id, on){
   if(!LEGAL()) return "";
-  return `<label class="rremember ragree"><input type="checkbox" id="${id}" ${on ? "checked" : ""}><span>Я принимаю условия <a href="/shop/legal/offer.html" target="_blank" rel="noopener">оферты</a> и даю согласие на обработку персональных данных согласно <a href="/shop/legal/privacy.html" target="_blank" rel="noopener">Политике конфиденциальности</a>
+  return `<label class="rremember ragree"><input type="checkbox" id="${id}" ${on ? "checked" : ""}><span>Я принимаю условия <a href="/shop/legal/offer.html" target="_blank" rel="noopener">оферты</a> и согласен на обработку моих персональных данных, в том числе на их передачу за пределы Казахстана нашим подрядчикам — МойСклад (Россия), OpenAI (США), Meta (WhatsApp, Instagram), Telegram — по <a href="/shop/legal/privacy.html" target="_blank" rel="noopener">Политике конфиденциальности</a>.
     <small class="ragree-h" id="${id}H" ${on ? "hidden" : ""}>Отметьте галочку, чтобы продолжить</small></span></label>`;
 }
 function consentNeed(id){   // нажали неактивную кнопку — подсвечиваем подсказку и галочку
   const h = $("#" + id + "H"), box = $("#" + id);
   if(h){ h.hidden = false; h.classList.add("bad"); }
   if(box){ box.scrollIntoView({ block: "center", behavior: "smooth" }); box.focus(); }
-  toast("Отметьте согласие с офертой и политикой конфиденциальности");
+  toast("Отметьте согласие с офертой и обработкой персональных данных");
 }
 
 const plTov = n => `${fmt(n)} ${plural(n, "товар", "товара", "товаров")}`;
