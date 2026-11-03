@@ -112,6 +112,19 @@ class OptSite(unittest.TestCase):
             r = self.c.get("/sw.js", headers={"Host": "amura.kz"})
         self.assertEqual(r.data, b"SW")
 
+    def test_tls_failure_falls_back_to_github(self):
+        """amura.kz не отвечает по TLS (DNS переключают) — каталог и опт берут файлы с GitHub напрямую."""
+        def bad(url, **kw):
+            raise opt_site.requests.exceptions.SSLError("handshake failure")
+        with mock.patch.object(opt_site.requests, "get", side_effect=bad), \
+                mock.patch.object(opt_site, "_github", lambda p: (200, {"Content-Type": "application/json"}, b'{"items": []}')):
+            r = opt_site.site_get("https://amura.kz/catalog.json?x=1", timeout=5)
+            self.assertEqual((r.status_code, r.json()), (200, {"items": []}))
+            page = self.c.get("/catalog.json", headers={"Host": "opt.amura.kz"})
+        self.assertEqual(page.status_code, 200)
+        with mock.patch.object(opt_site.requests, "get", side_effect=bad), self.assertRaises(opt_site.requests.exceptions.SSLError):
+            opt_site.site_get("https://example.com/x")                              # чужие адреса — без подмены
+
     def test_other_hosts_untouched(self):
         r = self.c.get("/", headers={"Host": "amura-shop-api.onrender.com"})
         self.assertEqual(r.get_json()["service"], "amura-shop-api")
