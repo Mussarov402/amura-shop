@@ -1458,7 +1458,7 @@ def recheck_first_prices():
             p = json.loads(raw)
             ok, why = wb_first_price(ch, p) if kind == "wb_price" else (False, "")
             if not ok and not why:
-                ok, why = raise_to_min(kind, ch, p)
+                ok, why = raise_to_min(kind, ch, p, explain=True)
             if not ok and not why:
                 r = rules()
                 why = ("нажат «Стоп»" if r["stop"] else "правило «Карточки» выключено" if not r["auto_cards"]
@@ -1637,28 +1637,31 @@ def min_price_for(ch, pid, price, margin):
 RAISE_SLACK = 100       # подтяжка до минимума для маржи 15 % — не выше минимума больше чем на 100 ₸ (слово владельца 03.11.2026)
 
 
-def raise_to_min(kind, ch, p):
+def raise_to_min(kind, ch, p, explain=False):
     """«Сам подними без моего да все карточки на 15% маржи» (владелец 03.11.2026): WB и Ozon KZ, только повышение,
     новая цена для покупателя не выше минимума для маржи 15 % + 100 ₸, скидку и автоакции не трогаем; «Стоп» выключает.
     → (можно ли, почему); ("", "") — правило к заявке не относится."""
     import mp_calc
+    no = lambda why: (False, f"не подтяжка: {why}" if explain else "")   # noqa: E731
     if rules()["stop"] or p.get("price") is None:
-        return False, ""
+        return no("«Стоп» или нет цены")
     if kind == "wb_price":
-        if not isinstance(ch, mpk.WB) or p.get("discount") is not None:
-            return False, ""
+        if not isinstance(ch, mpk.WB):
+            return no("не WB")
     elif ch.key not in AUTO_OZ_CREATE or p.get("min_price") is not None or any(p.get(k) for k in OZ_AUTO):
-        return False, ""
+        return no("Ozon RU, min_price или автоакции")
     ident = ident_of(kind, p)
     buyer, disc, full = cur_price(ch, ident)
     if not full:
-        return False, ""                                   # цены ещё нет — это первая цена, у неё своё правило
+        return no("цены ещё нет")                          # это первая цена, у неё своё правило
+    if kind == "wb_price" and p.get("discount") is not None and float(p["discount"]) != disc:
+        return no(f"меняется скидка {disc:g} → {float(p['discount']):g} %")   # та же скидка — не смена
     if kind == "wb_price":
         new = float(p["price"]) * (1 - disc / 100)
     else:
         new = float(p["price"]) if not p.get("currency_code") else (mp_calc.to_kzt(float(p["price"]), p["currency_code"])[0] or 0)
     if new <= buyer:
-        return False, ""                                   # не повышение
+        return no(f"не повышение: сейчас {round(buyer)} ₸, в заявке {round(new)} ₸")
     pid, _ = ms_match(ch, ident)
     if not pid:
         return False, "подтяжка до маржи 15 %: товар не связан с МойСклад — через «Да»"
