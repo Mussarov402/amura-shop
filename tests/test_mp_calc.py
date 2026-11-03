@@ -69,6 +69,24 @@ class Rates(unittest.TestCase):
         self.assertEqual(round(v), 5700)
         self.assertIn("курс покупки МиГ", note)
 
+    def test_cost_without_currency_is_usd(self):
+        """Закупка < 100 без валюты (₸) — на деле доллары: считаем по курсу продажи МиГ (слово владельца 03.11.2026)."""
+        old = mp_calc.requests.get
+        mp_calc.requests.get = lambda url, **k: type("R", (), {"text": MIG_HTML, "raise_for_status": lambda s: None})()
+        self.addCleanup(lambda: setattr(mp_calc.requests, "get", old))
+        rows = {"p7": {"name": "Arencia", "code": "01297", "buyPrice": {"value": 700}},
+                "p9": {"name": "Крем", "code": "00001", "buyPrice": {"value": 450000, "currency": {"isoCode": "KZT"}}}}
+        oldms = oh.ms
+        oh.ms = lambda m, path, **k: rows[path.rsplit("/", 1)[1]]
+        self.addCleanup(lambda: setattr(oh, "ms", oldms))
+        for pid in rows:
+            oh._cache.pop("mpc_prod:" + pid, None)
+            self.addCleanup(lambda pid=pid: oh._cache.pop("mpc_prod:" + pid, None))
+        p = mp_calc.product("p7")
+        self.assertEqual(p["cost"], 3360)                                                # 7 × 480
+        self.assertIn("закупка 7 без валюты — считаем как USD по курсу МиГ", p["costNote"])
+        self.assertEqual(mp_calc.product("p9")["cost"], 4500)                             # обычная закупка в ₸ — как была
+
     def test_nbk_parse_and_convert(self):
         old = mp_calc.requests.get
         mp_calc.requests.get = lambda url, **k: type("R", (), {"content": NBK_XML, "raise_for_status": lambda s: None})()
