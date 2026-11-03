@@ -210,7 +210,7 @@ class PriceCorridor(unittest.TestCase):
         with agent.db() as d:
             d.run("DELETE FROM agent_corridor")
         self.price, self.disc, self.full, self.first = 17000.0, 0, True, "2026-01-01"
-        self.margins = []
+        self.margins, self.nosales = [], False
         import mp_calc
         wb_base = mpk.requests.request
 
@@ -227,8 +227,14 @@ class PriceCorridor(unittest.TestCase):
 
         def calc(ch, pid, prod, st, price_override=None):
             self.margins.append(st["margin"])
+            if self.nosales:                                                         # новинка: продаж нет — эквайринга и приёмки нет
+                return {"minPrice": 99999, "lines": [{"key": "commission", "label": "Комиссия", "pct": 20, "sum": 3000},
+                                                     {"key": "cost", "label": "Закупка", "pct": None, "sum": 6000},
+                                                     {"key": "acquiring", "label": "Эквайринг", "pct": None, "sum": None},
+                                                     {"key": "processing", "label": "Приёмка и обработка FBS", "pct": None, "sum": None}]}
             return {"minPrice": 16500 if st["margin"] == 20 else 15000, "complete": self.full,
-                    "lines": [{"label": "Комиссия", "sum": 1}, {"label": "Эквайринг", "sum": 1 if self.full else None}]}
+                    "lines": [{"key": "commission", "label": "Комиссия", "sum": 1},
+                              {"key": "logistics" if not self.full else "acquiring", "label": "Логистика", "sum": 1 if self.full else None}]}
         self.patch(mp_calc, "channel_calc", calc)
 
     def on(self, base=17000):
@@ -265,6 +271,23 @@ class PriceCorridor(unittest.TestCase):
         self.c.post("/admin/api/agent/rules", json={"stop": True})
         self.price = 0.0
         self.assertEqual(self.price_req(15500)["status"], "new")                        # «Стоп» — всё через «Да»
+
+    def test_first_price_no_sales_and_dedupe(self):
+        """Продаж нет: эквайринг 2,5 % и приёмка 0 ₸ по допущению; повтор той же заявки — без новой заявки и сообщения."""
+        self.price, self.nosales = 0.0, True
+        sent = []
+        self.patch(agent.oh, "notify_bg", lambda fn: sent.append(1))
+        r = self.price_req(8000)                                                   # минимум 6000 / (1 − 0,2 − 0,025 − 0,1) = 8889
+        self.assertEqual(r["status"], "new")
+        rid = r["id"]
+        items = self.c.get("/agent/api/requests", headers=self.h).get_json()["items"]
+        self.assertIn("минимум 8889 ₸; продаж ещё нет — эквайринг 2,5 %", items[0]["summary"])
+        r2 = self.price_req(8100)
+        self.assertEqual((r2["id"], r2["status"]), (rid, "new"))                     # та же заявка, обновлена
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(len([x for x in self.c.get("/agent/api/requests", headers=self.h).get_json()["items"] if x["status"] == "new"]), 1)
+        r = self.price_req(8900)
+        self.assertEqual((r["status"], r["auto"]), ("done", True))
 
     def test_corridor_and_auto(self):
         row = self.on()["row"]
