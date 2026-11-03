@@ -21,6 +21,24 @@ OPENAI_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 TRANSCRIBE_MODEL = os.environ.get("OPENAI_TRANSCRIBE_MODEL", "whisper-1")
 HANDOFF = "[[MANAGER]]"
+# первое сообщение в каждом новом диалоге с ИИ (юрист, 02.11.2026) — сайт, WhatsApp, Telegram, Instagram
+AI_HELLO = ("Здравствуйте! Вам отвечает ИИ-помощник AMURA. Сообщения обрабатываются сервисом OpenAI (США) по нашей Политике "
+            "конфиденциальности: https://amura.kz/shop/legal/privacy.html. Чтобы связаться с сотрудником, напишите «оператор».")
+OPERATOR_ACK = "Передал сотруднику — он ответит в ближайшее время."
+_OPERATOR = re.compile(r"(?<![а-яё])оператор", re.I)
+
+
+def wants_operator(text):
+    """Клиент написал «оператор» — диалог сразу сотруднику, без ИИ (обещание из AI_HELLO должно работать всегда)."""
+    return bool(text and _OPERATOR.search(text))
+
+
+_IIN = re.compile(r"(?<!\d)\d{6}[\s-]?\d{6}(?!\d)")
+
+
+def mask_pd(t):
+    """Перед отправкой в OpenAI скрываем ИИН (12 цифр). Телефон и адрес не скрываем: по ним ИИ оформляет заказ."""
+    return _IIN.sub("[ИИН скрыт]", t) if t else t
 PG = bool(DB_URL)
 _lock = threading.Lock()
 _ready = [False]
@@ -532,8 +550,8 @@ def ai_reply(d, history, text, photo=None, ctx=None, retail=False):
         tools = ORDER_TOOL
     msgs = [{"role": "system", "content": system}]
     for role, t in history[-12:]:
-        msgs.append({"role": "user" if role == "client" else "assistant", "content": t})
-    content = [{"type": "text", "text": text or "Клиент прислал фото."}]
+        msgs.append({"role": "user" if role == "client" else "assistant", "content": mask_pd(t)})
+    content = [{"type": "text", "text": mask_pd(text) or "Клиент прислал фото."}]
     if photo:
         try:
             content.append({"type": "image_url", "image_url": {"url": photo_data_url(photo)}})
@@ -727,6 +745,7 @@ def on_client_message(chat, user, text, photo=None, voice=None, pdf=None, media=
         with _lock, db() as d:
             row = d.run("SELECT id, status FROM conv WHERE chat_id=%s", (str(chat),), one=True)
             name = " ".join(x for x in (user.get("first_name"), user.get("last_name")) if x) or user.get("username") or "Клиент"
+            first = not row
             if not row:
                 cid = d.run("INSERT INTO conv (chat_id, name, username, status, unread, last_at) VALUES (%s,%s,%s,'ai',0,%s)",
                             (str(chat), name, user.get("username", ""), time.time()), ins=True)
@@ -756,10 +775,17 @@ def on_client_message(chat, user, text, photo=None, voice=None, pdf=None, media=
             if oh.notif_on("msg"):
                 oh.notify_staff(f"inbox:{cid}", f"💬 Новое сообщение ({channel_name(chat)}) от {name}: {(text or '[фото]')[:200]}\nОтветьте в панели → Сообщения или прямо здесь: свайп влево по сообщению → текст или голосовое", every=300)
             return
+        if first:                                      # новый диалог с ИИ — сначала предупреждение (OpenAI, политика, «оператор»)
+            ext = send_text(chat, AI_HELLO, human=False)
+            with _lock, db() as d:
+                save_msg(d, cid, "ai", AI_HELLO, ext=ext)
         try:
-            with db() as d:                       # без общей блокировки: ответ ИИ и заказ могут занять до минуты
-                reply, hand = ai_reply(d, hist, text, photo, ctx={"chat": chat, "username": user.get("username", ""), "channel": channel_name(chat),
-                                                                  "retail": str(chat).startswith("web:r-")})
+            if wants_operator(text):
+                reply, hand = OPERATOR_ACK, True
+            else:
+                with db() as d:                       # без общей блокировки: ответ ИИ и заказ могут занять до минуты
+                    reply, hand = ai_reply(d, hist, text, photo, ctx={"chat": chat, "username": user.get("username", ""), "channel": channel_name(chat),
+                                                                      "retail": str(chat).startswith("web:r-")})
         except Exception as e:
             print("ИИ не ответил:", e, flush=True)
             oh.alert("ai", f"ИИ не ответил клиенту {name}: {str(e)[:200]}. Диалог передан менеджеру.", every=600)

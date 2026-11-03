@@ -668,7 +668,21 @@ def site_on(kind):
         return True
 
 
-CONSENT_TXT = "Согласие с офертой и политикой конфиденциальности"
+CONSENT_TXT = "Согласие с офертой, обработкой и трансграничной передачей персональных данных"
+# текст галочки (юрист, 02.11.2026) — тот же, что на обоих сайтах; версия — дата редакции политики конфиденциальности
+CONSENT_TEXT = ("Я принимаю условия оферты и согласен на обработку моих персональных данных, в том числе на их передачу за пределы "
+                "Казахстана нашим подрядчикам — МойСклад (Россия), OpenAI (США), Meta (WhatsApp, Instagram), Telegram — "
+                "по Политике конфиденциальности.")
+
+
+def consent_ver():
+    """«политика от ДД.ММ.ГГГГ» — из retail/legal/requisites.json (privacy_date), чтобы версия совпадала с опубликованной страницей."""
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "retail", "legal", "requisites.json"), encoding="utf-8") as f:
+            r = json.load(f)
+        return "политика от " + (r.get("privacy_date") or r.get("date") or "")
+    except Exception:
+        return "политика"
 
 
 def consent_time():
@@ -676,10 +690,11 @@ def consent_time():
 
 
 def save_consent(cid, how):
-    """Розница: клиент отметил «Я принимаю условия оферты…» — храним факт и время у клиента (наша база)."""
+    """Клиент отметил «Я принимаю условия оферты…» — храним у клиента (наша база): факт, дату и время, версию и текст."""
     import inbox
     with inbox.db() as d:
-        inbox.set_setting(d, "consent:" + cid, json.dumps({"t": int(time.time()), "at": consent_time(), "how": how}, ensure_ascii=False))
+        inbox.set_setting(d, "consent:" + cid, json.dumps({"t": int(time.time()), "at": consent_time(), "how": how, "ver": consent_ver(),
+                                                           "text": CONSENT_TEXT}, ensure_ascii=False))
 
 
 PAY_CARD_TXT = "Оплата: картой на сайте"   # клиент выбрал «Картой сейчас» — в «Моих заказах» у неоплаченного кнопка «Оплатить»
@@ -1067,6 +1082,11 @@ def _create_order_impl(key):
         return jsonify(ok=False, error="Укажите номер телефона — он нужен для связи по заказу"), 400
     payload, status = order_core(d, key, ip, me)
     payload.pop("_data", None)
+    if status == 200 and payload.get("ok") and me and d.get("consent") is True:   # согласие — и в учётной записи
+        try:
+            save_consent(me, "заказ на сайте")
+        except Exception:
+            pass
     if status == 200 and payload.get("ok") and payload.get("number"):
         import meta_capi
         if meta_capi.configured() and d.get("adsConsent") is True:   # покупка — в Meta с сервера: переменные Render и согласие посетителя
@@ -1240,7 +1260,7 @@ def order_core(d, key, ip, me, source="с сайта", panel=False, paid=None):
             "shipmentAddress": city,
             "description": f"Заказ {source}\n{name}, {contact}\nГород: {city}\nОтправка: {ship_name}" + _panel_comment(d, panel)
                            + (f"\nИсточник: {src['code']}" + (f" (промокод {src['promo']}, скидка {disc:g}%)" if disc else "") if src else "")
-                           + (f"\n{CONSENT_TXT}: {consent_time()}" if retail and d.get("consent") is True else "")
+                           + (f"\n{CONSENT_TXT}: {consent_time()}, {consent_ver()}" if not panel and d.get("consent") is True else "")
                            + (f"\n{NEWS_TXT}: {'да' if d['news'] else 'нет'}" if retail and isinstance(d.get("news"), bool) else "")
                            + (f"\n{PAY_CARD_TXT}" if retail and d.get("pay") == "card" else "")
                            + (f"\n{paid['note']}" if paid and paid.get("note") else ""),
@@ -2010,7 +2030,7 @@ def auth_tg_poll():
         return jsonify(ok=False, error="Ссылка устарела, нажмите «Войти через Telegram» ещё раз"), 404
     if v["token"]:
         _tg_login.pop(request.args["nonce"], None)
-        if request.args.get("consent") == "1" and v.get("cid"):      # розница: галочка согласия отмечена до входа
+        if request.args.get("consent") == "1" and v.get("cid"):      # галочка согласия отмечена до входа (оба сайта)
             try:
                 save_consent(v["cid"], "вход через Telegram")
             except Exception:

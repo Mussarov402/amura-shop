@@ -175,7 +175,7 @@ select{font-size:14px;background:var(--surface);border:1px solid var(--line);bor
 .btn.ghost{background:transparent;border:1.5px solid var(--line);color:var(--ink)}
 .btn.tg{background:#229ED9}
 .btn.wa{background:#1FA855}
-.btn:disabled{opacity:.6;cursor:wait}
+.btn:disabled{opacity:.6;cursor:wait}.btn[aria-disabled="true"]{opacity:.45;cursor:not-allowed}
 .more[hidden]{display:none}.more{display:block;margin:28px auto 56px;border:1.5px solid var(--green);color:var(--green-3);background:transparent;font-weight:700;border-radius:12px;padding:12px 28px}
 
 /* кнопка «Каталог» и боковая панель брендов — как на WB */
@@ -282,7 +282,7 @@ form.co{display:grid;gap:12px;padding-top:6px}
 .sheet .inci{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}.sheet .inci summary{cursor:pointer;font-weight:700;font-size:15px;list-style:none;display:flex;justify-content:space-between;align-items:center}.sheet .inci summary::-webkit-details-marker{display:none}.sheet .inci summary::after{content:"+";font-size:20px;color:var(--muted)}.sheet .inci[open] summary::after{content:"−"}.sheet .inci .desc{margin-top:8px;font-size:13px}
 .coop{display:grid;gap:10px;margin:12px 0}@media(min-width:760px){.coop{grid-template-columns:repeat(auto-fit,minmax(0,1fr))}}
 .coop-c{border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:8px}.coop-c.on{border-color:var(--green-3)}.coop-c h4{margin:0;font-size:16px}.coop-c p{margin:0;flex:1}.coop-c .btn{text-align:center;text-decoration:none}
-.coop-f{border-top:1px solid var(--line);padding-top:14px;position:relative}.coop-ok{display:flex;gap:10px;align-items:flex-start;font-size:13.5px;line-height:1.4;margin:6px 0 10px}.coop-ok input{width:20px;height:20px;flex:none;margin-top:1px;accent-color:var(--green-3)}.coop-ok a{color:var(--green-3)}
+.coop-f{border-top:1px solid var(--line);padding-top:14px;position:relative}.coop-ok{display:flex;gap:10px;align-items:flex-start;font-size:13.5px;line-height:1.4;margin:6px 0 10px}.coop-ok input{width:20px;height:20px;flex:none;margin-top:1px;accent-color:var(--green-3)}.coop-ok a{color:var(--green-3)}.coop-ok small{display:block;font-size:12.5px;color:var(--muted);margin-top:2px}.coop-ok small.bad{color:#d33;font-weight:700}
 .catList .coop-l{border-top:1px solid var(--line);margin-top:6px;color:var(--green-3);font-weight:700}
 .sheet .desc.clip{max-height:9.6em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 60%,transparent)}
 .more-link{border:0;background:none;padding:0;color:var(--green-3);font-weight:700;font-size:14px;justify-self:start}
@@ -1361,11 +1361,13 @@ function renderCart(){
         <div class="ship${RETAIL ? " dlvs" : ""}">${CONFIG.shipping.map(s => `<label class="${f.ship===s.id?"on":""}" data-m="${s.id}"><input type="radio" name="ship" value="${s.id}" ${f.ship===s.id?"checked":""}><span>${esc(RETAIL && s.id === "cdek" ? "Пункт выдачи СДЭК" : RETAIL && s.id === "courier" ? "Курьер" : s.name)}${RETAIL ? `<small class="dlvn"></small>` : ""}</span>${RETAIL ? `<em class="dlvp"></em>` : ""}</label>`).join("")}</div></div>
       <div id="shipExtra">${shipExtraHTML(f)}</div>
       ${RETAIL && (PROMO_ON || PROMO) ? `<div class="field"><label for="fPromo">Промокод</label><div style="display:flex;gap:8px"><input id="fPromo" autocapitalize="characters" autocomplete="off" placeholder="Если есть" value="${esc(PROMO ? PROMO.code : "")}" style="flex:1;min-width:0"><button class="btn ghost" id="promoBtn" type="button" style="width:auto;flex:none;padding:0 16px">${PROMO ? "Убрать" : "Применить"}</button></div><div class="kv" id="promoMsg" style="margin-top:4px">${PROMO ? (PROMO.discount > 0 ? `Промокод применён: скидка ${PROMO.discount}%` : "Промокод применён") : ""}</div></div>` : ""}
+      ${okHTML("fOk", OPT_OK.cart)}
       <div class="err" id="err"></div>
-      <button class="btn" id="send" type="submit">Отправить заказ</button>
+      <button class="btn" id="send" type="submit" ${!RETAIL && !OPT_OK.cart ? 'aria-disabled="true"' : ""}>Отправить заказ</button>
       <button class="btn ghost" id="clear" type="button">Очистить корзину</button>
     </form>`;
   renderSum();
+  okBind("fOk", "cart", ["#send"], "#err");
   if(RETAIL) dlvAfterRender(f);
 }
 function shipExtraHTML(f){
@@ -1563,6 +1565,7 @@ $("#drawerBody").addEventListener("submit", async e => {
     if(!f.address) return fail("Укажите адрес", "#fAddr");
   }
   function fail(m, sel){ err.textContent = m; if(sel) $(sel).focus(); }
+  if(!RETAIL && !OPT_OK.cart){ okNeed("fOk"); return fail("Отметьте согласие с офертой и обработкой персональных данных"); }
   err.textContent = "";
   const t = totals(f.ship);
   const payload = {
@@ -1578,7 +1581,8 @@ $("#drawerBody").addEventListener("submit", async e => {
     pvz: RETAIL && f.ship === "cdek" ? f.pvz : undefined,
     slot: RETAIL && f.ship === "courier" ? f.slot : undefined,
     ref: REF.code() || undefined,
-    promo: RETAIL && PROMO ? PROMO.code : undefined
+    promo: RETAIL && PROMO ? PROMO.code : undefined,
+    consent: !RETAIL && OPT_OK.cart ? true : undefined   // факт, время и версию согласия сервер пишет в заказ и учётную запись
   };
   const btn = $("#send"); btn.disabled = true; btn.textContent = "Отправляем…";
   try{
@@ -1881,6 +1885,21 @@ async function bindPhoneStep(){
   catch(ex){ if(a.isConnected) $("#phTgHint").textContent = "Telegram сейчас недоступен: " + ex.message; }
 }
 function phoneDone(j){ setAuth(j.token); AUTH.profile = null; toast("Номер подтверждён"); renderMe(); }   // номер чужого клиента = вход в его кабинет (общая история)
+/* согласие (юрист, 02.11.2026): одна галочка вместо прежней — оферта, обработка и трансграничная передача ПД. Не отмечена по умолчанию,
+   без неё «Отправить заказ», «Войти через Telegram» и «Получить код» неактивны. На опте — здесь; на рознице — retail/cart.js (тот же текст) */
+var OPT_OK = { cart: false, auth: false };
+function okHTML(id, on){
+  if(RETAIL) return "";
+  const u = "https://amura.kz/shop/legal/";
+  return `<label class="coop-ok"><input type="checkbox" id="${id}" ${on ? "checked" : ""}><span>Я принимаю условия <a href="${u}offer.html" target="_blank" rel="noopener">оферты</a> и согласен на обработку моих персональных данных, в том числе на их передачу за пределы Казахстана нашим подрядчикам — МойСклад (Россия), OpenAI (США), Meta (WhatsApp, Instagram), Telegram — по <a href="${u}privacy.html" target="_blank" rel="noopener">Политике конфиденциальности</a>.<small id="${id}H" ${on ? "hidden" : ""}>Отметьте галочку, чтобы продолжить</small></span></label>`;
+}
+function okBind(id, key, btns, errSel){
+  const box = $("#" + id); if(!box) return;
+  box.onchange = () => { OPT_OK[key] = box.checked; const h = $("#" + id + "H"); if(h){ h.hidden = box.checked; h.classList.remove("bad"); }
+    btns.forEach(s => { const b = $(s); if(b) box.checked ? b.removeAttribute("aria-disabled") : b.setAttribute("aria-disabled", "true"); });
+    const er = $(errSel); if(box.checked && er) er.textContent = ""; };
+}
+function okNeed(id){ const h = $("#" + id + "H"), box = $("#" + id); if(h){ h.hidden = false; h.classList.add("bad"); } if(box){ box.scrollIntoView({ block: "center", behavior: "smooth" }); box.focus(); } }
 let smsPhone = "", smsTimer = 0, smsOpen = false;   // Telegram — главный вход, SMS — запасной (слово владельца 31.10.2026)
 function renderAuth(){
   $("#meTitle").textContent = "Вход или регистрация";
@@ -1888,18 +1907,20 @@ function renderAuth(){
     <p class="kv" style="font-size:14px;margin:0 0 6px">Личный кабинет: история заказов, повтор заказа в одно нажатие, данные для доставки сохраняются. Пароль не нужен.</p>
     <p style="font-size:14px;font-weight:700;margin:0 0 14px;color:var(--green-3)">Впервые у нас? Войдите через Telegram — зарегистрируем автоматически.</p>
     <div class="panel">
-      <a class="btn tg" id="tgLogin" href="#" target="_blank" rel="noopener">Войти через Telegram</a>
+      ${okHTML("aOk", OPT_OK.auth)}
+      <a class="btn tg" id="tgLogin" href="#" target="_blank" rel="noopener" ${!RETAIL && !OPT_OK.auth ? 'aria-disabled="true"' : ""}>Войти через Telegram</a>
       <div class="kv" id="tgHint">Откроется наш бот — нажмите «Старт» и вернитесь сюда.</div>
       <button type="button" class="smslink" id="smsOpen" ${smsOpen || smsPhone ? "hidden" : ""}>Нет Telegram? Войти по SMS</button>
       <form class="co" id="af" novalidate ${smsOpen || smsPhone ? "" : "hidden"}>
         <div class="field"><label for="aPhone">Номер телефона</label><input id="aPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+7 7__ ___ __ __" value="${esc(smsPhone ? "+" + smsPhone : "")}" ${smsPhone ? "readonly" : ""}></div>
         ${smsPhone ? `<div class="field"><label for="aCode">Код из SMS</label><input id="aCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6 цифр"></div>` : ""}
         <div class="err" id="aErr"></div>
-        <button class="btn" type="submit" id="aSend">${smsPhone ? "Войти" : "Получить код по SMS"}</button>
+        <button class="btn" type="submit" id="aSend" ${!RETAIL && !OPT_OK.auth ? 'aria-disabled="true"' : ""}>${smsPhone ? "Войти" : "Получить код по SMS"}</button>
         ${smsPhone ? `<div class="row" style="display:flex;gap:8px"><button class="btn ghost" type="button" id="aResend" disabled>Новый код</button><button class="btn ghost" type="button" id="aChange">Другой номер</button></div>` : ""}
       </form>
     </div>`;
   $("#af").onsubmit = submitAuth;
+  okBind("aOk", "auth", ["#tgLogin", "#aSend"], "#aErr");
   $("#smsOpen").onclick = () => { smsOpen = true; $("#smsOpen").hidden = true; $("#af").hidden = false; $("#aPhone").focus(); };
   if(smsPhone){
     $("#aCode").focus();
@@ -1923,7 +1944,7 @@ async function sendCode(phone){
 }
 async function prepareTg(){
   const a = $("#tgLogin");
-  a.onclick = e => { if(!tgNonce){ e.preventDefault(); toast("Секунду, готовим вход…"); } else startPoll(); };
+  a.onclick = e => { if(!RETAIL && !OPT_OK.auth){ e.preventDefault(); okNeed("aOk"); return; } if(!tgNonce){ e.preventDefault(); toast("Секунду, готовим вход…"); } else startPoll(); };
   try{ if(!tgNonce){ const j = await api("/auth/tg/start", { method: "POST" }); tgNonce = j.nonce; } if(a.isConnected) a.href = `https://t.me/${CONFIG.botUsername}?start=login_${tgNonce}`; }
   catch(e){ if(a.isConnected){ $("#tgHint").textContent = "Вход через Telegram сейчас недоступен: " + e.message; } }
 }
@@ -1933,7 +1954,7 @@ function startPoll(){
   $("#tgHint").textContent = "Подтвердите номер в боте: кнопка «📱 Поделиться номером». Ждём…";
   tgPoll = setInterval(async () => {
     if(VIEW !== "me" || Date.now() - t0 > 600000){ clearInterval(tgPoll); return; }
-    try{ const j = await api("/auth/tg/poll?nonce=" + encodeURIComponent(tgNonce)); if(j.token){ clearInterval(tgPoll); tgNonce = ""; loggedIn(j); } }
+    try{ const j = await api("/auth/tg/poll?nonce=" + encodeURIComponent(tgNonce) + (!RETAIL && OPT_OK.auth ? "&consent=1" : "")); if(j.token){ clearInterval(tgPoll); tgNonce = ""; loggedIn(j); } }
     catch(e){ clearInterval(tgPoll); tgNonce = ""; $("#tgHint").textContent = e.message; prepareTg(); }
   }, 2000);
 }
@@ -1945,6 +1966,7 @@ function loggedIn(j){
 async function submitAuth(e){
   e.preventDefault();
   const err = $("#aErr");
+  if(!RETAIL && !OPT_OK.auth){ okNeed("aOk"); err.textContent = "Отметьте согласие с офертой и обработкой персональных данных"; return; }
   if(!smsPhone){
     const phone = normPhone($("#aPhone").value.replace(/\D/g, ""));
     if(!/^77\d{9}$/.test(phone)){ err.textContent = "Укажите казахстанский номер: +7 7__ ___ __ __"; return; }
@@ -1953,7 +1975,7 @@ async function submitAuth(e){
   const code = $("#aCode").value.replace(/\D/g, "");
   if(code.length !== 6){ err.textContent = "Введите 6 цифр из SMS"; return; }
   const btn = $("#aSend"); btn.disabled = true; err.textContent = "";
-  try{ loggedIn(await api("/auth/sms/verify", { method: "POST", body: JSON.stringify({ phone: smsPhone, code }) })); }
+  try{ loggedIn(await api("/auth/sms/verify", { method: "POST", body: JSON.stringify({ phone: smsPhone, code, consent: !RETAIL && OPT_OK.auth ? true : undefined }) })); }
   catch(ex){ err.textContent = ex.message; btn.disabled = false; }
 }
 document.addEventListener("visibilitychange", () => { if(document.visibilityState === "visible" && VIEW === "me" && tgNonce && !AUTH.token) startPoll(); });
@@ -2472,14 +2494,14 @@ function payHTML(){
 const CONSENT = { cart: false, auth: false, news: false };
 function consentHTML(id, on){
   if(!LEGAL()) return "";
-  return `<label class="rremember ragree"><input type="checkbox" id="${id}" ${on ? "checked" : ""}><span>Я принимаю условия <a href="/shop/legal/offer.html" target="_blank" rel="noopener">оферты</a> и даю согласие на обработку персональных данных согласно <a href="/shop/legal/privacy.html" target="_blank" rel="noopener">Политике конфиденциальности</a>
+  return `<label class="rremember ragree"><input type="checkbox" id="${id}" ${on ? "checked" : ""}><span>Я принимаю условия <a href="/shop/legal/offer.html" target="_blank" rel="noopener">оферты</a> и согласен на обработку моих персональных данных, в том числе на их передачу за пределы Казахстана нашим подрядчикам — МойСклад (Россия), OpenAI (США), Meta (WhatsApp, Instagram), Telegram — по <a href="/shop/legal/privacy.html" target="_blank" rel="noopener">Политике конфиденциальности</a>.
     <small class="ragree-h" id="${id}H" ${on ? "hidden" : ""}>Отметьте галочку, чтобы продолжить</small></span></label>`;
 }
 function consentNeed(id){   // нажали неактивную кнопку — подсвечиваем подсказку и галочку
   const h = $("#" + id + "H"), box = $("#" + id);
   if(h){ h.hidden = false; h.classList.add("bad"); }
   if(box){ box.scrollIntoView({ block: "center", behavior: "smooth" }); box.focus(); }
-  toast("Отметьте согласие с офертой и политикой конфиденциальности");
+  toast("Отметьте согласие с офертой и обработкой персональных данных");
 }
 
 const plTov = n => `${fmt(n)} ${plural(n, "товар", "товара", "товаров")}`;
