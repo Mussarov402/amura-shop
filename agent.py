@@ -597,6 +597,7 @@ def oz_new_floor(ch, p):
     if fixed_kzt is None:
         raise ValueError(f"нет курса {cur}")
     st = mp_calc.settings()
+    fixed_kzt += float(st.get("pack") or 0)                 # упаковка, ₸ за единицу
     total_pct = pct + (st.get("tax") or 0) + (st.get("ads") or 0)
     if total_pct >= 100:
         raise ValueError("ставки и налог больше 100 % цены")
@@ -1386,7 +1387,7 @@ def oz_guard(ch):
         cursor = res.get("cursor") or ""
         if not cursor or len(res.get("items") or []) < 1000:
             break
-    rows, errors = [], []
+    rows, errors, low = [], [], []
     for it in items:
         offer, pr = str(it.get("offer_id") or ""), it.get("price") or {}
         cur = str(pr.get("currency_code") or "KZT").upper()
@@ -1404,6 +1405,9 @@ def oz_guard(ch):
             if err:
                 raise ValueError(err)
             target = round(lower / rate, 2 if cur not in ("KZT", "398") else 0)
+            if target > price:                       # цена товара ниже цены для маржи 10 % — Ozon не даст min_price выше цены
+                low.append(f"{offer}: цена {pr.get('price')} {cur}, для маржи 10 % — {target:g}")
+                target = price
             if float(pr.get("min_price") or 0) >= target:
                 continue
             row = {"offer_id": offer, "currency_code": cur, "price": str(pr.get("price")), "min_price": f"{target:g}",
@@ -1421,7 +1425,7 @@ def oz_guard(ch):
                 done += 1
             else:
                 errors.append(f"{x.get('offer_id')}: {str(x.get('errors'))[:80]}")
-    return done, errors
+    return done, errors + [f"ниже маржи 10 % (ограничение = цене): {x}" for x in low]
 
 
 def guard_all():
