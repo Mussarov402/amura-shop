@@ -2011,10 +2011,10 @@ def _digest_loop():
                 print("Себестоимость, проверка:", str(e)[:150], flush=True)
             close_same()
             print("Цены выполнены по правилу (первая цена, подтяжка до 15 %):", recheck_first_prices(), flush=True)
-            if not setting("agent_raise_all_v1", ""):                     # один раз: все карточки — к марже 15 % с упаковкой
-                with db() as d:
-                    inbox.set_setting(d, "agent_raise_all_v1", "1")
-                raise_all()
+            if not setting("agent_raise_all_v2", ""):                     # один раз: все карточки — к марже 15 % с упаковкой
+                raise_all()                                                # (v2 — с себестоимостью по приёмкам; отметка — после
+                with db() as d:                                            # прохода, чтобы перезапуск сервера его не обрывал)
+                    inbox.set_setting(d, "agent_raise_all_v2", "1")
             guard_all()
     except Exception as e:
         print("Первые цены WB:", str(e)[:200], flush=True)
