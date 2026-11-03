@@ -1,10 +1,11 @@
 """Сайты на этом сервере (Render): опт — opt.amura.kz, розница — amura.kz (быстрый путь к оценке A на SSL Labs, 03.11.2026).
 
-Файлы сайтов лежат на GitHub Pages; сервер берёт их оттуда и отдаёт сам (с HSTS), поэтому каталог, остатки и фото
-обновляются сразу, без деплоя. Опт: страница и манифест — из папки /opt/, остальное — из корня. Розница — корень как есть
-(shop/ — переадресации, shop/legal/ — юридические страницы).
+Опт (слово владельца 03.11.2026: «на опте не надо менять ничего») — как раньше: файлы с https://amura.kz по DNS,
+страница и манифест — из /opt/, остальное — из корня, фото — переадресацией на amura.kz/img/, без HSTS. Когда amura.kz
+переедет на этот сервер, опт продолжит брать файлы с amura.kz — их отдаст розничная часть ниже.
 
-Источник файлов — по очереди, первый ответивший 200:
+Розница amura.kz (и www → amura.kz) — корень GitHub Pages как есть (shop/ — переадресации, shop/legal/ — юридические
+страницы), с HSTS, фото кэшируются. Источник файлов — по очереди, первый ответивший 200:
 1. https://pages.amura.kz — GitHub Pages под своим адресом (после переключения домена Pages на pages.amura.kz);
 2. серверы GitHub Pages напрямую под старым именем amura.kz — пока домен Pages ещё amura.kz (работает и до, и после того,
    как DNS amura.kz переведут на Render: соединяемся с IP GitHub, а не по DNS, и проверяем сертификат amura.kz);
@@ -82,6 +83,16 @@ SOURCES = (("pages", lambda p: _pages(p)), ("github", lambda p: _github(p)), ("p
            ("old", lambda p: _pages(p, host=OLD)))    # как раньше — amura.kz по DNS (пока DNS на GitHub; после — 508 и пропуск)
 
 
+OPT_ORIGIN = os.environ.get("OPT_SITE_ORIGIN", "https://amura.kz").rstrip("/")
+OPT_PASS = ("content-type", "last-modified", "etag")
+
+
+def _get_opt(path):
+    """Опт — как до 03.11.2026 (слово владельца: на опте ничего не менять): файлы с amura.kz по DNS."""
+    r = requests.get(f"{OPT_ORIGIN}/{path}", timeout=15, headers={"User-Agent": "amura-opt-site/1.0"})
+    return r.status_code, {k: r.headers[k] for k in r.headers if k.lower() in OPT_PASS}, r.content
+
+
 def _get(path):
     """Первый источник с ответом 200; иначе — последний полученный ответ (настоящий 404); никто не ответил — исключение."""
     now, last = time.time(), None
@@ -112,12 +123,13 @@ def fetch(path, kind="opt"):
         return hit[1:]
     try:
         res = None
+        get = _get_opt if kind == "opt" else _get
         if kind == "opt" and path in OWN:
-            res = _get(f"opt/{path}")
+            res = get(f"opt/{path}")
             if res[0] == 404:
                 res = None
         if res is None:
-            res = _get(path)
+            res = get(path)
     except requests.RequestException:
         if hit:                                      # GitHub не ответил — отдаём то, что было
             return hit[1:]
@@ -145,6 +157,8 @@ def serve():
     kind = site()
     if not kind:
         return None
+    if kind == "opt":
+        return serve_opt()
     if request.headers.get(LOOP):                    # DNS уже на нас, а источник указывает сюда же — не зацикливаемся
         return Response("loop", 508)
     if kind == "rtl" and request.host.split(":")[0].lower() != "amura.kz":
@@ -154,11 +168,6 @@ def serve():
         return Response("Method Not Allowed", 405)
     if ".." in path:
         return redirect("/", 302)
-    if kind == "opt":
-        if path.startswith("img/"):                  # фото — с amura.kz (там они кэшируются)
-            return redirect(f"https://amura.kz/{path}", 302)
-        if path == "opt" or path.startswith("opt/"):
-            return redirect("/", 302)
     code, headers, body = fetch(path, kind)
     resp = Response(body, status=code)
     for k, v in headers.items():
@@ -172,8 +181,25 @@ def serve():
     return resp
 
 
+def serve_opt():
+    """opt.amura.kz — ровно как до 03.11.2026: файлы с amura.kz, фото — переадресацией туда же, без HSTS."""
+    path = request.path.lstrip("/")
+    if request.method not in ("GET", "HEAD"):
+        return Response("Method Not Allowed", 405)
+    if path.startswith("img/"):
+        return redirect(f"{OPT_ORIGIN}/{path}", 302)
+    if path == "opt" or path.startswith("opt/") or ".." in path:
+        return redirect("/", 302)
+    code, headers, body = fetch(path, "opt")
+    resp = Response(body, status=code)
+    for k, v in headers.items():
+        resp.headers[k] = v
+    resp.headers["Cache-Control"] = "no-cache" if _ttl(path) <= 60 else "public, max-age=3600"
+    return resp
+
+
 @bp.after_app_request
 def hsts(resp):
-    if site():
+    if site() == "rtl":                              # только amura.kz; опт — без изменений
         resp.headers.setdefault("Strict-Transport-Security", HSTS)
     return resp

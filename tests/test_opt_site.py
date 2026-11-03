@@ -32,18 +32,25 @@ class OptSite(unittest.TestCase):
     def ok(self, body, ct="text/html"):
         return 200, {"Content-Type": ct}, body
 
-    def test_before_switch_github_by_old_name(self):
-        """Сейчас: pages.amura.kz ещё нет — берём с GitHub под amura.kz; опт — из /opt/, иначе из корня."""
-        with self.fake(github={"opt/index.html": self.ok(b"OPT")}):
+    def opt(self, table):
+        def get(url, **kw):
+            self.urls.append(url)
+            code, h, b = table.get(url, (404, {"Content-Type": "text/html"}, b"nf"))
+            return type("R", (), {"status_code": code, "headers": h, "content": b})()
+        return mock.patch.object(opt_site.requests, "get", side_effect=get)
+
+    def test_opt_unchanged(self):
+        """Опт — как до 03.11.2026: amura.kz по DNS, /opt/ → корень, без HSTS, фото — переадресацией."""
+        with self.opt({"https://amura.kz/opt/index.html": self.ok(b"OPT")}):
             r = self.c.get("/index.html", headers={"Host": "opt.amura.kz"})
         self.assertEqual((r.status_code, r.data), (200, b"OPT"))
-        self.assertEqual(self.urls, ["pages:opt/index.html", "github:opt/index.html"])
+        self.assertNotIn("Strict-Transport-Security", r.headers)
         self.urls.clear()
-        opt_site._cache.clear()
-        with self.fake(github={"": self.ok(b"ROOT")}):
+        with self.opt({"https://amura.kz/": self.ok(b"ROOT")}):
             r = self.c.get("/", headers={"Host": "opt.amura.kz"})
         self.assertEqual(r.data, b"ROOT")
-        self.assertEqual(self.urls, ["github:opt/", "http:opt/", "old:opt/", "github:"])    # молчащий источник пропускаем 5 минут
+        self.assertEqual(self.urls, ["https://amura.kz/opt/", "https://amura.kz/"])
+        self.assertEqual(self.c.get("/opt/x", headers={"Host": "opt.amura.kz"}).headers["Location"], "/")
 
     def test_after_switch_pages_first(self):
         with self.fake(pages={"": self.ok(b"RTL"), "catalog.json": self.ok(b"{}", "application/json")}, github={"": self.ok(b"OLD")}):
@@ -61,10 +68,10 @@ class OptSite(unittest.TestCase):
         self.assertEqual(r.data, b"PRIV")
 
     def test_old_dns_last_resort(self):
-        """Сразу после деплоя (DNS ещё на GitHub): если прямой путь к GitHub не сработал — как раньше, amura.kz по DNS."""
-        with self.fake(old={"opt/index.html": self.ok(b"OPT")}):
-            r = self.c.get("/index.html", headers={"Host": "opt.amura.kz"})
-        self.assertEqual(r.data, b"OPT")
+        """Розница, DNS ещё на GitHub: если прямой путь к GitHub не сработал — amura.kz по DNS."""
+        with self.fake(old={"shop/legal/offer.html": self.ok(b"OFFER")}):
+            r = self.c.get("/shop/legal/offer.html", headers={"Host": "amura.kz"})
+        self.assertEqual(r.data, b"OFFER")
 
     def test_redirect_to_own_host(self):
         with self.fake(pages={"shop": (301, {"Location": "https://pages.amura.kz/shop/"}, b"")}):
@@ -78,6 +85,7 @@ class OptSite(unittest.TestCase):
     def test_photos(self):
         r = self.c.get("/img/a.webp", headers={"Host": "opt.amura.kz"})
         self.assertEqual((r.status_code, r.headers["Location"]), (302, "https://amura.kz/img/a.webp"))
+        self.assertNotIn("Strict-Transport-Security", r.headers)
         with self.fake(pages={"img/a.webp": self.ok(b"IMG", "image/webp")}):
             self.c.get("/img/a.webp", headers={"Host": "amura.kz"})
             r = self.c.get("/img/a.webp", headers={"Host": "amura.kz"})
@@ -92,16 +100,16 @@ class OptSite(unittest.TestCase):
     def test_no_api_on_site_hosts(self):
         for h in ("opt.amura.kz", "amura.kz"):
             self.assertEqual(self.c.post("/order", headers={"Host": h}).status_code, 405)
-            with self.fake(pages={}, github={}):
+            with self.fake(pages={}, github={}), self.opt({}):
                 self.assertEqual(self.c.get("/admin", headers={"Host": h}).status_code, 404)
 
     def test_github_down_keeps_last_copy(self):
         with self.fake(pages={"sw.js": self.ok(b"SW", "text/javascript")}):
-            self.c.get("/sw.js", headers={"Host": "opt.amura.kz"})
-        k = ("opt", "sw.js")
+            self.c.get("/sw.js", headers={"Host": "amura.kz"})
+        k = ("rtl", "sw.js")
         opt_site._cache[k] = (0, *opt_site._cache[k][1:])                       # устарело
         with self.fake():
-            r = self.c.get("/sw.js", headers={"Host": "opt.amura.kz"})
+            r = self.c.get("/sw.js", headers={"Host": "amura.kz"})
         self.assertEqual(r.data, b"SW")
 
     def test_other_hosts_untouched(self):
