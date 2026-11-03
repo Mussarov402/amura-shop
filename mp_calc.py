@@ -26,6 +26,7 @@
 без скидки продавца; статус — /api/v2/buffer/tasks (в обработке) и /api/v2/history/tasks (+ /history/goods/task — ошибки).
 Карточки нет — ничего не создаём; валюта кабинета не тенге — не ставим."""
 import json
+import os
 import re
 import threading
 import time
@@ -255,15 +256,20 @@ def _wb_num(v):
 
 
 def wb_box(ch):
-    """Тарифы WB для коробов на сегодня; склад — казахстанский, иначе первый с тарифом FBS."""
+    """Тарифы WB для коробов на сегодня; склад — WB_TARIFF_WAREHOUSE (подстрока названия), иначе Алматы (Атакент — первым),
+    иначе другой казахстанский, иначе первый с тарифом FBS."""
     def load():
         j = ch.req("GET", "common", "/api/v1/tariffs/box", params={"date": datetime.now(mpk.ALMATY).strftime("%Y-%m-%d")})
         data = ((j.get("response") or {}).get("data") or {})
         rows = [w for w in data.get("warehouseList") or [] if _wb_num(w.get("boxDeliveryMarketplaceBase")) is not None]
         if not rows:
             raise ValueError("WB не вернул тарифы логистики FBS")
+        want = os.environ.get("WB_TARIFF_WAREHOUSE", "").strip().lower()      # явный выбор: подстрока названия склада
+        pick = [w for w in rows if want and want in str(w.get("warehouseName", "")).lower()]
+        alm = [w for w in rows if re.search(r"атакент|алмат", str(w.get("warehouseName", "")), re.I)]   # склад владельца — Алматы Атакент
         kz = [w for w in rows if re.search(r"казахстан|алмат|астан", f"{w.get('geoName', '')} {w.get('warehouseName', '')}", re.I)]
-        w = (kz or rows)[0]
+        alm.sort(key=lambda w: "атакент" not in str(w.get("warehouseName", "")).lower())
+        w = (pick or alm or kz or rows)[0]
         return {"cur": data.get("currency") or "RUB", "base": _wb_num(w.get("boxDeliveryMarketplaceBase")),
                 "liter": _wb_num(w.get("boxDeliveryMarketplaceLiter")) or 0, "wh": w.get("warehouseName", "")}
     return oh.cached(f"mpc_box:{ch.key}", 3600, load)
