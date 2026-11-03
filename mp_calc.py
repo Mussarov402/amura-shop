@@ -42,7 +42,7 @@ import order_hook as oh
 NBK_URL = "https://nationalbank.kz/rss/get_rates.cfm?fdate={d}"
 MIG_URL = "https://mig.kz/"
 MIN_MARGIN = 15.0      # минимальная маржа на всех маркетплейсах — владелец 03.11.2026 («эквайринг и приёмка ещё не известны, держим запас»)
-SETTINGS = {"tax": "mp_calc_tax", "ads": "mp_calc_ads", "margin": "mp_calc_margin"}   # ставки площадок — только из API
+SETTINGS = {"tax": "mp_calc_tax", "ads": "mp_calc_ads", "margin": "mp_calc_margin", "pack": "mp_calc_pack"}   # pack — ₸ за единицу   # ставки площадок — только из API
 FACT_DAYS, FACT_TTL = 90, 6 * 3600
 WAIT = "ждём первые продажи"
 WB_FIN_FIELDS = ["nmId", "docTypeName", "quantity", "retailPriceWithDisc", "commissionPercent", "acquiringFee", "deliveryService",
@@ -138,6 +138,7 @@ def settings():
     if out["margin"] is None:
         out["margin"] = 20.0
     out["margin"] = max(out["margin"], MIN_MARGIN)
+    out["pack"] = out["pack"] or 0.0                    # упаковка, ₸ за единицу (владелец 03.11.2026), по умолчанию 0
     if out["ads"] is None:
         out["ads"] = 10.0                                 # план ДРР по умолчанию; факт подставляется, когда есть расходы
     return out
@@ -683,7 +684,7 @@ def drr_for(ch, keys, cur_orders=""):
 
 # ---------- расчёт ----------
 LINES = [("commission", "Комиссия"), ("logistics", "Логистика и доставка"), ("processing", "Приёмка и обработка FBS"),
-         ("acquiring", "Эквайринг"), ("tax", "Налог ИП"), ("ads", "Реклама"), ("cost", "Закупка")]
+         ("acquiring", "Эквайринг"), ("tax", "Налог ИП"), ("ads", "Реклама"), ("pack", "Упаковка"), ("cost", "Закупка")]
 
 
 def calc(price, pct, amount, cost, margin):
@@ -697,7 +698,7 @@ def calc(price, pct, amount, cost, margin):
             v = price * pct[key] / 100
             known_pct += pct[key]
         else:
-            v = amount.get(key)
+            v = amount.get(key, 0.0 if key == "pack" else None)     # упаковка не задана — 0, а не «нет данных»
             if v is not None:
                 fixed += v
         lines.append({"key": key, "label": label, "sum": None if v is None else round(v),
@@ -745,9 +746,11 @@ def channel_calc(ch, pid, prod, st, price_override=None):
     pct["ads"] = drr if drr is not None else st["ads"]
     own_notes = {"tax": "настройка владельца",
                  "ads": f"{why}; план {st['ads']:g} %" if drr is not None else f"план ДРР {st['ads']:g} %; {why}"}
+    amount["pack"] = float(st.get("pack") or 0)
     r = calc(price_kzt, pct, amount, prod["cost"], st["margin"])
     notes = {**own_notes, **(raw.get("notes") or {})}
     notes["cost"] = prod["costNote"]
+    notes["pack"] = "ваша упаковка за единицу (настройки расчёта)" if st.get("pack") else "не задана в настройках расчёта"
     for k, why in (raw.get("missing") or {}).items():
         notes[k] = why
     if st["tax"] is None:
@@ -939,6 +942,11 @@ def calc_settings_route():
                 v = float(v)
             except (TypeError, ValueError):
                 return jsonify(ok=False, error="Проценты — числом"), 400
+            if k == "pack":
+                if not 0 <= v <= 100000:
+                    return jsonify(ok=False, error="Упаковка — от 0 до 100 000 ₸"), 400
+                mpk.set_setting(key, f"{round(v):g}")
+                continue
             if not 0 <= v < 100:
                 return jsonify(ok=False, error="Проценты — от 0 до 99"), 400
             if k == "margin" and v < MIN_MARGIN:

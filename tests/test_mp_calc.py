@@ -37,7 +37,7 @@ class Math(unittest.TestCase):
                          4000, 20)
         sums = {x["key"]: x["sum"] for x in r["lines"]}
         self.assertEqual(sums, {"commission": 1500, "logistics": 500, "processing": 100, "acquiring": 150, "tax": 300, "ads": 500,
-                                "cost": 4000})
+                                "pack": 0, "cost": 4000})
         self.assertEqual((r["profit"], r["margin"], r["complete"]), (2950, 29.5, True))
         self.assertEqual(r["minPrice"], round((500 + 100 + 150 + 4000) / (1 - 0.43)))    # при ней маржа ровно 20 %
         p = r["minPrice"]
@@ -579,6 +579,21 @@ class WBCabinetWarehouse(unittest.TestCase):
         b = self.box("Шымкент")
         self.assertIn("склад кабинета не найден в тарифах (Шымкент)", b["wh"])
         self.assertTrue(b["wh"].startswith("Алматы Атакент"))
+
+
+class Pack(unittest.TestCase):
+    """Упаковка, ₸ за единицу: входит в расходы и в минимальную цену; не задана — 0."""
+    def test_pack(self):
+        r = mp_calc.calc(10000, {"commission": 15, "tax": 3, "ads": 5}, {"logistics": 500, "processing": 100, "acquiring": 150,
+                                                                        "pack": 300}, 4000, 20)
+        self.assertEqual({x["key"]: x["sum"] for x in r["lines"]}["pack"], 300)
+        self.assertEqual(r["minPrice"], round((500 + 100 + 150 + 300 + 4000) / (1 - 0.43)))
+        old = mpk.setting("mp_calc_pack", "")
+        self.addCleanup(lambda: mpk.set_setting("mp_calc_pack", old))
+        mpk.set_setting("mp_calc_pack", "")
+        self.assertEqual(mp_calc.settings()["pack"], 0.0)
+        mpk.set_setting("mp_calc_pack", "350")
+        self.assertEqual(mp_calc.settings()["pack"], 350.0)
 
 
 class MinMargin(unittest.TestCase):
