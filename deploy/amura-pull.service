@@ -1,0 +1,8 @@
+[Unit]
+Description=AMURA: изменения с GitHub
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /opt/amura/app/deploy/pull.sh
+TimeoutStartSec=1800

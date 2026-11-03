@@ -58,6 +58,8 @@ from retail_stats import bp as retail_stats_bp  # noqa: E402
 app.register_blueprint(retail_stats_bp)
 from courier import bp as courier_bp  # noqa: E402
 app.register_blueprint(courier_bp)
+from ops import bp as ops_bp  # noqa: E402
+app.register_blueprint(ops_bp)          # сервер на Hoster.kz: ключи и подписанные отчёты (переезд, вариант В)
 import courier  # noqa: E402
 courier.start_poller()            # статусы курьера Яндекса — в фоне, для «Моих заказов» на сайте
 
