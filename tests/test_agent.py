@@ -322,6 +322,12 @@ class CardUpdate(unittest.TestCase):
                                            {"charcID": 2, "name": "Назначение", "charcType": 1, "maxCount": 2},
                                            {"charcID": 3, "name": "Тип кожи", "charcType": 1, "maxCount": 0},
                                            {"charcID": 9, "name": "Старое поле", "charcType": 0}]})
+            if path == "/content/v2/object/all":
+                self.seen = params
+                return Resp(200, {"data": [{"subjectID": 7, "subjectName": "Кремы", "parentID": 1}]})
+            if path == "/api/content/v1/brands":
+                self.seen = params
+                return Resp(200, {"brands": [{"id": 5, "name": "Anua"}], "next": 0, "total": 1})
             if path == "/content/v2/cards/update":
                 self.updates.append(json)
                 c = json[0]                                                               # WB сохранил — карточка стала такой
@@ -418,6 +424,12 @@ class CardUpdate(unittest.TestCase):
     def test_reads(self):
         j = self.c.get("/agent/api/read/wb/charcs", headers=self.h, query_string={"p": '{"subjectId": 7}'}).get_json()
         self.assertEqual(len(j["data"]["data"]), 4)
+        j = self.c.get("/agent/api/read/wb/subjects", headers=self.h, query_string={"p": '{"name": "крем", "limit": 10, "x": 1}'}).get_json()
+        self.assertEqual(j["data"]["data"][0]["subjectID"], 7)
+        self.assertEqual(self.seen, {"name": "крем", "limit": 10})                      # лишний параметр отброшен
+        j = self.c.get("/agent/api/read/wb/brands", headers=self.h, query_string={"p": '{"subjectId": 7}'}).get_json()
+        self.assertEqual(j["data"]["brands"][0]["name"], "Anua")
+        self.assertEqual(self.seen, {"subjectId": 7})
 
 
 

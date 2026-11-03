@@ -45,6 +45,8 @@
 | `warehouses` | GET marketplace `/api/v3/warehouses` | — |
 | `stocks` | POST marketplace `/api/v3/stocks/{warehouseId}` | `warehouseId`, `chrtIds` |
 | `cards` | POST content `/content/v2/get/cards/list` | `settings` |
+| `subjects` | GET content `/content/v2/object/all` | `name` (поиск по названию), `limit` (≤1000), `offset`, `parentID`, `locale` — найти `subjectID` для новой карточки |
+| `brands` | GET content `/api/content/v1/brands` | `subjectId` (обязателен), `next` (из ответа — следующая страница) — бренды, известные WB для предмета |
 | `charcs` | GET content `/content/v2/object/charcs/{subjectId}` | `subjectId`, `locale` |
 | `cards_trash` | POST content `/content/v2/get/cards/trash` | `settings` |
 | `card_errors` | POST content `/content/v2/cards/error/list` | `cursor`, `order` |
