@@ -1197,6 +1197,8 @@ def execute(rid, who):
         res, status = ACTIONS[kind]["run"](ch, params), "done"
     except (mpk.ApiError, ValueError, KeyError, TypeError) as e:
         res, status = {"error": getattr(e, "message", str(e))}, "error"
+        if kind == "wb_price" and "already set" in res["error"].lower():   # WB: такие цена и скидка уже стоят — делать нечего
+            res, status = {"note": "уже стоит: эти цена и скидка уже в кабинете WB"}, "done"
     with db() as d:
         txt = json.dumps(res, ensure_ascii=False, default=str)
         d.run("UPDATE agent_req SET status=%s, result=%s, decided=%s, who=%s WHERE id=%s",   # карточка — целиком: в ней прежняя версия для отката
@@ -1442,6 +1444,38 @@ def guard_all():
                 f"{GUARD_MARGIN:g} %, ниже неё Ozon не добавит товар в акции." + (f"\nНе удалось: {len(errs)}" if errs else ""))
         oh.notify_bg(lambda: oh.tg("sendMessage", chat_id=oh.OWNER, text=text))
     return total
+
+
+def same_in_cabinet(kind, ch, p):
+    """Цена (и скидка WB) заявки уже стоит в кабинете — делать нечего."""
+    if p.get("price") is None or (kind == "ozon_price" and (p.get("min_price") is not None or any(p.get(k) for k in OZ_AUTO))):
+        return False
+    buyer, disc, full = cur_price(ch, ident_of(kind, p))
+    if kind == "wb_price":
+        return abs(full - float(p["price"])) < 1 and (p.get("discount") is None or abs(float(p["discount"]) - disc) < 0.01)
+    if p.get("currency_code"):
+        return False
+    return abs(buyer - float(p["price"])) < 1
+
+
+def close_same():
+    """Ждущие «Да» заявки на цены, которые уже стоят в кабинете, — закрываем «выполнено (уже стоит)», без запросов к площадке."""
+    with db() as d:
+        rs = d.run("SELECT id, shop, params, kind FROM agent_req WHERE status='new' AND kind IN ('wb_price', 'ozon_price')", many=True) or []
+    n = 0
+    for rid, key, raw, kind in rs:
+        ch = shop(key, mpk.WB if kind == "wb_price" else mpk.Ozon)
+        try:
+            if ch and same_in_cabinet(kind, ch, json.loads(raw)):
+                with db() as d:
+                    d.run("UPDATE agent_req SET status='done', result=%s, decided=%s, who=%s WHERE id=%s AND status='new'",
+                          (json.dumps({"note": "уже стоит: цена в кабинете совпадает с заявкой"}, ensure_ascii=False), time.time(),
+                           "система (уже стоит)", rid))
+                n += 1
+        except Exception as e:
+            print(f"Цена № {rid} — сверка с кабинетом:", str(e)[:120], flush=True)
+    print("Заявки на цены закрыты как «уже стоит»:", n, flush=True)
+    return n
 
 
 def recheck_first_prices():
@@ -1907,6 +1941,7 @@ def _digest_loop():
     try:
         time.sleep(90)                       # после деплоя: ждущие первые цены WB — по новому правилу
         if modules.enabled("agent"):
+            close_same()
             print("Цены выполнены по правилу (первая цена, подтяжка до 15 %):", recheck_first_prices(), flush=True)
             guard_all()
     except Exception as e:
