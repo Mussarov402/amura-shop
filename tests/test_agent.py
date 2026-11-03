@@ -325,6 +325,28 @@ class PriceCorridor(unittest.TestCase):
         self.assertEqual(self.price_req(15050)["status"], "new")                    # «Стоп»
         self.assertEqual(len(self.uploads()), 1)
 
+    def test_raise_all_and_pack(self):
+        """Все карточки: ниже минимума для маржи 15 % — подтяжка до …90 ₸ правилом; упаковка 500 ₸ — один раз."""
+        import mp_calc
+        ch = agent.shop("wb", mpk.WB)
+        self.patch(mpk, "channels", lambda: [ch])
+        self.patch(mpk, "mapping", lambda c: {"products": {"501": {"nm": 244631445, "offer": "00615"}}, "ref": {"501": "p1"}})
+        self.patch(agent.time, "sleep", lambda s: None)
+        self.price = 14000.0                                                        # минимум в моке — 15000
+        self.assertEqual(agent.raise_all(), (1, 1))
+        self.assertEqual(self.uploads(), [{"data": [{"nmID": 244631445, "price": 15090}]}])
+        self.price = 15090.0
+        self.assertEqual(agent.raise_all(), (0, 0))                                # уже не ниже минимума
+        old = mpk.setting(mp_calc.SETTINGS["pack"], "")
+        self.addCleanup(lambda: mpk.set_setting(mp_calc.SETTINGS["pack"], old))
+        with agent.db() as d:
+            agent.inbox.set_setting(d, "mp_pack_default_v1", "")
+        self.assertTrue(agent.pack_default())
+        self.assertEqual(mpk.setting(mp_calc.SETTINGS["pack"], ""), "500")
+        mpk.set_setting(mp_calc.SETTINGS["pack"], "300")                            # владелец поменял — второй раз не трогаем
+        self.assertFalse(agent.pack_default())
+        self.assertEqual(mpk.setting(mp_calc.SETTINGS["pack"], ""), "300")
+
     def test_corridor_and_auto(self):
         row = self.on()["row"]
         self.assertEqual((row["lower"], row["upper"], row["base_note"]), (16500, 19550, "задана владельцем"))   # 17000 × 1,15

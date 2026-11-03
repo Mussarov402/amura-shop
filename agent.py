@@ -1482,6 +1482,61 @@ def close_same():
     return n
 
 
+def raise_all():
+    """«Пересчитай все позиции на WB и Ozon, подними к нашей экономике» (владелец 03.11.2026): по всем карточкам WB и Ozon,
+    где цена для покупателя ниже минимума для маржи 15 % (с упаковкой), — заявка на подтяжку до минимума (округление вверх
+    до …90 ₸). Выполняется правилом подтяжки (только повышение, не выше минимума + 100 ₸); сводка — «📈 Подняли цены»."""
+    import math
+    import mp_calc
+    if rules()["stop"]:
+        return 0, 0
+    made = done = 0
+    for ch in mpk.channels():
+        kind = "wb_price" if isinstance(ch, mpk.WB) else "ozon_price"
+        try:
+            mp = mpk.mapping(ch)
+        except Exception as e:
+            print(f"Подтяжка всех {ch.key}:", str(e)[:150], flush=True)
+            continue
+        idents = sorted({str(x.get("nm")) if kind == "wb_price" else x["offer"] for ref, x in mp["products"].items()
+                         if mp["ref"].get(ref) and not x.get("archived") and (x.get("nm") or kind == "ozon_price")})
+        for ident in idents:
+            time.sleep(0.7)                                                       # лимиты WB/Ozon на чтение цен
+            try:
+                buyer, disc, full = cur_price(ch, ident)
+                if not full:
+                    continue
+                pid, _ = ms_match(ch, ident)
+                lower, _, err = min_price_for(ch, pid, buyer, mp_calc.MIN_MARGIN) if pid else (None, "", "нет пары")
+                if err or not lower or buyer >= lower:
+                    continue
+                target = int(math.ceil((lower + 10) / 100.0) * 100 - 10)          # …90 ₸, не больше минимума + 100
+                if kind == "wb_price":
+                    p = {"nmID": int(ident), "price": int(math.ceil(target / (1 - disc / 100)))}
+                else:
+                    p = {"offer_id": ident, "price": target}
+                p = validate(kind, p)
+                text = summary(kind, ch, p)
+                rid, status, auto, _ = new_request(kind, ch, p, "Подтяжка всех карточек до маржи 15 % (владелец 03.11.2026)", text)
+                made += 1
+                done += status == "done"
+            except Exception as e:
+                print(f"Подтяжка {ch.key} {ident}:", str(getattr(e, "message", e))[:150], flush=True)
+    print(f"Подтяжка всех карточек: заявок {made}, выполнено {done}", flush=True)
+    return made, done
+
+
+def pack_default():
+    """Упаковка 500 ₸ за единицу (владелец 03.11.2026) — один раз; дальше владелец меняет сам в настройках расчёта."""
+    if setting("mp_pack_default_v1", ""):
+        return False
+    import mp_calc
+    mpk.set_setting(mp_calc.SETTINGS["pack"], "500")
+    with db() as d:
+        inbox.set_setting(d, "mp_pack_default_v1", "1")
+    return True
+
+
 def recheck_first_prices():
     """Заявки wb_price, ждущие «Да», ещё раз по правилу первой цены (после смены правила) — подходящие выполняем. → сколько."""
     with db() as d:
@@ -1676,7 +1731,7 @@ RAISE_SLACK = 100       # подтяжка до минимума для марж
 
 
 def raise_to_min(kind, ch, p, explain=False):
-    """«Сам подними без моего да все карточки на 15% маржи» (владелец 03.11.2026): WB и Ozon KZ, только повышение,
+    """«Сам подними без моего да все карточки на 15% маржи» (владелец 03.11.2026): WB, Ozon KZ и Ozon RU, только повышение,
     новая цена для покупателя не выше минимума для маржи 15 % + 100 ₸, скидку и автоакции не трогаем; «Стоп» выключает.
     → (можно ли, почему); ("", "") — правило к заявке не относится."""
     import mp_calc
@@ -1686,8 +1741,8 @@ def raise_to_min(kind, ch, p, explain=False):
     if kind == "wb_price":
         if not isinstance(ch, mpk.WB):
             return no("не WB")
-    elif ch.key not in AUTO_OZ_CREATE or p.get("min_price") is not None or any(p.get(k) for k in OZ_AUTO):
-        return no("Ozon RU, min_price или автоакции")
+    elif p.get("min_price") is not None or any(p.get(k) for k in OZ_AUTO):   # Ozon KZ и RU («на все карточки», 03.11.2026)
+        return no("min_price или автоакции")
     ident = ident_of(kind, p)
     buyer, disc, full = cur_price(ch, ident)
     if not full:
@@ -1945,8 +2000,13 @@ def _digest_loop():
     try:
         time.sleep(90)                       # после деплоя: ждущие первые цены WB — по новому правилу
         if modules.enabled("agent"):
+            pack_default()
             close_same()
             print("Цены выполнены по правилу (первая цена, подтяжка до 15 %):", recheck_first_prices(), flush=True)
+            if not setting("agent_raise_all_v1", ""):                     # один раз: все карточки — к марже 15 % с упаковкой
+                with db() as d:
+                    inbox.set_setting(d, "agent_raise_all_v1", "1")
+                raise_all()
             guard_all()
     except Exception as e:
         print("Первые цены WB:", str(e)[:200], flush=True)
