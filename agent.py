@@ -2073,3 +2073,77 @@ def revert(rid):
         with db() as d:
             d.run("UPDATE agent_req SET result=%s WHERE id=%s", (json.dumps(res, ensure_ascii=False, default=str), rid))
     return jsonify(ok=status == "done", id=nid, status=status, result=out, **({} if status == "done" else {"error": "WB не принял откат"}))
+
+
+# ---------- габариты для расчёта коробок S/M/L (Аналитик, слово владельца 03.11.2026) — только чтение, без ПД ----------
+@bp.get("/agent/api/report/dims")
+def dims_report():
+    """Все товары в наличии: код, название, габариты и вес — из МойСклад (Вес, Объём, «Ширина/Высота/Глубина, см»),
+    из карточек WB (dimensions, см и кг) и Ozon (depth/width/height в мм, weight в г); тариф WB «короб» по складу кабинета
+    и логистика Ozon FBS по 5 товарам разного объёма. Ничего не меняет."""
+    import delivery
+    import mp_calc
+    cat = {i["id"]: i for i in oh.live(max_age=300)["items"]}           # товары в наличии
+    ms = {}
+    for off in range(0, 5000, 1000):
+        rows = oh.ms("GET", "/entity/product", params={"limit": 1000, "offset": off}, timeout=30).get("rows") or []
+        for r in rows:
+            if r.get("id") in cat:
+                at = {a.get("name"): a.get("value") for a in r.get("attributes") or []}
+                ms[r["id"]] = {"weight_kg": r.get("weight") or None, "volume_l": r.get("volume") or None,
+                               **{k: at.get(n) for k, n in zip(("w_cm", "h_cm", "d_cm"), delivery.DIM_ATTRS)}}
+        if len(rows) < 1000:
+            break
+    out = {i: {"code": c.get("code", ""), "name": c.get("name", ""), "qty": c.get("qty"), "ms": ms.get(i) or {}} for i, c in cat.items()}
+    shops, extra = {}, {}
+    for ch in mpk.channels():
+        try:
+            mp = mpk.mapping(ch)
+        except Exception as e:
+            shops[ch.key] = f"ошибка: {str(e)[:150]}"
+            continue
+        if isinstance(ch, mpk.WB):
+            for ref, x in mp["products"].items():
+                pid = mp["ref"].get(ref)
+                if pid in out:
+                    d = x.get("dims") or {}
+                    out[pid][ch.key] = {"nmID": x.get("nm"), "l_cm": d.get("length"), "w_cm": d.get("width"), "h_cm": d.get("height"),
+                                        "weight_kg": d.get("weightBrutto")}
+            try:
+                extra[ch.key] = {"box_tariff": mp_calc.wb_box(ch)}
+            except Exception as e:
+                extra[ch.key] = {"box_tariff": f"ошибка: {str(e)[:150]}"}
+        else:
+            offers = {x["offer"]: mp["ref"].get(ref) for ref, x in mp["products"].items() if mp["ref"].get(ref) in out}
+            last = ""
+            for _ in range(10):
+                r = ch.call("/v4/product/info/attributes", {"filter": {"visibility": "ALL"}, "limit": 1000, "last_id": last})
+                res = r if r.get("result") is not None else ch.res(r)
+                for it in res.get("result") or []:
+                    pid = offers.get(str(it.get("offer_id") or ""))
+                    if pid:
+                        out[pid][ch.key] = {"offer_id": it.get("offer_id"), "depth": it.get("depth"), "width": it.get("width"),
+                                            "height": it.get("height"), "dimension_unit": it.get("dimension_unit"),
+                                            "weight": it.get("weight"), "weight_unit": it.get("weight_unit")}
+                last = res.get("last_id") or ""
+                if not last or len(res.get("result") or []) < 1000:
+                    break
+            sample = sorted((v[ch.key] for v in out.values() if v.get(ch.key) and v[ch.key].get("depth")),
+                            key=lambda d: float(d["depth"] or 0) * float(d["width"] or 0) * float(d["height"] or 0))
+            pick = [sample[int(k * (len(sample) - 1) / 4)] for k in range(5)] if len(sample) >= 5 else sample
+            logi = []
+            for d in pick:
+                try:
+                    pr = ch.call("/v5/product/info/prices", {"filter": {"offer_id": [d["offer_id"]], "visibility": "ALL"}, "cursor": "", "limit": 1})
+                    it = ((pr.get("items") or ch.res(pr).get("items") or [{}])[0])
+                    c = it.get("commissions") or {}
+                    logi.append({**d, "currency": (it.get("price") or {}).get("currency_code"),
+                                 **{k: c.get(k) for k in ("fbs_first_mile_max_amount", "fbs_direct_flow_trans_max_amount",
+                                                          "fbs_deliv_to_customer_amount", "sales_percent_fbs")}})
+                except Exception as e:
+                    logi.append({**d, "error": str(e)[:150]})
+            extra[ch.key] = {"fbs_logistics_sample": logi}
+        shops[ch.key] = ch.title
+    log(200, f"dims {len(out)}")
+    return jsonify(ok=True, shops=shops, items=list(out.values()), tariffs=extra,
+                   units={"ms": "вес кг, объём л, ШВГ см", "wb": "см, кг", "ozon": "dimension_unit / weight_unit"})

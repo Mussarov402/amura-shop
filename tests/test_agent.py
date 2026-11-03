@@ -1097,3 +1097,22 @@ class AlreadySet(unittest.TestCase):
         st, res = agent.execute(b, "владелец")
         self.assertEqual(st, "done")
         self.assertIn("уже стоит", res["note"])
+
+
+class DimsReport(unittest.TestCase):
+    """Отчёт габаритов для коробок: товары в наличии с ШВГ и весом из МойСклад; без площадок — пустые тарифы."""
+    patch = tm.Channels.patch
+
+    def setUp(self):
+        Agent.setUp(self)
+
+    def test_dims(self):
+        self.patch(oh, "live", lambda max_age=0: {"items": [{"id": "p1", "code": "00615", "name": "Крем", "qty": 5}]})
+        self.patch(oh, "ms", lambda m, path, **k: {"rows": [{"id": "p1", "weight": 0.12, "volume": 0.1, "attributes": [
+            {"name": "Ширина, см", "value": 5}, {"name": "Высота, см", "value": 12}, {"name": "Глубина, см", "value": 4}]},
+            {"id": "p9", "weight": 1}]})
+        self.patch(mpk, "channels", lambda: [])
+        j = self.c.get("/agent/api/report/dims", headers=self.h).get_json()
+        self.assertEqual(j["items"], [{"code": "00615", "name": "Крем", "qty": 5,
+                                       "ms": {"weight_kg": 0.12, "volume_l": 0.1, "w_cm": 5, "h_cm": 12, "d_cm": 4}}])
+        self.assertEqual(self.c.get("/agent/api/report/dims").status_code, 401)
