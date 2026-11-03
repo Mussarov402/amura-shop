@@ -320,7 +320,7 @@ class PriceCorridor(unittest.TestCase):
         self.assertEqual(r["status"], "new")
         self.assertIn("больше чем на 100 ₸", self.c.get("/agent/api/requests", headers=self.h).get_json()["items"][0]["summary"])
         self.assertEqual(self.price_req(13000)["status"], "new")                    # снижение — «Да»
-        self.assertEqual(self.price_req(15000, discount=0)["status"], "new")        # со скидкой — «Да»
+        self.assertEqual(self.price_req(15000, discount=10)["status"], "new")       # меняется скидка — «Да»
         self.c.post("/admin/api/agent/rules", json={"stop": True})
         self.assertEqual(self.price_req(15050)["status"], "new")                    # «Стоп»
         self.assertEqual(len(self.uploads()), 1)
