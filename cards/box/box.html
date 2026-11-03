@@ -1,5 +1,6 @@
 <!doctype html><html lang="ru"><head><meta charset="utf-8"><link rel="stylesheet" href="../fonts.css">
-<!-- Концепция фирменной коробки AMURA для отправок WB/Ozon (03.11.2026). Превью: node cards/box/render.js → out/box_a|b|c.png.
+<!-- Коробка нейтральная: без сайта, соцсетей и QR (штрафы WB 25–50 тыс. ₽). Вкладыши — insert.html.
+     Концепция фирменной коробки AMURA для отправок WB/Ozon (03.11.2026). Превью: node cards/box/render.js → out/box_a|b|c.png.
      Логотип — cards/amura-logo.svg, цвета сайта (зелёный #0E3B2C, латунь #B89760, мята #E4EDE8). Размеры S/M/L — позже от Аналитика. -->
 <style>
 *{margin:0;box-sizing:border-box}body{width:1800px;height:1100px;font-family:Montserrat,Inter,sans-serif;background:#ECEAE6;position:relative;overflow:hidden;color:#1E1E1E}
@@ -33,7 +34,6 @@
 <div class="cap" style="right:80px;top:1035px">внутренняя сторона крышки</div>
 <script>
 const LOGO=`<svg class="lg" viewBox="0 0 141 25.5" fill="none" stroke="currentColor" stroke-width="1.5"><path transform="translate(0 0.5)" d="M1 24L10 1L19 24"/><path transform="translate(31 0.5)" d="M1 24V1L11 17L21 1V24"/><path transform="translate(64 0.5)" d="M1 1V15a8 8 0 0 0 16 0V1"/><path transform="translate(93 0.5)" d="M1 24V1H9a6.5 6.5 0 0 1 0 13H1M9 14L16 24"/><path transform="translate(121 0.5)" d="M1 24L10 1L19 24"/></svg>`, QR=`<svg viewBox="0 0 25 25"><path stroke="currentColor" d="M0 0.5h7m3 0h3m1 0h3m1 0h7m-25 1h1m5 0h1m3 0h2m1 0h2m3 0h1m5 0h1m-25 1h1m1 0h3m1 0h1m4 0h1m2 0h3m1 0h1m1 0h3m1 0h1m-25 1h1m1 0h3m1 0h1m1 0h2m2 0h1m1 0h1m3 0h1m1 0h3m1 0h1m-25 1h1m1 0h3m1 0h1m4 0h1m1 0h4m1 0h1m1 0h3m1 0h1m-25 1h1m5 0h1m1 0h2m1 0h1m6 0h1m5 0h1m-25 1h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7m-17 1h1m2 0h2m1 0h2m-15 1h2m3 0h1m2 0h6m3 0h2m1 0h1m-22 1h1m4 0h1m2 0h2m3 0h4m1 0h2m1 0h1m1 0h2m-25 1h1m2 0h2m1 0h1m1 0h1m2 0h1m3 0h1m4 0h3m1 0h1m-25 1h2m1 0h1m3 0h1m1 0h1m2 0h2m1 0h1m1 0h1m3 0h1m-18 1h4m1 0h1m1 0h3m2 0h1m1 0h2m4 0h1m-21 1h2m1 0h5m1 0h1m1 0h5m3 0h2m-25 1h4m2 0h1m1 0h1m2 0h2m1 0h3m1 0h1m2 0h2m1 0h1m-23 1h2m1 0h1m3 0h1m2 0h2m1 0h3m1 0h3m-22 1h4m2 0h1m2 0h3m2 0h1m1 0h5m2 0h1m-16 1h1m1 0h3m1 0h1m1 0h1m3 0h1m3 0h1m-25 1h7m2 0h2m1 0h3m1 0h1m1 0h1m1 0h1m3 0h1m-25 1h1m5 0h1m2 0h1m3 0h2m1 0h1m3 0h1m-21 1h1m1 0h3m1 0h1m3 0h2m1 0h1m1 0h6m2 0h2m-25 1h1m1 0h3m1 0h1m2 0h2m1 0h2m1 0h1m1 0h1m2 0h1m1 0h2m-24 1h1m1 0h3m1 0h1m1 0h1m1 0h1m4 0h2m2 0h3m1 0h2m-25 1h1m5 0h1m1 0h3m1 0h2m2 0h1m2 0h2m-21 1h7m2 0h1m3 0h2m1 0h2m3 0h1m2 0h1"/></svg>`;
-const IG='@instagram'; // ник Instagram AMURA — уточнить у владельца
 const V={
  a:{t:'A · Минимализм',bg:'#F7F5F1',top:'#FBFAF7',front:'#F2EFE9',side:'#E8E4DC',ink:'#1E1E1E',flap:'#FBFAF7',fink:'#1E1E1E',pat:''},
  b:{t:'B · Премиум, зелёный и латунь',bg:'#E7E4DD',top:'#0E3B2C',front:'#0B3226',side:'#08281E',ink:'#C9A86A',flap:'#0E3B2C',fink:'#E9D7AE',pat:''},
@@ -45,10 +45,9 @@ const lamPat=c=>`background-image:url("data:image/svg+xml,${encodeURIComponent(`
 const face=(id,bg,html)=>{const e=document.getElementById(id);e.style.cssText+=`background:${bg};color:${v.ink};`+(v.pat?lamPat(v.ink):'');e.innerHTML=html;};
 face('top',v.top,`<div style="width:340px">${LOGO}</div><div class="ft">Cosmetics</div>${v.t[0]==='B'?'<div style="width:120px;height:1px;background:currentColor;margin-top:26px;opacity:.6"></div>':''}`);
 face('front',v.front,`<div style="width:230px">${LOGO}</div><div class="ft" style="font-size:16px">Cosmetics</div>`);
-face('side',v.side,`<div class="sd">amura.kz<small>${IG}</small></div>`);
+face('side',v.side,`<div class="sd" style="font-size:24px;line-height:1.35;padding:0 30px">Спасибо, что выбираете<br>корейский уход</div>`);
 const f=document.getElementById('flap');f.style.background=v.flap;f.style.color=v.fink;
 if(v.t[0]==='B')f.style.boxShadow+=',inset 0 0 0 10px #0E3B2C,inset 0 0 0 12px #B89760';
 f.innerHTML=`<div style="width:300px">${LOGO}</div><div class="ft" style="font-size:18px">Cosmetics</div>
-<h2>Спасибо<br>за заказ!</h2><p>Оригинальная корейская косметика.</p>
-<div class="qr"><div class="q">${QR}</div><div class="t">Наш сайт<br>amura.kz<br><span style="font-weight:500;opacity:.75">${IG}</span></div></div>`;
+<h2 style="margin-top:auto">Спасибо,<br>что выбираете<br>корейский уход</h2><p style="margin-bottom:auto">Оригинальная корейская косметика.</p>`;
 </script></body></html>
