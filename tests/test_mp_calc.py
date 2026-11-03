@@ -579,3 +579,14 @@ class WBCabinetWarehouse(unittest.TestCase):
         b = self.box("Шымкент")
         self.assertIn("склад кабинета не найден в тарифах (Шымкент)", b["wh"])
         self.assertTrue(b["wh"].startswith("Алматы Атакент"))
+
+
+class MinMargin(unittest.TestCase):
+    """Минимальная маржа маркетплейсов — 15 % (владелец 03.11.2026): настройка ниже не сохраняется и не действует."""
+    def test_floor(self):
+        old = mpk.setting("mp_calc_margin", "")
+        self.addCleanup(lambda: mpk.set_setting("mp_calc_margin", old))
+        mpk.set_setting("mp_calc_margin", "10")
+        self.assertEqual(mp_calc.settings()["margin"], 15.0)
+        mpk.set_setting("mp_calc_margin", "20")
+        self.assertEqual(mp_calc.settings()["margin"], 20.0)
