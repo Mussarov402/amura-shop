@@ -1244,8 +1244,23 @@ def create_route():
     return jsonify(ok=True, id=rid, status=status, auto=auto, **({"result": res} if auto else {}))
 
 
+def _same_open(kind, key, p):
+    """Открытая заявка того же вида на тот же товар (цены — по nmID/offer_id, остальное — те же параметры) → №."""
+    with db() as d:
+        rs = d.run("SELECT id, params FROM agent_req WHERE status='new' AND kind=%s AND shop=%s ORDER BY id DESC", (kind, key), many=True) or []
+    for rid, raw in rs:
+        q = json.loads(raw or "{}")
+        try:
+            if (ident_of(kind, q) == ident_of(kind, p)) if kind in PRICE_KINDS else (q == p):
+                return rid
+        except (KeyError, TypeError, ValueError):
+            continue
+    return None
+
+
 def new_request(kind, ch, p, comment, text):
-    """Заявка: по правилу — выполняем сразу; иначе — в «На согласование» и сообщение владельцу. → (№, статус, авто, ответ)."""
+    """Заявка: по правилу — выполняем сразу; иначе — в «На согласование» и сообщение владельцу. → (№, статус, авто, ответ).
+    Та же заявка уже ждёт «Да» — обновляем её, вторую не создаём и владельцу второй раз не пишем."""
     why = ""
     try:
         auto, why = False, ""
@@ -1263,6 +1278,13 @@ def new_request(kind, ch, p, comment, text):
         auto, why = False, (f"коридор не проверен: {getattr(e, 'message', str(e))}" if kind in PRICE_KINDS else "")
     if why:
         text += f" ({why})"
+    if not auto:
+        old = _same_open(kind, ch.key, p)
+        if old:
+            with db() as d:
+                d.run("UPDATE agent_req SET params=%s, summary=%s, comment=%s, at=%s WHERE id=%s AND status='new'",
+                      (json.dumps(p, ensure_ascii=False), text, comment[:1000], time.time(), old))
+            return old, "new", False, None
     with db() as d:
         rid = d.run("INSERT INTO agent_req (at, kind, shop, params, summary, comment, status, result, decided, who) "
                     "VALUES (%s, %s, %s, %s, %s, %s, 'new', '', 0, '')",
@@ -1400,6 +1422,8 @@ def corridor(ch, ident):
     return dict(row, disc=disc, shop=ch.key, ident=ident, last_change=old.get("last_change") or 0)
 
 
+WB_ASSUME = {"acquiring": 2.5, "processing": 0}   # % от цены и ₸ за штуку — оценка менеджера WB/Ozon 03.11.2026, не из договора
+WB_ASSUME_NOTE = "эквайринг 2,5 %, приёмка FBS 0 ₸ (оценка менеджера, не из договора)"
 FIRST_MARGIN = 10.0     # первая цена новой карточки WB — сразу, если не ниже цены для маржи 10 % (слово владельца 03.11.2026)
 
 
@@ -1418,12 +1442,25 @@ def wb_first_price(ch, p):
         return False, "первая цена: товар не связан с МойСклад — через «Да»"
     c = mp_calc.channel_calc(ch, pid, mp_calc.product(pid), dict(mp_calc.settings(), margin=FIRST_MARGIN), price_override=float(p["price"]))
     lower = c.get("minPrice") if not c.get("error") else None
+    note = ""
+    gaps = {x["key"] for x in c.get("lines") or [] if x.get("sum") is None}
+    if not c.get("error") and gaps and gaps <= set(WB_ASSUME):    # продаж ещё нет — приёмка и эквайринг по допущению
+        known_pct = sum(x["pct"] for x in c["lines"] if x.get("pct") is not None and x.get("sum") is not None)
+        fixed = sum(x["sum"] for x in c["lines"] if x.get("pct") is None and x.get("sum") is not None)
+        known_pct += WB_ASSUME["acquiring"] if "acquiring" in gaps else 0
+        fixed += WB_ASSUME["processing"] if "processing" in gaps else 0
+        den = 1 - (known_pct + FIRST_MARGIN) / 100
+        lower = round(fixed / den) if den > 0 else None
+        note = f"; продаж ещё нет — {WB_ASSUME_NOTE}"
+        for x in c["lines"]:
+            if x["key"] in gaps:
+                x["sum"] = 0
     missing = [x["label"] for x in c.get("lines") or [] if x.get("sum") is None]
     if not lower or missing:
         return False, "первая цена: расчёт неполный (" + (c.get("error") or "нет строк: " + ", ".join(missing)) + ") — через «Да»"
     if float(p["price"]) < lower:
-        return False, f"первая цена ниже маржи {FIRST_MARGIN:g} %: минимум {round(lower)} ₸ — через «Да»"
-    return True, f"первая цена новой карточки, не ниже маржи {FIRST_MARGIN:g} % (минимум {round(lower)} ₸)"
+        return False, f"первая цена ниже маржи {FIRST_MARGIN:g} %: минимум {round(lower)} ₸{note} — через «Да»"
+    return True, f"первая цена новой карточки, не ниже маржи {FIRST_MARGIN:g} % (минимум {round(lower)} ₸{note})"
 
 
 def price_auto(kind, ch, p):
