@@ -87,9 +87,42 @@ OPT_ORIGIN = os.environ.get("OPT_SITE_ORIGIN", "https://amura.kz").rstrip("/")
 OPT_PASS = ("content-type", "last-modified", "etag")
 
 
+class _Resp:
+    """Ответ GitHub напрямую — как у requests (status_code, headers, content, text, json, raise_for_status)."""
+    def __init__(self, code, headers, body):
+        self.status_code, self.headers, self.content = code, requests.structures.CaseInsensitiveDict(headers), body
+
+    @property
+    def text(self):
+        return self.content.decode("utf-8", "replace")
+
+    def json(self):
+        import json
+        return json.loads(self.content)
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise requests.HTTPError(f"{self.status_code} с GitHub Pages")
+
+
+def site_get(url, **kw):
+    """GET файла сайта (https://amura.kz/...). amura.kz не отвечает по TLS (DNS переключают на этот сервер, а сертификата
+    ещё нет) — тот же файл с серверов GitHub Pages напрямую под именем amura.kz. Каталог и опт не останавливаются."""
+    try:
+        return requests.get(url, **kw)
+    except (requests.exceptions.SSLError, requests.exceptions.ConnectionError) as e:
+        host = url.split("://", 1)[-1].split("/", 1)[0].lower()
+        if host not in RTL_HOSTS:
+            raise
+        path = url.split("://", 1)[-1].split("/", 1)[1] if "/" in url.split("://", 1)[-1] else ""
+        print("Сайт по DNS недоступен, беру с GitHub напрямую:", str(e)[:120], flush=True)
+        return _Resp(*_github(path.split("?", 1)[0]))
+
+
 def _get_opt(path):
-    """Опт — как до 03.11.2026 (слово владельца: на опте ничего не менять): файлы с amura.kz по DNS."""
-    r = requests.get(f"{OPT_ORIGIN}/{path}", timeout=15, headers={"User-Agent": "amura-opt-site/1.0"})
+    """Опт — как до 03.11.2026 (слово владельца: на опте ничего не менять): файлы с amura.kz по DNS
+    (amura.kz не отвечает по TLS — тот же файл с GitHub напрямую, см. site_get)."""
+    r = site_get(f"{OPT_ORIGIN}/{path}", timeout=15, headers={"User-Agent": "amura-opt-site/1.0"})
     return r.status_code, {k: r.headers[k] for k in r.headers if k.lower() in OPT_PASS}, r.content
 
 

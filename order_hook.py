@@ -314,7 +314,7 @@ def _inci(row):
 
 def _img_index():
     try:
-        return requests.get(f"{SITE_URL}/img/index.json", timeout=15).json()
+        return _site_get(f"{SITE_URL}/img/index.json", timeout=15).json()
     except Exception:
         return {}
 
@@ -342,14 +342,19 @@ def _barcode(row):
     return ""
 
 
+def _site_get(url, **kw):
+    import opt_site                      # amura.kz не отвечает по TLS — файлы с GitHub Pages напрямую
+    return opt_site.site_get(url, **kw)
+
+
 def _products():
     """Карточки товаров (названия, цены, упаковки, фото) — из выгрузки catalog.json на сайте.
     Её обновляет GitHub Actions; большой список товаров МойСклад отдаёт серверу Render слишком медленно.
     Остатки при этом берутся из МойСклад напрямую (быстрый отчёт), см. _stock()."""
-    r = requests.get(f"{SITE_URL}/catalog.json", timeout=20, headers={"Cache-Control": "no-cache"})
+    r = _site_get(f"{SITE_URL}/catalog.json", timeout=20, headers={"Cache-Control": "no-cache"})
     r.raise_for_status()
     d = r.json()
-    b = requests.get(f"{SITE_URL}/prices.bin", timeout=20, headers={"Cache-Control": "no-cache"})
+    b = _site_get(f"{SITE_URL}/prices.bin", timeout=20, headers={"Cache-Control": "no-cache"})
     b.raise_for_status()
     opt = unseal(b.content, MS_TOKEN)        # id -> [опт, от 10 шт, короб, шт в коробе]
     _cache["site_updated"] = d.get("updated", "")
