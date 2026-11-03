@@ -247,6 +247,25 @@ class PriceCorridor(unittest.TestCase):
         self.assertEqual(self.price_req(17500)["status"], "new")
         self.assertEqual(self.uploads(), [])
 
+    def test_first_price(self):
+        """Новая карточка без цены: первая цена — сразу, если не ниже маржи 10 % (калькулятор); иначе и при стоящей цене — «Да»."""
+        self.price = 0.0
+        r = self.price_req(14000)                                                        # минимум для маржи 10 % — 15000
+        self.assertEqual(r["status"], "new")
+        self.assertEqual(self.margins[-1], 10.0)
+        self.assertIn("минимум 15000", self.c.get("/agent/api/requests", headers=self.h).get_json()["items"][0]["summary"])
+        self.assertEqual(self.price_req(15000, discount=20)["status"], "new")          # скидка — только «Да»
+        r = self.price_req(15500)
+        self.assertEqual((r["status"], r["auto"]), ("done", True), self.c.get("/agent/api/requests", headers=self.h).get_json()["items"][0]["summary"])
+        self.assertEqual(self.uploads(), [{"data": [{"nmID": 244631445, "price": 15500}]}])
+        self.full = False
+        self.assertEqual(self.price_req(15500)["status"], "new")                        # расчёт неполный — «Да»
+        self.full, self.price = True, 15500.0
+        self.assertEqual(self.price_req(16000)["status"], "new")                        # цена уже стоит — правило выключено, «Да»
+        self.c.post("/admin/api/agent/rules", json={"stop": True})
+        self.price = 0.0
+        self.assertEqual(self.price_req(15500)["status"], "new")                        # «Стоп» — всё через «Да»
+
     def test_corridor_and_auto(self):
         row = self.on()["row"]
         self.assertEqual((row["lower"], row["upper"], row["base_note"]), (16500, 19550, "задана владельцем"))   # 17000 × 1,15
