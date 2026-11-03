@@ -601,6 +601,9 @@ def oz_new_floor(ch, p):
     if total_pct >= 100:
         raise ValueError("ставки и налог больше 100 % цены")
     zero = (cost + fixed_kzt) / (1 - total_pct / 100)
+    if total_pct + mp_calc.MIN_MARGIN >= 100:
+        raise ValueError("ставки, налог и маржа больше 100 % цены")
+    zero = (cost + fixed_kzt) / (1 - (total_pct + mp_calc.MIN_MARGIN) / 100)   # не безубыточность, а минимум для маржи 15 %
     return round(zero), (f"себестоимость {round(cost)} ₸, комиссия до {pct:g} %, налог {st.get('tax') or 0:g} %, ДРР {st.get('ads') or 0:g} %, "
                          f"логистика и эквайринг до {round(fixed_kzt)} ₸ (самые высокие ставки магазина)")
 
@@ -895,7 +898,7 @@ ACTIONS = {
                                                        "height", "weight", "attributes", "images?", "primary_image?", "barcode?", "old_price?",
                                                        "currency_code?", "vat?", "dimension_unit?", "weight_unit?", "complex_attributes?"],
                          "about": "новая карточка Ozon (/v3/product/import). Ozon требует цену в том же запросе. Ozon KZ (ozon2) — сразу по правилу "
-                                  "«Карточки», цена не ниже безубыточности по калькулятору; Ozon RU — через «Да». Картинки — публичные https-ссылки",
+                                  "«Карточки», цена не ниже минимальной цены для маржи 15 % по калькулятору; Ozon RU — через «Да». Картинки — публичные https-ссылки",
                          "run": _oz_card_create},
     "ozon_card_update": {"shop": mpk.Ozon, "params": ["offer_id", "attributes"],
                          "about": "характеристики карточки Ozon (/v1/product/attributes/update): attributes [{id, complex_id?, values: [{value} | "
@@ -1135,8 +1138,8 @@ def summary(kind, ch, p):
               "ozon_promotion": lambda: f"акция {p['action_id']}: {len(p['products'])} товаров",
               "ozon_card_create": lambda: f"новая карточка {p['offer_id']} «{p['name'][:120]}», цена {p['price']} {p.get('currency_code') or '₸'}, "
                                           f"категория {p['description_category_id']}/{p['type_id']}, картинок {len(p.get('images') or [])}"
-                                          + (f" (безубыточность {p['_floor']['zero']} ₸)" if p.get("_floor") else "")
-                                          + (f" (безубыточность не посчитана: {p['_floor_why']} — нужно «Да»)" if p.get("_floor_why") else ""),
+                                          + (f" (минимальная цена для маржи 15 % — {p['_floor']['zero']} ₸)" if p.get("_floor") else "")
+                                          + (f" (минимальная цена не посчитана: {p['_floor_why']} — нужно «Да»)" if p.get("_floor_why") else ""),
               "ozon_pictures": lambda: f"картинки товара {p['product_id']}: {len(p['images'])} шт.",
               "wb_card_create": lambda: f"новая карточка {p['vendorCode']} «{p['title']}», предмет {p['subjectID']}, EAN "
                                         + ", ".join(x for s in p["sizes"] for x in s["skus"]) + f", фото {len(p.get('photos') or [])}",
@@ -1220,7 +1223,7 @@ def create_route():
             p["_rows"] = barcode_rows(ch, p["items"])
         if kind in ("wb_promotion", "ozon_promotion"):
             check_floor(kind, ch, p)
-        if kind == "ozon_card_create" and ch.key in AUTO_OZ_CREATE:      # Ozon KZ: цена не ниже безубыточности
+        if kind == "ozon_card_create" and ch.key in AUTO_OZ_CREATE:      # Ozon KZ: цена не ниже минимума для маржи 15 %
             try:
                 zero, why = oz_new_floor(ch, p)
             except Exception as e:                    # МойСклад или Ozon не ответили — не гадаем, заявка ждёт «Да»
@@ -1228,7 +1231,7 @@ def create_route():
             if zero is not None:
                 price = float(p["price"]) if not p.get("currency_code") else (__import__("mp_calc").to_kzt(float(p["price"]), p["currency_code"])[0] or 0)
                 if price < zero:
-                    raise ValueError(f"цена {round(price)} ₸ ниже безубыточности: минимум {zero} ₸ ({why})")
+                    raise ValueError(f"цена {round(price)} ₸ ниже минимальной цены для маржи {__import__("mp_calc").MIN_MARGIN:g} %: минимум {zero} ₸ ({why})")
                 p["_floor"] = {"zero": zero, "note": why}
             else:
                 p["_floor_why"] = why                 # не посчитать — заявка ждёт «Да», причина видна владельцу
@@ -1486,7 +1489,7 @@ def corridor(ch, ident):
 
 WB_ASSUME = {"acquiring": 2.5, "processing": 150}  # % от цены и ₸ за штуку — допущения владельца от 03.11.2026 (до первых продаж)
 WB_ASSUME_NOTE = "эквайринг 2,5 %, приёмка и обработка 150 ₸ (допущения владельца от 03.11.2026)"
-FIRST_MARGIN = 15.0     # первая цена новой карточки WB — сразу, если не ниже цены для маржи 15 % (минимальная маржа маркетплейсов, владелец 03.11.2026)
+FIRST_MARGIN = 15.0     # первая цена новой карточки WB — сразу, если не ниже цены для маржи 15 % (минимальная маржа маркетплейсов, mp_calc.MIN_MARGIN)
 
 
 def wb_first_price(ch, p):

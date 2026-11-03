@@ -41,6 +41,7 @@ import order_hook as oh
 
 NBK_URL = "https://nationalbank.kz/rss/get_rates.cfm?fdate={d}"
 MIG_URL = "https://mig.kz/"
+MIN_MARGIN = 15.0      # минимальная маржа на всех маркетплейсах — владелец 03.11.2026 («эквайринг и приёмка ещё не известны, держим запас»)
 SETTINGS = {"tax": "mp_calc_tax", "ads": "mp_calc_ads", "margin": "mp_calc_margin"}   # ставки площадок — только из API
 FACT_DAYS, FACT_TTL = 90, 6 * 3600
 WAIT = "ждём первые продажи"
@@ -136,6 +137,7 @@ def settings():
             out[k] = None
     if out["margin"] is None:
         out["margin"] = 20.0
+    out["margin"] = max(out["margin"], MIN_MARGIN)
     if out["ads"] is None:
         out["ads"] = 10.0                                 # план ДРР по умолчанию; факт подставляется, когда есть расходы
     return out
@@ -939,6 +941,8 @@ def calc_settings_route():
                 return jsonify(ok=False, error="Проценты — числом"), 400
             if not 0 <= v < 100:
                 return jsonify(ok=False, error="Проценты — от 0 до 99"), 400
+            if k == "margin" and v < MIN_MARGIN:
+                return jsonify(ok=False, error=f"Маржа — не ниже {MIN_MARGIN:g} % (минимальная маржа маркетплейсов)"), 400
             mpk.set_setting(key, f"{v:g}")
     if d.get("id"):
         v = d.get("cost")

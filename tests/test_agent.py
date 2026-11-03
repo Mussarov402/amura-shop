@@ -905,7 +905,7 @@ class OzonKzCardCreate(unittest.TestCase):
     def test_kz_below_break_even_rejected(self):
         r = self.new(price=8000)
         self.assertEqual(r.status_code, 400)
-        self.assertIn("минимум 8451 ₸", r.get_json()["error"])
+        self.assertIn("ниже минимальной цены для маржи 15 %: минимум 10714 ₸", r.get_json()["error"])   # (5000 + 1000) / (1 − 0,29 − 0,15)
         self.assertEqual(self.sent, [])
 
     def test_kz_unknown_cost_waits_for_yes(self):
