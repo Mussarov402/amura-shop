@@ -307,6 +307,24 @@ class PriceCorridor(unittest.TestCase):
         self.full, self.price = True, 15500.0
         self.assertEqual(agent.recheck_first_prices(), 0)                            # цена уже стоит
 
+    def test_raise_to_min_margin(self):
+        """«Сам подними без моего да все карточки на 15% маржи»: только повышение, до минимума + 100 ₸, без скидки; «Стоп» выключает."""
+        self.price = 14000.0                                                        # минимум для маржи 15 % в моке — 15000
+        r = self.price_req(15050)
+        self.assertEqual((r["status"], r["auto"]), ("done", True))
+        self.assertEqual(self.uploads(), [{"data": [{"nmID": 244631445, "price": 15050}]}])
+        self.assertIn("📈 Подняли цены до маржи 15 % (1)", self.tg[-1])
+        self.assertIn("было 14000 ₸ → стало 15050 ₸", self.tg[-1])
+        self.price = 14000.0
+        r = self.price_req(15200)                                                   # выше минимума больше чем на 100 ₸
+        self.assertEqual(r["status"], "new")
+        self.assertIn("больше чем на 100 ₸", self.c.get("/agent/api/requests", headers=self.h).get_json()["items"][0]["summary"])
+        self.assertEqual(self.price_req(13000)["status"], "new")                    # снижение — «Да»
+        self.assertEqual(self.price_req(15000, discount=0)["status"], "new")        # со скидкой — «Да»
+        self.c.post("/admin/api/agent/rules", json={"stop": True})
+        self.assertEqual(self.price_req(15050)["status"], "new")                    # «Стоп»
+        self.assertEqual(len(self.uploads()), 1)
+
     def test_corridor_and_auto(self):
         row = self.on()["row"]
         self.assertEqual((row["lower"], row["upper"], row["base_note"]), (16500, 19550, "задана владельцем"))   # 17000 × 1,15
