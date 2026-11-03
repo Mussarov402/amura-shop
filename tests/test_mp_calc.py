@@ -139,6 +139,10 @@ class FakeWBTariffs:
                                                       "sizes": [{"sizeID": 501, "price": 12000, "discountedPrice": 9900}]}]}})
         if "/api/v1/tariffs/commission" in url:
             return Resp(200, {"report": [{"subjectID": 7, "subjectName": "Кремы", "kgvpMarketplace": 19.5}]})
+        if url.endswith("/api/v3/warehouses"):
+            return Resp(200, [{"id": 351328, "name": "Мой склад", "officeId": 10098}])
+        if url.endswith("/api/v3/offices"):
+            return Resp(200, [{"id": 10098, "name": "Алматы Атакент", "city": "Алматы"}, {"id": 1, "name": "Астана Карагандинское шоссе"}])
         if "/api/v1/tariffs/box" in url:
             return Resp(200, {"response": {"data": {"currency": "RUB", "warehouseList": [
                 {"warehouseName": "Коледино", "geoName": "Центральный", "boxDeliveryMarketplaceBase": "80", "boxDeliveryMarketplaceLiter": "20"},
@@ -547,3 +551,31 @@ class WBCard(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WBCabinetWarehouse(unittest.TestCase):
+    """Тариф логистики WB — по складу WB, к которому прикреплён склад продавца в кабинете; не нашли — запасной с пометкой."""
+    def box(self, office):
+        rows = [{"warehouseName": "Астана Карагандинское шоссе", "geoName": "Казахстан", "boxDeliveryMarketplaceBase": "60", "boxDeliveryMarketplaceLiter": "12"},
+                {"warehouseName": "Алматы Атакент", "geoName": "Казахстан", "boxDeliveryMarketplaceBase": "46,5", "boxDeliveryMarketplaceLiter": "10"}]
+
+        class Ch:
+            key = "wbtest"
+
+            def req(self, method, base, path, **kw):
+                if path == "/api/v3/warehouses":
+                    return [{"id": 1, "officeId": 7}]
+                if path == "/api/v3/offices":
+                    return [{"id": 7, "name": office}]
+                return {"response": {"data": {"currency": "KZT", "warehouseList": rows}}}
+        oh._cache.pop("mpc_box:wbtest", None)
+        self.addCleanup(lambda: oh._cache.pop("mpc_box:wbtest", None))
+        return mp_calc.wb_box(Ch())
+
+    def test_cabinet_office(self):
+        self.assertEqual(self.box("Астана Карагандинское шоссе")["wh"], "Астана Карагандинское шоссе")   # что выбрано в кабинете
+        b = self.box("Алматы Атакент")
+        self.assertEqual((b["wh"], b["base"]), ("Алматы Атакент", 46.5))
+        b = self.box("Шымкент")
+        self.assertIn("склад кабинета не найден в тарифах (Шымкент)", b["wh"])
+        self.assertTrue(b["wh"].startswith("Алматы Атакент"))

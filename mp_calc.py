@@ -255,23 +255,46 @@ def _wb_num(v):
         return None
 
 
+def wb_office_names(ch):
+    """Склады WB, к которым прикреплены склады продавца в кабинете (GET /api/v3/warehouses → officeId → /api/v3/offices)."""
+    mine = [w for w in ch.req("GET", "marketplace", "/api/v3/warehouses") or [] if isinstance(w, dict) and not w.get("isDeleting")]
+    ids = {int(w["officeId"]) for w in mine if w.get("officeId")}
+    if not ids:
+        return []
+    offices = ch.req("GET", "marketplace", "/api/v3/offices") or []
+    return [o for o in offices if isinstance(o, dict) and int(o.get("id") or 0) in ids]
+
+
 def wb_box(ch):
-    """Тарифы WB для коробов на сегодня; склад — WB_TARIFF_WAREHOUSE (подстрока названия), иначе Алматы (Атакент — первым),
-    иначе другой казахстанский, иначе первый с тарифом FBS."""
+    """Тарифы WB для коробов на сегодня — по складу WB, выбранному в кабинете (слово владельца 03.11.2026): склад продавца →
+    его officeId → название склада WB → строка тарифов с тем же названием. Не нашли — запасной: Алматы, иначе другой
+    казахстанский, иначе первый, с пометкой «склад кабинета не найден в тарифах»."""
     def load():
         j = ch.req("GET", "common", "/api/v1/tariffs/box", params={"date": datetime.now(mpk.ALMATY).strftime("%Y-%m-%d")})
         data = ((j.get("response") or {}).get("data") or {})
         rows = [w for w in data.get("warehouseList") or [] if _wb_num(w.get("boxDeliveryMarketplaceBase")) is not None]
         if not rows:
             raise ValueError("WB не вернул тарифы логистики FBS")
-        want = os.environ.get("WB_TARIFF_WAREHOUSE", "").strip().lower()      # явный выбор: подстрока названия склада
-        pick = [w for w in rows if want and want in str(w.get("warehouseName", "")).lower()]
-        alm = [w for w in rows if re.search(r"атакент|алмат", str(w.get("warehouseName", "")), re.I)]   # склад владельца — Алматы Атакент
-        kz = [w for w in rows if re.search(r"казахстан|алмат|астан", f"{w.get('geoName', '')} {w.get('warehouseName', '')}", re.I)]
-        alm.sort(key=lambda w: "атакент" not in str(w.get("warehouseName", "")).lower())
-        w = (pick or alm or kz or rows)[0]
+        norm = lambda t: re.sub(r"[^а-яёa-z0-9]+", " ", str(t or "").lower()).strip()   # noqa: E731
+        try:
+            offices = wb_office_names(ch)
+        except Exception as e:
+            print("Склады кабинета WB:", str(e)[:200], flush=True)
+            offices = []
+        w, note = None, ""
+        for o in offices:
+            name = norm(o.get("name"))
+            w = next((r for r in rows if norm(r.get("warehouseName")) == name), None) or \
+                next((r for r in rows if name and (name in norm(r.get("warehouseName")) or norm(r.get("warehouseName")) in name)), None)
+            if w:
+                break
+        if not w:
+            alm = [r for r in rows if re.search(r"алмат", str(r.get("warehouseName", "")), re.I)]
+            kz = [r for r in rows if re.search(r"казахстан|алмат|астан", f"{r.get('geoName', '')} {r.get('warehouseName', '')}", re.I)]
+            w = (alm or kz or rows)[0]
+            note = "склад кабинета не найден в тарифах" + (f" ({', '.join(str(o.get('name')) for o in offices)})" if offices else "") + " — взят запасной"
         return {"cur": data.get("currency") or "RUB", "base": _wb_num(w.get("boxDeliveryMarketplaceBase")),
-                "liter": _wb_num(w.get("boxDeliveryMarketplaceLiter")) or 0, "wh": w.get("warehouseName", "")}
+                "liter": _wb_num(w.get("boxDeliveryMarketplaceLiter")) or 0, "wh": w.get("warehouseName", "") + (f"; {note}" if note else "")}
     return oh.cached(f"mpc_box:{ch.key}", 3600, load)
 
 
