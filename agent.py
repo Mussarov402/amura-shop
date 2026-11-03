@@ -1501,7 +1501,7 @@ def raise_all():
         idents = sorted({str(x.get("nm")) if kind == "wb_price" else x["offer"] for ref, x in mp["products"].items()
                          if mp["ref"].get(ref) and not x.get("archived") and (x.get("nm") or kind == "ozon_price")})
         for ident in idents:
-            time.sleep(0.7)                                                       # лимиты WB/Ozon на чтение цен
+            time.sleep(2.0 if kind == "wb_price" else 0.7)   # лимит WB «цены и скидки» — 10 запросов за 6 с, на товар их до трёх
             try:
                 buyer, disc, full = cur_price(ch, ident)
                 if not full:
@@ -1521,7 +1521,10 @@ def raise_all():
                 made += 1
                 done += status == "done"
             except Exception as e:
-                print(f"Подтяжка {ch.key} {ident}:", str(getattr(e, "message", e))[:150], flush=True)
+                msg = str(getattr(e, "message", e))
+                if "429" in msg:                                                  # лимит — подождать и не терять товар
+                    time.sleep(10)
+                print(f"Подтяжка {ch.key} {ident}:", msg[:150], flush=True)
     print(f"Подтяжка всех карточек: заявок {made}, выполнено {done}", flush=True)
     return made, done
 
