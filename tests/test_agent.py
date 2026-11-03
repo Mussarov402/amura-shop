@@ -1037,3 +1037,39 @@ class OzonCard(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OzonGuard(unittest.TestCase):
+    """Ограничение для акций Ozon: min_price = цена для маржи 10 %, цену не трогаем, стоящий выше — не снижаем, «Стоп» — ничего."""
+    patch = tm.Channels.patch
+
+    def setUp(self):
+        Agent.setUp(self)
+        self.sent = []
+        items = [{"offer_id": "a", "price": {"price": "9000", "old_price": "12000", "min_price": "0", "currency_code": "KZT"}},
+                 {"offer_id": "b", "price": {"price": "8000", "min_price": "9999", "currency_code": "KZT"}},
+                 {"offer_id": "c", "price": {"price": "7000", "currency_code": "KZT"}}]
+
+        class Ch:
+            title, key = "Ozon KZ", "ozon2"
+
+            def call(s, path, body):
+                if path == "/v5/product/info/prices":
+                    return {"items": items, "cursor": ""}
+                self.sent.append(body)
+                return {"result": [{"offer_id": x["offer_id"], "updated": True} for x in body["prices"]]}
+
+            def res(s, r):
+                return r
+        self.ch = Ch()
+        self.patch(agent, "ms_match", lambda ch, ident: ({"a": "p1", "b": "p2"}.get(ident), []))
+        self.patch(agent, "min_price_for", lambda ch, pid, price, margin: (7300 if margin == 10.0 else 0, "", ""))
+
+    def test_guard(self):
+        n, errs = agent.oz_guard(self.ch)
+        self.assertEqual((n, errs), (1, []))
+        row = self.sent[0]["prices"][0]
+        self.assertEqual(row, {"offer_id": "a", "currency_code": "KZT", "price": "9000", "old_price": "12000", "min_price": "7300",
+                               "min_price_for_auto_actions_enabled": True})   # b — свой минимум выше, c — нет в МойСклад
+        self.c.post("/admin/api/agent/rules", json={"stop": True})
+        self.assertEqual(agent.oz_guard(self.ch)[0], 0)

@@ -1367,6 +1367,83 @@ def flush_asks():
     oh.notify_bg(lambda: oh.tg("sendMessage", chat_id=oh.OWNER, text=text))
 
 
+GUARD_MARGIN = 10.0    # «блок в автоакциях на 10% маржи… на все карточки и будущие, также и на Озон» (владелец 03.11.2026)
+
+
+def oz_guard(ch):
+    """Ограничение для акций Ozon: min_price = цена для маржи 10 % по калькулятору (в валюте кабинета), включаем его учёт
+    в автоакциях. Цену товара не меняем; стоящий min_price выше нашего не снижаем. «Стоп» — не выставляем. → (выставлено, ошибки)."""
+    import mp_calc
+    if rules()["stop"]:
+        return 0, ["нажат «Стоп»"]
+    items, cursor = [], ""
+    for _ in range(20):
+        r = ch.call("/v5/product/info/prices", {"filter": {"visibility": "ALL"}, "cursor": cursor, "limit": 1000})
+        res = r if r.get("items") is not None else ch.res(r)
+        items += res.get("items") or []
+        cursor = res.get("cursor") or ""
+        if not cursor or len(res.get("items") or []) < 1000:
+            break
+    rows, errors = [], []
+    for it in items:
+        offer, pr = str(it.get("offer_id") or ""), it.get("price") or {}
+        cur = str(pr.get("currency_code") or "KZT").upper()
+        price = float(pr.get("price") or 0)
+        if not offer or price <= 0:
+            continue
+        try:
+            pid, _ = ms_match(ch, offer)
+            if not pid:
+                continue
+            rate = 1.0 if cur in ("KZT", "398") else (mp_calc.to_kzt(1, cur)[0] or 0)
+            if not rate:
+                raise ValueError(f"нет курса {cur}")
+            lower, _, err = min_price_for(ch, pid, price * rate, GUARD_MARGIN)
+            if err:
+                raise ValueError(err)
+            target = round(lower / rate, 2 if cur not in ("KZT", "398") else 0)
+            if float(pr.get("min_price") or 0) >= target:
+                continue
+            row = {"offer_id": offer, "currency_code": cur, "price": str(pr.get("price")), "min_price": f"{target:g}",
+                   "min_price_for_auto_actions_enabled": True}
+            if float(pr.get("old_price") or 0) > price:
+                row["old_price"] = str(pr.get("old_price"))
+            rows.append(row)
+        except Exception as e:
+            errors.append(f"{offer}: {str(e)[:80]}")
+    done = 0
+    for k in range(0, len(rows), 100):
+        r = ch.call("/v1/product/import/prices", {"prices": rows[k:k + 100]})
+        for x in r.get("result") or ch.res(r).get("result") or []:
+            if x.get("updated"):
+                done += 1
+            else:
+                errors.append(f"{x.get('offer_id')}: {str(x.get('errors'))[:80]}")
+    return done, errors
+
+
+def guard_all():
+    """Все магазины Ozon: ограничение для акций по марже 10 % — одной сводкой владельцу."""
+    total, errs, names = 0, [], []
+    for ch in mpk.channels():
+        if not isinstance(ch, mpk.Ozon):
+            continue
+        try:
+            n, e = oz_guard(ch)
+        except Exception as ex:
+            n, e = 0, [str(getattr(ex, "message", ex))[:200]]
+        total += n
+        errs += [f"{ch.title}: {x}" for x in e[:5]]
+        if n:
+            names.append(f"{ch.title} — {n}")
+    print("Ограничение для акций Ozon:", total, "; ".join(errs)[:500], flush=True)
+    if total and oh.OWNER:
+        text = (f"🛡 Ограничение для акций выставлено: {total} товаров ({', '.join(names)}) — минимальная цена для маржи "
+                f"{GUARD_MARGIN:g} %, ниже неё Ozon не добавит товар в акции." + (f"\nНе удалось: {len(errs)}" if errs else ""))
+        oh.notify_bg(lambda: oh.tg("sendMessage", chat_id=oh.OWNER, text=text))
+    return total
+
+
 def recheck_first_prices():
     """Заявки wb_price, ждущие «Да», ещё раз по правилу первой цены (после смены правила) — подходящие выполняем. → сколько."""
     with db() as d:
@@ -1828,6 +1905,7 @@ def _digest_loop():
         time.sleep(90)                       # после деплоя: ждущие первые цены WB — по новому правилу
         if modules.enabled("agent"):
             print("Цены выполнены по правилу (первая цена, подтяжка до 15 %):", recheck_first_prices(), flush=True)
+            guard_all()
     except Exception as e:
         print("Первые цены WB:", str(e)[:200], flush=True)
     while True:
@@ -1840,6 +1918,10 @@ def _digest_loop():
                 with inbox.db() as d:
                     inbox.set_setting(d, "agent_recheck_day", day)
                 recheck_corridors()
+                try:
+                    guard_all()                      # новые карточки Ozon — ограничение для акций раз в сутки
+                except Exception as e:
+                    print("Ограничение для акций:", str(e)[:200], flush=True)
                 try:
                     floor_watch()
                 except Exception as e:
