@@ -149,6 +149,9 @@ def cost_override(pid):
 
 
 # ---------- товар МойСклад ----------
+USD_GUESS = 100                                         # закупка меньше 100 ₸ — на деле доллары, внесённые без валюты
+
+
 def product(pid):
     """Товар МойСклад: название, код и закупка в тенге (своя себестоимость владельца — важнее)."""
     def load():
@@ -160,6 +163,9 @@ def product(pid):
     own = cost_override(pid)
     if own is not None:
         cost, note = own, "себестоимость задана вручную"
+    elif raw and raw < USD_GUESS and iso == "KZT":     # закупка записана числом в долларах без валюты (слово владельца 03.11.2026)
+        cost, note = to_kzt(raw, "USD", side="sell")
+        note = f"закупка {raw:g} без валюты — считаем как USD по курсу МиГ" + (f", {note}" if note else "")
     elif raw:
         cost, note = to_kzt(raw, iso, cur.get("rate"), side="sell")
         note = f"закупка МойСклад {raw:g} {iso}" + (f", {note}" if note else "")
