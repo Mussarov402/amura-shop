@@ -1473,8 +1473,8 @@ def corridor(ch, ident):
     return dict(row, disc=disc, shop=ch.key, ident=ident, last_change=old.get("last_change") or 0)
 
 
-WB_ASSUME = {"acquiring": 2.5, "processing": 0}   # % от цены и ₸ за штуку — оценка менеджера WB/Ozon 03.11.2026, не из договора
-WB_ASSUME_NOTE = "эквайринг 2,5 %, приёмка FBS 0 ₸ (оценка менеджера, не из договора)"
+WB_ASSUME = {"acquiring": 2.5, "processing": 150}  # % от цены и ₸ за штуку — допущения владельца от 03.11.2026 (до первых продаж)
+WB_ASSUME_NOTE = "эквайринг 2,5 %, приёмка и обработка 150 ₸ (допущения владельца от 03.11.2026)"
 FIRST_MARGIN = 10.0     # первая цена новой карточки WB — сразу, если не ниже цены для маржи 10 % (слово владельца 03.11.2026)
 
 
