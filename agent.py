@@ -1332,21 +1332,32 @@ def recheck_first_prices():
     """Заявки wb_price, ждущие «Да», ещё раз по правилу первой цены (после смены правила) — подходящие выполняем. → сколько."""
     with db() as d:
         rs = d.run("SELECT id, shop, params FROM agent_req WHERE status='new' AND kind='wb_price' ORDER BY id", many=True) or []
-    done = 0
+    done, why_count = 0, {}
     for rid, key, raw in rs:
         ch = shop(key, mpk.WB)
         if not ch:
             continue
         try:
-            ok, why = wb_first_price(ch, json.loads(raw))
+            p = json.loads(raw)
+            ok, why = wb_first_price(ch, p)
+            if not ok and not why:
+                r = rules()
+                why = ("нажат «Стоп»" if r["stop"] else "правило «Карточки» выключено" if not r["auto_cards"]
+                       else "цена уже стоит" if p.get("price") is not None and not float(p.get("discount") or 0) else "скидка или без цены")
         except Exception as e:
             print(f"Первая цена № {rid}:", str(e)[:200], flush=True)
             continue
+        if not ok:
+            short = why.split(":")[0][:80]
+            why_count[short] = why_count.get(short, 0) + 1
+            print(f"Первая цена № {rid} nmID {p.get('nmID')}: {why}", flush=True)
         if ok:
             with db() as d:
                 d.run("UPDATE agent_req SET summary=summary || %s WHERE id=%s AND status='new'", (f" ({why})", rid))
             execute(rid, "правило владельца")
             done += 1
+    if why_count:
+        print("Первые цены WB ждут «Да»:", "; ".join(f"{k} — {v}" for k, v in why_count.items()), flush=True)
     return done
 
 
