@@ -156,6 +156,50 @@ def cost_override(pid):
 USD_GUESS = 100                                         # закупка меньше 100 ₸ — на деле доллары, внесённые без валюты
 
 
+def last_supply(pid):
+    """Последняя проведённая приёмка товара — из зеркала МойСклад (без запросов к МС). → {number, date, cur, rate, unit_kzt}
+    или None. Цена позиции в зеркале — в тенге по курсу документа; со скидкой — сумма / количество."""
+    import mirror
+    if not mirror.enabled():
+        return None
+    with mirror.db() as d:
+        r = d.run("SELECT d.number, d.moment, d.cur, d.rate, l.qty, l.price, l.sum FROM ms_doc_line l JOIN ms_doc d ON d.id = l.doc_id "
+                  "WHERE d.type = 'supply' AND d.applicable = 1 AND COALESCE(d.deleted, 0) = 0 AND l.product_id = %s AND l.qty > 0 "
+                  "ORDER BY d.moment DESC LIMIT 1", (pid,), one=True)
+    if not r:
+        return None
+    number, moment, cur, rate, qty, price, total = r
+    unit = (total / qty) if qty and total else price
+    return {"number": number or "", "date": str(moment or "")[:10], "cur": (cur or "KZT").upper(), "rate": rate or 1.0,
+            "unit_kzt": float(unit or 0)}
+
+
+def _date_ru(iso):
+    try:
+        return datetime.strptime(iso[:10], "%Y-%m-%d").strftime("%d.%m.%Y")
+    except ValueError:
+        return iso
+
+
+def supply_cost(pid):
+    """Себестоимость по последней приёмке (слово владельца 03.11.2026: «бери из последних приёмок валюту документа»).
+    → (₸, пояснение) или (None, ""). Документ в тенге, а цена меньше 100 — это доллары, внесённые без валюты (как у карточки)."""
+    try:
+        s = oh.cached(f"mpc_supply:{pid}", 600, lambda: last_supply(pid) or {})
+    except Exception as e:
+        print("Приёмка для себестоимости:", str(e)[:150], flush=True)
+        return None, ""
+    if not s or not s.get("unit_kzt"):
+        return None, ""
+    where = f"приёмка №{s['number']} от {_date_ru(s['date'])}"
+    if s["cur"] in ("KZT", "398", "") and s["unit_kzt"] < USD_GUESS:
+        cost, note = to_kzt(s["unit_kzt"], "USD", side="sell")
+        return cost, f"{where}, {s['unit_kzt']:g} без валюты — считаем как USD по курсу МиГ" + (f", {note}" if note else "")
+    if s["cur"] in ("KZT", "398", ""):
+        return s["unit_kzt"], f"{where}, валюта KZT"
+    return s["unit_kzt"], f"{where}, валюта {s['cur']} по курсу документа {s['rate']:g}"
+
+
 def product(pid):
     """Товар МойСклад: название, код и закупка в тенге (своя себестоимость владельца — важнее)."""
     def load():
@@ -165,14 +209,17 @@ def product(pid):
     cur = bp.get("currency") or {}
     raw, iso = (bp.get("value") or 0) / 100, (cur.get("isoCode") or "KZT")
     own = cost_override(pid)
+    sup, sup_note = supply_cost(pid) if own is None else (None, "")
     if own is not None:
         cost, note = own, "себестоимость задана вручную"
+    elif sup is not None:
+        cost, note = sup, sup_note
     elif raw and raw < USD_GUESS and iso == "KZT":     # закупка записана числом в долларах без валюты (слово владельца 03.11.2026)
         cost, note = to_kzt(raw, "USD", side="sell")
-        note = f"закупка {raw:g} без валюты — считаем как USD по курсу МиГ" + (f", {note}" if note else "")
+        note = f"карточка МС: закупка {raw:g} без валюты — считаем как USD по курсу МиГ" + (f", {note}" if note else "")
     elif raw:
         cost, note = to_kzt(raw, iso, cur.get("rate"), side="sell")
-        note = f"закупка МойСклад {raw:g} {iso}" + (f", {note}" if note else "")
+        note = f"карточка МС: закупка {raw:g} {iso}" + (f", {note}" if note else "")
     else:
         cost, note = None, "в МойСклад нет закупочной цены"
     bars = [str(v) for b in p.get("barcodes") or [] for v in b.values() if v]

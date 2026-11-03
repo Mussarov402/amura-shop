@@ -605,3 +605,49 @@ class MinMargin(unittest.TestCase):
         self.assertEqual(mp_calc.settings()["margin"], 15.0)
         mpk.set_setting("mp_calc_margin", "20")
         self.assertEqual(mp_calc.settings()["margin"], 20.0)
+
+
+class SupplyCost(unittest.TestCase):
+    """Себестоимость — из последней проведённой приёмки, в валюте и по курсу документа; ручная — главнее; нет приёмок — карточка."""
+    def setUp(self):
+        import mirror
+        self.m = mirror
+        with mirror.db() as d:
+            d.run("DELETE FROM ms_doc WHERE id LIKE 'tsup%%'")
+            d.run("DELETE FROM ms_doc_line WHERE doc_id LIKE 'tsup%%'")
+        old = mirror.enabled
+        mirror.enabled = lambda: True
+        self.addCleanup(lambda: setattr(mirror, "enabled", old))
+        self.addCleanup(lambda: [oh._cache.pop(k, None) for k in list(oh._cache) if k.startswith(("mpc_supply:", "mpc_prod:"))])
+        oldms = oh.ms
+        oh.ms = lambda m, path, **k: {"name": "Товар", "code": "00890", "buyPrice": {"value": 450000, "currency": {"isoCode": "USD", "rate": 480}}}
+        self.addCleanup(lambda: setattr(oh, "ms", oldms))
+        old_get = mp_calc.requests.get
+        mp_calc.requests.get = lambda url, **k: type("R", (), {"text": MIG_HTML, "raise_for_status": lambda s: None})()
+        self.addCleanup(lambda: setattr(mp_calc.requests, "get", old_get))
+        oh._cache.pop("mig_rates", None)
+
+    def supply(self, did, number, moment, cur, rate, qty, price_kzt, pid="tp1"):
+        with self.m.db() as d:
+            d.run("INSERT INTO ms_doc (id, type, number, moment, applicable, deleted, cur, rate) VALUES (%s,'supply',%s,%s,1,0,%s,%s)",
+                  (did, number, moment, cur, rate))
+            d.run("INSERT INTO ms_doc_line (doc_id, pos_id, product_id, qty, price, discount, sum) VALUES (%s,'1',%s,%s,%s,0,%s)",
+                  (did, pid, qty, price_kzt, qty * price_kzt))
+
+    def test_sources(self):
+        p = mp_calc.product("tp1")                                                  # приёмок нет — карточка МС (4500 USD — ошибка карточки)
+        self.assertIn("карточка МС", p["costNote"])
+        self.supply("tsup1", "00240", "2026-10-01 10:00:00", "USD", 470.0, 10, 12.5 * 470)
+        self.supply("tsup2", "00250", "2026-10-20 10:00:00", "", 1.0, 5, 4500.0)
+        oh._cache.clear()
+        p = mp_calc.product("tp1")
+        self.assertEqual((p["cost"], p["costNote"]), (4500, "приёмка №00250 от 20.10.2026, валюта KZT"))   # последняя, в тенге
+        self.supply("tsup3", "00246", "2026-10-25 10:00:00", "", 1.0, 3, 12.51)    # $ записаны как ₸
+        oh._cache.clear()
+        p = mp_calc.product("tp1")
+        self.assertEqual(p["cost"], round(12.51 * 480))
+        self.assertIn("приёмка №00246 от 25.10.2026, 12.51 без валюты — считаем как USD по курсу МиГ", p["costNote"])
+        self.supply("tsup4", "00260", "2026-10-30 10:00:00", "USD", 475.0, 2, 12.0 * 475)
+        oh._cache.clear()
+        p = mp_calc.product("tp1")
+        self.assertEqual((p["cost"], p["costNote"]), (5700, "приёмка №00260 от 30.10.2026, валюта USD по курсу документа 475"))
