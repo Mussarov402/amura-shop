@@ -2001,6 +2001,14 @@ def _digest_loop():
         time.sleep(90)                       # после деплоя: ждущие первые цены WB — по новому правилу
         if modules.enabled("agent"):
             pack_default()
+            try:                                     # проверка себестоимости по приёмкам (Хиро, 03.11.2026) — в журнал
+                import mp_calc
+                for code in ("00890", "00988", "00615"):
+                    pid = next((i["id"] for i in oh.panel_catalog().values() if str(i.get("code")) == code), None)
+                    p = mp_calc.product(pid) if pid else {}
+                    print(f"Себестоимость {code}: {p.get('cost')} ₸ — {p.get('costNote', 'нет товара')}", flush=True)
+            except Exception as e:
+                print("Себестоимость, проверка:", str(e)[:150], flush=True)
             close_same()
             print("Цены выполнены по правилу (первая цена, подтяжка до 15 %):", recheck_first_prices(), flush=True)
             if not setting("agent_raise_all_v1", ""):                     # один раз: все карточки — к марже 15 % с упаковкой
