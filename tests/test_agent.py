@@ -54,6 +54,7 @@ class Agent(unittest.TestCase):
             raise AssertionError((method, path))
         self.patch(mpk.requests, "request", wb)
         self.patch(oh, "notify_bg", lambda fn: fn())
+        self.patch(agent, "ASK_EVERY", 0)                                          # в тестах сообщение «на согласование» — сразу
         self.patch(oh, "tg", lambda method, **k: self.tg.append(k.get("text")))
         import admin
         self.patch(admin, "who", lambda: {"role": "owner", "perms": []})
@@ -275,8 +276,10 @@ class PriceCorridor(unittest.TestCase):
     def test_first_price_no_sales_and_dedupe(self):
         """Продаж нет: эквайринг 2,5 % и приёмка 0 ₸ по допущению; повтор той же заявки — без новой заявки и сообщения."""
         self.price, self.nosales = 0.0, True
-        sent = []
+        sent, timers = [], []
         self.patch(agent.oh, "notify_bg", lambda fn: sent.append(1))
+        self.patch(agent, "ASK_EVERY", 600)
+        self.patch(agent.threading, "Timer", lambda t, fn: timers.append(fn) or type("T", (), {"start": lambda s: None, "daemon": True})())
         r = self.price_req(8000)                                                   # минимум 6000 / (1 − 0,2 − 0,025 − 0,1) = 8889
         self.assertEqual(r["status"], "new")
         rid = r["id"]
@@ -284,10 +287,25 @@ class PriceCorridor(unittest.TestCase):
         self.assertIn("минимум 8889 ₸; продаж ещё нет — эквайринг 2,5 %", items[0]["summary"])
         r2 = self.price_req(8100)
         self.assertEqual((r2["id"], r2["status"]), (rid, "new"))                     # та же заявка, обновлена
-        self.assertEqual(len(sent), 1)
+        self.price_req(8200, discount=5)                                           # другая заявка — в то же сводное сообщение
+        self.assertEqual((len(timers), len(sent)), (1, 0))
+        timers[0]()
+        self.assertEqual(len(sent), 1)                                              # одно сообщение на обе
         self.assertEqual(len([x for x in self.c.get("/agent/api/requests", headers=self.h).get_json()["items"] if x["status"] == "new"]), 1)
         r = self.price_req(8900)
         self.assertEqual((r["status"], r["auto"]), ("done", True))
+
+    def test_recheck_waiting_first_prices(self):
+        """После смены правила: ждущие «Да» первые цены, которые теперь проходят, выполняются; цена уже стоит — не трогаем."""
+        self.price, self.full = 0.0, False
+        self.assertEqual(self.price_req(15500)["status"], "new")                    # расчёт был неполный — ждёт «Да»
+        self.full = True
+        self.assertEqual(agent.recheck_first_prices(), 1)
+        self.assertEqual(self.uploads(), [{"data": [{"nmID": 244631445, "price": 15500}]}])
+        self.full = False
+        self.price_req(15600)
+        self.full, self.price = True, 15500.0
+        self.assertEqual(agent.recheck_first_prices(), 0)                            # цена уже стоит
 
     def test_corridor_and_auto(self):
         row = self.on()["row"]

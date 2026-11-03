@@ -1292,11 +1292,62 @@ def new_request(kind, ch, p, comment, text):
     if auto:
         status, res = execute(rid, "правило владельца")
         return rid, status, True, res
-    oh.notify_bg(lambda: oh.tg("sendMessage", chat_id=oh.OWNER,
-                               text=f"🧑‍💼 Менеджер WB/Ozon просит согласовать (№ {rid}):\n{text}"
-                                    + (f"\nКомментарий: {comment}" if comment else "")
-                                    + "\n\nСистема AMURA → Заказы → На согласование"))
+    ask_owner(rid, text, comment)
     return rid, "new", False, None
+
+
+ASK_EVERY = 600                       # заявки на «Да» — одним сообщением раз в 10 минут (владелец 03.11.2026: «убери это, мешает»)
+_ask = {"items": [], "timer": None}
+_ask_lock = threading.Lock()
+
+
+def ask_owner(rid, text, comment=""):
+    with _ask_lock:
+        _ask["items"].append(f"№ {rid}: {text}" + (f" — {comment}" if comment else ""))
+        now = ASK_EVERY <= 0
+        if not now and _ask["timer"] is None:
+            _ask["timer"] = threading.Timer(ASK_EVERY, flush_asks)
+            _ask["timer"].daemon = True
+            _ask["timer"].start()
+    if now:
+        flush_asks()
+
+
+def flush_asks():
+    with _ask_lock:
+        items, _ask["items"], _ask["timer"] = _ask["items"], [], None
+    if not items:
+        return
+    with db() as d:                      # что уже решено или выполнено за эти минуты — не напоминаем
+        open_ = {r[0] for r in d.run("SELECT id FROM agent_req WHERE status='new'", many=True) or []}
+    items = [x for x in items if int(x.split(":", 1)[0][2:]) in open_]
+    if not items:
+        return
+    text = (f"🧑‍💼 Менеджер WB/Ozon просит согласовать ({len(items)}):\n" + "\n".join(x[:700] for x in items[:30])
+            + ("\n…" if len(items) > 30 else "") + "\n\nСистема AMURA → Заказы → На согласование")
+    oh.notify_bg(lambda: oh.tg("sendMessage", chat_id=oh.OWNER, text=text))
+
+
+def recheck_first_prices():
+    """Заявки wb_price, ждущие «Да», ещё раз по правилу первой цены (после смены правила) — подходящие выполняем. → сколько."""
+    with db() as d:
+        rs = d.run("SELECT id, shop, params FROM agent_req WHERE status='new' AND kind='wb_price' ORDER BY id", many=True) or []
+    done = 0
+    for rid, key, raw in rs:
+        ch = shop(key, mpk.WB)
+        if not ch:
+            continue
+        try:
+            ok, why = wb_first_price(ch, json.loads(raw))
+        except Exception as e:
+            print(f"Первая цена № {rid}:", str(e)[:200], flush=True)
+            continue
+        if ok:
+            with db() as d:
+                d.run("UPDATE agent_req SET summary=summary || %s WHERE id=%s AND status='new'", (f" ({why})", rid))
+            execute(rid, "правило владельца")
+            done += 1
+    return done
 
 
 COLS = "id, at, kind, shop, params, summary, comment, status, result, decided, who"
@@ -1672,6 +1723,12 @@ def digest(now=None):
 
 
 def _digest_loop():
+    try:
+        time.sleep(90)                       # после деплоя: ждущие первые цены WB — по новому правилу
+        if modules.enabled("agent"):
+            print("Первые цены WB выполнены по правилу:", recheck_first_prices(), flush=True)
+    except Exception as e:
+        print("Первые цены WB:", str(e)[:200], flush=True)
     while True:
         time.sleep(600)
         try:

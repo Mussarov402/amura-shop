@@ -283,11 +283,12 @@ def wb_rates(ch, pid):
     card = (mp["products"].get(ref) or {}) if ref else {}
     if not ref or not card.get("nm"):
         return {"error": "товара нет в кабинете WB (нет пары по штрихкоду или артикулу)"}
-    goods = (ch.req("GET", "discounts-prices", "/api/v2/list/goods/filter", params={"limit": 1, "filterNmID": card["nm"]})
-             .get("data") or {}).get("listGoods") or []
-    if not goods:
-        return {"error": NO_DATA}
-    g = goods[0]
+    try:
+        goods = (ch.req("GET", "discounts-prices", "/api/v2/list/goods/filter", params={"limit": 1, "filterNmID": card["nm"]})
+                 .get("data") or {}).get("listGoods") or []
+    except mpk.ApiError:
+        goods = []
+    g = goods[0] if goods else {"currencyIsoCode4217": "KZT"}   # новая карточка без цены — WB её в ценах ещё не показывает
     size = next((s for s in g.get("sizes") or [] if str(s.get("sizeID") or s.get("chrtID") or "") == str(ref)), (g.get("sizes") or [{}])[0])
     price = float(size.get("discountedPrice") or size.get("price") or 0)
     cur = str(g.get("currencyIsoCode4217") or "")
