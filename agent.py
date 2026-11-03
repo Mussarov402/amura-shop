@@ -1248,8 +1248,15 @@ def new_request(kind, ch, p, comment, text):
     """Заявка: по правилу — выполняем сразу; иначе — в «На согласование» и сообщение владельцу. → (№, статус, авто, ответ)."""
     why = ""
     try:
+        auto, why = False, ""
+        if kind == "wb_price":
+            try:
+                auto, why = wb_first_price(ch, p)
+            except Exception as e:                       # не проверили — дальше обычные правила, причина видна владельцу
+                print("Первая цена WB:", str(e)[:200], flush=True)
         if kind in PRICE_KINDS:
-            auto, why = price_auto(kind, ch, p)
+            if not auto and not why:
+                auto, why = price_auto(kind, ch, p)
         else:
             auto = auto_ok(kind, ch, p)
     except (mpk.ApiError, ValueError, KeyError) as e:
@@ -1382,6 +1389,32 @@ def corridor(ch, ident):
            "price": price, "margin": margin, "calc_at": time.time(), "note": note, "complete": 1 if (lower and not missing) else 0}
     corr_put(ch.key, ident, **row)
     return dict(row, disc=disc, shop=ch.key, ident=ident, last_change=old.get("last_change") or 0)
+
+
+FIRST_MARGIN = 10.0     # первая цена новой карточки WB — сразу, если не ниже цены для маржи 10 % (слово владельца 03.11.2026)
+
+
+def wb_first_price(ch, p):
+    """Первая цена новой карточки WB без «Да»: правило «Карточки» включено, в кабинете цены ещё нет (0), скидку не трогаем,
+    цена не ниже минимальной цены калькулятора для маржи 10 % и все строки расчёта есть. → (можно ли, почему)."""
+    r = rules()
+    if not r["auto_cards"] or r["stop"] or p.get("price") is None or float(p.get("discount") or 0):
+        return False, ""
+    nm = str(int(p["nmID"]))
+    if cur_price(ch, nm)[2] > 0:
+        return False, ""                                   # цена уже стоит — дальше обычные правила (коридор или «Да»)
+    import mp_calc
+    pid, _ = ms_match(ch, nm)
+    if not pid:
+        return False, "первая цена: товар не связан с МойСклад — через «Да»"
+    c = mp_calc.channel_calc(ch, pid, mp_calc.product(pid), dict(mp_calc.settings(), margin=FIRST_MARGIN), price_override=float(p["price"]))
+    lower = c.get("minPrice") if not c.get("error") else None
+    missing = [x["label"] for x in c.get("lines") or [] if x.get("sum") is None]
+    if not lower or missing:
+        return False, "первая цена: расчёт неполный (" + (c.get("error") or "нет строк: " + ", ".join(missing)) + ") — через «Да»"
+    if float(p["price"]) < lower:
+        return False, f"первая цена ниже маржи {FIRST_MARGIN:g} %: минимум {round(lower)} ₸ — через «Да»"
+    return True, f"первая цена новой карточки, не ниже маржи {FIRST_MARGIN:g} % (минимум {round(lower)} ₸)"
 
 
 def price_auto(kind, ch, p):
