@@ -142,6 +142,8 @@ class FakeWBTariffs:
         if "/api/v1/tariffs/box" in url:
             return Resp(200, {"response": {"data": {"currency": "RUB", "warehouseList": [
                 {"warehouseName": "Коледино", "geoName": "Центральный", "boxDeliveryMarketplaceBase": "80", "boxDeliveryMarketplaceLiter": "20"},
+                {"warehouseName": "Астана Карагандинское шоссе", "geoName": "Казахстан", "boxDeliveryMarketplaceBase": "60",
+                 "boxDeliveryMarketplaceLiter": "12"},
                 {"warehouseName": "Алматы Атакент", "geoName": "Казахстан", "boxDeliveryMarketplaceBase": "46,5",
                  "boxDeliveryMarketplaceLiter": "10"}]}}})
         if "/adv/v1/promotion/count" in url:
