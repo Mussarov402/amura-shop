@@ -1272,9 +1272,17 @@ def new_request(kind, ch, p, comment, text):
                 auto, why = wb_first_price(ch, p)
             except Exception as e:                       # не проверили — дальше обычные правила, причина видна владельцу
                 print("Первая цена WB:", str(e)[:200], flush=True)
+        raise_why = ""
+        if kind in PRICE_KINDS and not auto and not why:
+            try:
+                auto, raise_why = raise_to_min(kind, ch, p)
+                why = raise_why if auto else ""
+            except Exception as e:
+                print("Подтяжка цены:", str(e)[:200], flush=True)
         if kind in PRICE_KINDS:
             if not auto and not why:
-                auto, why = price_auto(kind, ch, p)
+                auto, why = price_auto(kind, ch, p)       # не подошло под подтяжку — коридор
+                why = why or raise_why
         else:
             auto = auto_ok(kind, ch, p)
     except (mpk.ApiError, ValueError, KeyError) as e:
@@ -1294,6 +1302,8 @@ def new_request(kind, ch, p, comment, text):
                     (time.time(), kind, ch.key, json.dumps(p, ensure_ascii=False), text, comment[:1000]), ins=True)
     if auto:
         status, res = execute(rid, "правило владельца")
+        if status == "done" and why.startswith("подтяжка"):
+            raised(why)
         return rid, status, True, res
     ask_owner(rid, text, comment)
     return rid, "new", False, None
@@ -1316,6 +1326,32 @@ def ask_owner(rid, text, comment=""):
         flush_asks()
 
 
+_raise = {"items": [], "timer": None}
+
+
+def raised(why):
+    """Поднятые цены — одной сводкой владельцу раз в 10 минут: товар, было → стало."""
+    with _ask_lock:
+        _raise["items"].append(why.split(": ", 1)[-1])
+        now = ASK_EVERY <= 0
+        if not now and _raise["timer"] is None:
+            _raise["timer"] = threading.Timer(ASK_EVERY, flush_raised)
+            _raise["timer"].daemon = True
+            _raise["timer"].start()
+    if now:
+        flush_raised()
+
+
+def flush_raised():
+    with _ask_lock:
+        items, _raise["items"], _raise["timer"] = _raise["items"], [], None
+    if not items:
+        return
+    text = (f"📈 Подняли цены до маржи 15 % ({len(items)}):\n" + "\n".join(x[:300] for x in items[:40])
+            + ("\n…" if len(items) > 40 else "") + "\n\nОстановить: Заказы → На согласование → «Стоп»")
+    oh.notify_bg(lambda: oh.tg("sendMessage", chat_id=oh.OWNER, text=text))
+
+
 def flush_asks():
     with _ask_lock:
         items, _ask["items"], _ask["timer"] = _ask["items"], [], None
@@ -1334,15 +1370,18 @@ def flush_asks():
 def recheck_first_prices():
     """Заявки wb_price, ждущие «Да», ещё раз по правилу первой цены (после смены правила) — подходящие выполняем. → сколько."""
     with db() as d:
-        rs = d.run("SELECT id, shop, params FROM agent_req WHERE status='new' AND kind='wb_price' ORDER BY id", many=True) or []
+        rs = d.run("SELECT id, shop, params, kind FROM agent_req WHERE status='new' AND kind IN ('wb_price', 'ozon_price') ORDER BY id",
+                   many=True) or []
     done, why_count = 0, {}
-    for rid, key, raw in rs:
-        ch = shop(key, mpk.WB)
+    for rid, key, raw, kind in rs:
+        ch = shop(key, mpk.WB if kind == "wb_price" else mpk.Ozon)
         if not ch:
             continue
         try:
             p = json.loads(raw)
-            ok, why = wb_first_price(ch, p)
+            ok, why = wb_first_price(ch, p) if kind == "wb_price" else (False, "")
+            if not ok and not why:
+                ok, why = raise_to_min(kind, ch, p)
             if not ok and not why:
                 r = rules()
                 why = ("нажат «Стоп»" if r["stop"] else "правило «Карточки» выключено" if not r["auto_cards"]
@@ -1353,14 +1392,15 @@ def recheck_first_prices():
         if not ok:
             short = why.split(":")[0][:80]
             why_count[short] = why_count.get(short, 0) + 1
-            print(f"Первая цена № {rid} nmID {p.get('nmID')}: {why}", flush=True)
+            print(f"Цена № {rid} {p.get('nmID') or p.get('offer_id')}: {why}", flush=True)
         if ok:
             with db() as d:
                 d.run("UPDATE agent_req SET summary=summary || %s WHERE id=%s AND status='new'", (f" ({why})", rid))
-            execute(rid, "правило владельца")
+            if execute(rid, "правило владельца")[0] == "done" and why.startswith("подтяжка"):
+                raised(why)
             done += 1
     if why_count:
-        print("Первые цены WB ждут «Да»:", "; ".join(f"{k} — {v}" for k, v in why_count.items()), flush=True)
+        print("Цены ждут «Да»:", "; ".join(f"{k} — {v}" for k, v in why_count.items()), flush=True)
     return done
 
 
@@ -1492,6 +1532,68 @@ WB_ASSUME_NOTE = "эквайринг 2,5 %, приёмка и обработка
 FIRST_MARGIN = 15.0     # первая цена новой карточки WB — сразу, если не ниже цены для маржи 15 % (минимальная маржа маркетплейсов, mp_calc.MIN_MARGIN)
 
 
+def min_price_for(ch, pid, price, margin):
+    """Минимальная цена для покупателя, ₸, для маржи margin по калькулятору → (минимум, пояснение, ошибка).
+    WB без продаж: эквайринг и приёмка — по допущениям владельца (WB_ASSUME); других пустых строк быть не должно."""
+    import mp_calc
+    c = mp_calc.channel_calc(ch, pid, mp_calc.product(pid), dict(mp_calc.settings(), margin=margin), price_override=price)
+    if c.get("error"):
+        return None, "", c["error"]
+    lower, note = c.get("minPrice"), ""
+    gaps = {x["key"] for x in c.get("lines") or [] if x.get("sum") is None}
+    if gaps and isinstance(ch, mpk.WB) and gaps <= set(WB_ASSUME):    # продаж ещё нет — приёмка и эквайринг по допущению
+        known_pct = sum(x["pct"] for x in c["lines"] if x.get("pct") is not None and x.get("sum") is not None)
+        fixed = sum(x["sum"] for x in c["lines"] if x.get("pct") is None and x.get("sum") is not None)
+        known_pct += WB_ASSUME["acquiring"] if "acquiring" in gaps else 0
+        fixed += WB_ASSUME["processing"] if "processing" in gaps else 0
+        den = 1 - (known_pct + margin) / 100
+        lower = round(fixed / den) if den > 0 else None
+        note = f"; продаж ещё нет — {WB_ASSUME_NOTE}"
+        gaps = set()
+    if gaps:
+        return None, "", "нет строк: " + ", ".join(x["label"] for x in c["lines"] if x["key"] in gaps)
+    if not lower:
+        return None, "", "минимальная цена не посчитана"
+    return lower, note, ""
+
+
+RAISE_SLACK = 100       # подтяжка до минимума для маржи 15 % — не выше минимума больше чем на 100 ₸ (слово владельца 03.11.2026)
+
+
+def raise_to_min(kind, ch, p):
+    """«Сам подними без моего да все карточки на 15% маржи» (владелец 03.11.2026): WB и Ozon KZ, только повышение,
+    новая цена для покупателя не выше минимума для маржи 15 % + 100 ₸, скидку и автоакции не трогаем; «Стоп» выключает.
+    → (можно ли, почему); ("", "") — правило к заявке не относится."""
+    import mp_calc
+    if rules()["stop"] or p.get("price") is None:
+        return False, ""
+    if kind == "wb_price":
+        if not isinstance(ch, mpk.WB) or p.get("discount") is not None:
+            return False, ""
+    elif ch.key not in AUTO_OZ_CREATE or p.get("min_price") is not None or any(p.get(k) for k in OZ_AUTO):
+        return False, ""
+    ident = ident_of(kind, p)
+    buyer, disc, full = cur_price(ch, ident)
+    if not full:
+        return False, ""                                   # цены ещё нет — это первая цена, у неё своё правило
+    if kind == "wb_price":
+        new = float(p["price"]) * (1 - disc / 100)
+    else:
+        new = float(p["price"]) if not p.get("currency_code") else (mp_calc.to_kzt(float(p["price"]), p["currency_code"])[0] or 0)
+    if new <= buyer:
+        return False, ""                                   # не повышение
+    pid, _ = ms_match(ch, ident)
+    if not pid:
+        return False, "подтяжка до маржи 15 %: товар не связан с МойСклад — через «Да»"
+    lower, note, err = min_price_for(ch, pid, new, mp_calc.MIN_MARGIN)
+    if err:
+        return False, f"подтяжка до маржи 15 %: расчёт неполный ({err}) — через «Да»"
+    if new > lower + RAISE_SLACK:
+        return False, f"выше минимума для маржи 15 % ({round(lower)} ₸) больше чем на {RAISE_SLACK} ₸ — через «Да»"
+    name = mp_calc.product(pid).get("name") or ident
+    return True, f"подтяжка до маржи 15 %: {name} — было {round(buyer)} ₸ → стало {round(new)} ₸ (минимум {round(lower)} ₸{note})"
+
+
 def wb_first_price(ch, p):
     """Первая цена новой карточки WB без «Да»: правило «Карточки» включено, в кабинете цены ещё нет (0), скидку не трогаем,
     цена не ниже минимальной цены калькулятора для маржи 15 % и все строки расчёта есть. → (можно ли, почему)."""
@@ -1505,24 +1607,9 @@ def wb_first_price(ch, p):
     pid, _ = ms_match(ch, nm)
     if not pid:
         return False, "первая цена: товар не связан с МойСклад — через «Да»"
-    c = mp_calc.channel_calc(ch, pid, mp_calc.product(pid), dict(mp_calc.settings(), margin=FIRST_MARGIN), price_override=float(p["price"]))
-    lower = c.get("minPrice") if not c.get("error") else None
-    note = ""
-    gaps = {x["key"] for x in c.get("lines") or [] if x.get("sum") is None}
-    if not c.get("error") and gaps and gaps <= set(WB_ASSUME):    # продаж ещё нет — приёмка и эквайринг по допущению
-        known_pct = sum(x["pct"] for x in c["lines"] if x.get("pct") is not None and x.get("sum") is not None)
-        fixed = sum(x["sum"] for x in c["lines"] if x.get("pct") is None and x.get("sum") is not None)
-        known_pct += WB_ASSUME["acquiring"] if "acquiring" in gaps else 0
-        fixed += WB_ASSUME["processing"] if "processing" in gaps else 0
-        den = 1 - (known_pct + FIRST_MARGIN) / 100
-        lower = round(fixed / den) if den > 0 else None
-        note = f"; продаж ещё нет — {WB_ASSUME_NOTE}"
-        for x in c["lines"]:
-            if x["key"] in gaps:
-                x["sum"] = 0
-    missing = [x["label"] for x in c.get("lines") or [] if x.get("sum") is None]
-    if not lower or missing:
-        return False, "первая цена: расчёт неполный (" + (c.get("error") or "нет строк: " + ", ".join(missing)) + ") — через «Да»"
+    lower, note, err = min_price_for(ch, pid, float(p["price"]), FIRST_MARGIN)
+    if err:
+        return False, f"первая цена: расчёт неполный ({err}) — через «Да»"
     if float(p["price"]) < lower:
         return False, f"первая цена ниже маржи {FIRST_MARGIN:g} %: минимум {round(lower)} ₸{note} — через «Да»"
     return True, f"первая цена новой карточки, не ниже маржи {FIRST_MARGIN:g} % (минимум {round(lower)} ₸{note})"
@@ -1740,7 +1827,7 @@ def _digest_loop():
     try:
         time.sleep(90)                       # после деплоя: ждущие первые цены WB — по новому правилу
         if modules.enabled("agent"):
-            print("Первые цены WB выполнены по правилу:", recheck_first_prices(), flush=True)
+            print("Цены выполнены по правилу (первая цена, подтяжка до 15 %):", recheck_first_prices(), flush=True)
     except Exception as e:
         print("Первые цены WB:", str(e)[:200], flush=True)
     while True:
