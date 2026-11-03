@@ -126,6 +126,8 @@ READ = {
         "warehouses": ("GET", "marketplace", "/api/v3/warehouses", [], "склады продавца"),
         "stocks": ("POST", "marketplace", "/api/v3/stocks/{warehouseId}", ["warehouseId", "chrtIds"], "остатки на складе FBS по chrtId"),
         "cards": ("POST", "content", "/content/v2/get/cards/list", ["settings"], "карточки (Content API)"),
+        "subjects": ("GET", "content", "/content/v2/object/all", ["name", "limit", "offset", "parentID", "locale"], "предметы (поиск по названию)"),
+        "brands": ("GET", "content", "/api/content/v1/brands", ["subjectId", "next"], "бренды предмета (по subjectId, пагинация next)"),
         "charcs": ("GET", "content", "/content/v2/object/charcs/{subjectId}", ["subjectId", "locale"], "характеристики предмета (справочник)"),
         "card_errors": ("POST", "content", "/content/v2/cards/error/list", ["cursor", "order"], "ошибки создания и правки карточек"),
         "cards_trash": ("POST", "content", "/content/v2/get/cards/trash", ["settings"], "карточки в корзине"),
