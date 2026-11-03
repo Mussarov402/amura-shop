@@ -1073,3 +1073,27 @@ class OzonGuard(unittest.TestCase):
                                "min_price_for_auto_actions_enabled": True})   # b — свой минимум выше, c — нет в МойСклад
         self.c.post("/admin/api/agent/rules", json={"stop": True})
         self.assertEqual(agent.oz_guard(self.ch)[0], 0)
+
+
+class AlreadySet(unittest.TestCase):
+    """Цена уже стоит в кабинете: «Да» — не ошибка, а «выполнено (уже стоит)»; висящие такие заявки закрываются сами."""
+    patch = tm.Channels.patch
+
+    def setUp(self):
+        PriceCorridor.setUp(self)
+
+    def test_close_same_and_already_set(self):
+        self.price = 0.0
+        self.c.post("/admin/api/agent/rules", json={"stop": True})               # чтобы заявка осталась «new»
+        a = PriceCorridor.price_req(self, 18000, discount=5)["id"]
+        self.price = 17000.0
+        self.assertEqual(agent.close_same(), 0)                                  # в кабинете другая цена — не трогаем
+        PriceCorridor.price_req(self, 17000)                                     # обновила ту же заявку: теперь 17000 без скидки
+        self.assertEqual(agent.close_same(), 1)
+        x = {x["id"]: x for x in self.c.get("/agent/api/requests", headers=self.h).get_json()["items"]}[a]
+        self.assertEqual((x["status"], x["who"]), ("done", "система (уже стоит)"))
+        b = PriceCorridor.price_req(self, 18000)["id"]
+        self.patch(mpk.requests, "request", lambda *a, **k: tm.Resp(400, {"errorText": "Specified prices and discounts are already set"}))
+        st, res = agent.execute(b, "владелец")
+        self.assertEqual(st, "done")
+        self.assertIn("уже стоит", res["note"])
