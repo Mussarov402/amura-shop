@@ -1338,8 +1338,17 @@ def price_changed(key, ident):
 
 
 def ms_match(ch, ident):
-    """Товар площадки → (id товара МойСклад, ключи для первой продажи: nmID / SKU Ozon)."""
-    mp = mpk.mapping(ch)
+    """Товар площадки → (id товара МойСклад, ключи для первой продажи: nmID / SKU Ozon).
+    Товара нет в сопоставлении, а ему больше 2 минут — пересобираем один раз (карточку могли только что создать)."""
+    pid, keys = _ms_match(ch, mpk.mapping(ch), ident)
+    v = oh._cache.get(f"mp_map_{ch.key}")
+    if not pid and v and time.time() - v[0] > 120:
+        oh._cache.pop(f"mp_map_{ch.key}", None)
+        pid, keys = _ms_match(ch, mpk.mapping(ch), ident)
+    return pid, keys
+
+
+def _ms_match(ch, mp, ident):
     if isinstance(ch, mpk.WB):
         ref = next((r for r, x in mp["products"].items() if str(x.get("nm")) == ident), None)
         return (mp["ref"].get(ref) if ref else None), [ident]

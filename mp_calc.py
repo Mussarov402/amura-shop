@@ -177,13 +177,25 @@ def search(q):
     rows = [i for i in mpk._catalog().values()
             if q in " ".join(str(i.get(k) or "") for k in ("name", "code", "article", "barcode")).lower()]
     rows.sort(key=lambda i: (str(i.get("code") or "").lower() != q, i.get("name", "")))
-    return [{"id": i["id"], "name": i.get("name", ""), "code": i.get("code", "")} for i in rows[:20]]
+    out = [{"id": i["id"], "name": i.get("name", ""), "code": i.get("code", "")} for i in rows[:20]]
+    if not out:                                        # товара нет в каталоге (нет в наличии) — точный код в МойСклад
+        mid = mpk.ms_by_codes([q]).get(q)
+        if mid:
+            p = product(mid)
+            out = [{"id": mid, "name": p["name"], "code": p["code"]}]
+    return out
 
 
 # ---------- ставки из кабинетов ----------
 def _ref_for(ch, pid):
     mp = mpk.mapping(ch)
-    return next((ref for ref, mid in mp["ref"].items() if mid == pid), None), mp
+    ref = next((ref for ref, mid in mp["ref"].items() if mid == pid), None)
+    v = oh._cache.get(f"mp_map_{ch.key}")
+    if not ref and v and time.time() - v[0] > 120:     # карточку могли только что создать — пересобираем сопоставление один раз
+        oh._cache.pop(f"mp_map_{ch.key}", None)
+        mp = mpk.mapping(ch)
+        ref = next((ref for ref, mid in mp["ref"].items() if mid == pid), None)
+    return ref, mp
 
 
 def today():

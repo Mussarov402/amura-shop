@@ -429,6 +429,29 @@ def _catalog():
     return oh.panel_catalog()
 
 
+def ms_by_codes(codes):
+    """Товары МойСклад по коду или артикулу — для тех, кого нет в каталоге системы (в выгрузку попадают только товары
+    в наличии: новинка без остатка карточку WB/Ozon иначе не находит). → {код в нижнем регистре: id}. Пачками по 40."""
+    codes = sorted({str(c).strip() for c in codes if str(c or "").strip()})[:400]
+    out = {}
+    for k in range(0, len(codes), 40):
+        part = codes[k:k + 40]
+        for field in ("code", "article"):
+            try:
+                rows = oh.ms("GET", "/entity/product", params={"filter": ";".join(f"{field}={c}" for c in part), "limit": 100},
+                             timeout=12).get("rows") or []
+            except Exception as e:
+                print("Товары МойСклад по коду:", str(e)[:200], flush=True)
+                return out
+            for r in rows:
+                if r.get("archived"):
+                    continue
+                for c in (r.get("code"), r.get("article")):
+                    if c:
+                        out.setdefault(str(c).strip().lower(), r["id"])
+    return out
+
+
 def mapping(ch):
     """ref товара маркетплейса → id товара МойСклад (+ по артикулу продавца). Не нашли — «без пары»."""
     def build():
@@ -448,7 +471,18 @@ def mapping(ch):
                 ref2ms[ref] = mid
                 offer2ms[x["offer"]] = mid
             elif not x["archived"]:
-                lost.append({"offer": x["offer"], "name": x["name"]})
+                lost.append({"offer": x["offer"], "name": x["name"], "ref": ref})
+        if lost:                                       # новинки без остатка — ищем в МойСклад по артикулу продавца
+            extra = ms_by_codes(l["offer"] for l in lost)
+            for l in list(lost):
+                mid = extra.get(l["offer"].strip().lower())
+                if mid:
+                    ref2ms[l["ref"]] = mid
+                    offer2ms[l["offer"]] = mid
+                    by_code.setdefault(l["offer"].strip().lower(), mid)
+                    lost.remove(l)
+        for l in lost:
+            l.pop("ref", None)
         return {"ref": ref2ms, "offer": offer2ms, "products": prods, "lost": lost, "by_bar": by_bar, "by_code": by_code}
     return oh.cached(f"mp_map_{ch.key}", MAP_TTL, build)
 

@@ -345,3 +345,31 @@ class Shops(Channels):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NewCardMatch(Channels):
+    """Новинка без остатка (её нет в каталоге системы) — пару в МойСклад находим по артикулу продавца = код МойСклад."""
+    def test_lost_found_by_code(self):
+        base_wb, base_ms, asked = self.wb.__call__, oh.ms, []
+
+        def wb(method, url, params=None, json=None, headers=None, timeout=None):
+            if url.endswith("/content/v2/get/cards/list"):
+                return Resp(200, {"cards": [{"nmID": 1, "vendorCode": "00615", "sizes": [{"chrtID": 501, "skus": ["8809640738135"]}]},
+                                            {"nmID": 2108886052, "vendorCode": "00229", "sizes": [{"chrtID": 777, "skus": ["8800000000001"]}]}],
+                                  "cursor": {"total": 2}})
+            return base_wb(method, url, params=params, json=json, headers=headers, timeout=timeout)
+
+        def ms(method, path, **kw):
+            if path == "/entity/product":
+                asked.append(kw["params"]["filter"])
+                return {"rows": [{"id": "ms-229", "code": "00229"}] if "code=00229" in kw["params"]["filter"] else []}
+            return base_ms(method, path, **kw)
+        self.patch(mpk.requests, "request", wb)
+        self.patch(oh, "ms", ms)
+        ch = mpk.CHANNELS["wb"]
+        mp = mpk.mapping(ch)
+        self.assertEqual(mp["ref"]["777"], "ms-229")
+        self.assertEqual(mp["lost"], [])
+        self.assertEqual(asked, ["code=00229", "article=00229"])
+        import agent
+        self.assertEqual(agent.ms_match(ch, "2108886052")[0], "ms-229")
