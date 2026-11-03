@@ -292,7 +292,7 @@ form.co{display:grid;gap:12px;padding-top:6px}
 .specs td{padding:7px 0;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums;word-break:break-word}
 .sheet>.x{position:absolute;right:12px;top:12px;z-index:2}
 .ck{position:fixed;left:50%;bottom:calc(92px + max(8px,calc(env(safe-area-inset-bottom,0px) - 12px)));transform:translateX(-50%);width:min(560px,calc(100% - 32px));background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:14px;box-shadow:0 8px 28px rgba(8,25,18,.18);padding:14px 16px;z-index:55;font-size:13.5px;line-height:1.45}
-.ck[hidden]{display:none}.ck p{margin:0 0 10px}.ck a{color:var(--green-3)}.ck .row{display:flex;gap:8px}.ck .btn{padding:10px 14px}
+.ck[hidden]{display:none}.ck p{margin:0 0 10px}.ck a{color:var(--green-3)}.ck .row{display:flex;gap:8px}.ck .btn{padding:10px 14px;flex:1 1 0;min-width:0;font-weight:700}   /* обе кнопки одного размера и веса */
 .cklink{display:block;margin:18px auto 0;background:none;border:0;color:var(--muted);font-size:12.5px;text-decoration:underline;cursor:pointer}
 .toast{position:fixed;left:50%;bottom:calc(92px + max(8px,calc(env(safe-area-inset-bottom,0px) - 12px)));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:12px;font-weight:600;z-index:60;display:none;max-width:calc(100% - 32px);text-align:center}
 .demo{background:var(--brass);color:#1b1408;text-align:center;font-size:13px;font-weight:700;padding:6px 16px}
@@ -1891,7 +1891,7 @@ var OPT_OK = { cart: false, auth: false };
 function okHTML(id, on){
   if(RETAIL) return "";
   const u = "https://amura.kz/shop/legal/";
-  return `<label class="coop-ok"><input type="checkbox" id="${id}" ${on ? "checked" : ""}><span>Я принимаю условия <a href="${u}offer.html" target="_blank" rel="noopener">оферты</a> и согласен на обработку моих персональных данных, в том числе на их передачу за пределы Казахстана нашим подрядчикам — МойСклад (Россия), OpenAI (США), Meta (WhatsApp, Instagram), Telegram — по <a href="${u}privacy.html" target="_blank" rel="noopener">Политике конфиденциальности</a>.<small id="${id}H" ${on ? "hidden" : ""}>Отметьте галочку, чтобы продолжить</small></span></label>`;
+  return `<label class="coop-ok"><input type="checkbox" id="${id}" ${on ? "checked" : ""}><span>Принимаю <a href="${u}offer.html" target="_blank" rel="noopener">условия оферты</a> и согласен на обработку персональных данных, в том числе их передачу за рубеж, по <a href="${u}privacy.html" target="_blank" rel="noopener">Политике конфиденциальности</a><small id="${id}H" ${on ? "hidden" : ""}>Отметьте галочку, чтобы продолжить</small></span></label>`;
 }
 function okBind(id, key, btns, errSel){
   const box = $("#" + id); if(!box) return;
@@ -2028,8 +2028,8 @@ const PX = (() => {
   function ev(name, p, eventID){ if(!loaded) return; try{ fbq("track", name, { ...(p || {}), site }, eventID ? { eventID: String(eventID) } : {}); }catch{} }
   const box = document.createElement("div");
   box.className = "ck"; box.id = "cookieBox"; box.hidden = true; box.setAttribute("role", "dialog"); box.setAttribute("aria-label", "Cookie");
-  box.innerHTML = `<p>Мы используем cookie и пиксель Meta для статистики и рекламы. Это передаёт сведения о ваших действиях на сайте и IP-адрес компании Meta (в том числе в США). Без вашего согласия пиксель не подключается. Подробнее — в <a href="${RETAIL ? "/shop/legal/" : "https://amura.kz/shop/legal/"}privacy.html" target="_blank" rel="noopener">Политике конфиденциальности</a>.</p>
-    <div class="row"><button class="btn" type="button" data-ck="yes">Принять</button><button class="btn" type="button" data-ck="no">Отклонить</button></div>`;
+  box.innerHTML = `<p>Мы используем cookie, чтобы сайт был удобнее, а реклама — полезнее. <a href="${RETAIL ? "/shop/legal/" : "https://amura.kz/shop/legal/"}privacy.html#cookies" target="_blank" rel="noopener">Подробнее</a></p>
+    <div class="row"><button class="btn" type="button" data-ck="yes">Принять</button><button class="btn" type="button" data-ck="no">Только необходимые</button></div>`;
   document.body.appendChild(box);
   box.addEventListener("click", e => { const b = e.target.closest("[data-ck]"); if(!b) return;
     const was = get(); put(b.dataset.ck); box.hidden = true;
@@ -2494,7 +2494,7 @@ function payHTML(){
 const CONSENT = { cart: false, auth: false, news: false };
 function consentHTML(id, on){
   if(!LEGAL()) return "";
-  return `<label class="rremember ragree"><input type="checkbox" id="${id}" ${on ? "checked" : ""}><span>Я принимаю условия <a href="/shop/legal/offer.html" target="_blank" rel="noopener">оферты</a> и согласен на обработку моих персональных данных, в том числе на их передачу за пределы Казахстана нашим подрядчикам — МойСклад (Россия), OpenAI (США), Meta (WhatsApp, Instagram), Telegram — по <a href="/shop/legal/privacy.html" target="_blank" rel="noopener">Политике конфиденциальности</a>.
+  return `<label class="rremember ragree"><input type="checkbox" id="${id}" ${on ? "checked" : ""}><span>Принимаю <a href="/shop/legal/offer.html" target="_blank" rel="noopener">условия оферты</a> и согласен на обработку персональных данных, в том числе их передачу за рубеж, по <a href="/shop/legal/privacy.html" target="_blank" rel="noopener">Политике конфиденциальности</a>
     <small class="ragree-h" id="${id}H" ${on ? "hidden" : ""}>Отметьте галочку, чтобы продолжить</small></span></label>`;
 }
 function consentNeed(id){   // нажали неактивную кнопку — подсвечиваем подсказку и галочку

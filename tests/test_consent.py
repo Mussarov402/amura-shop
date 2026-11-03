@@ -117,8 +117,8 @@ class Consent(unittest.TestCase):
         v = oh.get_consent("cid-77")
         self.assertEqual(v["how"], "вход по SMS")
         self.assertIn("(Алматы)", v["at"])
-        self.assertEqual(v["ver"], "политика от 03.11.2026")
-        self.assertIn("OpenAI (США)", v["text"])
+        self.assertEqual(v["ver"], "текст от 03.11.2026, политика от 03.11.2026")
+        self.assertIn("в том числе их передачу за рубеж", v["text"])
 
     def test_ai_hello_operator_mask(self):
         import inbox

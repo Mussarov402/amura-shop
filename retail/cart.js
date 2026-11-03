@@ -157,7 +157,7 @@ function payHTML(){
 const CONSENT = { cart: false, auth: false, news: false };
 function consentHTML(id, on){
   if(!LEGAL()) return "";
-  return `<label class="rremember ragree"><input type="checkbox" id="${id}" ${on ? "checked" : ""}><span>Я принимаю условия <a href="/shop/legal/offer.html" target="_blank" rel="noopener">оферты</a> и согласен на обработку моих персональных данных, в том числе на их передачу за пределы Казахстана нашим подрядчикам — МойСклад (Россия), OpenAI (США), Meta (WhatsApp, Instagram), Telegram — по <a href="/shop/legal/privacy.html" target="_blank" rel="noopener">Политике конфиденциальности</a>.
+  return `<label class="rremember ragree"><input type="checkbox" id="${id}" ${on ? "checked" : ""}><span>Принимаю <a href="/shop/legal/offer.html" target="_blank" rel="noopener">условия оферты</a> и согласен на обработку персональных данных, в том числе их передачу за рубеж, по <a href="/shop/legal/privacy.html" target="_blank" rel="noopener">Политике конфиденциальности</a>
     <small class="ragree-h" id="${id}H" ${on ? "hidden" : ""}>Отметьте галочку, чтобы продолжить</small></span></label>`;
 }
 function consentNeed(id){   // нажали неактивную кнопку — подсвечиваем подсказку и галочку
