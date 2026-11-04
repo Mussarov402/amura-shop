@@ -1,7 +1,8 @@
 #!/bin/bash
 # Применение настройки сервера — идемпотентно, запускается при каждом изменении на GitHub.
 # deploy/stage: base — только система; app — приложение в режиме ожидания (AMURA_STANDBY=1: фон выключен, не пишет
-# в МойСклад, площадки и Telegram), своя база Postgres, nginx; db/live — следующие PR (копия базы, переключение).
+# в МойСклад, площадки и Telegram), своя база Postgres, nginx; db — плюс копия базы Render (только чтение) по отметке
+# deploy/db-copy; live — переключение (следующий PR, только после слова владельца «переключаем»).
 set -euo pipefail
 APP=/opt/amura/app
 VENV=/opt/amura/venv
@@ -93,3 +94,14 @@ for i in $(seq 1 30); do
 done
 echo "приложение: HTTP $CODE ($([ "$STAGE" = live ] && echo работает || echo ожидание, фон выключен))"
 [ "$CODE" = 200 ]
+
+# --- копия базы Render (этап db и дальше): таймер раз в 10 минут, копия — когда в deploy/db-copy новая отметка
+#     (меняется PR-ом, когда нужна свежая копия); неудачная попытка повторяется не чаще раза в 30 минут ---
+case "$STAGE" in db|live)
+  command -v pg_dump >/dev/null || apt-get install -y -q postgresql-client >/dev/null
+  install -m 644 "$APP/deploy/amura-dbcopy.service" /etc/systemd/system/amura-dbcopy.service
+  install -m 644 "$APP/deploy/amura-dbcopy.timer" /etc/systemd/system/amura-dbcopy.timer
+  systemctl daemon-reload
+  systemctl enable --now amura-dbcopy.timer >/dev/null 2>&1
+  echo "копия базы: отметка $(cat "$APP/deploy/db-copy" 2>/dev/null || echo —), сделана $(cat /var/lib/amura/db-copy-done 2>/dev/null || echo —)"
+;; esac
