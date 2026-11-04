@@ -5,6 +5,8 @@
               в те же Telegram-уведомления (раздела «Сервер» в системе AMURA нет — слово владельца).
 /ops/env    — переменные приложения (ключи МойСклад, площадок и т. д.) для переезда: запрос подписан ключом сервера,
               ответ зашифрован его публичным ключом box (X25519 + HKDF-SHA256 + AES-GCM) — прочитать может только этот сервер.
+/.well-known/acme-challenge/<token> — на Render: проверка Let's Encrypt для сервера пересылается на сервер (http, его IP),
+              чтобы сертификаты amura.kz, opt, admin, api выпустились ДО смены DNS — после переключения нет минут без https.
 Секретов в коде и в чате нет: ключи сервера публичные, секретные части остаются на сервере.
 """
 import base64
@@ -74,7 +76,7 @@ def report():
     return jsonify(ok=True)
 
 
-SKIP_ENV = ("PATH", "HOME", "HOSTNAME", "PWD", "OLDPWD", "SHLVL", "LANG", "LC_ALL", "TERM", "USER", "_", "PORT", "PYTHONPATH",
+SKIP_ENV = ("AMURA_STANDBY", "AMURA_READONLY", "PATH", "HOME", "HOSTNAME", "PWD", "OLDPWD", "SHLVL", "LANG", "LC_ALL", "TERM", "USER", "_", "PORT", "PYTHONPATH",
             "GUNICORN_CMD_ARGS", "WEB_CONCURRENCY", "AMURA_MASTER_PID", "SERVER_SOFTWARE", "VIRTUAL_ENV", "PYTHONUNBUFFERED")
 
 
@@ -107,3 +109,24 @@ def env():
         out["RENDER_DATABASE_URL"] = out.pop("DATABASE_URL")
     print(f"Сервер Hoster: выданы переменные приложения, {len(out)} шт., зашифрованы ключом {k['fpr']}", flush=True)
     return jsonify(ok=True, **seal(k["box"], json.dumps(out).encode()))
+
+
+SERVER_IP = os.environ.get("AMURA_SERVER_IP", "89.126.206.3")
+ACME_TOKEN = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
+
+
+@bp.get("/.well-known/acme-challenge/<token>")
+def acme(token):
+    """Только на Render (переменная RENDER): ответ на проверку Let's Encrypt берём с сервера Hoster.kz по http.
+    На самом сервере путь отдаёт nginx из /var/www/acme, сюда запрос не доходит."""
+    if not os.environ.get("RENDER") or not ACME_TOKEN.match(token):
+        return "", 404
+    import requests
+    try:
+        r = requests.get(f"http://{SERVER_IP}/.well-known/acme-challenge/{token}", timeout=10, allow_redirects=False,
+                         headers={"Host": request.host.split(":")[0], "User-Agent": "amura-acme/1.0"})
+    except requests.RequestException:
+        return "", 502
+    if r.status_code != 200 or len(r.content) > 512:
+        return "", 404
+    return r.content, 200, {"Content-Type": "text/plain"}

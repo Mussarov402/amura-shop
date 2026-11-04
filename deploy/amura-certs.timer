@@ -1,0 +1,9 @@
+[Unit]
+Description=AMURA: проверять сертификаты каждые 2 минуты
+
+[Timer]
+OnBootSec=60
+OnUnitActiveSec=120
+
+[Install]
+WantedBy=timers.target
