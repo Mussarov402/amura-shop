@@ -167,6 +167,16 @@ class Ozon(Channel):
         return out
 
     SHIPPED = ("delivering", "driver_pickup", "delivered", "sent_by_seller")   # передан в доставку — отгрузка в МойСклад
+    LABEL_FROM = ("awaiting_deliver",) + SHIPPED            # этикетка Ozon есть после сборки (awaiting_deliver)
+
+    def label(self, ext):
+        """Этикетка отправления для термопринтера (Ozon отдаёт PDF 75×120 мм). → (имя файла, байты)."""
+        r = requests.post(self.api() + "/v2/posting/fbs/package-label", json={"posting_number": [ext]}, timeout=60,
+                          headers={"Client-Id": self.env("CLIENT_ID"), "Api-Key": self.env("API_KEY"), "Content-Type": "application/json"})
+        if r.status_code >= 400 or not r.content.startswith(b"%PDF"):
+            j = _json(r)
+            raise ApiError(r.status_code, str(j.get("message") or f"этикетка не готова (HTTP {r.status_code})")[:300])
+        return f"Этикетка Ozon {ext}.pdf", r.content
 
     def norm(self, p):
         raw = str(p.get("status_alias") or p.get("status") or "")
@@ -189,7 +199,7 @@ class Ozon(Channel):
                                    "cur": str(com_cur or f.get("currency_code") or cur)} if f else {}})
         st = str(p.get("status") or "")
         return {"ext": str(p["posting_number"]), "label": f"Отправление {p['posting_number']}" + (f", заказ Ozon {p['order_number']}" if p.get("order_number") else ""),
-                "shipped": raw in self.SHIPPED or st in self.SHIPPED,
+                "shipped": raw in self.SHIPPED or st in self.SHIPPED, "label": raw in self.LABEL_FROM or st in self.LABEL_FROM,
                 "status": "cancel" if raw in self.CANCEL else "wait" if raw in self.WAIT else "live", "raw": raw,
                 "at": _when(p.get("in_process_at")), "cutoff": _when(p.get("shipment_date") or p.get("cutoff") or ""), "lines": lines}
 
@@ -251,6 +261,16 @@ class WB(Channel):
     SHIPPED_WB = ("sorted", "sold", "ready_for_pickup", "postponed_delivery")   # с supplierStatus complete — передан в доставку
     ISO = {398: "KZT", 643: "RUB", 933: "BYN", 417: "KGS", 860: "UZS", 51: "AMD"}
 
+    def label(self, ext):
+        """Стикер сборочного задания 58×40 мм (WB отдаёт png/svg/zpl, PDF нет — берём png для печати с телефона). → (имя, байты)."""
+        import base64
+        j = self.req("POST", "marketplace", "/api/v3/orders/stickers", params={"type": "png", "width": 58, "height": 40},
+                     json={"orders": [int(ext)]})
+        st = next((x for x in j.get("stickers") or [] if str(x.get("orderId")) == str(ext) and x.get("file")), None)
+        if not st:
+            raise ApiError(404, "стикер не готов: задание ещё не в поставке")
+        return f"Стикер WB {ext}.png", base64.b64decode(st["file"])
+
     @classmethod
     def cur(cls, code):
         """WB отдаёт валюту числом ISO 4217 (643 — рубли): переводим в буквенный код для курса."""
@@ -301,7 +321,7 @@ class WB(Channel):
             cur = "KZT" if o.get("convertedCurrencyCode") == self.KZT else self.cur(o.get("convertedCurrencyCode"))
         if not price:                                    # запасные поля цены в новых ответах WB (копейки)
             price = next((_money(o.get(k)) / 100 for k in ("finalPrice", "salePrice") if _money(o.get(k))), 0.0)
-        return {"shipped": sup == "complete" or wbs in self.SHIPPED_WB,
+        return {"shipped": sup == "complete" or wbs in self.SHIPPED_WB, "label": sup == "confirm" and not cancel,
                 "ext": str(o["id"]), "label": f"Сборочное задание {o['id']}" + (f", заказ WB {o['orderUid']}" if o.get("orderUid") else ""),
                 "status": "cancel" if cancel else "wait" if not st else "live", "raw": f"{sup}/{wbs}" if st else "",
                 "at": _when(o.get("createdAt")), "cutoff": 0,
@@ -749,6 +769,38 @@ def ship_order(ch, ext, rec):
     return num
 
 
+LABEL_LINE = "Этикетка: прикреплена (Файлы)"
+
+
+def _label_db():
+    d = db()
+    d.run("CREATE TABLE IF NOT EXISTS mp_label (mp TEXT, posting TEXT, file TEXT DEFAULT '', at DOUBLE PRECISION, PRIMARY KEY (mp, posting))")
+    d.c.commit()
+    return d
+
+
+def labelled(ch, ext):
+    with _label_db() as d:
+        return bool(d.run("SELECT 1 FROM mp_label WHERE mp=%s AND posting=%s", (ch.key, ext), one=True))
+
+
+def attach_label(ch, ext, rec):
+    """Этикетка площадки → файл заказа МойСклад (открыть и распечатать из приложения МойСклад) + строка в комментарии. Один раз."""
+    import base64
+    name, data = ch.label(ext)
+    oid = rec["order_id"]
+    have = oh.ms("GET", f"/entity/customerorder/{oid}/files", params={"limit": 100}).get("rows") or []
+    if not any(f.get("filename") == name for f in have):           # прошлая попытка могла дойти — второй файл не нужен
+        oh.ms("POST", f"/entity/customerorder/{oid}/files", json=[{"filename": name, "content": base64.b64encode(data).decode()}])
+    o = oh.ms("GET", f"/entity/customerorder/{oid}")
+    if LABEL_LINE not in (o.get("description") or ""):
+        oh.ms("PUT", f"/entity/customerorder/{oid}", json={"description": ((o.get("description") or "") + "\n" + LABEL_LINE).strip()[:4000]})
+    with _label_db() as d:
+        d.run("INSERT INTO mp_label (mp, posting, file, at) VALUES (%s, %s, %s, %s)", (ch.key, ext, name, time.time()))
+    print(f"{ch.title}: этикетка {name} прикреплена к заказу {rec['number']}", flush=True)
+    return name
+
+
 def cancel_order(oid, title):
     """Маркетплейс отменил: заказ в МойСклад «Отменен», резерв по позициям снят."""
     o = oh.ms("GET", f"/entity/customerorder/{oid}")
@@ -783,6 +835,13 @@ def sync_orders(ch, now=None):
                                                                f"а в МойСклад отменить не вышло: {str(e)[:200]}", every=3600)
             elif o["status"] != "cancel" and o["raw"] != rec["status"]:
                 _put(ch, o["ext"], status=o["raw"])
+            if o["status"] != "cancel" and o.get("label") and not o.get("shipped") and not labelled(ch, o["ext"]):   # нужна до передачи
+                try:
+                    attach_label(ch, o["ext"], rec)
+                except ApiError as e:                    # площадка ещё не выдала этикетку — попробуем при следующей сверке
+                    print(f"{ch.title}: этикетка {o['ext']} пока не получена: {e.message[:150]}", flush=True)
+                except Exception as e:
+                    print(f"{ch.title}: этикетка {o['ext']} не прикреплена: {str(e)[:200]}", flush=True)
             if o["status"] != "cancel" and o.get("shipped") and shipped(ch, o["ext"]) is None:
                 try:
                     ship_order(ch, o["ext"], rec)

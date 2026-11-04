@@ -30,6 +30,8 @@ class MpOrders(unittest.TestCase):
         tm.Channels.setUp(self)
         with mpk._ship_db() as d:
             d.run("DELETE FROM mp_ship")
+        with mpk._label_db() as d:
+            d.run("DELETE FROM mp_label")
         self.patch(mp_calc, "channel_calc", calc_stub)
         self.patch(mp_calc, "product", lambda pid: {"cost": 2000})
         self.patch(mp_calc, "settings", lambda: {"margin": 15, "pack": 500, "tax": 4, "ads": 0})
@@ -127,6 +129,60 @@ class MpOrders(unittest.TestCase):
         self.assertEqual(self.puts[0], ("/entity/customerorder/o9/positions/q1", {"price": 869000}))
         self.assertIn("Экономика заказа", self.puts[1][1]["description"])
         self.assertIn("была 0", self.puts[1][1]["description"])
+
+    def _ms_files(self):
+        files, old_ms = [], oh.ms
+
+        def ms(method, path, **kw):
+            if path == "/entity/customerorder/o1/files":
+                if method == "POST":
+                    files.append(kw["json"][0])
+                    return [{}]
+                return {"rows": [{"filename": f["filename"]} for f in files]}
+            return old_ms(method, path, **kw)
+        self.patch(oh, "ms", ms)
+        return files
+
+    def test_ozon_label_once(self):
+        files = self._ms_files()
+        pdf = mock.Mock(status_code=200, content=b"%PDF-1.4 label")
+        orig = self.oz.__call__
+
+        def post(url, json=None, headers=None, timeout=None):
+            if url.endswith("/v2/posting/fbs/package-label"):
+                self.assertEqual(json, {"posting_number": ["0123-0001-1"]})
+                return pdf
+            return orig(url, json=json, headers=headers, timeout=timeout)
+        self.patch(mpk.requests, "post", post)
+        self.oz.postings = [self.posting()]
+        mpk.sync_orders(mpk.CHANNELS["ozon"], NOW)
+        self.assertEqual(files, [])                                                # ещё не собран — этикетки нет
+        self.oz.postings = [self.posting(status="awaiting_deliver")]
+        mpk.sync_orders(mpk.CHANNELS["ozon"], NOW)
+        mpk.sync_orders(mpk.CHANNELS["ozon"], NOW)
+        self.assertEqual([f["filename"] for f in files], ["Этикетка Ozon 0123-0001-1.pdf"])
+        import base64
+        self.assertEqual(base64.b64decode(files[0]["content"]), b"%PDF-1.4 label")
+        self.assertEqual(self.puts[-1][1]["description"].splitlines()[-1], "Этикетка: прикреплена (Файлы)")
+
+    def test_wb_sticker_png(self):
+        files = self._ms_files()
+        import base64
+        orig = self.wb.__call__
+
+        def req(method, url, params=None, json=None, headers=None, timeout=None):
+            if url.endswith("/api/v3/orders/stickers"):
+                self.assertEqual((params, json), ({"type": "png", "width": 58, "height": 40}, {"orders": [5]}))
+                return tm.Resp(200, {"stickers": [{"orderId": 5, "file": base64.b64encode(b"PNG").decode()}]})
+            return orig(method, url, params=params, json=json, headers=headers, timeout=timeout)
+        self.patch(mpk.requests, "request", req)
+        self.wb.orders = [{"id": 5, "createdAt": iso(NOW - 300), "chrtId": 501, "article": "00615", "skus": ["8809640738135"],
+                           "price": 100000, "currencyCode": 398}]
+        self.wb.status = {5: {"supplierStatus": "new", "wbStatus": "waiting"}}
+        mpk.sync_orders(mpk.CHANNELS["wb"], NOW)
+        self.wb.status = {5: {"supplierStatus": "confirm", "wbStatus": "waiting"}}
+        mpk.sync_orders(mpk.CHANNELS["wb"], NOW)
+        self.assertEqual([f["filename"] for f in files], ["Стикер WB 5.png"])
 
 
 if __name__ == "__main__":
