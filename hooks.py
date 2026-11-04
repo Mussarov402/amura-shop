@@ -63,8 +63,8 @@ def waba_override(c, new):
     """Адрес у каждого аккаунта WhatsApp (основной номер и дополнительные) — его же токеном."""
     import wa
     seen, ok = set(), True
-    for tok, waba in [(c.get("token"), c.get("waba"))] + [(x.get("token"), x.get("waba")) for x in wa.extra_lines()]:
-        if not tok or not waba or waba in seen:
+    for tok, waba in accounts(c):
+        if waba in seen:
             continue
         seen.add(waba)
         r = requests.post(f"{wa.GRAPH}/{waba}/subscribed_apps", timeout=30, headers={"Authorization": f"Bearer {tok}"},
@@ -75,8 +75,41 @@ def waba_override(c, new):
     return ok
 
 
+def accounts(c=None):
+    import wa
+    c = c or wa.cfg()
+    rows = [(c.get("token"), c.get("waba"), "основной")] + [(x.get("token"), x.get("waba"), x.get("name") or "доп.") for x in wa.extra_lines()]
+    skipped = [n for t, w, n in rows if not (t and w)]
+    if skipped:
+        print(f"Вебхуки: у номеров WhatsApp без сохранённого аккаунта (WABA) адрес не проверить: {', '.join(skipped)}", flush=True)
+    return [(t, w) for t, w, _ in rows if t and w]
+
+
+def waba_check():
+    """Каждый аккаунт WhatsApp отдельно: куда смотрит его override_callback_uri; на *.onrender.com — переводим на PUBLIC_URL."""
+    import wa
+    new_host, out, seen = host(oh.PUBLIC_URL), [], set()
+    for tok, waba in accounts():
+        if waba in seen:
+            continue
+        seen.add(waba)
+        h = {"Authorization": f"Bearer {tok}"}
+        apps = requests.get(f"{wa.GRAPH}/{waba}/subscribed_apps", timeout=20, headers=h).json().get("data") or []
+        uri = next((a.get("override_callback_uri") for a in apps if a.get("override_callback_uri")), "")
+        tag = f"WABA …{str(waba)[-4:]}"
+        if uri and host(uri).endswith(".onrender.com") and new_host and not new_host.endswith(".onrender.com"):
+            p = urlparse(uri)
+            new = oh.PUBLIC_URL.rstrip("/") + p.path + (f"?{p.query}" if p.query else "")
+            r = requests.post(f"{wa.GRAPH}/{waba}/subscribed_apps", timeout=30, headers=h,
+                              json={"override_callback_uri": new, "verify_token": oh.HOOK_SECRET})
+            out.append(f"{tag}: {host(uri)} → {new_host}" + ("" if r.status_code < 400 else f" — НЕ ВЫШЛО (HTTP {r.status_code})"))
+        else:
+            out.append(f"{tag} → {host(uri) or 'адрес приложения'}" + ("" if apps else " (приложение не подписано)"))
+    return "WhatsApp аккаунты: " + ("; ".join(out) or "нет")
+
+
 def check():
-    for name, fn in (("tg", telegram), ("meta", meta)):
+    for name, fn in (("tg", telegram), ("meta", meta), ("meta", waba_check)):
         try:
             print("Вебхуки:", fn(), flush=True)
         except Exception as e:                       # без токенов в журнале: у Meta в тексте ошибки бывает адрес с ключом — только тип
