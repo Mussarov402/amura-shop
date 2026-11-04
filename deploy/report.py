@@ -5,7 +5,8 @@ keygen — создать ключи один раз (/etc/amura/sign.key — п
          которые система AMURA пришлёт зашифрованными; обе секретные части никогда не покидают сервер);
 hello  — отправить публичные части и отпечаток (их закрепляют в deploy/server-key.json — только тогда отчёты принимаются);
 fpr    — показать отпечаток;
-send <ok|alert|info> <текст> — подписанный отчёт (alert и ok система AMURA пересылает в Telegram-уведомления).
+send <ok|alert|info> <текст> — подписанный отчёт (alert и ok система AMURA пересылает в Telegram-уведомления);
+env <файл> — получить переменные приложения (зашифрованы ключом box этого сервера) и записать файл для systemd (права 600).
 """
 import base64
 import hashlib
@@ -76,6 +77,25 @@ def send(level, text):
                                  "t": int(time.time())}, sign=True)
 
 
+def env(path):
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PublicKey
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+    r = _post("/ops/env", {"t": int(time.time()), "fpr": fpr()}, sign=True)
+    shared = _load("box.key", X25519PrivateKey).exchange(X25519PublicKey.from_public_bytes(base64.b64decode(r["eph"])))
+    key = HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=b"amura-env").derive(shared)
+    data = json.loads(AESGCM(key).decrypt(base64.b64decode(r["nonce"]), base64.b64decode(r["ct"]), None))
+    tmp = path + ".new"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        for k, v in sorted(data.items()):
+            if k.isidentifier() and "\n" not in str(v):
+                f.write(f"{k}=" + json.dumps(str(v), ensure_ascii=False) + "\n")   # systemd EnvironmentFile: "значение"
+    os.replace(tmp, path)
+    return len(data)
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     if cmd == "keygen":
@@ -84,6 +104,8 @@ if __name__ == "__main__":
         print(fpr())
     elif cmd == "hello":
         print(hello())
+    elif cmd == "env":
+        print("переменных:", env(sys.argv[2]))
     elif cmd == "send":
         try:
             send(sys.argv[2], " ".join(sys.argv[3:]))

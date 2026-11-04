@@ -3,7 +3,9 @@
 /ops/hello  — сервер присылает публичные ключи и отпечаток: только в журнал Render (их закрепляют PR-ом в deploy/server-key.json).
 /ops/report — отчёт сервера, подписанный его ключом. Принимается только с закреплённым ключом; ok и alert — владельцу
               в те же Telegram-уведомления (раздела «Сервер» в системе AMURA нет — слово владельца).
-Секретов здесь нет: ключи сервера публичные, секретные части остаются на сервере.
+/ops/env    — переменные приложения (ключи МойСклад, площадок и т. д.) для переезда: запрос подписан ключом сервера,
+              ответ зашифрован его публичным ключом box (X25519 + HKDF-SHA256 + AES-GCM) — прочитать может только этот сервер.
+Секретов в коде и в чате нет: ключи сервера публичные, секретные части остаются на сервере.
 """
 import base64
 import json
@@ -69,3 +71,38 @@ def report():
             _seen[key] = time.time()
             oh.notify_bg(lambda: oh.tg("sendMessage", chat_id=oh.OWNER, text=icon + text))
     return jsonify(ok=True)
+
+
+SKIP_ENV = ("PATH", "HOME", "HOSTNAME", "PWD", "OLDPWD", "SHLVL", "LANG", "LC_ALL", "TERM", "USER", "_", "PORT", "PYTHONPATH",
+            "GUNICORN_CMD_ARGS", "WEB_CONCURRENCY", "AMURA_MASTER_PID", "SERVER_SOFTWARE", "VIRTUAL_ENV", "PYTHONUNBUFFERED")
+
+
+def seal(box_pub_b64, data):
+    """Зашифровать для сервера: эфемерный X25519 → общий секрет → HKDF-SHA256 → AES-GCM. → {eph, nonce, ct} (base64)."""
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+    eph = X25519PrivateKey.generate()
+    shared = eph.exchange(X25519PublicKey.from_public_bytes(base64.b64decode(box_pub_b64)))
+    key = HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=b"amura-env").derive(shared)
+    nonce = os.urandom(12)
+    raw = eph.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+    return {"eph": base64.b64encode(raw).decode(), "nonce": base64.b64encode(nonce).decode(),
+            "ct": base64.b64encode(AESGCM(key).encrypt(nonce, data, None)).decode()}
+
+
+@bp.post("/ops/env")
+def env():
+    k = pinned()
+    body = request.get_data()
+    if not k or not k.get("box") or not verify(body, request.headers.get("X-Amura-Sig"), k):
+        return jsonify(ok=False, error="ключ сервера не закреплён"), 403
+    d = json.loads(body or b"{}")
+    if abs(time.time() - float(d.get("t") or 0)) > 120:
+        return jsonify(ok=False, error="старый запрос"), 400
+    out = {n: v for n, v in os.environ.items() if n not in SKIP_ENV and not n.startswith(("RENDER", "IS_PULL_REQUEST", "GIT_"))}
+    if "DATABASE_URL" in out:                      # база Render — только для копирования; на сервере своя
+        out["RENDER_DATABASE_URL"] = out.pop("DATABASE_URL")
+    print(f"Сервер Hoster: выданы переменные приложения, {len(out)} шт., зашифрованы ключом {k['fpr']}", flush=True)
+    return jsonify(ok=True, **seal(k["box"], json.dumps(out).encode()))
