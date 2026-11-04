@@ -16,7 +16,7 @@
   - фон тёплый бежевый (#EFE6DA) и молочный (#F7F3EE), акцент бирюзовый как полоса на флаконе (#2FA8A0), текст графитовый (#2B2B2B);
   - шрифт гротеск: Montserrat или похожий, заголовки ExtraBold, подзаголовки SemiBold;
   - свет мягкий, дневной, из окна; кожа естественная, с порами, без «пластиковой» ретуши.
-- **Брендинг:** крупно «VT COSMETICS» над заголовком. Логотип AMURA маленький (не больше 6% ширины), в правом нижнем углу. На обложке AMURA можно убрать совсем.
+- **Брендинг (единая шапка, решение владельца 04.11.2026, как у LIFECOSM на WB):** на каждом слайде галереи и рича, включая обложку, вверху слева шапка «VT COSMETICS | ΛMURΛ». Оба слова одной высоты, между ними тонкая вертикальная черта. AMURA — в фирменном написании с Λ вместо А, как в логотипе. Цвет шапки графитовый или бирюзовый, высота около 3% высоты слайда.
 - **Розничный контент без цен** (правило docs/CARDS.md).
 
 ### Запреты для всех картинок
@@ -38,7 +38,7 @@
 Общая строка в начало каждого запроса (вставлять всегда):
 
 ```
-Use the attached product photo as the exact product. Do NOT redesign, redraw or relabel the bottle: keep its shape, silver cap, turquoise stripe and all printed text exactly as in the photo. Vertical 3:4, 1200x1600 px, marketplace product gallery slide. Soft natural daylight, warm beige and milky palette with turquoise accents (#2FA8A0), graphite text (#2B2B2B), clean modern sans-serif (Montserrat-like). Realistic skin with visible texture, no plastic retouching. No badges, seals, medals, checkmark stamps, prices, QR codes or contacts. Small "AMURA" wordmark in the bottom-right corner (max 6% of width). Render the Russian text EXACTLY as given, letter by letter — check every Cyrillic letter.
+Use the attached product photo as the exact product. Do NOT redesign, redraw or relabel the bottle: keep its shape, silver cap, turquoise stripe and all printed text exactly as in the photo. Vertical 3:4, 1200x1600 px, marketplace product gallery slide. Soft natural daylight, warm beige and milky palette with turquoise accents (#2FA8A0), graphite text (#2B2B2B), clean modern sans-serif (Montserrat-like). Realistic skin with visible texture, no plastic retouching. No badges, seals, medals, checkmark stamps, prices, QR codes or contacts. Top-left header on every slide: "VT COSMETICS | AMURA" — both words the same cap height, thin vertical divider between them, AMURA written with Λ instead of A (ΛMURΛ). Render the Russian text EXACTLY as given, letter by letter — check every Cyrillic letter.
 ```
 
 ### Героиня (одна во всех кадрах с людьми)
@@ -88,16 +88,15 @@ HEROINE (same woman in every image): East Asian woman, 23-27 years old, long dar
 - **Модели нет:** обложка без людей, в мелкой выдаче WB лицо отвлекает от флакона.
 - **Предметы:** тонкий срез корня женьшеня у основания флакона слева — намёк на происхождение PDRN. Больше ничего.
 - **Текст:**
-  - вверху слева: «VT COSMETICS» (малые прописные, бирюзовый);
+  - вверху слева: шапка «VT COSMETICS | ΛMURΛ» (как на всех слайдах);
   - заголовок под ним в 2 строки: **«ЭССЕНЦИЯ С PDRN»**;
   - подзаголовок: **«Упругость и уход за морщинками»**;
   - плашка-«таблетка» внизу слева, белая с бирюзовой точкой: «Phyto PDRN 100 000 ppm · 30 мл»;
-  - AMURA — не ставим.
 - **Запрос:**
 
 ```
 [общая строка]
-Hero cover slide. Product centered slightly right, upright, front label facing camera, 55-60% of frame height, cap closed. One glossy drop of milky white essence on a glass surface next to the base. A thin slice of fresh ginseng root at the left of the base. Background: soft milky-beige gradient, a blurred creamy texture swatch behind, subtle leaf shadows from a window. No people. Text top-left: small caps turquoise "VT COSMETICS"; big bold graphite headline in two lines "ЭССЕНЦИЯ С PDRN"; under it "Упругость и уход за морщинками". Bottom-left white pill label with a turquoise dot: "Phyto PDRN 100 000 ppm · 30 мл". No AMURA logo on this slide. Check Cyrillic letters.
+Hero cover slide. Product centered slightly right, upright, front label facing camera, 55-60% of frame height, cap closed. One glossy drop of milky white essence on a glass surface next to the base. A thin slice of fresh ginseng root at the left of the base. Background: soft milky-beige gradient, a blurred creamy texture swatch behind, subtle leaf shadows from a window. No people. Text: big bold graphite headline in two lines "ЭССЕНЦИЯ С PDRN"; under it "Упругость и уход за морщинками". Bottom-left white pill label with a turquoise dot: "Phyto PDRN 100 000 ppm · 30 мл". Check Cyrillic letters.
 ```
 
 ### 02 — Боль
@@ -113,7 +112,6 @@ Hero cover slide. Product centered slightly right, upright, front label facing c
 - **Текст:**
   - вверху: **«Кожа сухая и тусклая?»**;
   - ниже мельче: **«Эссенция смягчает, увлажняет и придаёт сияние»**;
-  - внизу справа: AMURA (мелко).
 - **Запрос:**
 
 ```
@@ -288,7 +286,7 @@ Vanity table in morning light, a mirror, an unbranded foundation bottle and a ma
 Общая строка для рича:
 
 ```
-Use the attached product photo as the exact product, do NOT redraw or relabel it. Horizontal 3:2, 1440x960 px, cinematic still, soft natural light, warm beige and milky palette with turquoise accents (#2FA8A0). Real people with natural skin texture, no plastic retouching. Text on the left or right third in clean bold sans-serif, graphite or white with soft shadow. No badges, prices, contacts. Small "AMURA" wordmark bottom-right. Render Russian text EXACTLY, check every Cyrillic letter.
+Use the attached product photo as the exact product, do NOT redraw or relabel it. Horizontal 3:2, 1440x960 px, cinematic still, soft natural light, warm beige and milky palette with turquoise accents (#2FA8A0). Real people with natural skin texture, no plastic retouching. Text on the left or right third in clean bold sans-serif, graphite or white with soft shadow. No badges, prices, contacts. Top-left header on every slide: "VT COSMETICS | AMURA" — both words the same cap height, thin vertical divider between them, AMURA written with Λ instead of A (ΛMURΛ). Render Russian text EXACTLY, check every Cyrillic letter.
 ```
 
 ### R1 — Утро, зеркало
@@ -342,5 +340,5 @@ Use the attached product photo as the exact product, do NOT redraw or relabel it
 - [ ] Флакон на всех слайдах — с фото, надписи на нём не искажены.
 - [ ] Русский текст без ошибок, проверено по буквам.
 - [ ] Нет значков, «№1», сроков, процентов, цен, контактов.
-- [ ] AMURA маленький, VT COSMETICS читается.
+- [ ] Шапка «VT COSMETICS | ΛMURΛ» есть на каждом слайде, оба слова одной высоты, в ΛMURΛ — Λ, а не А.
 - [ ] Обложка читается в маленьком размере (уменьшить до 200 px по ширине и посмотреть).
