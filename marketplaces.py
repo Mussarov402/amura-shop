@@ -68,6 +68,18 @@ def _when(ts):
         return 0.0
 
 
+def _money(v):
+    """Цена площадки в любом виде: число, строка «1290.0000», объект {price|amount|value} или {units, nanos} → float (0, если нет)."""
+    if isinstance(v, dict):
+        if "units" in v:
+            return _money(v.get("units")) + _money(v.get("nanos")) / 1e9
+        return next((m for m in (_money(v.get(k)) for k in ("price", "amount", "value")) if m), 0.0)
+    try:
+        return float(v or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _iso(t):
     return datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
@@ -144,7 +156,8 @@ class Ozon(Channel):
         out, cursor = [], ""
         for _ in range(30):
             r = self.res(self.call("/v4/posting/fbs/list", {"filter": {"since": _iso(since), "to": _iso(to)}, "limit": 100,
-                                                            "cursor": cursor, "sort_dir": "ASC"}))
+                                                            "cursor": cursor, "sort_dir": "ASC",
+                                                            "with": {"financial_data": True}}))
             for p in r.get("postings") or []:
                 if p.get("posting_number"):
                     out.append(self.norm(p))
@@ -153,18 +166,28 @@ class Ozon(Channel):
                 break
         return out
 
+    SHIPPED = ("delivering", "driver_pickup", "delivered", "sent_by_seller")   # передан в доставку — отгрузка в МойСклад
+
     def norm(self, p):
         raw = str(p.get("status_alias") or p.get("status") or "")
+        fin = {}
+        for f in (p.get("financial_data") or {}).get("products") or []:       # факт Ozon: цена, комиссия, выплата (по sku / product_id)
+            fin[str(f.get("product_id") or "")] = f
         lines = []
         for x in p.get("products") or []:
-            try:
-                price = float(x.get("price") or 0)
-            except (TypeError, ValueError):
-                price = 0.0
+            f = fin.get(str(x.get("sku") or "")) or fin.get(str(x.get("product_id") or "")) or {}
+            price = _money(x.get("price")) or _money(f.get("price")) or _money(f.get("client_price"))
+            pc = x.get("price")
+            cur = str(x.get("marketplace_seller_price_currency_code") or x.get("currency_code")
+                      or (pc.get("currency_code") if isinstance(pc, dict) else "") or f.get("currency_code") or "")
             lines.append({"ref": str(x.get("product_id") or ""), "offer": str(x.get("product_offer_id") or x.get("offer_id") or ""),
                           "barcodes": [], "name": str(x.get("product_name") or x.get("name") or ""), "qty": int(x.get("quantity") or 0),
-                          "price": price, "cur": str(x.get("marketplace_seller_price_currency_code") or x.get("currency_code") or "")})
+                          "price": price, "cur": cur,
+                          "fact": {"commission": abs(_money(f.get("commission_amount"))), "payout": _money(f.get("payout")),
+                                   "cur": str(f.get("currency_code") or cur)} if f else {}})
+        st = str(p.get("status") or "")
         return {"ext": str(p["posting_number"]), "label": f"Отправление {p['posting_number']}" + (f", заказ Ozon {p['order_number']}" if p.get("order_number") else ""),
+                "shipped": raw in self.SHIPPED or st in self.SHIPPED,
                 "status": "cancel" if raw in self.CANCEL else "wait" if raw in self.WAIT else "live", "raw": raw,
                 "at": _when(p.get("in_process_at")), "cutoff": _when(p.get("shipment_date") or p.get("cutoff") or ""), "lines": lines}
 
@@ -223,6 +246,16 @@ class WB(Channel):
     KEYS = ("API_TOKEN",)
     CANCEL_WB = ("canceled", "canceled_by_client", "declined_by_client", "defect")
     KZT = 398
+    SHIPPED_WB = ("sorted", "sold", "ready_for_pickup", "postponed_delivery")   # с supplierStatus complete — передан в доставку
+    ISO = {398: "KZT", 643: "RUB", 933: "BYN", 417: "KGS", 860: "UZS", 51: "AMD"}
+
+    @classmethod
+    def cur(cls, code):
+        """WB отдаёт валюту числом ISO 4217 (643 — рубли): переводим в буквенный код для курса."""
+        try:
+            return cls.ISO.get(int(code), str(code or ""))
+        except (TypeError, ValueError):
+            return str(code or "")
 
     def req(self, method, base, path, **kw):
         url = os.environ.get(f"WB_{base.upper()}_API", f"https://{base}-api.wildberries.ru").rstrip("/") + path
@@ -260,11 +293,14 @@ class WB(Channel):
         sup, wbs = str(st.get("supplierStatus") or ""), str(st.get("wbStatus") or "")
         cancel = sup == "cancel" or wbs in self.CANCEL_WB
         if o.get("currencyCode") == self.KZT or not o.get("convertedPrice"):
-            price, cur = (o.get("price") or 0) / 100, "KZT" if o.get("currencyCode") == self.KZT else str(o.get("currencyCode") or "")
+            price, cur = _money(o.get("price")) / 100, "KZT" if o.get("currencyCode") == self.KZT else self.cur(o.get("currencyCode"))
         else:
-            price = (o.get("convertedPrice") or 0) / 100
-            cur = "KZT" if o.get("convertedCurrencyCode") == self.KZT else str(o.get("convertedCurrencyCode") or "")
-        return {"ext": str(o["id"]), "label": f"Сборочное задание {o['id']}" + (f", заказ WB {o['orderUid']}" if o.get("orderUid") else ""),
+            price = _money(o.get("convertedPrice")) / 100
+            cur = "KZT" if o.get("convertedCurrencyCode") == self.KZT else self.cur(o.get("convertedCurrencyCode"))
+        if not price:                                    # запасные поля цены в новых ответах WB (копейки)
+            price = next((_money(o.get(k)) / 100 for k in ("finalPrice", "salePrice") if _money(o.get(k))), 0.0)
+        return {"shipped": sup == "complete" or wbs in self.SHIPPED_WB,
+                "ext": str(o["id"]), "label": f"Сборочное задание {o['id']}" + (f", заказ WB {o['orderUid']}" if o.get("orderUid") else ""),
                 "status": "cancel" if cancel else "wait" if not st else "live", "raw": f"{sup}/{wbs}" if st else "",
                 "at": _when(o.get("createdAt")), "cutoff": 0,
                 "lines": [{"ref": str(o.get("chrtId") or ""), "offer": str(o.get("article") or ""), "barcodes": [str(s) for s in o.get("skus") or []],
@@ -522,6 +558,67 @@ def _fail(ch, o, why, alert_text):
         oh.alert(f"mp:{ch.key}:{o['ext']}", alert_text, every=3600)
 
 
+def _fmt(v):
+    return f"{round(v):,}".replace(",", " ")
+
+
+def kzt_lines(ch, lines):
+    """Цена продажи покупателю в тенге по каждой строке (рубли и др. — по курсу покупки МиГ, как в калькуляторе).
+    → [(тенге за штуку, пометка курса)]; не перевели — (0, причина)."""
+    import mp_calc
+    out = []
+    for l in lines:
+        if not l["price"]:
+            out.append((0.0, f"{ch.title} не передал цену"))
+            continue
+        v, note = mp_calc.to_kzt(l["price"], l["cur"])
+        out.append((round(v), f"{l['price']:g} {l['cur']}, {note}") if v is not None else (0.0, note))
+    return out
+
+
+ECON = [("commission", "Комиссия"), ("logistics", "Логистика и последняя миля"), ("processing", "Приёмка и обработка FBS"),
+        ("acquiring", "Эквайринг")]
+OWN = [("pack", "Упаковка"), ("tax", "Налог ИП"), ("ads", "Реклама"), ("cost", "Себестоимость")]
+
+
+def economy(ch, lines, mids, kzt):
+    """Экономика заказа для комментария МойСклад: факт площадки, где он есть (комиссия Ozon), остальное — расчёт калькулятора
+    с пометкой «оценка». Ошибка расчёта — короткая строка, заказ создаётся всё равно."""
+    import mp_calc
+    st, tot, notes, price, fact = mp_calc.settings(), {}, {}, 0.0, False
+    for l, mid, (p, _) in zip(lines, mids, kzt):
+        if not p:
+            return "Экономика заказа: нет цены продажи — не посчитана"
+        q = l["qty"] or 1
+        price += p * q
+        c = mp_calc.channel_calc(ch, mid, mp_calc.product(mid), st, price_override=p)
+        if c.get("error"):
+            return f"Экономика заказа: не посчитана — {c['error'][:200]}"
+        for x in c["lines"]:
+            tot[x["key"]] = tot.get(x["key"], 0) + (x["sum"] or 0) * q
+            notes.setdefault(x["key"], set()).add("нет данных" if x["sum"] is None else "оценка" if x["key"] in dict(ECON) else
+                                                 (x.get("note") or "")[:80])
+        f = l.get("fact") or {}
+        if f.get("commission"):                          # комиссия по данным площадки за всю строку
+            v, _ = mp_calc.to_kzt(f["commission"], f.get("cur") or l["cur"])
+            if v is not None:
+                tot["commission"] += v - (next(x["sum"] for x in c["lines"] if x["key"] == "commission") or 0) * q
+                notes["commission"] = {f"факт {ch.title}"}
+                fact = True
+    out = [f"Экономика заказа, ₸ ({'факт ' + ch.title + ' и ' if fact else ''}оценка калькулятора):", f"Продажа: {_fmt(price)}"]
+    for k, label in ECON:
+        out.append(f"{label}: −{_fmt(tot.get(k, 0))} ({', '.join(sorted(x for x in notes.get(k, ()) if x))})")
+    payout = price - sum(tot.get(k, 0) for k, _ in ECON)
+    out.append(f"К выплате: {_fmt(payout)} (оценка)")
+    for k, label in OWN:
+        if tot.get(k) or k in ("pack", "cost"):
+            n = ", ".join(sorted(x for x in notes.get(k, ()) if x))
+            out.append(f"{label}: −{_fmt(tot.get(k, 0))}" + (f" ({n})" if n else ""))
+    profit = payout - sum(tot.get(k, 0) for k, _ in OWN)
+    out.append(f"Прибыль: {_fmt(profit)}, маржа {round(profit / price * 100, 1):g} %".replace(".", ","))
+    return "\n".join(out)
+
+
 def create_order(ch, o, mp):
     """Заказ маркетплейса → заказ МойСклад. Все товары должны найтись, иначе заказ не создаём (запись с ошибкой, тревога)."""
     lines = o["lines"]
@@ -534,16 +631,17 @@ def create_order(ch, o, mp):
                           f"Свяжите товар: одинаковый штрихкод или артикул {ch.title} = код товара в МойСклад")
         return None
     cat, positions, total = _catalog(), [], 0
-    for l in lines:
-        mid = ms_id_for(l, mp)
+    mids, kzt = [ms_id_for(l, mp) for l in lines], kzt_lines(ch, lines)
+    for l, mid, (p, _) in zip(lines, mids, kzt):
         free = int((cat.get(mid) or {}).get("qty") or 0)
-        positions.append({"quantity": l["qty"], "price": round(l["price"] * 100), "reserve": min(l["qty"], max(free, 0)),
+        positions.append({"quantity": l["qty"], "price": round(p * 100), "reserve": min(l["qty"], max(free, 0)),
                           "assortment": oh.meta("product", mid)})
-        total += l["price"] * l["qty"]
-    cur = {l["cur"] for l in lines if l["cur"]}
+        total += p * l["qty"]
     till = datetime.fromtimestamp(o["cutoff"], ALMATY).strftime("%d.%m %H:%M") if o["cutoff"] else ""
-    desc = (f"{ch.mark}\n{o['label']}" + (f"\nСобрать и сдать до: {till}" if till else "")
-            + (f"\nЦены {ch.title} в {', '.join(sorted(cur))}" if cur and cur != {"KZT"} else ""))
+    desc = (f"{ch.mark}\n{o['label']}" + (f"\nСобрать и сдать до: {till}" if till else "") + _rate_note(lines, kzt)
+            + "\n\n" + _economy_safe(ch, lines, mids, kzt))
+    if not total:
+        oh.alert(f"mp-zero:{ch.key}:{o['ext']}", f"{ch.title}: заказ {o['ext']} пришёл без цены — в МойСклад цена 0, проверьте", every=86400)
     try:
         order = oh._post_order({"externalCode": f"{ch.key}-{o['ext']}", "organization": oh.meta("organization", ch.org()),
                                 "store": oh.meta("store", oh.store_id()), "agent": oh.meta("counterparty", agent(ch)),
@@ -558,6 +656,95 @@ def create_order(ch, o, mp):
     except Exception as e:
         print(f"{ch.title}: уведомление о заказе не ушло:", str(e)[:200], flush=True)
     return order
+
+
+def _rate_note(lines, kzt):
+    conv = [n for l, (_, n) in zip(lines, kzt) if l["cur"] and l["cur"] not in ("KZT", "398")]
+    return ("\nЦена в тенге: " + "; ".join(conv)) if conv else ""
+
+
+def _economy_safe(ch, lines, mids, kzt):
+    try:
+        return economy(ch, lines, mids, kzt)
+    except Exception as e:
+        print(f"{ch.title}: экономика заказа не посчитана:", str(e)[:200], flush=True)
+        return f"Экономика заказа: не посчитана ({str(e)[:120]})"
+
+
+def repair_zero(ch, now=None, days=7):
+    """Заказы площадки за days дней, записанные в МойСклад с ценой 0: ставим цену продажи в тенге и экономику в комментарий.
+    Меняются только цены позиций и комментарий. → [номера заказов МойСклад]."""
+    now, fixed = now or time.time(), []
+    with db() as d:                                      # кандидаты — свои записи с итогом 0: площадку и МойСклад спрашиваем только при них
+        todo = {r[0] for r in d.run("SELECT posting FROM mp_order WHERE mp=%s AND order_id<>'' AND (total IS NULL OR total=0) "
+                                    "AND status<>'cancel' AND created>%s", (ch.key, now - days * 86400), many=True) or []}
+    if not todo:
+        return fixed
+    mp = mapping(ch)
+    for o in ch.fetch(now - days * 86400, now + 60):
+        rec = get(ch, o["ext"]) if o["ext"] in todo else None
+        if not rec or not rec["order_id"] or o["status"] == "cancel":
+            continue
+        rows = oh.ms("GET", f"/entity/customerorder/{rec['order_id']}/positions", params={"limit": 100}).get("rows") or []
+        if not rows or any((r.get("price") or 0) > 0 for r in rows):
+            _put(ch, o["ext"], total=round(sum((r.get("price") or 0) * (r.get("quantity") or 1) for r in rows) / 100) or 1)
+            continue
+        mids, kzt = [ms_id_for(l, mp) for l in o["lines"]], kzt_lines(ch, o["lines"])
+        if not all(p for p, _ in kzt) or None in mids:
+            print(f"{ch.title}: заказ {rec['number']} — цена всё ещё не получена, оставляю 0", flush=True)
+            continue
+        price = {mid: p for mid, (p, _) in zip(mids, kzt)}
+        total = 0
+        for r in rows:
+            mid = ((r.get("assortment") or {}).get("meta") or {}).get("href", "").rstrip("/").rsplit("/", 1)[-1]
+            if mid in price:
+                oh.ms("PUT", f"/entity/customerorder/{rec['order_id']}/positions/{r['id']}", json={"price": round(price[mid] * 100)})
+                total += price[mid] * (r.get("quantity") or 1)
+        cur = oh.ms("GET", f"/entity/customerorder/{rec['order_id']}")
+        desc = ((cur.get("description") or "") + _rate_note(o["lines"], kzt) + "\n\n" + _economy_safe(ch, o["lines"], mids, kzt)
+                + "\n(цена исправлена системой AMURA: была 0)").strip()[:4000]
+        oh.ms("PUT", f"/entity/customerorder/{rec['order_id']}", json={"description": desc})
+        _put(ch, o["ext"], total=round(total))
+        fixed.append(rec["number"])
+    if fixed:
+        print(f"{ch.title}: заказы с ценой 0 исправлены: {', '.join('№' + n for n in fixed)}", flush=True)
+    return fixed
+
+
+# ---------- отгрузка: площадка передала в доставку → отгрузка МойСклад по заказу ----------
+def _ship_db():
+    d = db()
+    d.run("CREATE TABLE IF NOT EXISTS mp_ship (mp TEXT, posting TEXT, demand TEXT DEFAULT '', at DOUBLE PRECISION, PRIMARY KEY (mp, posting))")
+    d.c.commit()
+    return d
+
+
+def shipped(ch, ext):
+    with _ship_db() as d:
+        r = d.run("SELECT demand FROM mp_ship WHERE mp=%s AND posting=%s", (ch.key, ext), one=True)
+    return r[0] if r else None
+
+
+def ship_order(ch, ext, rec):
+    """Отгрузка шаблоном МойСклад по заказу (shipments.create): позиции и цены — как в заказе, резерв уходит, остаток списывается.
+    Отгрузка уже есть (создал человек или сценарий) — вторую не создаём, только запоминаем."""
+    import shipments
+    try:
+        r = shipments.create(rec["order_id"], who=f"{ch.title}: передан в доставку") or {}
+        if r.get("status") == "queued":                  # прошлая попытка не дошла — повторяем ту же операцию, новую не заводим
+            r = shipments.send(r["id"]) or {}
+        if r.get("status") == "error" and "уже есть отгрузка" in r.get("error", ""):
+            num = "уже была"
+        elif r.get("status") != "sent":
+            raise RuntimeError(r.get("error") or "отгрузка не создана")
+        else:
+            num = r.get("msNumber") or ""
+    except ValueError as e:                              # по заказу уже есть отгрузка (человек или сценарий МойСклад)
+        num = "уже была" if "уже" in str(e) else str(e)[:60]
+    with _ship_db() as d:
+        d.run("INSERT INTO mp_ship (mp, posting, demand, at) VALUES (%s, %s, %s, %s)", (ch.key, ext, num, time.time()))
+    print(f"{ch.title}: заказ {rec['number']} ({ext}) передан в доставку — отгрузка {num}", flush=True)
+    return num
 
 
 def cancel_order(oid, title):
@@ -580,7 +767,11 @@ def sync_orders(ch, now=None):
     for o in ch.fetch(max(start, now - LOOKBACK_DAYS * 86400) - 3600, now + 60):
         rec = get(ch, o["ext"])
         if rec and rec["order_id"]:
-            if o["status"] == "cancel" and rec["status"] != "cancel":
+            if o["status"] == "cancel" and rec["status"] != "cancel" and shipped(ch, o["ext"]) is not None:
+                _put(ch, o["ext"], status="cancel", error="отменён после отгрузки — возврат")    # отгрузку не трогаем: товар вернётся возвратом
+                oh.alert(f"mp-return:{ch.key}:{o['ext']}", f"{ch.title} отменил заказ {rec['number']} ({o['ext']}) уже после отгрузки — "
+                                                            f"это возврат: отгрузку не трогаю, товар оформится возвратом", every=86400)
+            elif o["status"] == "cancel" and rec["status"] != "cancel":
                 try:
                     cancel_order(rec["order_id"], ch.title)
                     _put(ch, o["ext"], status="cancel", error="")
@@ -590,6 +781,13 @@ def sync_orders(ch, now=None):
                                                                f"а в МойСклад отменить не вышло: {str(e)[:200]}", every=3600)
             elif o["status"] != "cancel" and o["raw"] != rec["status"]:
                 _put(ch, o["ext"], status=o["raw"])
+            if o["status"] != "cancel" and o.get("shipped") and shipped(ch, o["ext"]) is None:
+                try:
+                    ship_order(ch, o["ext"], rec)
+                except Exception as e:
+                    _put(ch, o["ext"], error=f"отгрузка в МойСклад: {str(e)[:250]}")
+                    oh.alert(f"mp-ship:{ch.key}:{o['ext']}", f"{ch.title}: заказ {rec['number']} передан в доставку, а отгрузка в МойСклад "
+                                                              f"не создалась: {str(e)[:200]}. Повторю через 5 минут", every=3600)
             continue
         if o["at"] and o["at"] < start:
             if not rec:
@@ -690,6 +888,15 @@ def tick(now=None):
                 except Exception as e:
                     _log(ch, "orders", False, str(e)[:300])
                     oh.alert(f"mp-orders:{ch.key}", f"{ch.title}: заказы не забираются — {str(e)[:250]}. Проверьте ключ на Render", every=3 * 3600)
+                if now - ch.last.get("repair", 0) >= 1800:     # заказы с ценой 0 за 7 дней — цена и экономика, как только площадка её отдаст
+                    ch.last["repair"] = now
+                    try:
+                        fixed = repair_zero(ch, now)
+                        if fixed:
+                            oh.alert(f"mp-fixzero:{ch.key}", f"{ch.title}: в заказах с ценой 0 проставлена цена и экономика: "
+                                                             + ", ".join("№" + n for n in fixed), every=0)
+                    except Exception as e:
+                        print(f"{ch.title}: правка заказов с ценой 0 не удалась:", str(e)[:200], flush=True)
             if now - ch.last["stocks"] >= STOCKS_EVERY:
                 ch.last["stocks"] = now
                 force = now - ch.sent_at >= 6 * 3600              # раз в 6 часов отправляем все остатки заново
