@@ -13,7 +13,7 @@ if(window.AMURA_RETAIL) document.documentElement.classList.add("retail");   /* �
 <title>AMURA — оптовый каталог</title>
 <meta name="description" content="Оригинальная корейская косметика оптом. Цены поштучно, от 10 штук и от короба.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://amura-shop-api.onrender.com" crossorigin>
+<link rel="preconnect" href="https://api.amura.kz" crossorigin>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0E3B2C">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -461,13 +461,13 @@ form.co{display:grid;gap:12px;padding-top:6px}
 /* ===== Настройки ===== */
 const CONFIG = {
   catalogUrl: "catalog.json",
-  apiUrl: "https://amura-shop-api.onrender.com",           // сервер на Render
-  orderUrl: "https://amura-shop-api.onrender.com/order",
+  apiUrl: "https://api.amura.kz",                           // сервер системы AMURA (свой домен: переезд на Hoster.kz без смены сайтов)
+  orderUrl: "https://api.amura.kz/order",
   botUsername: "amuraorders_bot",                            // бот, который присылает PDF
   managerWa: "77003671350",
   metaPixelId: "1898724214442225",                            // пиксель Meta «AMURA» (кабинет «AMURA 2»); пусто — код пикселя не загружается
   tierMid: 10,                                                // цена «от 10 шт» (тип цены «От 10шт» в МойСклад)
-  liveUrl: "https://amura-shop-api.onrender.com/catalog",  // живые остатки и цены из МойСклад
+  liveUrl: "https://api.amura.kz/catalog",                 // живые остатки и цены из МойСклад
   refreshMs: 120000,                                          // обновлять каждые 2 минуты (новый товар на сайте за 2–4 минуты)
   loaderPrice: 1000,
   bankFee: 0.0095,

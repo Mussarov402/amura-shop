@@ -21,7 +21,7 @@
     MANAGER_CHAT_IDS    chat_id менеджеров через запятую (получают уведомления по клиентам; узнать: написать боту /id)
     TG_WEBHOOK_SECRET   случайная строка для адреса вебхука
     ORDER_SECRET        случайная строка для подписи ссылок на PDF
-    PUBLIC_URL          https://amura-shop-api.onrender.com
+    PUBLIC_URL          https://api.amura.kz   (свой домен — переезд сервера без смены адресов вебхуков)
     SITE_URL            https://mussarov402.github.io/amura-shop   (оттуда берётся img/index.json)
     WHOLESALE_TAG       тег контрагента в МойСклад, открывающий оптовые цены (по умолчанию «опт»)
 """
@@ -57,7 +57,7 @@ MANAGERS = [x.strip() for x in os.environ.get("MANAGER_CHAT_IDS", "").replace(";
 HOOK_SECRET = os.environ.get("TG_WEBHOOK_SECRET", "")
 ORDER_SECRET = os.environ.get("ORDER_SECRET", "").encode()
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "").rstrip("/")
-DEFAULT_API = "https://amura-shop-api.onrender.com"
+DEFAULT_API = "https://api.amura.kz"
 SITE_URL = os.environ.get("SITE_URL", "").rstrip("/")
 OPT_URL = "https://opt.amura.kz"   # адрес оптового сайта для клиентов (SITE_URL — технический адрес файлов на GitHub Pages)
 RTL_URL = "https://amura.kz"
