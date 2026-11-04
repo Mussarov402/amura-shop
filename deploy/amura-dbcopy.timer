@@ -1,0 +1,9 @@
+[Unit]
+Description=AMURA: проверять, нужна ли копия базы, раз в 10 минут
+
+[Timer]
+OnBootSec=120
+OnUnitActiveSec=600
+
+[Install]
+WantedBy=timers.target
