@@ -7,7 +7,10 @@
 - «Исходящие платежи» тому же контрагенту, та же дата: по одному на статью «МП: комиссия», «МП: логистика и доставка», «МП: хранение»,
   «МП: эквайринг», «МП: реклама», «МП: штрафы и прочие удержания» (статьи заводим, если нет).
 - Проверка: приход − возвраты − удержания = выплата (±1 ₸), иначе ничего не проводим, тревога.
-- Возвраты: «Возврат покупателя» на основании отгрузки; в приход эта продажа не входит. Отрицательная выплата — прихода нет.
+- Возвраты: «Возврат покупателя» оформляет склад (или списание, если товар не вернулся); система его не создаёт. Продажа и возврат
+  в одной выплате — продажа не в приход, платежа нет. Продажа была раньше — исходящий платёж площадке со статьёй «Возврат»,
+  operations = возврат покупателя. Возврата по заказу в МойСклад ещё нет — выплату не проводим («нужен возврат по заказу №…»).
+- Компенсации и доплаты площадки — в приход (без привязки к отгрузкам).
 - Рубли: курс = ₸ зачислено / RUB к выплате; зачисление в ₸ неизвестно — курс покупки МиГ с пометкой «оценка».
 - Счёт организации — настройка mp_payout_account (пока владелец не ответил — пусто, проводить нельзя)."""
 import time
@@ -20,7 +23,7 @@ import order_hook as oh
 
 ITEMS = {"commission": "МП: комиссия", "logistics": "МП: логистика и доставка", "storage": "МП: хранение", "acquiring": "МП: эквайринг",
          "ads": "МП: реклама", "other": "МП: штрафы и прочие удержания"}
-RETURN_ITEM = "МП: возвраты покупателям"          # деньги за возврат, если продажа была в прошлой выплате (иначе приход ≠ деньги на счёте)
+RETURN_ITEM_ID = "8dbf99a0-0a01-11e4-a743-002590a32f46"   # статья МойСклад «Возврат» (не расход) — удержание суммы возврата (Финансист 04.11.2026)
 OZ_SERVICE = (("storage", ("storage", "placement", "хранен", "размещ")), ("acquiring", ("acquiring", "эквайр")),
               ("ads", ("marketing", "promotion", "advert", "premium", "pay_per", "click", "cpc", "реклам", "продвиж", "клик", "трафарет")),
               ("logistics", ("deliv", "logist", "directflow", "lastmile", "return", "dropoff", "pickup", "drop_off", "flow", "доставк",
@@ -65,7 +68,7 @@ def wb_payouts(ch, d1, d2):
             continue
         p = out.setdefault(rid, {"id": rid, "date": str(r.get("create_dt") or r.get("rr_dt") or r.get("date_to") or "")[:10],
                                  "cur": _cur(r.get("currency_name")),
-                                 "sales": [], "returns": [], "out": {k: 0.0 for k in ITEMS}, "payout": 0.0})
+                                 "sales": [], "returns": [], "out": {k: 0.0 for k in ITEMS}, "payout": 0.0, "comp": 0.0})
         kind, oper = str(r.get("doc_type_name") or ""), str(r.get("supplier_oper_name") or "")
         order = str(r.get("assembly_id") or r.get("srid") or "")
         price, forpay = _f(r.get("retail_price_withdisc_rub")), _f(r.get("ppvz_for_pay"))
@@ -85,8 +88,8 @@ def wb_payouts(ch, d1, d2):
             v = _f(r.get(field))
             p["out"][key] += v
             p["payout"] -= v
-        add = _f(r.get("additional_payment"))
-        p["out"]["other"] -= add
+        add = _f(r.get("additional_payment"))                  # доплата/компенсация WB — в приход
+        p["comp"] += add
         p["payout"] += add
     return out
 
@@ -109,7 +112,7 @@ def ozon_payouts(ch, d1, d2):
         if not pid or not b:
             continue
         p = {"id": pid, "date": e or b, "cur": str(fl.get("currency_code") or "RUB").upper(), "sales": [], "returns": [],
-             "out": {k: 0.0 for k in ITEMS}, "payout": 0.0}
+             "out": {k: 0.0 for k in ITEMS}, "payout": 0.0, "comp": 0.0}
         ops = []
         for page in range(1, 50):
             r = ch.call("/v3/finance/transaction/list", {"filter": {"date": {"from": b + "T00:00:00.000Z", "to": e + "T23:59:59.999Z"},
@@ -131,7 +134,9 @@ def ozon_payouts(ch, d1, d2):
                 p["out"][_cat(s.get("name"))] -= _f(s.get("price"))
             known = sale + _f(op.get("sale_commission")) + sum(_f(s.get("price")) for s in op.get("services") or [])
             rest = _f(op.get("amount")) - known                 # прочие начисления/удержания операции (компенсации, штрафы)
-            if abs(rest) > 0.005:
+            if rest > 0.005:                                    # компенсация (потеря, брак) — в приход
+                p["comp"] += rest
+            elif rest < -0.005:
                 p["out"]["ads" if _cat(op.get("operation_type_name") or op.get("operation_type")) == "ads" else "other"] -= rest
             p["payout"] += _f(op.get("amount"))
         out[pid] = p
@@ -145,6 +150,13 @@ def _demand(ch, ext):
         return None
     dem = [(x.get("meta") or {}).get("href", "").rstrip("/").rsplit("/", 1)[-1] for x in rows[0].get("demands") or []]
     return {"order": rows[0].get("name") or "", "demand": dem[0] if dem else ""}
+
+
+def _salesreturn(demand_id):
+    """Возврат покупателя по отгрузке, оформленный в МойСклад (склад или вручную)."""
+    d = oh.ms("GET", f"/entity/demand/{demand_id}")
+    r = [(x.get("meta") or {}).get("href", "").rstrip("/").rsplit("/", 1)[-1] for x in d.get("returns") or []]
+    return r[0] if r else ""
 
 
 def plan(ch, p, rate=None, rate_note=""):
@@ -165,24 +177,33 @@ def plan(ch, p, rate=None, rate_note=""):
         if not d or not d["demand"]:
             missing.append(s["order"] or "без номера")
         sales.append({"order": s["order"], "sum": k(s["sum"]), "ms": (d or {}).get("order", ""), "demand": (d or {}).get("demand", "")})
-    returns = []
+    returns, need = [], []
+    sold = {s["order"] for s in sales}
     for s in p["returns"]:
         d = _demand(ch, s["order"]) if s["order"] else None
-        returns.append({"order": s["order"], "sum": k(s["sum"]), "ms": (d or {}).get("order", ""), "demand": (d or {}).get("demand", "")})
+        sr = _salesreturn(d["demand"]) if d and d["demand"] else ""
+        if not sr:
+            need.append((d or {}).get("order") or s["order"] or "без номера")
+        returns.append({"order": s["order"], "sum": k(s["sum"]), "ms": (d or {}).get("order", ""), "demand": (d or {}).get("demand", ""),
+                        "salesreturn": sr, "same": s["order"] in sold})
     ret_orders = {r["order"] for r in returns}
-    income = sum(s["sum"] for s in sales if s["order"] not in ret_orders)        # продажа, вернувшаяся в этом же отчёте, — не в приход
-    ret_other = sum(r["sum"] for r in returns if r["order"] not in {s["order"] for s in sales})
+    comp = k(p.get("comp") or 0)
+    income = sum(s["sum"] for s in sales if s["order"] not in ret_orders) + comp     # продажа, вернувшаяся в этом же отчёте, — не в приход
+    ret_other = sum(r["sum"] for r in returns if not r["same"])
     outs = {ITEMS[key]: k(v) for key, v in p["out"].items() if round(v * rate) != 0}
     payout = k(p["payout"])
     diff = income - ret_other - sum(outs.values()) - payout
     ok, why = True, ""
     if abs(diff) > 1:
         ok, why = False, f"не сходится на {diff} ₸: приход {income} − возвраты {ret_other} − удержания {sum(outs.values())} ≠ выплата {payout}"
+    if need:
+        ok, why = False, why or "нужен возврат по заказу " + ", ".join("№" + n for n in need[:10]) + " — оформите возврат покупателя (или списание) в МойСклад"
     if any(v < 0 for v in outs.values()):
         neg = ", ".join(f"{n} {v}" for n, v in outs.items() if v < 0)
         ok, why = False, why or f"отрицательная статья (доплата площадки): {neg} — проверьте вручную"
     return {**p, "ok": ok, "why": why, "rate": rate, "rateNote": rate_note, "income": max(income, 0),
-            "salesKzt": sales, "returnsKzt": returns, "outs": outs, "payoutKzt": payout, "missing": missing, "diff": diff}
+            "salesKzt": sales, "returnsKzt": returns, "outs": outs, "payoutKzt": payout, "missing": missing, "diff": diff,
+            "compKzt": comp, "needReturn": need}
 
 
 # ---------- запись в МойСклад (только по кнопке владельца или после его «да» на автомат) ----------
@@ -208,7 +229,8 @@ def apply(ch, pl, who=""):
             "moment": pl["date"] + " 12:00:00",
             "organizationAccount": {"meta": {"href": f"{oh.API}/entity/organization/{org}/accounts/{acc}", "type": "account",
                                              "mediaType": "application/json"}}}
-    note = f"{ch.title}: выплата {pl['id']}" + (f", курс {pl['rate']:g} ₸ ({pl['rateNote']})" if pl["rate"] != 1 else "")
+    note = f"{ch.title}: выплата {pl['id']}" + (f", курс {pl['rate']:g} ₸ — оценка ({pl['rateNote']}), пересчитать по зачислению"
+                                                  if pl["rate"] != 1 else "") + (f"; компенсации площадки {pl['compKzt']} ₸" if pl.get("compKzt") else "")
     made = []
     ext = f"mp-{ch.key}-{pl['id']}"
     dup = oh.ms("GET", "/entity/paymentin", params={"filter": f"incomingNumber={pl['id']}", "limit": 1}).get("rows") or []
@@ -226,22 +248,15 @@ def apply(ch, pl, who=""):
             r = oh.ms("POST", "/entity/paymentout", json={**base, "externalCode": e, "sum": s * 100, "expenseItem": oh.meta("expenseitem", _item(name)),
                                                           "paymentPurpose": f"{name} — {note}"[:255], "description": note})
             made.append(f"Исходящий платёж №{r.get('name')} «{name}» {oh.fmt(s)} ₸")
-    sold = {x["order"] for x in pl["salesKzt"]}
-    for rt in pl["returnsKzt"]:
+    for rt in pl["returnsKzt"]:                          # продажа была в прошлой выплате: удержание суммы возврата — статья «Возврат»
         e = f"{ext}-r-{rt['order']}"
-        sr = None
-        if rt["demand"] and not _exists("salesreturn", e):
-            tpl = oh.ms("PUT", "/entity/salesreturn/new", json={"demand": oh.meta("demand", rt["demand"])})
-            tpl.update({"externalCode": e, "description": f"Возврат {ch.title}, {note}"})
-            sr = oh.ms("POST", "/entity/salesreturn", json=tpl)
-            made.append(f"Возврат покупателя №{sr.get('name')} по заказу {rt['ms'] or rt['order']}")
-        if rt["order"] not in sold and not _exists("paymentout", e):          # продажа была в прошлой выплате: деньги покупателю — из этой
-            body = {**base, "externalCode": e, "sum": rt["sum"] * 100, "expenseItem": oh.meta("expenseitem", _item(RETURN_ITEM)),
-                    "paymentPurpose": f"Возврат покупателю, заказ {rt['ms'] or rt['order']} — {note}"[:255], "description": note}
-            if sr and sr.get("id"):
-                body["operations"] = [{**oh.meta("salesreturn", sr["id"]), "linkedSum": rt["sum"] * 100}]
-            r = oh.ms("POST", "/entity/paymentout", json=body)
-            made.append(f"Исходящий платёж №{r.get('name')} «{RETURN_ITEM}» {oh.fmt(rt['sum'])} ₸")
+        if rt["same"] or not rt["salesreturn"] or _exists("paymentout", e):
+            continue
+        r = oh.ms("POST", "/entity/paymentout", json={
+            **base, "externalCode": e, "sum": rt["sum"] * 100, "expenseItem": oh.meta("expenseitem", RETURN_ITEM_ID),
+            "operations": [{**oh.meta("salesreturn", rt["salesreturn"]), "linkedSum": rt["sum"] * 100}],
+            "paymentPurpose": f"Возврат по заказу {rt['ms'] or rt['order']} — {note}"[:255], "description": note})
+        made.append(f"Исходящий платёж №{r.get('name')} «Возврат» по заказу {rt['ms'] or rt['order']} {oh.fmt(rt['sum'])} ₸")
     print(f"Выплаты {ch.title}: {pl['id']} проведена — " + "; ".join(made), flush=True)
     return made
 

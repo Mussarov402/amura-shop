@@ -33,6 +33,7 @@ class Payouts(unittest.TestCase):
         tm.Channels.setUp(self)
         self.posts = []
         orders = {"wb-5": ("1901", "d5"), "wb-9": ("1880", "d9")}                     # wb-6 нет в МойСклад
+        self.returns = {"d9": "sr9"}                                                 # возврат покупателя по заказу 1880 оформлен
 
         def ms(method, path, **kw):
             q = (kw.get("params") or {}).get("filter", "")
@@ -45,8 +46,9 @@ class Payouts(unittest.TestCase):
                 return {"rows": []}
             if path == "/entity/expenseitem" and method == "POST":
                 return {"id": "item-" + kw["json"]["name"]}
-            if path == "/entity/salesreturn/new":
-                return {"demand": kw["json"]["demand"]}
+            if path.startswith("/entity/demand/") and method == "GET":
+                sr = self.returns.get(path.rsplit("/", 1)[1])
+                return {"returns": [{"meta": {"href": f"https://x/salesreturn/{sr}"}}] if sr else []}
             if method == "POST":
                 self.posts.append((path, kw["json"]))
                 return {"name": str(len(self.posts))}
@@ -71,17 +73,30 @@ class Payouts(unittest.TestCase):
         self.assertIn("Не найдены в МойСклад: 6", pin["description"])
         outs = {p[1]["expenseItem"]["meta"]["href"].rsplit("/", 1)[1]: p[1]["sum"] for p in self.posts if p[0] == "/entity/paymentout"}
         self.assertEqual(outs["item-МП: комиссия"], 292500)
-        self.assertEqual(sum(1 for p in self.posts if p[0] == "/entity/salesreturn"), 1)
-        ret = [p[1] for p in self.posts if p[0] == "/entity/paymentout" and p[1]["expenseItem"]["meta"]["href"].endswith("возвраты покупателям")]
-        self.assertEqual(ret[0]["sum"], 200000)                                       # 15000 − 2000 − 4250 = 8750 — как выплата
-        self.assertEqual(len(made), 7)
+        self.assertFalse(any(p[0] == "/entity/salesreturn" for p in self.posts))     # возврат покупателя оформляет склад, не система
+        ret = [p[1] for p in self.posts if p[0] == "/entity/paymentout" and p[1]["expenseItem"]["meta"]["href"].endswith(po.RETURN_ITEM_ID)]
+        self.assertEqual((ret[0]["sum"], ret[0]["operations"][0]["meta"]["href"].rsplit("/", 1)[1]), (200000, "sr9"))   # 15000 − 2000 − 4250 = 8750
+        self.assertEqual(len(made), 6)
         n = len(self.posts)
         self.assertTrue(po.list_plans(ch)[0]["done"])
         po.apply(ch, pl)
         self.assertEqual(len(self.posts), n)                                        # повтор — ни одного нового документа
 
+    def test_needs_salesreturn_and_compensation(self):
+        self.returns.clear()
+        pl = po.list_plans(mpk.CHANNELS["wb"])[0]
+        self.assertFalse(pl["ok"])
+        self.assertIn("нужен возврат по заказу №1880", pl["why"])
+        rows = WB_ROWS + [{"realizationreport_id": 777, "create_dt": "2026-11-03", "currency_name": "KZT", "doc_type_name": "",
+                           "supplier_oper_name": "Компенсация ущерба", "additional_payment": 700, "rrd_id": 6}]
+        self.patch(mpk.WB, "req", lambda s, m, base, path, **kw: rows if kw["params"]["rrdid"] == 0 else [])
+        self.returns["d9"] = "sr9"
+        pl = po.list_plans(mpk.CHANNELS["wb"])[0]
+        self.assertTrue(pl["ok"], pl["why"])
+        self.assertEqual((pl["income"], pl["compKzt"], pl["payoutKzt"]), (15700, 700, 9450))   # компенсация — в приход
+
     def test_mismatch_and_rub(self):
-        p = {"id": "x", "date": "2026-11-03", "cur": "RUB", "sales": [], "returns": [], "out": {k: 0.0 for k in po.ITEMS}, "payout": 0.0}
+        p = {"id": "x", "date": "2026-11-03", "cur": "RUB", "sales": [], "returns": [], "out": {k: 0.0 for k in po.ITEMS}, "payout": 0.0, "comp": 0.0}
         p["out"]["commission"] = 10
         p["payout"] = 5                                                              # 0 − 10 ≠ 5
         self.patch(mp_calc, "to_kzt", lambda v, cur, *a, **k: (v * 5.5, "курс покупки МиГ"))
