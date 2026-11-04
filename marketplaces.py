@@ -179,12 +179,14 @@ class Ozon(Channel):
             price = _money(x.get("price")) or _money(f.get("price")) or _money(f.get("client_price"))
             pc = x.get("price")
             cur = str(x.get("marketplace_seller_price_currency_code") or x.get("currency_code")
-                      or (pc.get("currency_code") if isinstance(pc, dict) else "") or f.get("currency_code") or "")
+                      or (pc.get("currency_code") or pc.get("currency") if isinstance(pc, dict) else "") or f.get("currency_code") or "")
+            com = f.get("commission")                    # v4: {"amount", "currency", "percent"}; раньше commission_amount числом
+            com_cur = com.get("currency") if isinstance(com, dict) else ""
             lines.append({"ref": str(x.get("product_id") or ""), "offer": str(x.get("product_offer_id") or x.get("offer_id") or ""),
                           "barcodes": [], "name": str(x.get("product_name") or x.get("name") or ""), "qty": int(x.get("quantity") or 0),
                           "price": price, "cur": cur,
-                          "fact": {"commission": abs(_money(f.get("commission_amount"))), "payout": _money(f.get("payout")),
-                                   "cur": str(f.get("currency_code") or cur)} if f else {}})
+                          "fact": {"commission": abs(_money(f.get("commission_amount")) or _money(com)), "payout": _money(f.get("payout")),
+                                   "cur": str(com_cur or f.get("currency_code") or cur)} if f else {}})
         st = str(p.get("status") or "")
         return {"ext": str(p["posting_number"]), "label": f"Отправление {p['posting_number']}" + (f", заказ Ozon {p['order_number']}" if p.get("order_number") else ""),
                 "shipped": raw in self.SHIPPED or st in self.SHIPPED,
