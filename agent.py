@@ -173,6 +173,7 @@ READ = {
         "attribute_search": ("POST", "", "/v1/description-category/attribute/values/search", ["*"], "поиск по справочнику значений"),
         "import_info": ("POST", "", "/v1/product/import/info", ["*"], "статус создания карточки (task_id)"),
         "pictures_info": ("POST", "", "/v2/product/pictures/info", ["*"], "статус загрузки картинок"),
+        "seller_info": ("POST", "", "/v1/seller/info", ["*"], "кабинет продавца: название, юрлицо, рейтинги"),
         "certificates": ("POST", "", "/v1/product/certificate/list", ["*"], "сертификаты и декларации магазина (page, page_size, offer_id?)"),
         "certificate_types": ("GET", "", "/v1/product/certificate/types", [], "типы документов (type_code)"),
         "accordance_types": ("GET", "", "/v2/product/certificate/accordance-types/list", [], "типы соответствия (accordance_type_code)"),
