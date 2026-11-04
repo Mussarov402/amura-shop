@@ -5,6 +5,7 @@
 ## 0. Сводка
 
 - **Что продаём:** эссенцию с растительным (веганским) PDRN из корейского женьшеня. Отличие от большинства PDRN-средств: PDRN не из лосося. Текстура молочная, без отдушки. На флаконе: «PHYTO PDRN Panax 100,000ppm · ELASTICITY & WRINKLE CARE».
+- **Возраст героини 23–27 лет.** Поэтому «морщинки» подаём как профилактику. «Упругость и уход за морщинками» остаётся только на обложке и в составе — это надпись с флакона (WRINKLE CARE) без лица рядом. На слайдах с героиней боль — сухость, тусклость, стянутость.
 - **Главная мысль карточки:** «Упругость и уход за морщинками — с растительным PDRN 100 000 ppm».
 - **Галерея — 8 слайдов.**
   - Шести мало: тогда пришлось бы выкинуть состав или «для кого», а на WB именно эти слайды отвечают на вопросы, после которых добавляют в корзину.
@@ -39,6 +40,34 @@
 ```
 Use the attached product photo as the exact product. Do NOT redesign, redraw or relabel the bottle: keep its shape, silver cap, turquoise stripe and all printed text exactly as in the photo. Vertical 3:4, 1200x1600 px, marketplace product gallery slide. Soft natural daylight, warm beige and milky palette with turquoise accents (#2FA8A0), graphite text (#2B2B2B), clean modern sans-serif (Montserrat-like). Realistic skin with visible texture, no plastic retouching. No badges, seals, medals, checkmark stamps, prices, QR codes or contacts. Small "AMURA" wordmark in the bottom-right corner (max 6% of width). Render the Russian text EXACTLY as given, letter by letter — check every Cyrillic letter.
 ```
+
+### Героиня (одна во всех кадрах с людьми)
+
+Выбор владельца, 04.11.2026: девушка с референса из Pinterest, лицо — «прям таким».
+
+- Восточноазиатская девушка, 23–27 лет.
+- Длинные тёмно-каштановые волосы, слегка волнистые и небрежные.
+- Прямые тёмные брови, миндалевидные карие глаза.
+- Полные нюдово-розовые губы.
+- Светлая тёплая кожа, ровная, с естественной текстурой.
+- Крупные прозрачные очки, квадратно-округлые.
+- Взгляд спокойный, мягкий.
+
+Одежда всегда закрытая: белая футболка, халат, свитер. Кадр — по плечи или крупнее. Позу «лёжа на кровати» и открытое декольте с референса не берём: это риск модерации WB и Ozon.
+
+Очки:
+- в очках — слайды 02 и 08, рич R1, R2, R3, R4, R6;
+- без очков — где мешают: умывание и нанесение на лицо (слайд 07, рич R5). Очки тогда лежат рядом в кадре, чтобы героиня узнавалась.
+
+Строка героини — вставлять в каждый запрос с людьми, после общей строки, дословно:
+
+```
+HEROINE (same woman in every image): East Asian woman, 23-27 years old, long dark chestnut-brown hair, slightly wavy and casually messy, straight dark brows, almond-shaped brown eyes, full nude-pink lips, fair warm-toned even skin with natural visible texture (no plastic retouching), large clear transparent square-rounded eyeglasses, calm soft gaze. Modest clothing only: plain white crew-neck T-shirt, bathrobe or knit sweater, no cleavage, framed from the shoulders up or closer, no lying-in-bed poses. If a reference image of her is attached, keep her face exactly the same.
+```
+
+В запросах ниже она обозначена как `[HEROINE line]`: на это место вставить строку целиком.
+
+Лучше всего: приложить в ChatGPT картинку-референс её лица (обрезанную по плечи) вместе с фото флакона. Тогда лицо будет одинаковым во всех кадрах.
 
 ---
 
@@ -76,20 +105,20 @@ Hero cover slide. Product centered slightly right, upright, front label facing c
 - **Зачем:** чтобы покупательница узнала свою проблему. Мысль: «Это про мою кожу».
 - **Сцена:** ванная утром, свет из окна сбоку, бежевая плитка, полотенце.
 - **Модель:**
-  - женщина 30–40 лет, нормальная или сухая кожа, без макияжа, лёгкие естественные заломы у глаз;
+  - героиня (см. «Героиня»), в очках, белая футболка, без макияжа;
   - касается щеки кончиками пальцев и смотрит в зеркало (ракурс через плечо или три четверти);
   - эмоция: спокойная задумчивость, не грусть и не «ужас».
 - **Товар:** на полке справа на переднем плане, лицевой стороной, 25% высоты, закрыт.
 - **Предметы:** махровое полотенце молочного цвета — утро, ритуал.
 - **Текст:**
-  - вверху: **«Кожа сухая, тусклая и теряет упругость?»**;
+  - вверху: **«Кожа сухая и тусклая?»**;
   - ниже мельче: **«Эссенция смягчает, увлажняет и придаёт сияние»**;
   - внизу справа: AMURA (мелко).
 - **Запрос:**
 
 ```
 [общая строка]
-Morning bathroom, side window light, warm beige tiles, a milky terry towel. A real woman aged 30-40, no makeup, natural skin texture and soft fine lines near the eyes, gently touching her cheek with fingertips and looking in the mirror, calm thoughtful expression (three-quarter view). The product stands on a shelf in the right foreground, front label visible, about 25% of frame height, cap closed. Text at top in bold graphite: "Кожа сухая, тусклая и теряет упругость?"; smaller below: "Эссенция смягчает, увлажняет и придаёт сияние". Check Cyrillic letters.
+Morning bathroom, side window light, warm beige tiles, a milky terry towel. [HEROINE line] Wearing her glasses and a plain white T-shirt, no makeup, gently touching her cheek with fingertips and looking in the mirror, calm thoughtful expression (three-quarter view). The product stands on a shelf in the right foreground, front label visible, about 25% of frame height, cap closed. Text at top in bold graphite: "Кожа сухая и тусклая?"; smaller below: "Эссенция смягчает, увлажняет и придаёт сияние". Check Cyrillic letters.
 ```
 
 ### 03 — Отличие: PDRN из женьшеня
@@ -140,7 +169,7 @@ Ingredients slide. Product on the left, upright, front label visible, 60% of fra
 
 - **Зачем:** снять страх «будет липко или жирно». Мысль: «Приятная, молочная, впитывается».
 - **Сцена:** макросъёмка, светлый фон.
-- **Руки:** женская рука 30+, естественная кожа, короткий нюдовый маникюр. На тыльной стороне ладони растёрта полоска молочной эссенции с глянцевым бликом.
+- **Руки:** рука героини, естественная кожа, короткий нюдовый маникюр. На тыльной стороне ладони растёрта полоска молочной эссенции с глянцевым бликом.
 - **Товар:** в другой руке или рядом, наклонён к зрителю на 20°, помпа видна, 30% высоты.
 - **Предметы:** тонкое стекло с каплями — свежесть.
 - **Текст:**
@@ -151,7 +180,7 @@ Ingredients slide. Product on the left, upright, front label visible, 60% of fra
 
 ```
 [общая строка]
-Macro texture slide. A woman's hand (30+, natural skin, short nude manicure) with a smooth swatch of milky white essence spread on the back of the hand, glossy highlight. The product held in the other hand or standing next to it, tilted about 20 degrees toward camera, pump visible, about 30% of frame height. A thin glass surface with water droplets. Light airy background. Headline: "МОЛОЧНАЯ ТЕКСТУРА"; subheadline: "Быстро впитывается, оставляет сияющий увлажняющий слой"; small: "Без отдушки". Check Cyrillic letters.
+Macro texture slide. The heroine's hand (young, natural skin texture, short nude manicure) with a smooth swatch of milky white essence spread on the back of the hand, glossy highlight. The product held in the other hand or standing next to it, tilted about 20 degrees toward camera, pump visible, about 30% of frame height. A thin glass surface with water droplets. Light airy background. Headline: "МОЛОЧНАЯ ТЕКСТУРА"; subheadline: "Быстро впитывается, оставляет сияющий увлажняющий слой"; small: "Без отдушки". Check Cyrillic letters.
 ```
 
 ### 06 — Для кого
@@ -162,20 +191,20 @@ Macro texture slide. A woman's hand (30+, natural skin, short nude manicure) wit
 - **Модели нет** (или маленькая врезка с лицом из слайда 02 — по желанию).
 - **Текст:**
   - заголовок: **«ДЛЯ КОГО»**;
-  - 4 чипа: «Сухая и обезвоженная кожа», «Тусклый тон», «Первые морщинки», «Потеря упругости»;
+  - 4 чипа: «Сухая и обезвоженная кожа», «Тусклый тон», «Профилактика первых морщинок», «Упругость кожи»;
   - внизу мелко: «Утром и вечером · круглый год, особенно зимой».
 - **Запрос:**
 
 ```
 [общая строка]
-"Who is it for" slide. Product in the center, upright, front label visible, 50% of frame height, warm beige background. Around it 4 rounded white chips with a turquoise dot: "Сухая и обезвоженная кожа", "Тусклый тон", "Первые морщинки", "Потеря упругости". Headline at top: "ДЛЯ КОГО". Small text at bottom: "Утром и вечером · круглый год, особенно зимой". Check Cyrillic letters.
+"Who is it for" slide. Product in the center, upright, front label visible, 50% of frame height, warm beige background. Around it 4 rounded white chips with a turquoise dot: "Сухая и обезвоженная кожа", "Тусклый тон", "Профилактика первых морщинок", "Упругость кожи". Headline at top: "ДЛЯ КОГО". Small text at bottom: "Утром и вечером · круглый год, особенно зимой". Check Cyrillic letters.
 ```
 
 ### 07 — Как наносить
 
 - **Зачем:** убрать вопрос «куда это в мой уход» и подсказать про помпу (у VT она известная проблема, сам бренд об этом пишет).
 - **Сцена:** 3 горизонтальные зоны сверху вниз, в каждой маленькое фото и номер в бирюзовом круге.
-- **Руки:** 1) умывание; 2) ладонь наклонена, носик помпы на одной линии с ладонью; 3) похлопывание по щеке.
+- **Руки:** героиня без очков, очки лежат у раковины. 1) умывание; 2) ладонь наклонена, носик помпы на одной линии с ладонью; 3) похлопывание по щеке.
 - **Товар:** во втором кадре в руке, наклонён, помпа видна.
 - **Текст:**
   - заголовок: **«КАК НАНОСИТЬ»**;
@@ -188,14 +217,14 @@ Macro texture slide. A woman's hand (30+, natural skin, short nude manicure) wit
 
 ```
 [общая строка]
-How-to slide with 3 horizontal panels stacked vertically, each with a small photo and a number in a turquoise circle. Panel 1: hands splashing water on face (cleansing). Panel 2: tilted palm with the product tilted in a straight line with the palm, pump pressed, a drop of milky essence coming out (product label visible). Panel 3: fingertips gently patting the cheek. Texts: 1 "Очищение" / "умойтесь, нанесите тонер или сыворотку"; 2 "Эссенция" / "наклоните ладонь и флакон в одну линию, нажмите на помпу"; 3 "Распределите" / "по лицу похлопывающими движениями, затем крем". Headline: "КАК НАНОСИТЬ". Bottom: "Утром и вечером". Check Cyrillic letters.
+How-to slide with 3 horizontal panels stacked vertically, each with a small photo and a number in a turquoise circle. [HEROINE line, but WITHOUT glasses; her glasses lie by the sink in panel 1] Panel 1: hands splashing water on face (cleansing). Panel 2: tilted palm with the product tilted in a straight line with the palm, pump pressed, a drop of milky essence coming out (product label visible). Panel 3: fingertips gently patting the cheek. Texts: 1 "Очищение" / "умойтесь, нанесите тонер или сыворотку"; 2 "Эссенция" / "наклоните ладонь и флакон в одну линию, нажмите на помпу"; 3 "Распределите" / "по лицу похлопывающими движениями, затем крем". Headline: "КАК НАНОСИТЬ". Bottom: "Утром и вечером". Check Cyrillic letters.
 ```
 
 ### 08 — Под макияж
 
 - **Зачем:** второй сценарий использования, расширяет аудиторию. Мысль: «Ещё и как база — 2 в 1».
 - **Сцена:** туалетный столик, утро, кисть, тональное средство (без брендов), зеркало.
-- **Модель:** женщина 25–35 лет, наносит тональное средство кистью, кожа с естественным сиянием; лёгкая полуулыбка.
+- **Модель:** героиня в очках и белой футболке, наносит тональное средство кистью на щёку, кожа с естественным сиянием; лёгкая полуулыбка.
 - **Товар:** на столике на переднем плане, лицевой стороной, 30% высоты.
 - **Текст:**
   - заголовок: **«ПОД МАКИЯЖ»**;
@@ -204,7 +233,7 @@ How-to slide with 3 horizontal panels stacked vertically, each with a small phot
 
 ```
 [общая строка]
-Vanity table in morning light, a mirror, an unbranded foundation bottle and a makeup brush. A real woman aged 25-35 applying foundation with a brush, natural dewy glow, soft half-smile. The product stands on the table in the foreground, front label visible, about 30% of frame height. Headline: "ПОД МАКИЯЖ"; subheadline: "Как база для сияющего финиша или 1–3 капли в тональное средство". No brand names on the foundation. Check Cyrillic letters.
+Vanity table in morning light, a mirror, an unbranded foundation bottle and a makeup brush. [HEROINE line] Wearing her glasses and a white T-shirt, applying foundation to her cheek with a brush, natural dewy glow, soft half-smile. The product stands on the table in the foreground, front label visible, about 30% of frame height. Headline: "ПОД МАКИЯЖ"; subheadline: "Как база для сияющего финиша или 1–3 капли в тональное средство". No brand names on the foundation. Check Cyrillic letters.
 ```
 
 ---
@@ -224,7 +253,7 @@ Vanity table in morning light, a mirror, an unbranded foundation bottle and a ma
 - **Без отдушки** — бренд пишет «unscented», парфюмерной композиции в INCI нет.
 - **Для кого:**
   - сухая, обезвоженная, нормальная кожа;
-  - тусклый тон, первые морщинки, потеря упругости.
+  - тусклый тон, поддержка упругости и профилактика первых морщинок (с 20+ лет), уход за первыми морщинками (30+).
   - Осторожно для жирной и склонной к высыпаниям кожи: в составе на 2-м месте isopropyl myristate (может быть тяжёлым). Поэтому «для всех типов кожи» не пишем.
 - **Когда:**
   - утром и вечером, бренд прямо пишет «perfect for use at any time of day or night»;
@@ -264,47 +293,47 @@ Use the attached product photo as the exact product, do NOT redraw or relabel it
 
 ### R1 — Утро, зеркало
 
-- **Сцена:** 7:30 утра, ванная, холодный зимний свет из окна. Женщина 30–40 лет в халате смотрит в зеркало, проводит пальцами по щеке — кожа стянута после сна.
+- **Сцена:** 7:30 утра, ванная, холодный зимний свет из окна. Героиня в очках и халате смотрит в зеркало, проводит пальцами по щеке — кожа стянута после сна.
 - **Кадр:** через плечо, лицо в отражении. Флакон на полке в фокусе, справа.
 - **Текст:** **«Утро. Кожа стянута, а впереди длинный день»** / «Пара нажатий — и кожа снова мягкая».
-- **Запрос:** `[общая строка рича] Early winter morning bathroom, cold window light. A woman 30-40 in a bathrobe looks in the mirror touching her cheek, skin feels tight. Over-the-shoulder shot, face in the reflection; product in sharp focus on the shelf on the right. Text left: "Утро. Кожа стянута, а впереди длинный день" / "Пара нажатий — и кожа снова мягкая". Check Cyrillic letters.`
+- **Запрос:** `[общая строка рича] Early winter morning bathroom, cold window light. [HEROINE line] Wearing her glasses and a bathrobe, she looks in the mirror touching her cheek, skin feels tight. Over-the-shoulder shot, face in the reflection; product in sharp focus on the shelf on the right. Text left: "Утро. Кожа стянута, а впереди длинный день" / "Пара нажатий — и кожа снова мягкая". Check Cyrillic letters.`
 
 ### R2 — Отопление и мороз
 
-- **Сцена:** вечер, квартира, за окном снег. Батарея, на подоконнике чашка чая. Женщина снимает шапку и шарф, щёки обветрены.
+- **Сцена:** вечер, квартира, за окном снег. Батарея, на подоконнике чашка чая. Героиня в свитере снимает шапку и шарф, щёки обветрены, очки слегка запотели с мороза — узнаваемая деталь.
 - **Кадр:** средний план, тёплый свет лампы против синего окна. Флакон на комоде у входа.
 - **Текст:** **«Мороз на улице, сухой воздух дома»** / «Эссенция с церамидами помогает удерживать влагу».
-- **Запрос:** `[общая строка рича] Evening apartment, snow outside the window, warm lamp light vs blue window light. A woman taking off a knit hat and scarf, cheeks slightly wind-reddened. Product on a dresser by the entrance. Text right: "Мороз на улице, сухой воздух дома" / "Эссенция с церамидами помогает удерживать влагу". Check Cyrillic letters.`
+- **Запрос:** `[общая строка рича] Evening apartment, snow outside the window, warm lamp light vs blue window light. [HEROINE line] Wearing a knit sweater and her glasses slightly fogged from the cold, taking off a knit hat and scarf, cheeks slightly wind-reddened. Product on a dresser by the entrance. Text right: "Мороз на улице, сухой воздух дома" / "Эссенция с церамидами помогает удерживать влагу". Check Cyrillic letters.`
 
 ### R3 — Перелёт
 
-- **Сцена:** салон самолёта у иллюминатора, облака. Женщина достаёт флакон из прозрачной косметички. 30 мл — проходит в ручную кладь (до 100 мл).
+- **Сцена:** салон самолёта у иллюминатора, облака. Героиня в очках и свитере достаёт флакон из прозрачной косметички. 30 мл — проходит в ручную кладь (до 100 мл).
 - **Кадр:** крупный план рук и флакона, иллюминатор с облаками на фоне.
 - **Текст:** **«Перелёт — и кожа как бумага»** / «30 мл — помещается в ручную кладь».
-- **Запрос:** `[общая строка рича] Airplane cabin by the window, clouds outside. Close-up of a woman's hands taking the product out of a clear travel pouch. Text left: "Перелёт — и кожа как бумага" / "30 мл — помещается в ручную кладь". Check Cyrillic letters.`
+- **Запрос:** `[общая строка рича] Airplane cabin by the window, clouds outside. [HEROINE line] Wearing her glasses and a knit sweater. Close-up of her hands taking the product out of a clear travel pouch, her face partly visible. Text left: "Перелёт — и кожа как бумага" / "30 мл — помещается в ручную кладь". Check Cyrillic letters.`
 
 ### R4 — Недосып
 
-- **Сцена:** кухня, 6:50 утра, мама 30–35 лет с кружкой кофе, ребёнок на фоне вне фокуса. Усталые глаза, спокойная улыбка.
+- **Сцена:** кухня, 6:50 утра, героиня в очках и белой футболке с кружкой кофе, рядом открытый ноутбук — дедлайн или ранняя пара. Усталые глаза, спокойная улыбка.
 - **Кадр:** средний план, флакон на столе рядом с кружкой.
 - **Текст:** **«Спала 5 часов. Нужно выглядеть свежей»** / «Сияющий увлажняющий слой за минуту».
-- **Запрос:** `[общая строка рича] Kitchen at 6:50 am, a mother 30-35 holding a coffee mug, a child blurred in the background, tired eyes but calm smile. Product on the table next to the mug. Text right: "Спала 5 часов. Нужно выглядеть свежей" / "Сияющий увлажняющий слой за минуту". Check Cyrillic letters.`
+- **Запрос:** `[общая строка рича] Kitchen at 6:50 am, [HEROINE line] Wearing her glasses and a white T-shirt, holding a coffee mug, an open laptop beside her, tired eyes but calm smile. Product on the table next to the mug. Text right: "Спала 5 часов. Нужно выглядеть свежей" / "Сияющий увлажняющий слой за минуту". Check Cyrillic letters.`
 
 ### R5 — Вечерний ритуал
 
-- **Сцена:** спальня, тёплый ночник, плед. Женщина 35–45 лет, без макияжа, наносит эссенцию похлопывающими движениями, глаза прикрыты — момент для себя.
+- **Сцена:** спальня, тёплый ночник, плед. Героиня без очков (очки на тумбе рядом с флаконом), в свитере, без макияжа, наносит эссенцию похлопывающими движениями, глаза прикрыты — момент для себя.
 - **Кадр:** крупный план лица в профиль, флакон на прикроватной тумбе.
 - **Текст:** **«10 минут только для себя»** / «Вечером — щедрый слой на всё лицо, затем крем».
-- **Запрос:** `[общая строка рича] Cozy bedroom, warm bedside lamp, a knit blanket. A woman 35-45 without makeup gently patting essence onto her face, eyes half-closed, a calm self-care moment. Close-up profile, product on the nightstand. Text left: "10 минут только для себя" / "Вечером — щедрый слой на всё лицо, затем крем". Check Cyrillic letters.`
+- **Запрос:** `[общая строка рича] Cozy bedroom, warm bedside lamp, a knit blanket. [HEROINE line, but WITHOUT glasses: her glasses lie on the nightstand next to the product] Wearing a knit sweater, no makeup, gently patting essence onto her face, eyes half-closed, a calm self-care moment. Close-up profile, product on the nightstand. Text left: "10 минут только для себя" / "Вечером — щедрый слой на всё лицо, затем крем". Check Cyrillic letters.`
 
 ### R6 — «Кожа снова мягкая» (финал)
 
 - **Сцена:** утро, солнечный свет, та же героиня из R1 улыбается в зеркало и касается щеки — жест тот же, что в R1, но эмоция другая. Это закольцовывает историю.
 - **Кадр:** как в R1 (через плечо), свет тёплый, а не холодный. Флакон в фокусе.
 - **Текст:** **«Кожа снова мягкая и сияет»** / «VT Cosmetics PDRN Essence 100 — растительный PDRN из женьшеня».
-- **Запрос:** `[общая строка рича] Same composition as the first morning mirror scene, but warm sunny light: the same woman smiling at her reflection, touching her cheek, relaxed. Product in sharp focus on the shelf. Text left: "Кожа снова мягкая и сияет" / "VT Cosmetics PDRN Essence 100 — растительный PDRN из женьшеня". Check Cyrillic letters.`
+- **Запрос:** `[общая строка рича] Same composition as the first morning mirror scene, but warm sunny light: [HEROINE line] the same woman, wearing her glasses and the bathrobe, smiling at her reflection, touching her cheek, relaxed. Product in sharp focus on the shelf. Text left: "Кожа снова мягкая и сияет" / "VT Cosmetics PDRN Essence 100 — растительный PDRN из женьшеня". Check Cyrillic letters.`
 
-> В R1 и R6 важно, чтобы модель была одна и та же. В ChatGPT: сгенерировать R1, затем R6 с приложенной картинкой R1 и словами «same woman, same bathroom».
+> Во всех кадрах — одна героиня. В ChatGPT: прикладывать референс её лица. R6 генерировать с приложенной картинкой R1 и словами «same woman, same bathroom».
 
 ---
 
