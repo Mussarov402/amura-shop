@@ -13,5 +13,9 @@ if OUT=$(bash deploy/apply.sh 2>&1); then
   python3 deploy/report.py send ok "применено ${NEW:0:7}: $(echo "$OUT" | tail -n 3 | tr '\n' ' ')"
 else
   touch /var/lib/amura/retry
-  python3 deploy/report.py send alert "ошибка применения ${NEW:0:7}: $(echo "$OUT" | tail -n 8 | tr '\n' ' ')"
+  if echo "$OUT" | grep -qE "HTTP Error (404|5[0-9][0-9])"; then      # система AMURA ещё без нужной части — ждём деплой Render
+    python3 deploy/report.py send info "⏳ жду деплой Render (${NEW:0:7}): $(echo "$OUT" | grep -oE 'HTTP Error [0-9]+[^ ]*' | tail -n 1)"
+  else
+    python3 deploy/report.py send alert "ошибка применения ${NEW:0:7}: $(echo "$OUT" | tail -n 8 | tr '\n' ' ')"
+  fi
 fi
