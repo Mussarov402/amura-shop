@@ -26,6 +26,7 @@ import bg
 import json
 import math
 import os
+import re
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -348,7 +349,19 @@ class WB(Channel):
                 for s in part:
                     self.sent[s["ref"]] = s["stock"]
             except ApiError as e:
-                errors.append(e.message)
+                bad = {int(x) for x in re.findall(r'"?chrtId"?\s*:\s*(\d+)', e.message)} if _not_ready(e.message) else set()
+                rest = [s for s in part if int(s["ref"]) not in bad]
+                if bad and rest:                             # WB отверг пачку из-за отдельных товаров — без них ещё раз
+                    errors += [f"{s['offer'] or s['ref']}: {e.message[:80]}" for s in part if int(s["ref"]) in bad]
+                    try:
+                        self.req("PUT", "marketplace", f"/api/v3/stocks/{wh}",
+                                 json={"stocks": [{"chrtId": int(s["ref"]), "amount": s["stock"]} for s in rest]})
+                        for s in rest:
+                            self.sent[s["ref"]] = s["stock"]
+                    except ApiError as e2:
+                        errors.append(e2.message)
+                else:
+                    errors.append(e.message)
             time.sleep(0.3)
         return errors
 
@@ -866,8 +879,21 @@ def push_stocks(ch, force=False):
         n = 0 if hidden(ch, x, marks, kiz) else shown((cat.get(mid) or {}).get("qty"), pct, share)
         if force or ch.sent.get(ref) != n:
             want.append({"ref": ref, "offer": x["offer"], "stock": n})
+    for s in want:                                      # «отправлено» — только то, что площадка приняла
+        ch.sent.pop(s["ref"], None)
     errors = ch.push_stocks(want) if want else []
-    return {"sent": len(want), "errors": errors[:20]}
+    skipped = [e for e in errors if _not_ready(e)]
+    errors = [e for e in errors if not _not_ready(e)]
+    ok = sum(1 for s in want if ch.sent.get(s["ref"]) == s["stock"])
+    return {"sent": ok, "skipped": [e.split(":", 1)[0] for e in skipped][:30], "errors": errors[:20]}
+
+
+NOT_READY = ("not created", "not found", "not_found", "notfound", "moderat", "модерац", "не создан", "не найден", "archived", "в архиве")
+
+
+def _not_ready(err):
+    """Отказ по товару, которого на площадке ещё нет (карточка создаётся, на модерации, в архиве) — не ошибка выгрузки."""
+    return any(w in str(err).lower() for w in NOT_READY)
 
 
 # ---------- фон ----------
@@ -906,7 +932,7 @@ def tick(now=None):
                     r = push_stocks(ch, force=force)
                     if force:
                         ch.sent_at = now
-                    _log(ch, "stocks", not r["errors"], r)
+                    _log(ch, "stocks", not r["errors"] or r["sent"] > 0, r)   # красное — только если не ушло ничего
                 except Exception as e:
                     _log(ch, "stocks", False, str(e)[:300])
                     oh.alert(f"mp-stocks:{ch.key}", f"{ch.title}: остатки не обновляются — {str(e)[:250]}", every=3 * 3600)
