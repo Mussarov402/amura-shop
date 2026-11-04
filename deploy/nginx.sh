@@ -7,7 +7,8 @@ set -euo pipefail
 DOMAINS="${AMURA_DOMAINS:-amura.kz www.amura.kz opt.amura.kz admin.amura.kz api.amura.kz server.amura.kz}"
 LE=/etc/letsencrypt/live
 OUT=/etc/nginx/sites-available/amura
-mkdir -p /var/www/acme/.well-known/acme-challenge
+install -d -m 755 /var/www /var/www/acme /var/www/acme/.well-known /var/www/acme/.well-known/acme-challenge   # nginx читает (apply.sh идёт с umask 077)
+chmod 755 /var/www/acme /var/www/acme/.well-known /var/www/acme/.well-known/acme-challenge
 
 proxy() {
   cat <<'EOP'
