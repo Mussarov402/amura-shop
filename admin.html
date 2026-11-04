@@ -1430,7 +1430,7 @@ async mpasm(){const V=views.mpasm,n=nav;let o;try{o=await api("mp/asm"+(V.shop?"
   ${O.length?`<div class="asb"><button class="btn ghost" id="asmp">🖨 Печать листа</button><button class="btn" id="asmok" ${sel.size?"":"disabled"}>Подтвердить сборку (${sel.size})</button></div>`:""}</div></div>
   <div class="card" style="margin-top:14px"><div class="ash"><b>Собрано — наклеить этикетки</b><span class="mut">${D.length} ${wb?"в поставке":"ждут передачи"}</span></div>
   ${D.length?`<div class="mut" style="margin-bottom:10px">${D.map(r=>esc(r.ext)+(r.number?" (№"+esc(r.number)+")":"")).join(", ")}</div><button class="btn" id="asml">🖨 ${wb?"Стикеры WB 58×40":"Этикетки Ozon 75×120"} (${D.length})</button><div class="mut" style="margin-top:6px">Один PDF, по порядку сборочного листа: распечатать на термопринтере и наклеить.</div>`:`<div class="mut">Подтвердите сборку — заказы появятся здесь, этикетки можно будет распечатать разом.</div>`}
-  ${wb?`<div class="row" style="flex-wrap:wrap;margin-top:12px"><div class="grow" style="min-width:200px"><b>Поставка</b><div class="mut">${o.supply?esc(o.supply.name||o.supply.id)+" · заданий: "+o.supply.count:"Открытой поставки нет — создастся при подтверждении сборки."}</div></div>${o.supply&&o.supply.count?`<button class="btn sm ghost" id="asmq">Закрыть поставку и получить QR</button>`:""}</div>`:""}</div>`);
+  ${wb?`<div class="row" style="flex-wrap:wrap;margin-top:12px"><div class="grow" style="min-width:200px"><b>Сдать на WB</b><div class="mut">${o.supply?`Поставка ${esc(o.supply.name||o.supply.id)} · заданий: ${o.supply.count}. Отдали товары WB — нажмите «Сдал»: задания перейдут в доставку, отгрузка в МойСклад создастся сама.`:"Открытой поставки нет — создастся при подтверждении сборки."}</div>${o.supply&&o.supply.count?`<a href="#" id="asmq" class="mut" style="font-size:13px">QR поставки (если сдаёте коробкой)</a>`:""}</div>${o.supply&&o.supply.count?`<button class="btn sm" id="asmd">Сдал на WB</button>`:""}</div>`:""}</div>`);
  bindSeg();
  document.querySelectorAll("[data-asms]").forEach(b=>b.onclick=()=>{V.shop=b.dataset.asms;views.mpasm()});
  ($("#asmr")||{}).onclick=()=>views.mpasm();
@@ -1458,13 +1458,14 @@ async mpasm(){const V=views.mpasm,n=nav;let o;try{o=await api("mp/asm"+(V.shop?"
    if(w){w.location.href=u}else if(navigator.canShare&&navigator.canShare({files:[f]})){try{await navigator.share({files:[f],title:name})}catch(e){}}else saveFile(f)}
   catch(e){if(w)w.close();toast(e.message,5000)}};
  ($("#asml")||{}).onclick=()=>pdf("mp/asm/labels?shop="+encodeURIComponent(V.shop)+"&ids="+encodeURIComponent(D.map(r=>r.ext).join(",")),(wb?"Стикеры WB":"Этикетки Ozon")+".pdf");
- ($("#asmq")||{}).onclick=()=>{const ov=ovOpen(),box=ov.querySelector(".eo"),sp=o.supply;
-  box.innerHTML=`<div style="font-size:18px;font-weight:800;margin-bottom:8px">Закрыть поставку ${esc(sp.name||String(sp.id))}?</div><div class="b w" style="white-space:normal;display:block;margin-bottom:10px">После закрытия в поставку нельзя добавить задания. Новые уйдут в новую поставку.</div><div class="mut" style="margin-bottom:14px">Заданий: ${sp.count}. Получите QR поставки и покажите его при сдаче на склад WB.</div>
-   <div class="asb"><button class="btn ghost" id="asmx">Отмена</button><button class="btn" id="asmy">Закрыть и получить QR</button></div><div class="mut" id="asmm" style="margin-top:10px"></div>`;
+ const close=qr=>{const ov=ovOpen(),box=ov.querySelector(".eo"),sp=o.supply;
+  box.innerHTML=`<div style="font-size:18px;font-weight:800;margin-bottom:8px">Сдали ${sp.count} ${pl(sp.count,"задание","задания","заданий")} на WB?</div><div class="b w" style="white-space:normal;display:block;margin-bottom:10px">Поставка ${esc(sp.name||String(sp.id))} закроется: добавить в неё задания будет нельзя, новые уйдут в новую поставку.</div><div class="mut" style="margin-bottom:14px">${qr?"Сразу получите QR поставки — его сканируют, если сдаёте коробкой.":"QR не нужен: на приёмке сканируют стикер на каждом товаре."}</div>
+   <div class="asb"><button class="btn ghost" id="asmx">Отмена</button><button class="btn" id="asmy">${qr?"Сдал, получить QR":"Сдал"}</button></div><div class="mut" id="asmm" style="margin-top:10px"></div>`;
   box.querySelector("#asmx").onclick=()=>ov.remove();
   box.querySelector("#asmy").onclick=async()=>{const b=box.querySelector("#asmy");b.disabled=true;
-   try{await api("mp/asm/close",{method:"POST",body:JSON.stringify({shop:V.shop,supply:sp.id})});ov.remove();await pdf("mp/asm/qr?shop="+encodeURIComponent(V.shop)+"&supply="+encodeURIComponent(sp.id),"QR поставки WB.pdf");views.mpasm()}
-   catch(e){box.querySelector("#asmm").textContent=e.message;b.disabled=false}}}},
+   try{await api("mp/asm/close",{method:"POST",body:JSON.stringify({shop:V.shop,supply:sp.id})});ov.remove();toast("Поставка передана WB — отгрузка в МойСклад появится в течение 5 минут",4000);if(qr)await pdf("mp/asm/qr?shop="+encodeURIComponent(V.shop)+"&supply="+encodeURIComponent(sp.id),"QR поставки WB.pdf");views.mpasm()}
+   catch(e){box.querySelector("#asmm").textContent=e.message;b.disabled=false}}};
+ ($("#asmd")||{}).onclick=()=>close(false);($("#asmq")||{}).onclick=e=>{e.preventDefault();close(true)}},
 /* Калькулятор прибыли WB и Ozon (модуль «marketplaces»): товар из МойСклад, ставки из кабинетов; налог, реклама, эквайринг WB, маржа и своя себестоимость — владелец */
 async mpcalc(){const V=views.mpcalc,n=nav,own=ME.role==="owner";V.prices=V.prices||{};
  const o=V.pid?await api("mp/calc?id="+encodeURIComponent(V.pid)+"&prices="+encodeURIComponent(JSON.stringify(V.prices))):await api("mp/calc");if(n!==nav)return;
