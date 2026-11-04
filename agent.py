@@ -173,8 +173,23 @@ READ = {
         "attribute_search": ("POST", "", "/v1/description-category/attribute/values/search", ["*"], "поиск по справочнику значений"),
         "import_info": ("POST", "", "/v1/product/import/info", ["*"], "статус создания карточки (task_id)"),
         "pictures_info": ("POST", "", "/v2/product/pictures/info", ["*"], "статус загрузки картинок"),
+        "certificates": ("POST", "", "/v1/product/certificate/list", ["*"], "сертификаты и декларации магазина (page, page_size, offer_id?)"),
+        "certificate_types": ("GET", "", "/v1/product/certificate/types", [], "типы документов (type_code)"),
+        "accordance_types": ("GET", "", "/v2/product/certificate/accordance-types/list", [], "типы соответствия (accordance_type_code)"),
     },
 }
+
+
+OZ_ALT = {"/v1/product/certificate/types": ("POST", "/v1/product/certificate/types"),
+          "/v2/product/certificate/accordance-types/list": ("GET", "/v1/product/certificate/accordance-types/list")}
+
+
+def read_get(ch, path):
+    r = __import__("requests").get(ch.api() + path, timeout=30, headers={"Client-Id": ch.env("CLIENT_ID"), "Api-Key": ch.env("API_KEY")})
+    j = mpk._json(r)
+    if r.status_code >= 400:
+        raise mpk.ApiError(r.status_code, str(j.get("message") or f"HTTP {r.status_code}")[:300])
+    return j
 
 
 def _wb_path(path, args):
@@ -198,6 +213,9 @@ def read(ch, name, args):
         return ch.req("POST", base, path, json=args.get("_body", args))
     if method == "GET":
         r = __import__("requests").get(ch.api() + path, timeout=30, headers={"Client-Id": ch.env("CLIENT_ID"), "Api-Key": ch.env("API_KEY")})
+        if r.status_code in (404, 405) and path in OZ_ALT:          # путь у Ozon менялся (v1 ↔ v2, GET ↔ POST) — пробуем другой
+            alt = OZ_ALT[path]
+            return ch.call(alt[1], {}) if alt[0] == "POST" else read_get(ch, alt[1])
         j = mpk._json(r)
         if r.status_code >= 400:
             raise mpk.ApiError(r.status_code, str(j.get("message") or f"HTTP {r.status_code}")[:300])
@@ -652,6 +670,93 @@ def _oz_card_update(ch, p):
     return {"offer_id": str(p["offer_id"]), "before": {"attributes": before}, "task_id": r.get("task_id") or ch.res(r).get("task_id"), "response": r}
 
 
+CERT_MAX = 20 * 1024 * 1024
+CERT_TYPES = {".pdf": "application/pdf", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png"}
+
+
+def _cert_no(x):
+    return "".join(str(x or "").upper().split()).replace("№", "N")
+
+
+def oz_certs(ch):
+    """Все сертификаты и декларации магазина Ozon (/v1/product/certificate/list, по страницам)."""
+    out = []
+    for page in range(1, 51):
+        r = ch.call("/v1/product/certificate/list", {"page": page, "page_size": 1000})
+        res = r.get("result") if isinstance(r.get("result"), dict) else r
+        part = res.get("certificates") or []
+        out += part
+        if page >= int(res.get("page_count") or 1) or not part:
+            break
+    return out
+
+
+def _iso_day(v):
+    v = str(v or "").strip()
+    if len(v) == 10 and v[2] == "." and v[5] == ".":                  # 03.04.2025 → 2025-04-03
+        v = f"{v[6:]}-{v[3:5]}-{v[:2]}"
+    return v + "T00:00:00Z" if len(v) == 10 else v
+
+
+def _cert_file(url):
+    import requests
+    from urllib.parse import urlparse
+    if not str(url or "").startswith("https://"):
+        raise ValueError("file_url — публичная ссылка https:// на PDF или фото декларации")
+    ext = "." + urlparse(url).path.rsplit(".", 1)[-1].lower() if "." in urlparse(url).path.rsplit("/", 1)[-1] else ""
+    r = requests.get(url, timeout=60, stream=True, headers={"User-Agent": "amura-agent/1.0"})
+    r.raise_for_status()
+    data = r.raw.read(CERT_MAX + 1, decode_content=True)
+    if len(data) > CERT_MAX:
+        raise ValueError("файл декларации больше 20 МБ")
+    mime = CERT_TYPES.get(ext) or ("application/pdf" if data[:4] == b"%PDF" else "image/png" if data[:4] == b"\x89PNG"
+                                   else "image/jpeg" if data[:2] == b"\xff\xd8" else "")
+    if not mime:
+        raise ValueError("файл декларации — PDF, JPG или PNG")
+    name = "declaration" + {v: k for k, v in CERT_TYPES.items()}[mime].replace(".jpeg", ".jpg")
+    return name, data, mime
+
+
+def _oz_cert(ch, p):
+    """Декларация/сертификат Ozon: есть с тем же номером — берём её, нет — создаём (/v1/product/certificate/create, multipart
+    с файлом); затем привязываем к товарам по offer_id (/v1/product/certificate/bind). Повтор не создаёт вторую."""
+    import requests
+    num = _cert_no(p["number"])
+    have = next((c for c in oz_certs(ch) if _cert_no(c.get("certificate_number") or c.get("number")) == num), None)
+    created = False
+    if have:
+        cid = have.get("certificate_id") or have.get("id")
+    else:
+        if not p.get("file_url"):
+            raise ValueError("Ozon создаёт декларацию только с файлом: пришлите file_url (PDF декларации или выписка из реестра ФСА)")
+        fname, data, mime = _cert_file(p["file_url"])
+        form = {"name": p["name"], "number": p["number"], "type_code": p["type_code"], "issue_date": _iso_day(p["issue_date"]),
+                "expire_date": _iso_day(p["expire_date"])}
+        if p.get("accordance_type_code"):
+            form["accordance_type_code"] = p["accordance_type_code"]
+        r = requests.post(ch.api() + "/v1/product/certificate/create", data=form, files={"files": (fname, data, mime)}, timeout=120,
+                          headers={"Client-Id": ch.env("CLIENT_ID"), "Api-Key": ch.env("API_KEY")})
+        j = mpk._json(r)
+        if r.status_code >= 400:
+            raise mpk.ApiError(r.status_code, str(j.get("message") or f"HTTP {r.status_code}")[:300])
+        res = j.get("result")
+        cid = j.get("id") or (res.get("id") if isinstance(res, dict) else res)
+        if not cid:
+            raise mpk.ApiError(502, "Ozon не вернул id созданной декларации: " + str(j)[:200])
+        created = True
+    offers = [str(x) for x in p.get("offer_ids") or []]
+    out = {"certificate_id": cid, "number": p["number"], "created": created}
+    if offers:
+        info = ch.call("/v3/product/info/list", {"offer_id": offers})
+        items = info.get("items") or ch.res(info).get("items") or []
+        pids = {str(i.get("offer_id")): int(i["id"]) for i in items if i.get("id")}
+        out["not_found"] = [o for o in offers if o not in pids]
+        if pids:
+            out["bind"] = ch.call("/v1/product/certificate/bind", {"certificate_id": int(cid), "product_id": list(pids.values())})
+            out["bound"] = sorted(pids)
+    return out
+
+
 def _oz_review(ch, p):
     return ch.call("/v1/review/comment/create", {"review_id": str(p["id"]), "text": p["text"], "mark_review_as_processed": True})
 
@@ -907,6 +1012,11 @@ ACTIONS = {
                                   "у владельца «Вернуть как было». Статус — чтение import_info по task_id", "run": _oz_card_update},
     "ozon_pictures": {"shop": mpk.Ozon, "params": ["product_id", "images", "color_image?", "images360?"],
                       "about": "картинки карточки Ozon по https-ссылкам (/v1/product/pictures/import), правило «Карточки»", "run": _oz_pictures},
+    "ozon_certificate": {"shop": mpk.Ozon, "params": ["number", "name", "type_code", "issue_date", "expire_date", "accordance_type_code?",
+                                                       "file_url?", "offer_ids?"],
+                         "about": "декларация/сертификат Ozon: с тем же номером уже есть — берём её, нет — создаём (нужен file_url: https на PDF/JPG/PNG); "
+                                  "затем привязываем к товарам offer_ids. Даты — ГГГГ-ММ-ДД или ДД.ММ.ГГГГ; type_code и accordance_type_code — "
+                                  "чтения certificate_types и accordance_types; список — чтение certificates. Правило «Карточки»", "run": _oz_cert},
     "ozon_promotion": {"shop": mpk.Ozon, "params": ["action_id", "products"], "about": "добавить товары в акцию Ozon (product_id, action_price, stock?)",
                        "run": _oz_promo},
 }
@@ -956,6 +1066,15 @@ def validate(kind, p):
         if not isinstance(p["attributes"], list) or not all(isinstance(a, dict) and a.get("id") and isinstance(a.get("values"), list)
                                                              for a in p["attributes"]):
             raise ValueError("attributes — список {id, values: [{value | dictionary_value_id}]}")
+    if kind == "ozon_certificate":
+        if p.get("offer_ids") is not None and not (isinstance(p["offer_ids"], list) and len(p["offer_ids"]) <= 1000):
+            raise ValueError("offer_ids — список артикулов Ozon (до 1000)")
+        if p.get("file_url") and not str(p["file_url"]).startswith("https://"):
+            raise ValueError("file_url — публичная ссылка https://")
+        for k in ("issue_date", "expire_date"):
+            v = _iso_day(p[k])
+            if len(v) < 10 or not v[:4].isdigit():
+                raise ValueError(f"{k} — дата ГГГГ-ММ-ДД или ДД.ММ.ГГГГ")
     if kind == "wb_card_trash":
         nms = p["nmIDs"] if isinstance(p["nmIDs"], list) else [p["nmIDs"]]
         try:
@@ -1142,6 +1261,7 @@ def summary(kind, ch, p):
                                           + (f" (минимальная цена для маржи 15 % — {p['_floor']['zero']} ₸)" if p.get("_floor") else "")
                                           + (f" (минимальная цена не посчитана: {p['_floor_why']} — нужно «Да»)" if p.get("_floor_why") else ""),
               "ozon_pictures": lambda: f"картинки товара {p['product_id']}: {len(p['images'])} шт.",
+              "ozon_certificate": lambda: f"декларация {p['number']}" + (f" → {len(p['offer_ids'])} товаров" if p.get("offer_ids") else ""),
               "wb_card_create": lambda: f"новая карточка {p['vendorCode']} «{p['title']}», предмет {p['subjectID']}, EAN "
                                         + ", ".join(x for s in p["sizes"] for x in s["skus"]) + f", фото {len(p.get('photos') or [])}",
               "ozon_card_update": lambda: f"{p['offer_id']}: характеристики " + ", ".join(
@@ -1165,7 +1285,7 @@ def auto_ok(kind, ch, p):
     r = rules()
     if r["stop"]:
         return False
-    if kind in ("wb_card_update", "wb_card_create", "wb_card_media", "ozon_pictures", "ozon_card_update"):   # штрихкоды (wb_card_barcodes) — только «Да»
+    if kind in ("wb_card_update", "wb_card_create", "wb_card_media", "ozon_pictures", "ozon_card_update", "ozon_certificate"):   # штрихкоды (wb_card_barcodes) — только «Да»
         return r["auto_cards"]
     if kind == "ozon_card_create":            # Ozon KZ — сразу, если цена проверена на безубыточность; Ozon RU — через «Да»
         return r["auto_cards"] and ch.key in AUTO_OZ_CREATE and bool(p.get("_floor"))
