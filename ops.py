@@ -10,6 +10,7 @@
 import base64
 import json
 import os
+import re
 import time
 
 from flask import Blueprint, jsonify, request
@@ -66,8 +67,8 @@ def report():
     print(f"Сервер Hoster [{level}]: {text}", flush=True)
     if level in ("alert", "ok") and oh.OWNER:
         icon = "🚨 Сервер AMURA (Hoster.kz): " if level == "alert" else "🖥 Сервер AMURA (Hoster.kz): "
-        key = f"ops:{level}:{text[:60]}"
-        if time.time() - _seen.get(key, 0) > (600 if level == "alert" else 0):
+        key = f"ops:{level}:" + re.sub(r"[0-9a-f]{7}", "", text)[:80]      # без номера коммита: та же ошибка на новом коммите — та же
+        if time.time() - _seen.get(key, 0) > (3600 if level == "alert" else 0):   # одна и та же тревога — не чаще раза в час
             _seen[key] = time.time()
             oh.notify_bg(lambda: oh.tg("sendMessage", chat_id=oh.OWNER, text=icon + text))
     return jsonify(ok=True)

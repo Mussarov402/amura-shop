@@ -59,7 +59,7 @@ class Ops(unittest.TestCase):
         self.assertEqual(len(self.sent), 1)
         self.assertIn("🚨", self.sent[0])
         self.assertEqual(self.post(body).status_code, 200)
-        self.assertEqual(len(self.sent), 1)                                      # повтор тревоги — не чаще раза в 10 минут
+        self.assertEqual(len(self.sent), 1)                                      # повтор тревоги — не чаще раза в час
         self.assertEqual(self.post(body, key=Ed25519PrivateKey.generate()).status_code, 403)   # чужая подпись
         self.assertEqual(self.post({**body, "t": 1}).status_code, 400)           # старый отчёт
 
