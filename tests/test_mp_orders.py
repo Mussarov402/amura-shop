@@ -131,3 +131,30 @@ class MpOrders(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StatusFast(unittest.TestCase):
+    """/mp/status — без списка товаров и без запроса в базу на каждый товар (было 32 с и 150 КБ, 04.11.2026)."""
+    patch = tm.Channels.patch
+
+    def setUp(self):
+        tm.Channels.setUp(self)
+
+    def test_kiz_once_and_no_goods_list(self):
+        prods = {str(i): {"offer": f"o{i}", "name": f"Товар {i}", "archived": False, "kiz": True, "nm": i + 1} for i in range(300)}
+        oh._cache["mp_map_wb"] = (9e12, {"products": prods, "ref": {}, "lost": []})
+        self.addCleanup(lambda: oh._cache.pop("mp_map_wb", None))
+        calls = []
+        real = mpk.setting
+        self.patch(mpk, "setting", lambda k, d="": calls.append(k) or real(k, d))
+        st = mpk.status()
+        wb = next(c for c in st["channels"] if c["id"] == "wb")
+        self.assertEqual((wb["goodsN"], wb["goodsHidden"]), (300, 300))           # КИЗ выключена — все «нужна маркировка»
+        self.assertNotIn("goods", wb)
+        self.assertLess(calls.count("mp_kiz_on"), 10)
+        from flask import Flask
+        app = Flask(__name__)
+        app.register_blueprint(mpk.bp)
+        self.patch(mpk, "_me", lambda owner_only=False: ({"role": "owner"}, None))
+        g = app.test_client().get("/admin/api/mp/goods?shop=wb").get_json()["goods"]
+        self.assertEqual(len(g), 300)

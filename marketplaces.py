@@ -834,11 +834,11 @@ def set_noshow(ch, idt, hide, who):
     return d
 
 
-def hidden(ch, x, marks=None):
+def hidden(ch, x, marks=None, kiz=None):
     """Почему остаток товара не выставляем (→ 0): отметка «не выставлять» или нужна маркировка. Пусто — выставляем."""
     if ident(ch, x) in (noshow(ch) if marks is None else marks):
         return "не выставлять"
-    if isinstance(ch, WB) and x.get("kiz") and not kiz_on():
+    if isinstance(ch, WB) and x.get("kiz") and not (kiz_on() if kiz is None else kiz):   # kiz — один раз на список (каждый вызов — запрос в базу)
         return "нужна маркировка"
     return ""
 
@@ -848,22 +848,22 @@ def goods(ch):
     m = oh._cache.get(f"mp_map_{ch.key}")
     if not m:
         return None
-    mp, marks, out = m[1], noshow(ch), {}
+    mp, marks, kiz, out = m[1], noshow(ch), kiz_on(), {}
     for ref, x in mp["products"].items():
         i = ident(ch, x)
         if i and not x["archived"] and i not in out:
-            out[i] = {"id": i, "offer": x["offer"], "name": x["name"], "pair": bool(mp["ref"].get(ref)), "hidden": hidden(ch, x, marks)}
+            out[i] = {"id": i, "offer": x["offer"], "name": x["name"], "pair": bool(mp["ref"].get(ref)), "hidden": hidden(ch, x, marks, kiz)}
     return sorted(out.values(), key=lambda g: (not g["hidden"], g["name"].lower()))
 
 
 def push_stocks(ch, force=False):
-    mp, cat, pct, share, marks = mapping(ch), _catalog(), reserve_pct(), share_pct(ch), noshow(ch)
+    mp, cat, pct, share, marks, kiz = mapping(ch), _catalog(), reserve_pct(), share_pct(ch), noshow(ch), kiz_on()
     want = []
     for ref, x in mp["products"].items():
         mid = mp["ref"].get(ref)
         if not mid or x["archived"]:
             continue
-        n = 0 if hidden(ch, x, marks) else shown((cat.get(mid) or {}).get("qty"), pct, share)
+        n = 0 if hidden(ch, x, marks, kiz) else shown((cat.get(mid) or {}).get("qty"), pct, share)
         if force or ch.sent.get(ref) != n:
             want.append({"ref": ref, "offer": x["offer"], "stock": n})
     errors = ch.push_stocks(want) if want else []
@@ -936,14 +936,17 @@ def status():
         except ValueError:
             return None
     out = {"on": modules.enabled("marketplaces"), "reserve": reserve_pct(), "kiz": kiz_on(), "channels": []}
-    with db() as d:
-        for ch in channels():
-            rows = d.run(f"SELECT {COLS} FROM mp_order WHERE mp=%s ORDER BY created DESC LIMIT 20", (ch.key,), many=True) or []
-            m = oh._cache.get(f"mp_map_{ch.key}")
-            out["channels"].append({"id": ch.key, "title": ch.title, "keys": ch.keys_set(), "env": ch.env_names(),
-                                    "share": share_pct(ch), "orders": last(ch, "orders"),
-                                    "stocks": last(ch, "stocks"), "lost": (m[1]["lost"][:50] if m else []), "goods": goods(ch),
-                                    "recent": [dict(zip(COLS.split(", "), r)) for r in rows]})
+    with db() as d:                                      # заказы всех магазинов одним подключением; остальное — после (своё подключение у каждой настройки)
+        recent = {ch.key: d.run(f"SELECT {COLS} FROM mp_order WHERE mp=%s ORDER BY created DESC LIMIT 20", (ch.key,), many=True) or []
+                  for ch in channels()}
+    for ch in channels():
+        m = oh._cache.get(f"mp_map_{ch.key}")
+        g = goods(ch)                                    # список товаров — отдельным запросом (/mp/goods), здесь только счётчики
+        out["channels"].append({"id": ch.key, "title": ch.title, "keys": ch.keys_set(), "env": ch.env_names(),
+                                "share": share_pct(ch), "orders": last(ch, "orders"),
+                                "stocks": last(ch, "stocks"), "lost": (m[1]["lost"][:50] if m else []),
+                                "goodsN": None if g is None else len(g), "goodsHidden": sum(1 for x in g or [] if x["hidden"]),
+                                "recent": [dict(zip(COLS.split(", "), r)) for r in recent[ch.key]]})
     return out
 
 
@@ -961,6 +964,17 @@ def _me(owner_only=False):
 def status_route():
     _, err = _me()
     return err or jsonify(ok=True, **status())
+
+
+@bp.get("/admin/api/mp/goods")
+def goods_route():
+    _, err = _me()
+    if err:
+        return err
+    ch = {c.key: c for c in channels()}.get(request.args.get("shop", ""))
+    if not ch:
+        return jsonify(ok=False, error="Нет такого магазина"), 404
+    return jsonify(ok=True, goods=goods(ch))
 
 
 @bp.post("/admin/api/mp/settings")

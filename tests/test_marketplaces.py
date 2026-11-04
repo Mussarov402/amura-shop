@@ -235,7 +235,8 @@ class Channels(unittest.TestCase):
         self.wb.kiz = True
         mpk.push_stocks(wb)
         self.assertEqual(self.wb.stocks[-1][1], [{"chrtId": 501, "amount": 0}])           # needKiz, маркировки нет — 0
-        g = next(x for x in c.get("/admin/api/mp/status").get_json()["channels"] if x["id"] == "wb")["goods"]
+        self.assertEqual(next(x for x in c.get("/admin/api/mp/status").get_json()["channels"] if x["id"] == "wb")["goodsHidden"], 1)
+        g = c.get("/admin/api/mp/goods?shop=wb").get_json()["goods"]
         self.assertEqual((g[0]["id"], g[0]["hidden"]), ("1", "нужна маркировка"))
         c.post("/admin/api/mp/settings", json={"kiz": True})
         mpk.push_stocks(wb)
