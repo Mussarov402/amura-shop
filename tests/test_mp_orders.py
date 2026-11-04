@@ -158,3 +158,30 @@ class StatusFast(unittest.TestCase):
         self.patch(mpk, "_me", lambda owner_only=False: ({"role": "owner"}, None))
         g = app.test_client().get("/admin/api/mp/goods?shop=wb").get_json()["goods"]
         self.assertEqual(len(g), 300)
+
+
+class StockSkip(unittest.TestCase):
+    """Остатки: товар, которого на площадке ещё нет («Product is not created»), — пропуск, не ошибка выгрузки (04.11.2026)."""
+    patch, posting = tm.Channels.patch, tm.Channels.posting
+
+    def setUp(self):
+        tm.Channels.setUp(self)
+        orig = self.oz.__call__
+
+        def oz(url, json=None, headers=None, timeout=None):
+            if url.endswith("/v2/products/stocks"):
+                return tm.Resp(200, {"result": [{"offer_id": s["offer_id"], "updated": s["offer_id"] != "TON-1",
+                                                 "errors": [] if s["offer_id"] != "TON-1" else [{"message": "Product is not created"}]}
+                                                for s in json["stocks"]]})
+            return orig(url, json=json, headers=headers, timeout=timeout)
+        self.patch(mpk.requests, "post", oz)
+
+    def test_skip_not_created(self):
+        ch = mpk.CHANNELS["ozon"]
+        r = mpk.push_stocks(ch, force=True)
+        self.assertEqual((r["sent"], r["skipped"], r["errors"]), (1, ["TON-1"], []))
+        ch.last.update(orders=9e12, stocks=0)
+        mpk.tick(tm.NOW)
+        import json
+        st = json.loads(mpk.setting("mp_ozon_stocks"))
+        self.assertTrue(st["ok"])                                                    # зелёный, с пометкой «пропущено 1»
