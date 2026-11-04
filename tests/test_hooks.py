@@ -47,6 +47,30 @@ class Hooks(unittest.TestCase):
             hooks.check()
         self.assertNotIn("bot123:ABC", out.getvalue())
 
+    def test_meta_moves_whatsapp(self):
+        import wa
+        posts = []
+
+        class R:
+            def __init__(self, j, code=200):
+                self.j, self.status_code = j, code
+
+            def json(self):
+                return self.j
+        subs = {"data": [{"object": "whatsapp_business_account", "callback_url": "https://amura-shop-api.onrender.com/wa/SEC",
+                          "fields": [{"name": "messages", "version": "v21.0"}, {"name": "smb_message_echoes", "version": "v21.0"}]}]}
+        cfg = {"app_id": "app", "secret": "s", "token": "t1", "waba": "w1"}
+        with mock.patch.object(wa, "cfg", lambda: cfg), mock.patch.object(wa, "extra_lines", lambda: [{"token": "t2", "waba": "w2"}]), \
+                mock.patch.object(oh, "PUBLIC_URL", "https://api.amura.kz"), mock.patch.object(oh, "HOOK_SECRET", "SEC"), \
+                mock.patch.object(hooks.requests, "get", lambda *a, **k: R(subs)), \
+                mock.patch.object(hooks.requests, "post", lambda url, **k: posts.append((url, k)) or R({"success": True})):
+            text = hooks.meta()
+        self.assertEqual(text, "whatsapp_business_account: amura-shop-api.onrender.com → api.amura.kz")
+        self.assertEqual(posts[0][1]["data"]["callback_url"], "https://api.amura.kz/wa/SEC")
+        self.assertEqual(posts[0][1]["data"]["fields"], "messages,smb_message_echoes")
+        self.assertEqual([(u.rsplit("/", 2)[-2], k["json"]["override_callback_uri"], k["headers"]["Authorization"]) for u, k in posts[1:]],
+                         [("w1", "https://api.amura.kz/wa/SEC", "Bearer t1"), ("w2", "https://api.amura.kz/wa/SEC", "Bearer t2")])
+
 
 if __name__ == "__main__":
     unittest.main()

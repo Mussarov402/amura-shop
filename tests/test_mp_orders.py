@@ -54,6 +54,21 @@ class MpOrders(unittest.TestCase):
         self.assertIn("К выплате: 4 217", d)                                        # 5500 − 825 − 300 − 20 − 138 (2,5 %)
         self.assertIn("Прибыль: 1 497, маржа 27,2 %", d)                              # − упаковка 500 − налог 220 − себестоимость 2000
 
+    def test_ozon_v4_real_answer_04_11(self):
+        """Ответ Ozon KZ по заказу № 1894 (04.11.2026, от менеджера): price — объект {amount, currency}."""
+        p = self.posting(products=[{"name": "MEDI-PEEL патчи Rose", "offer_id": "anua-cream", "price": {"amount": "5790", "currency": "KZT"},
+                                    "quantity": 1, "sku": 6224576836, "product_id": 11}])
+        p["financial_data"] = {"products": [{"commission": {"amount": 0, "currency": "RUB", "percent": 0},
+                                             "customer_price": {"amount": "1202.85", "currency": "RUB"}, "old_price": 5790, "payout": 0,
+                                             "price": 5790, "product_id": 6224576836, "quantity": 1}]}
+        line = mpk.CHANNELS["ozon"].norm(p)["lines"][0]
+        self.assertEqual((line["price"], line["cur"]), (5790.0, "KZT"))            # не customer_price в рублях
+        self.oz.postings = [p]
+        mpk.sync_orders(mpk.CHANNELS["ozon"], NOW)
+        self.assertEqual(self.posted[0]["positions"][0]["price"], 579000)
+        self.assertNotIn("Цена в тенге", self.posted[0]["description"])
+        self.assertIn("Комиссия: −1 158 (оценка)", self.posted[0]["description"])   # факта ещё нет (0) — оценка 20 %
+
     def test_price_object_and_zero_alert(self):
         self.assertEqual(mpk._money({"price": "12.5", "currency_code": "KZT"}), 12.5)
         self.assertEqual(mpk._money({"units": "3", "nanos": 500000000}), 3.5)
