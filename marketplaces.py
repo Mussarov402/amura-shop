@@ -936,6 +936,10 @@ def tick(now=None):
                 except Exception as e:
                     _log(ch, "stocks", False, str(e)[:300])
                     oh.alert(f"mp-stocks:{ch.key}", f"{ch.title}: остатки не обновляются — {str(e)[:250]}", every=3 * 3600)
+        day = datetime.now(ALMATY).strftime("%Y-%m-%d")
+        if datetime.now(ALMATY).hour >= 10 and setting("mp_payout_day", "") != day and setting("mp_payout_auto", "0") == "1":
+            set_setting("mp_payout_day", day)                # выплаты — раз в сутки, только если владелец включил
+            threading.Thread(target=mp_payouts.auto_run, daemon=True, name="mp-payouts").start()
     finally:
         _lock.release()
 
@@ -1043,3 +1047,4 @@ def settings_route():
 
 
 import mp_calc  # noqa: E402,F401  — калькулятор прибыли: маршруты на том же blueprint
+import mp_payouts  # noqa: E402,F401  — выплаты площадок → МойСклад (на сухую; проводит владелец)
