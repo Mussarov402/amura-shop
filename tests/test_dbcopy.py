@@ -38,6 +38,41 @@ class DbCopy(unittest.TestCase):
         self.assertIn("расхождений нет", text)
         self.assertNotIn("pw", text)
 
+    def _main(self, final, counts_dst, live=False):
+        envs = {dbcopy.ENV: {"RENDER_DATABASE_URL": "postgresql://u:pw@dpg-x-a/db"},
+                dbcopy.LOCAL: {"DATABASE_URL": "postgresql://amura:l@127.0.0.1:5432/amura"}}
+        dumps = []
+
+        def fake(args, env, secret, **kw):
+            if args[0] == "psql":
+                if "-tAc" in args:
+                    return "users\n"
+                return "users\t5\n" if env["PGHOST"] != "127.0.0.1" else f"users\t{counts_dst}\n"
+            if args[0] == "pg_dump":
+                dumps.append(args[args.index("-f") + 1])
+                open(dumps[-1], "w").write("x")
+            return ""
+        import tempfile
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(dbcopy, "load", side_effect=lambda p: envs[p]), mock.patch.object(dbcopy, "run", side_effect=fake), \
+                mock.patch.object(dbcopy.subprocess, "run"), mock.patch.object(dbcopy, "BACKUPS", d), \
+                mock.patch.object(dbcopy, "LIVE", os.path.join(d, "live")):
+            if live:
+                open(os.path.join(d, "live"), "w").write("x")
+            return dbcopy.main(final=final), dumps
+
+    def test_final_keeps_backup_and_needs_exact_rows(self):
+        text, dumps = self._main(True, 5)
+        self.assertTrue(text.startswith("ФИНАЛЬНАЯ"))
+        self.assertTrue(any("before-final-" in x for x in dumps))      # своя база сохранена перед перезаписью
+        with self.assertRaises(RuntimeError):
+            self._main(True, 4)                                         # расхождение — переход не принимается
+        self.assertIn("расхождений 1", self._main(False, 4)[0])         # обычная копия — только сообщает
+
+    def test_no_copy_in_live(self):
+        with self.assertRaises(RuntimeError):
+            self._main(True, 5, live=True)
+
 
 if __name__ == "__main__":
     unittest.main()

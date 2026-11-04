@@ -104,8 +104,6 @@ class Ops(unittest.TestCase):
             json.load(f)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class Standby(unittest.TestCase):
@@ -124,3 +122,45 @@ class Standby(unittest.TestCase):
         t.start()
         t.join()
         self.assertEqual(ran, ["after"])                                         # после импорта потоки снова работают (gunicorn)
+
+
+class Migration(unittest.TestCase):
+    """Ночь переезда: Render «только чтение», проверка сертификатов пересылается на сервер, режимы не утекают в /ops/env."""
+    def setUp(self):
+        self.c = app.test_client()
+
+    def test_readonly(self):
+        import app as appmod
+        from unittest import mock
+        with mock.patch.object(appmod, "READONLY", True):
+            r = self.c.post("/order", json={})
+            self.assertEqual((r.status_code, r.headers.get("Retry-After")), (503, "600"))
+            self.assertIn("переезжает", r.get_json()["error"])
+            self.assertNotEqual(self.c.post("/ops/hello", json={}).status_code, 503)    # отчёты сервера идут
+            self.assertEqual(self.c.get("/").status_code, 200)                           # чтение работает
+        self.assertNotEqual(self.c.post("/order", json={}).status_code, 503)
+
+    def test_acme_forward_only_on_render(self):
+        from unittest import mock
+        got = {}
+
+        def fake_get(url, **kw):
+            got.update(url=url, host=kw["headers"]["Host"])
+            return mock.Mock(status_code=200, content=b"tok.key")
+        tok = "A" * 43
+        with mock.patch("requests.get", side_effect=fake_get):
+            self.assertEqual(self.c.get(f"/.well-known/acme-challenge/{tok}").status_code, 404)   # не Render — нет
+            with mock.patch.dict(os.environ, {"RENDER": "true"}):
+                for host in ("amura.kz", "www.amura.kz", "opt.amura.kz", "api.amura.kz"):
+                    r = self.c.get(f"/.well-known/acme-challenge/{tok}", headers={"Host": host})
+                    self.assertEqual((r.status_code, r.data), (200, b"tok.key"), host)
+                    self.assertEqual(got, {"url": f"http://{ops.SERVER_IP}/.well-known/acme-challenge/{tok}", "host": host})
+                self.assertEqual(self.c.get("/.well-known/acme-challenge/..%2Fx").status_code, 404)
+
+    def test_modes_not_sent_to_server(self):
+        self.assertIn("AMURA_STANDBY", ops.SKIP_ENV)
+        self.assertIn("AMURA_READONLY", ops.SKIP_ENV)
+
+
+if __name__ == "__main__":
+    unittest.main()

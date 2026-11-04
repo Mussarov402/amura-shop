@@ -12,6 +12,20 @@ from admin import bp as admin_bp
 from order_hook import alert, bp
 
 app = Flask(__name__)
+READONLY = os.environ.get("AMURA_READONLY") == "1"   # ночь переезда: Render только читает, записи ждут новый сервер
+
+
+@app.before_request
+def _readonly():
+    """AMURA_READONLY=1 (ставится на Render на время финальной копии базы): любые записи — 503 с «повторите позже».
+    Telegram, Meta и платёжные системы повторяют вебхук сами — после смены DNS повтор придёт на новый сервер.
+    Отчёты сервера (/ops/) и проверка сертификатов (/.well-known/acme-challenge/) работают."""
+    if READONLY and request.method not in ("GET", "HEAD", "OPTIONS") and not request.path.startswith(("/ops/", "/.well-known/")):
+        r = jsonify(ok=False, error="Система AMURA переезжает на новый сервер — повторите через 15 минут")
+        r.status_code, r.headers["Retry-After"] = 503, "600"
+        return r
+
+
 from opt_site import bp as opt_site_bp  # noqa: E402
 app.register_blueprint(opt_site_bp)   # opt.amura.kz — оптовый сайт (первым: на этом адресе только сайт)
 app.register_blueprint(bp)

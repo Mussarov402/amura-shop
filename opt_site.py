@@ -188,7 +188,7 @@ def fetch(path, kind="opt"):
 @bp.before_app_request
 def serve():
     kind = site()
-    if not kind:
+    if not kind or request.path.startswith("/.well-known/acme-challenge/"):   # проверка сертификата — в ops.acme
         return None
     if kind == "opt":
         return serve_opt()

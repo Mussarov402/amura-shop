@@ -1,0 +1,8 @@
+[Unit]
+Description=AMURA: сертификаты Let's Encrypt для доменов, у которых их ещё нет
+After=network-online.target nginx.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /opt/amura/app/deploy/certs.sh
+TimeoutStartSec=900

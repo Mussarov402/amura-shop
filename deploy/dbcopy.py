@@ -16,6 +16,7 @@ from urllib.parse import unquote, urlparse
 ENV = "/etc/amura/app.env"
 LOCAL = "/etc/amura/local.env"
 BACKUPS = "/var/backups/amura"
+LIVE = "/var/lib/amura/live"
 
 
 def load(path):
@@ -57,7 +58,11 @@ def counts(env, secret):
     return {a: int(b) for a, b in (x.split("\t") for x in out.splitlines() if "\t" in x)}
 
 
-def main():
+def main(final=False):
+    """final — переход в рабочий режим: Render уже «только чтение», расхождений быть не должно (иначе ошибка),
+    своя база перед перезаписью сохраняется в BACKUPS."""
+    if os.path.exists(LIVE):
+        raise RuntimeError("сервер в рабочем режиме — своя база главная, копия с Render запрещена")
     app = load(ENV)
     src = pg_env(app["RENDER_DATABASE_URL"], external=True)
     src["PGOPTIONS"] = "-c default_transaction_read_only=on"     # Render — только чтение
@@ -68,6 +73,9 @@ def main():
         dump = os.path.join(d, "render.dump")
         run(["pg_dump", "-Fc", "--no-owner", "--no-acl", "-f", dump], src, secret, timeout=3600)
         size = os.path.getsize(dump)
+        if final:
+            keep = os.path.join(BACKUPS, time.strftime("before-final-%Y%m%d-%H%M%S.dump"))
+            run(["pg_dump", "-Fc", "-f", keep], dst, secret, timeout=3600)
         subprocess.run(["systemctl", "stop", "amura-app"], check=False)
         try:
             run(["pg_restore", "--clean", "--if-exists", "--no-owner", "--no-acl", "-d", dst["PGDATABASE"], dump], dst, secret,
@@ -76,7 +84,9 @@ def main():
             subprocess.run(["systemctl", "start", "amura-app"], check=False)
     a, b = counts(src, secret), counts(dst, secret)
     diff = [f"{t}: Render {a.get(t, '—')}, сервер {b.get(t, '—')}" for t in sorted(set(a) | set(b)) if a.get(t) != b.get(t)]
-    text = (f"копия базы Render → сервер за {round(time.time() - t0)} с, дамп {size / 1e6:.1f} МБ: таблиц {len(a)}, "
+    if final and diff:
+        raise RuntimeError(f"финальная копия: расхождений {len(diff)} — Render не в режиме «только чтение»? " + "; ".join(diff[:10]))
+    text = (("ФИНАЛЬНАЯ " if final else "") + f"копия базы Render → сервер за {round(time.time() - t0)} с, дамп {size / 1e6:.1f} МБ: таблиц {len(a)}, "
             f"строк {sum(a.values())} → {sum(b.values())}; " + ("расхождений нет" if not diff else
             f"расхождений {len(diff)} (база Render живая, свежие строки за время копирования): " + "; ".join(diff[:10])))
     print(text)
@@ -85,7 +95,7 @@ def main():
 
 if __name__ == "__main__":
     try:
-        msg = main()
+        msg = main(final="--final" in sys.argv)
         level = "ok"
     except Exception as e:
         msg, level = f"копия базы не удалась: {str(e)[:600]}", "alert"
