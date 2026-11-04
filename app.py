@@ -301,6 +301,9 @@ if __import__("os").environ.get("PORT"):          # только на серве
     import threading  # noqa: E402
     import admin as _admin  # noqa: E402
     bg.start(_admin.warm)   # первые нажатия после обновления не ждут МойСклад
+    if not READONLY:
+        import hooks  # noqa: E402
+        bg.start(hooks.check)   # куда смотрят вебхуки; Telegram с onrender.com → PUBLIC_URL (переезд, 04.11.2026)
 
 
 if __name__ == "__main__":

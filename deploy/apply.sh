@@ -115,5 +115,8 @@ case "$STAGE" in db)
   echo "копия базы: отметка $(cat "$APP/deploy/db-copy" 2>/dev/null || echo —), сделана $(cat /var/lib/amura/db-copy-done 2>/dev/null || echo —)"
 ;; esac
 
+# записи DNS у авторитетных NS и их TTL — в журнал системы AMURA (info, без уведомлений)
+python3 "$APP/deploy/report.py" send info "DNS: $(bash "$APP/deploy/dns.sh" 2>&1 | head -c 1500)" || true
+
 # итог последней строкой (её pull.sh пересылает владельцу): режим и ответ каждого домена через nginx этого сервера
 echo "приложение: HTTP $CODE ($([ "$STAGE" = live ] && echo "рабочий режим с $(cat "$LIVE")" || echo ожидание, фон выключен)); домены здесь: $(bash "$APP/deploy/check.sh" local)"
