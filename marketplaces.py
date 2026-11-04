@@ -26,6 +26,7 @@ import bg
 import json
 import math
 import os
+import re
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -368,7 +369,19 @@ class WB(Channel):
                 for s in part:
                     self.sent[s["ref"]] = s["stock"]
             except ApiError as e:
-                errors.append(e.message)
+                bad = {int(x) for x in re.findall(r'"?chrtId"?\s*:\s*(\d+)', e.message)} if _not_ready(e.message) else set()
+                rest = [s for s in part if int(s["ref"]) not in bad]
+                if bad and rest:                             # WB отверг пачку из-за отдельных товаров — без них ещё раз
+                    errors += [f"{s['offer'] or s['ref']}: {e.message[:80]}" for s in part if int(s["ref"]) in bad]
+                    try:
+                        self.req("PUT", "marketplace", f"/api/v3/stocks/{wh}",
+                                 json={"stocks": [{"chrtId": int(s["ref"]), "amount": s["stock"]} for s in rest]})
+                        for s in rest:
+                            self.sent[s["ref"]] = s["stock"]
+                    except ApiError as e2:
+                        errors.append(e2.message)
+                else:
+                    errors.append(e.message)
             time.sleep(0.3)
         return errors
 
@@ -893,11 +906,11 @@ def set_noshow(ch, idt, hide, who):
     return d
 
 
-def hidden(ch, x, marks=None):
+def hidden(ch, x, marks=None, kiz=None):
     """Почему остаток товара не выставляем (→ 0): отметка «не выставлять» или нужна маркировка. Пусто — выставляем."""
     if ident(ch, x) in (noshow(ch) if marks is None else marks):
         return "не выставлять"
-    if isinstance(ch, WB) and x.get("kiz") and not kiz_on():
+    if isinstance(ch, WB) and x.get("kiz") and not (kiz_on() if kiz is None else kiz):   # kiz — один раз на список (каждый вызов — запрос в базу)
         return "нужна маркировка"
     return ""
 
@@ -907,26 +920,39 @@ def goods(ch):
     m = oh._cache.get(f"mp_map_{ch.key}")
     if not m:
         return None
-    mp, marks, out = m[1], noshow(ch), {}
+    mp, marks, kiz, out = m[1], noshow(ch), kiz_on(), {}
     for ref, x in mp["products"].items():
         i = ident(ch, x)
         if i and not x["archived"] and i not in out:
-            out[i] = {"id": i, "offer": x["offer"], "name": x["name"], "pair": bool(mp["ref"].get(ref)), "hidden": hidden(ch, x, marks)}
+            out[i] = {"id": i, "offer": x["offer"], "name": x["name"], "pair": bool(mp["ref"].get(ref)), "hidden": hidden(ch, x, marks, kiz)}
     return sorted(out.values(), key=lambda g: (not g["hidden"], g["name"].lower()))
 
 
 def push_stocks(ch, force=False):
-    mp, cat, pct, share, marks = mapping(ch), _catalog(), reserve_pct(), share_pct(ch), noshow(ch)
+    mp, cat, pct, share, marks, kiz = mapping(ch), _catalog(), reserve_pct(), share_pct(ch), noshow(ch), kiz_on()
     want = []
     for ref, x in mp["products"].items():
         mid = mp["ref"].get(ref)
         if not mid or x["archived"]:
             continue
-        n = 0 if hidden(ch, x, marks) else shown((cat.get(mid) or {}).get("qty"), pct, share)
+        n = 0 if hidden(ch, x, marks, kiz) else shown((cat.get(mid) or {}).get("qty"), pct, share)
         if force or ch.sent.get(ref) != n:
             want.append({"ref": ref, "offer": x["offer"], "stock": n})
+    for s in want:                                      # «отправлено» — только то, что площадка приняла
+        ch.sent.pop(s["ref"], None)
     errors = ch.push_stocks(want) if want else []
-    return {"sent": len(want), "errors": errors[:20]}
+    skipped = [e for e in errors if _not_ready(e)]
+    errors = [e for e in errors if not _not_ready(e)]
+    ok = sum(1 for s in want if ch.sent.get(s["ref"]) == s["stock"])
+    return {"sent": ok, "skipped": [e.split(":", 1)[0] for e in skipped][:30], "errors": errors[:20]}
+
+
+NOT_READY = ("not created", "not found", "not_found", "notfound", "moderat", "модерац", "не создан", "не найден", "archived", "в архиве")
+
+
+def _not_ready(err):
+    """Отказ по товару, которого на площадке ещё нет (карточка создаётся, на модерации, в архиве) — не ошибка выгрузки."""
+    return any(w in str(err).lower() for w in NOT_READY)
 
 
 # ---------- фон ----------
@@ -965,7 +991,7 @@ def tick(now=None):
                     r = push_stocks(ch, force=force)
                     if force:
                         ch.sent_at = now
-                    _log(ch, "stocks", not r["errors"], r)
+                    _log(ch, "stocks", not r["errors"] or r["sent"] > 0, r)   # красное — только если не ушло ничего
                 except Exception as e:
                     _log(ch, "stocks", False, str(e)[:300])
                     oh.alert(f"mp-stocks:{ch.key}", f"{ch.title}: остатки не обновляются — {str(e)[:250]}", every=3 * 3600)
@@ -995,14 +1021,17 @@ def status():
         except ValueError:
             return None
     out = {"on": modules.enabled("marketplaces"), "reserve": reserve_pct(), "kiz": kiz_on(), "channels": []}
-    with db() as d:
-        for ch in channels():
-            rows = d.run(f"SELECT {COLS} FROM mp_order WHERE mp=%s ORDER BY created DESC LIMIT 20", (ch.key,), many=True) or []
-            m = oh._cache.get(f"mp_map_{ch.key}")
-            out["channels"].append({"id": ch.key, "title": ch.title, "keys": ch.keys_set(), "env": ch.env_names(),
-                                    "share": share_pct(ch), "orders": last(ch, "orders"),
-                                    "stocks": last(ch, "stocks"), "lost": (m[1]["lost"][:50] if m else []), "goods": goods(ch),
-                                    "recent": [dict(zip(COLS.split(", "), r)) for r in rows]})
+    with db() as d:                                      # заказы всех магазинов одним подключением; остальное — после (своё подключение у каждой настройки)
+        recent = {ch.key: d.run(f"SELECT {COLS} FROM mp_order WHERE mp=%s ORDER BY created DESC LIMIT 20", (ch.key,), many=True) or []
+                  for ch in channels()}
+    for ch in channels():
+        m = oh._cache.get(f"mp_map_{ch.key}")
+        g = goods(ch)                                    # список товаров — отдельным запросом (/mp/goods), здесь только счётчики
+        out["channels"].append({"id": ch.key, "title": ch.title, "keys": ch.keys_set(), "env": ch.env_names(),
+                                "share": share_pct(ch), "orders": last(ch, "orders"),
+                                "stocks": last(ch, "stocks"), "lost": (m[1]["lost"][:50] if m else []),
+                                "goodsN": None if g is None else len(g), "goodsHidden": sum(1 for x in g or [] if x["hidden"]),
+                                "recent": [dict(zip(COLS.split(", "), r)) for r in recent[ch.key]]})
     return out
 
 
@@ -1020,6 +1049,17 @@ def _me(owner_only=False):
 def status_route():
     _, err = _me()
     return err or jsonify(ok=True, **status())
+
+
+@bp.get("/admin/api/mp/goods")
+def goods_route():
+    _, err = _me()
+    if err:
+        return err
+    ch = {c.key: c for c in channels()}.get(request.args.get("shop", ""))
+    if not ch:
+        return jsonify(ok=False, error="Нет такого магазина"), 404
+    return jsonify(ok=True, goods=goods(ch))
 
 
 @bp.post("/admin/api/mp/settings")

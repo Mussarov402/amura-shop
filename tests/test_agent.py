@@ -1143,3 +1143,62 @@ class DimsReport(unittest.TestCase):
         self.assertEqual(j["items"], [{"code": "00615", "name": "Крем", "qty": 5,
                                        "ms": {"weight_kg": 0.12, "volume_l": 0.1, "w_cm": 5, "h_cm": 12, "d_cm": 4}}])
         self.assertEqual(self.c.get("/agent/api/report/dims").status_code, 401)
+
+
+class OzonCertificate(unittest.TestCase):
+    """ozon_certificate (просьба владельца 04.11.2026): нет декларации с таким номером — создаём с файлом, есть — берём её;
+    привязка к товарам по offer_id. Правило «Карточки», без «Да»."""
+    patch = tm.Channels.patch
+
+    def setUp(self):
+        Agent.setUp(self)
+        self.sent, self.certs, self.files = [], [], []
+
+        def oz(url, json=None, headers=None, timeout=None, data=None, files=None):
+            path = url[len(mpk.CHANNELS["ozon"].api()):]
+            if path == "/v1/product/certificate/list":
+                return Resp(200, {"result": {"certificates": self.certs, "page_count": 1}})
+            if path == "/v1/product/certificate/create":
+                self.files.append((data, files["files"][0], files["files"][2]))
+                self.certs.append({"certificate_id": 42, "certificate_number": data["number"]})
+                return Resp(200, {"id": 42})
+            if path == "/v3/product/info/list":
+                return Resp(200, {"items": [{"id": 1001, "offer_id": "00615"}, {"id": 1002, "offer_id": "00700"}]})
+            self.sent.append((path, json))
+            return Resp(200, {"result": True})
+        self.patch(mpk.requests, "post", oz)
+
+        class Raw:
+            def read(self, n, decode_content=True):
+                return b"%PDF-1.4 declaration"
+
+        class Got:
+            raw = Raw()
+
+            def raise_for_status(self):
+                pass
+        self.patch(mpk.requests, "get", lambda url, **k: Got())
+
+    def new(self, **p):
+        return self.c.post("/agent/api/requests", headers=self.h, json={"kind": "ozon_certificate", "shop": "ozon", "params": p})
+
+    D = {"number": "ЕАЭС N RU Д-KR.РА03.В.31853/25", "name": "Декларация: тонеры", "type_code": "declaration",
+         "issue_date": "03.04.2025", "expire_date": "2030-04-01", "file_url": "https://amura.kz/docs/d1.pdf", "offer_ids": ["00615", "00700", "nope"]}
+
+    def test_create_bind_once(self):
+        r = self.new(**self.D).get_json()
+        self.assertEqual((r["status"], r["auto"]), ("done", True))                        # правило «Карточки»
+        data, fname, mime = self.files[0]
+        self.assertEqual((data["issue_date"], data["expire_date"], fname, mime),
+                         ("2025-04-03T00:00:00Z", "2030-04-01T00:00:00Z", "declaration.pdf", "application/pdf"))
+        self.assertEqual(self.sent[-1], ("/v1/product/certificate/bind", {"certificate_id": 42, "product_id": [1001, 1002]}))
+        self.assertEqual(r["result"]["not_found"], ["nope"])
+        r = self.new(**dict(self.D, number="ЕАЭС № RU Д-KR.РА03.В.31853/25", file_url=None, offer_ids=["00615"])).get_json()
+        self.assertEqual(len(self.files), 1)                                              # та же декларация — вторую не создаём
+        self.assertFalse(r["result"]["created"])
+
+    def test_needs_file_and_dates(self):
+        r = self.new(**dict(self.D, file_url=None)).get_json()
+        self.assertIn("file_url", r.get("result", {}).get("error", "") + str(r.get("error", "")) + str(r))
+        self.assertEqual(self.new(**dict(self.D, issue_date="вчера")).status_code, 400)
+        self.assertEqual(self.files, [])
