@@ -71,6 +71,29 @@ class Hooks(unittest.TestCase):
         self.assertEqual([(u.rsplit("/", 2)[-2], k["json"]["override_callback_uri"], k["headers"]["Authorization"]) for u, k in posts[1:]],
                          [("w1", "https://api.amura.kz/wa/SEC", "Bearer t1"), ("w2", "https://api.amura.kz/wa/SEC", "Bearer t2")])
 
+    def test_waba_check(self):
+        import wa
+        posts = []
+
+        class R:
+            def __init__(self, j, code=200):
+                self.j, self.status_code = j, code
+
+            def json(self):
+                return self.j
+        apps = {"w1": [{"override_callback_uri": "https://amura-shop-api.onrender.com/wa/SEC"}],
+                "w2": [{"override_callback_uri": "https://api.amura.kz/wa/SEC"}]}
+        with mock.patch.object(wa, "cfg", lambda: {"token": "t1", "waba": "w1"}), \
+                mock.patch.object(wa, "extra_lines", lambda: [{"token": "t2", "waba": "w2"}, {"token": "t3", "name": "Склад"}]), \
+                mock.patch.object(oh, "PUBLIC_URL", "https://api.amura.kz"), mock.patch.object(oh, "HOOK_SECRET", "SEC"), \
+                mock.patch.object(hooks.requests, "get", lambda url, **k: R({"data": apps[url.rsplit("/", 2)[-2]]})), \
+                mock.patch.object(hooks.requests, "post", lambda url, **k: posts.append((url, k)) or R({"success": True})), \
+                redirect_stdout(io.StringIO()) as out:
+            text = hooks.waba_check()
+        self.assertEqual(text, "WhatsApp аккаунты: WABA …w1: amura-shop-api.onrender.com → api.amura.kz; WABA …w2 → api.amura.kz")
+        self.assertEqual(posts[0][1]["json"]["override_callback_uri"], "https://api.amura.kz/wa/SEC")
+        self.assertIn("Склад", out.getvalue())                         # номер без WABA — назван в журнале
+
 
 if __name__ == "__main__":
     unittest.main()
