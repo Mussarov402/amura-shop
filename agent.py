@@ -1463,23 +1463,35 @@ def same_in_cabinet(kind, ch, p):
 
 
 def close_same():
-    """Ждущие «Да» заявки на цены, которые уже стоят в кабинете, — закрываем «выполнено (уже стоит)», без запросов к площадке."""
+    """Ждущие «Да» заявки на цены: уже стоит в кабинете — «выполнено (уже стоит)»; WB, где цена в кабинете уже не ниже цены
+    заявки (и больше 0), — «неактуальна» (владелец 04.11.2026: «Да, закрой»; и дальше автоматически). На площадку ничего не уходит,
+    владельцу не пишем. Запускается после деплоя и раз в 10 минут."""
     with db() as d:
         rs = d.run("SELECT id, shop, params, kind FROM agent_req WHERE status='new' AND kind IN ('wb_price', 'ozon_price')", many=True) or []
-    n = 0
+    n = stale = 0
     for rid, key, raw, kind in rs:
         ch = shop(key, mpk.WB if kind == "wb_price" else mpk.Ozon)
         try:
-            if ch and same_in_cabinet(kind, ch, json.loads(raw)):
+            p = json.loads(raw)
+            if ch and same_in_cabinet(kind, ch, p):
                 with db() as d:
                     d.run("UPDATE agent_req SET status='done', result=%s, decided=%s, who=%s WHERE id=%s AND status='new'",
                           (json.dumps({"note": "уже стоит: цена в кабинете совпадает с заявкой"}, ensure_ascii=False), time.time(),
                            "система (уже стоит)", rid))
                 n += 1
+            elif ch and kind == "wb_price" and p.get("price") is not None and p.get("discount") is None:
+                full = cur_price(ch, ident_of(kind, p))[2]
+                if full > 0 and full >= float(p["price"]):       # «Да, закрой» (владелец 04.11.2026): в кабинете уже не ниже заявки
+                    with db() as d:
+                        d.run("UPDATE agent_req SET status='rejected', result=%s, decided=%s, who=%s WHERE id=%s AND status='new'",
+                              (json.dumps({"note": f"неактуальна: в кабинете WB уже {round(full)} ₸ ≥ {round(float(p['price']))} ₸ в заявке"},
+                                          ensure_ascii=False), time.time(), "система (неактуальна)", rid))
+                    stale += 1
+            time.sleep(0.7 if kind == "wb_price" else 0)              # лимит WB на чтение цен
         except Exception as e:
             print(f"Цена № {rid} — сверка с кабинетом:", str(e)[:120], flush=True)
-    print("Заявки на цены закрыты как «уже стоит»:", n, flush=True)
-    return n
+    print(f"Заявки на цены закрыты: «уже стоит» — {n}, неактуальные (в кабинете уже не ниже) — {stale}", flush=True)
+    return n + stale
 
 
 def raise_all():
@@ -2023,6 +2035,11 @@ def _digest_loop():
         print("Первые цены WB:", str(e)[:200], flush=True)
     while True:
         time.sleep(600)
+        try:
+            if modules.enabled("agent"):
+                close_same()                         # раз в 10 минут: заявки на цены, которые уже неактуальны
+        except Exception as e:
+            print("Закрытие неактуальных заявок:", str(e)[:200], flush=True)
         try:
             from datetime import datetime
             t = datetime.now(mpk.ALMATY)

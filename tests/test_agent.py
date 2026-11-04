@@ -1114,6 +1114,11 @@ class AlreadySet(unittest.TestCase):
         self.assertEqual(agent.close_same(), 1)
         x = {x["id"]: x for x in self.c.get("/agent/api/requests", headers=self.h).get_json()["items"]}[a]
         self.assertEqual((x["status"], x["who"]), ("done", "система (уже стоит)"))
+        c = PriceCorridor.price_req(self, 16500)["id"]                           # в кабинете 17000 ≥ 16500 — неактуальна
+        self.patch(agent.time, "sleep", lambda s: None)
+        self.assertEqual(agent.close_same(), 1)
+        x = {x["id"]: x for x in self.c.get("/agent/api/requests", headers=self.h).get_json()["items"]}[c]
+        self.assertEqual((x["status"], x["who"]), ("rejected", "система (неактуальна)"))
         b = PriceCorridor.price_req(self, 18000)["id"]
         self.patch(mpk.requests, "request", lambda *a, **k: tm.Resp(400, {"errorText": "Specified prices and discounts are already set"}))
         st, res = agent.execute(b, "владелец")
