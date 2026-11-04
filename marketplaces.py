@@ -199,7 +199,7 @@ class Ozon(Channel):
                                    "cur": str(com_cur or f.get("currency_code") or cur)} if f else {}})
         st = str(p.get("status") or "")
         return {"ext": str(p["posting_number"]), "label": f"Отправление {p['posting_number']}" + (f", заказ Ozon {p['order_number']}" if p.get("order_number") else ""),
-                "shipped": raw in self.SHIPPED or st in self.SHIPPED, "label": raw in self.LABEL_FROM or st in self.LABEL_FROM,
+                "shipped": raw in self.SHIPPED or st in self.SHIPPED, "sticker": raw in self.LABEL_FROM or st in self.LABEL_FROM,
                 "status": "cancel" if raw in self.CANCEL else "wait" if raw in self.WAIT else "live", "raw": raw,
                 "at": _when(p.get("in_process_at")), "cutoff": _when(p.get("shipment_date") or p.get("cutoff") or ""), "lines": lines}
 
@@ -321,7 +321,7 @@ class WB(Channel):
             cur = "KZT" if o.get("convertedCurrencyCode") == self.KZT else self.cur(o.get("convertedCurrencyCode"))
         if not price:                                    # запасные поля цены в новых ответах WB (копейки)
             price = next((_money(o.get(k)) / 100 for k in ("finalPrice", "salePrice") if _money(o.get(k))), 0.0)
-        return {"shipped": sup == "complete" or wbs in self.SHIPPED_WB, "label": sup == "confirm" and not cancel,
+        return {"shipped": sup == "complete" or wbs in self.SHIPPED_WB, "sticker": sup == "confirm" and not cancel,
                 "ext": str(o["id"]), "label": f"Сборочное задание {o['id']}" + (f", заказ WB {o['orderUid']}" if o.get("orderUid") else ""),
                 "status": "cancel" if cancel else "wait" if not st else "live", "raw": f"{sup}/{wbs}" if st else "",
                 "at": _when(o.get("createdAt")), "cutoff": 0,
@@ -835,7 +835,7 @@ def sync_orders(ch, now=None):
                                                                f"а в МойСклад отменить не вышло: {str(e)[:200]}", every=3600)
             elif o["status"] != "cancel" and o["raw"] != rec["status"]:
                 _put(ch, o["ext"], status=o["raw"])
-            if o["status"] != "cancel" and o.get("label") and not o.get("shipped") and not labelled(ch, o["ext"]):   # нужна до передачи
+            if o["status"] != "cancel" and o.get("sticker") and not o.get("shipped") and not labelled(ch, o["ext"]):   # нужна до передачи
                 try:
                     attach_label(ch, o["ext"], rec)
                 except ApiError as e:                    # площадка ещё не выдала этикетку — попробуем при следующей сверке
