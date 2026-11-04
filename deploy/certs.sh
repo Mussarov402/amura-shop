@@ -10,13 +10,16 @@ APP=/opt/amura/app
 WEB=/var/www/acme
 STATE=/var/lib/amura
 LE=/etc/letsencrypt/live
-mkdir -p "$WEB/.well-known/acme-challenge" "$STATE"
+umask 022
+install -d -m 755 "$WEB" "$WEB/.well-known" "$WEB/.well-known/acme-challenge"
+chmod 755 "$WEB" "$WEB/.well-known" "$WEB/.well-known/acme-challenge"
+mkdir -p "$STATE"
 NEW=""; WAIT=""
 
 for D in $DOMAINS; do
   [ -s "$LE/$D/fullchain.pem" ] && continue
   T="amura-probe-$(head -c 9 /dev/urandom | base64 | tr -d '/+=')"
-  echo "$T" > "$WEB/.well-known/acme-challenge/$T"
+  echo "$T" > "$WEB/.well-known/acme-challenge/$T"; chmod 644 "$WEB/.well-known/acme-challenge/$T"
   GOT=$(curl -sL --max-time 15 "http://$D/.well-known/acme-challenge/$T" 2>/dev/null | head -c 200)
   rm -f "$WEB/.well-known/acme-challenge/$T"
   if [ "$GOT" != "$T" ]; then
