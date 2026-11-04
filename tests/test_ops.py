@@ -63,6 +63,35 @@ class Ops(unittest.TestCase):
         self.assertEqual(self.post(body, key=Ed25519PrivateKey.generate()).status_code, 403)   # чужая подпись
         self.assertEqual(self.post({**body, "t": 1}).status_code, 400)           # старый отчёт
 
+    def test_env_sealed_for_server_only(self):
+        """Переменные — только по подписи закреплённого ключа и только зашифрованными для box этого сервера."""
+        pub = self.r.public()
+        self.pin(pub)
+        os.environ["AMURA_TEST_SECRET"] = "s3cr\"et"
+        os.environ["DATABASE_URL"] = "postgres://render/db"
+        self.addCleanup(lambda: [os.environ.pop(k, None) for k in ("AMURA_TEST_SECRET", "DATABASE_URL")])
+        import unittest.mock as um
+        def post(path, body, sign=False):
+            data = json.dumps(body).encode()
+            hdr = {"X-Amura-Sig": base64.b64encode(self.r._load("sign.key", Ed25519PrivateKey).sign(data)).decode()} if sign else {}
+            r = self.c.post(path, data=data, headers={**hdr, "Content-Type": "application/json"})
+            self.assertEqual(r.status_code, 200, r.get_json())
+            j = r.get_json()
+            self.assertNotIn("s3cr", json.dumps(j))                               # в ответе — только шифр
+            return j
+        f = os.path.join(self.d, "app.env")
+        with um.patch.object(self.r, "_post", post):
+            self.r.env(f)
+        with open(f) as fh:
+            txt = fh.read()
+        self.assertIn('AMURA_TEST_SECRET="s3cr\\"et"', txt)
+        self.assertIn('RENDER_DATABASE_URL="postgres://render/db"', txt)
+        self.assertNotIn("\nDATABASE_URL=", "\n" + txt)
+        self.assertEqual(os.stat(f).st_mode & 0o777, 0o600)
+        data = json.dumps({"t": int(time.time())}).encode()                      # чужая подпись — отказ
+        sig = base64.b64encode(Ed25519PrivateKey.generate().sign(data)).decode()
+        self.assertEqual(self.c.post("/ops/env", data=data, headers={"X-Amura-Sig": sig}).status_code, 403)
+
     def test_keys_stay_and_secret_parts_private(self):
         before = self.r.public()
         self.r.keygen()                                                          # повторный запуск — те же ключи
@@ -77,3 +106,21 @@ class Ops(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Standby(unittest.TestCase):
+    """Запасной сервер (AMURA_STANDBY=1): фон не запускается — ни через bg.start, ни потоками при импорте модулей."""
+    def test_no_background(self):
+        import threading
+        import bg
+        ran = []
+        old = bg.STANDBY
+        bg.STANDBY = True
+        self.addCleanup(lambda: setattr(bg, "STANDBY", old))
+        bg.start(lambda: ran.append("bg"))
+        with bg.standby_import():
+            threading.Thread(target=lambda: ran.append("thread"), daemon=True).start()
+        t = threading.Thread(target=lambda: ran.append("after"))
+        t.start()
+        t.join()
+        self.assertEqual(ran, ["after"])                                         # после импорта потоки снова работают (gunicorn)
