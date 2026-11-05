@@ -195,7 +195,7 @@ class Ozon(Channel):
             com_cur = com.get("currency") if isinstance(com, dict) else ""
             lines.append({"ref": str(x.get("product_id") or ""), "offer": str(x.get("product_offer_id") or x.get("offer_id") or ""),
                           "barcodes": [], "name": str(x.get("product_name") or x.get("name") or ""), "qty": int(x.get("quantity") or 0),
-                          "price": price, "cur": cur,
+                          "price": price, "cur": cur, "sku": str(x.get("sku") or ""),
                           "fact": {"commission": abs(_money(f.get("commission_amount")) or _money(com)), "payout": _money(f.get("payout")),
                                    "cur": str(com_cur or f.get("currency_code") or cur)} if f else {}})
         st = str(p.get("status") or "")
@@ -1102,3 +1102,4 @@ def settings_route():
 
 
 import mp_calc  # noqa: E402,F401  — калькулятор прибыли: маршруты на том же blueprint
+import mp_assembly  # noqa: E402,F401  — «Сборка»: сборочный лист, подтверждение сборки, этикетки одним файлом
