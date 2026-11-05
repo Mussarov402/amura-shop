@@ -20,6 +20,14 @@ def _readonly():
     """AMURA_READONLY=1 (ставится на Render на время финальной копии базы): любые записи — 503 с «повторите позже».
     Telegram, Meta и платёжные системы повторяют вебхук сами — после смены DNS повтор придёт на новый сервер.
     Отчёты сервера (/ops/) и проверка сертификатов (/.well-known/acme-challenge/) работают."""
+    host = request.host.split(":")[0].lower()
+    if READONLY and host.endswith(".onrender.com") and request.method != "OPTIONS" and not request.path.startswith(("/ops/", "/.well-known/")):
+        # старый адрес (приложение «AMURA — панель управления», установленное с amura-shop-api.onrender.com) —
+        # на новый сервер с тем же путём и параметрами; 308 сохраняет метод и тело (Хиро, 05.11.2026)
+        from flask import redirect
+        qs = request.query_string.decode("latin-1")
+        to = "https://admin.amura.kz" + request.path + ("?" + qs if qs else "")
+        return redirect(to, 301 if request.method in ("GET", "HEAD") else 308)
     if READONLY and request.method not in ("GET", "HEAD", "OPTIONS") and not request.path.startswith(("/ops/", "/.well-known/")):
         if FORWARD_TO:                                   # после смены DNS: записи (вебхуки, заказы) — на новый сервер
             try:
