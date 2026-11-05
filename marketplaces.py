@@ -631,13 +631,15 @@ def agent(ch):
 
 
 def rename_agent(ch, aid):
-    """Раз в сутки: имя контрагента площадки в МойСклад = ch.agent_name. Только когда название магазина известно."""
+    """Раз в сутки: старое имя контрагента площадки («… (маркетплейс)», «Wildberries — …») → ch.agent_name.
+    Только когда название магазина известно. Имя нового вида (в т. ч. исправленное вручную в МойСклад) не меняем."""
     if not ch.name or time.time() - _renamed.get(ch.key, 0) < 86400:
         return
     _renamed[ch.key] = time.time()
     try:
         was = (oh.ms("GET", f"/entity/counterparty/{aid}", timeout=15).get("name") or "").strip()
-        if was and was != ch.agent_name:
+        old_style = was.endswith(" (маркетплейс)") or was.startswith("Wildberries")
+        if was and was != ch.agent_name and old_style:     # переименовываем только старый вид; имя, заданное вручную, не трогаем
             oh.ms("PUT", f"/entity/counterparty/{aid}", json={"name": ch.agent_name}, timeout=15)
             print(f"{ch.title}: контрагент переименован «{was}» → «{ch.agent_name}»", flush=True)
             oh.alert(f"mpname:{ch.key}", f"{ch.emoji} Контрагент площадки в МойСклад переименован: «{was}» → «{ch.agent_name}»", every=60)
