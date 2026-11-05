@@ -42,6 +42,7 @@ REGISTRY = {
         "about": "Вариант «Kaspi» при оформлении на розничном сайте: счёт приходит покупателю в приложение Kaspi на номер из заказа. Оплачен — заказ сразу «Подтвержден», платёж в МойСклад на счёт Kaspi, вам сообщение. Работает, только когда ключ ApiPay вписан на Render.",
         "views": [],
         "sources": {"own": "ApiPay.kz (счета Kaspi Pay по номеру телефона)"},
+        "hidden": True,      # владелец 05.11.2026: ApiPay не используем (нужен второй ИП) — в «Настройках» не показываем
     },
     "marketplaces": {
         "title": "Каналы продаж (Ozon, WB)",
@@ -115,7 +116,7 @@ def listing():
     on = on_map()
     return [{"id": mid, "title": m["title"], "about": m["about"], "on": bool(on.get(mid)),
              "source": source(mid), "sources": [{"id": k, "title": v} for k, v in m["sources"].items()]}
-            for mid, m in REGISTRY.items()]
+            for mid, m in REGISTRY.items() if not m.get("hidden")]
 
 
 def update(mid, on=None, src=None):

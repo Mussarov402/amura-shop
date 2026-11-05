@@ -49,8 +49,13 @@ def keys_set():
     return bool(key())
 
 
+RETIRED = True   # владелец 05.11.2026: ApiPay на рознице не используем (нужен второй ИП) — вариант «Kaspi» не показываем
+
+
 def available():
-    """Вариант «Kaspi» на сайте: модуль включён владельцем и ключ вписан на Render."""
+    """Вариант «Kaspi» на сайте: модуль включён владельцем и ключ вписан на Render (сейчас выключено — RETIRED)."""
+    if RETIRED:
+        return False
     try:
         return keys_set() and modules.enabled("kaspipay")
     except Exception:

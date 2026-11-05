@@ -71,6 +71,7 @@ class Kaspi(unittest.TestCase):
         apipay._retry_at[0] = 0
         modules.update("kaspipay", on=True)
         self.addCleanup(lambda: modules.update("kaspipay", on=False))
+        self.patch(apipay, "RETIRED", False)          # модуль проверяем как есть; на сайте он выключен (RETIRED, 05.11.2026)
         self.api = FakeApiPay()
         self.patch(apipay.requests, "request", self.api)
         self.posted, self.alerts, self.payments, self.tgs, self.stock = [], [], [], [], 5
@@ -271,6 +272,15 @@ class Kaspi(unittest.TestCase):
         self.assertNotIn("kaspiPay", json.loads(c.get(rule).data))            # опт — без Kaspi
         modules.update("kaspipay", on=False)
         self.assertNotIn("kaspiPay", json.loads(c.get(rule + "?mode=retail").data))
+
+    def test_retired_hidden_on_site_and_settings(self):
+        self.patch(apipay, "RETIRED", True)                                    # владелец 05.11.2026: ApiPay не используем
+        self.patch(oh, "live", lambda max_age=None: {"updated": "x", "items": [dict(ITEM)]})
+        self.addCleanup(lambda: [oh._cache.pop(k) for k in list(oh._cache) if isinstance(k, tuple) and k[0] == "catjson"])
+        app = Flask(__name__)
+        app.register_blueprint(oh.bp)
+        self.assertNotIn("kaspiPay", json.loads(app.test_client().get("/catalog?mode=retail").data))   # модуль включён, ключ есть — всё равно нет
+        self.assertNotIn("kaspipay", [m["id"] for m in modules.listing()])
 
 
 if __name__ == "__main__":
