@@ -93,6 +93,10 @@ from marketplaces import bp as marketplaces_bp  # noqa: E402
 app.register_blueprint(marketplaces_bp)
 from agent import bp as agent_bp  # noqa: E402
 app.register_blueprint(agent_bp)      # рабочее место менеджера WB/Ozon: /agent/api/* по MP_AGENT_TOKEN, заявки — на согласование владельцу
+from mpkeys import bp as mpkeys_bp  # noqa: E402
+app.register_blueprint(mpkeys_bp)     # «Настройки → Ключи площадок»: ключи из базы (зашифрованы) важнее app.env
+import mpkeys  # noqa: E402
+mpkeys.start()                    # до площадок: ключи из базы — в окружение процесса
 import marketplaces  # noqa: E402
 marketplaces.start()              # каналы продаж: заказы Ozon/WB → МойСклад, остатки → маркетплейсы
 from suppliers import bp as suppliers_bp  # noqa: E402
