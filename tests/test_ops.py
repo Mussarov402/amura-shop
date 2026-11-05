@@ -162,5 +162,33 @@ class Migration(unittest.TestCase):
         self.assertIn("AMURA_READONLY", ops.SKIP_ENV)
 
 
+class ReadonlyForward(unittest.TestCase):
+    """Render после смены DNS (AMURA_READONLY=1 + AMURA_FORWARD_TO): записи пересылаются на новый сервер, а не 503."""
+    def test_forward(self):
+        import app as appmod
+        from unittest import mock
+        seen = {}
+
+        class Pool:
+            def __init__(self, ip, port, **kw):
+                seen.update(ip=ip, sni=kw["server_hostname"])
+
+            def request(self, method, path, body=None, headers=None, redirect=False):
+                seen.update(method=method, path=path, body=body, host=headers["Host"])
+                return mock.Mock(status=200, data=b'{"ok":true}', headers={"Content-Type": "application/json"})
+        c = app.test_client()
+        with mock.patch.object(appmod, "READONLY", True), mock.patch.object(appmod, "FORWARD_TO", "89.126.206.3"), \
+                mock.patch("urllib3.HTTPSConnectionPool", Pool):
+            r = c.post("/tg/SECRET?x=1", data=b'{"update_id":1}', headers={"Host": "amura-shop-api.onrender.com", "Content-Type": "application/json"})
+            self.assertEqual((r.status_code, r.get_json()), (200, {"ok": True}))
+            self.assertEqual(seen, {"ip": "89.126.206.3", "sni": "api.amura.kz", "method": "POST", "path": "/tg/SECRET?x=1",
+                                    "body": b'{"update_id":1}', "host": "api.amura.kz"})
+            c.post("/order", json={}, headers={"Host": "api.amura.kz"})
+            self.assertEqual(seen["sni"], "api.amura.kz")
+        with mock.patch.object(appmod, "READONLY", True), mock.patch.object(appmod, "FORWARD_TO", "89.126.206.3"), \
+                mock.patch("urllib3.HTTPSConnectionPool", side_effect=OSError("down")):
+            self.assertEqual(c.post("/order", json={}).status_code, 503)               # сервер не ответил — по-старому 503
+
+
 if __name__ == "__main__":
     unittest.main()
