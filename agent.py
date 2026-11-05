@@ -158,6 +158,7 @@ READ = {
         "stocks": ("POST", "", "/v4/product/info/stocks", ["*"], "остатки"),
         "products": ("POST", "", "/v3/product/list", ["*"], "список товаров"),
         "product_info": ("POST", "", "/v3/product/info/list", ["*"], "карточки товаров"),
+        "product_attributes": ("POST", "", "/v4/product/info/attributes", ["*"], "характеристики карточек (filter {offer_id: [...]}, limit, last_id)"),
         "prices": ("POST", "", "/v5/product/info/prices", ["*"], "цены, комиссии"),
         "reviews": ("POST", "", "/v1/review/list", ["*"], "отзывы"),
         "review_info": ("POST", "", "/v1/review/info", ["*"], "отзыв"),
@@ -597,7 +598,8 @@ def oz_money(ch, p):
     return out, cur, ", ".join(f"{p[k]} ₸ → {out[k]} {cur}" for k in out) + f" ({note})"
 
 
-AUTO_OZ_CREATE = {"ozon2"}            # Ozon KZ: новые карточки — сразу по правилу «Карточки» (слово владельца 02.11.2026)
+AUTO_OZ_CREATE = {"ozon", "ozon2"}    # новые карточки — сразу по правилу «Карточки» с проверкой минимума маржи 15 %: Ozon KZ / Cosmo
+                                      # (02.11.2026) и основной Ozon «AMURA» (ИП AMURA, KZT — решение владельца 05.11.2026)
 
 
 def oz_new_floor(ch, p):
@@ -1017,8 +1019,8 @@ ACTIONS = {
     "ozon_card_create": {"shop": mpk.Ozon, "params": ["offer_id", "name", "description_category_id", "type_id", "price", "depth", "width",
                                                        "height", "weight", "attributes", "images?", "primary_image?", "barcode?", "old_price?",
                                                        "currency_code?", "vat?", "dimension_unit?", "weight_unit?", "complex_attributes?"],
-                         "about": "новая карточка Ozon (/v3/product/import). Ozon требует цену в том же запросе. Ozon KZ (ozon2) — сразу по правилу "
-                                  "«Карточки», цена не ниже минимальной цены для маржи 15 % по калькулятору; Ozon RU — через «Да». Картинки — публичные https-ссылки",
+                         "about": "новая карточка Ozon (/v3/product/import). Ozon требует цену в том же запросе. Ozon AMURA (ozon) и Ozon KZ (ozon2) — сразу по правилу "
+                                  "«Карточки», цена не ниже минимальной цены для маржи 15 % по калькулятору; другие кабинеты — через «Да». Картинки — публичные https-ссылки",
                          "run": _oz_card_create},
     "ozon_card_update": {"shop": mpk.Ozon, "params": ["offer_id", "attributes"],
                          "about": "характеристики карточки Ozon (/v1/product/attributes/update): attributes [{id, complex_id?, values: [{value} | "
