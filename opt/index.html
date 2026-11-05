@@ -496,6 +496,7 @@ if(RETAIL){
     { id: "pickup",  name: "Самовывоз",        loader: false }
   ];
 }
+let PO_NOTE = "";   // опт: пометка товаров поставщиков («под заказ, 1–2 дня») — приходит в живом каталоге
 const SK = k => RETAIL && k !== "amura-auth" ? "r:" + k : k;   // корзина и кэш розницы — отдельно от оптового сайта, вход общий
 function load(k, d){ try{ const v = localStorage.getItem(SK(k)); return v ? JSON.parse(v) : d; }catch{ return d; } }
 function save(k, v){ try{ localStorage.setItem(SK(k), JSON.stringify(v)); }catch{} }
@@ -578,6 +579,7 @@ function applyData(data){
     ...("rtl" in i ? { opt: i.rtl, mid: 0, box: 0 } : {}), stock, qty: MAXQ ? Math.min(stock, MAXQ) : stock,
     img: i.img && !/^(https?:)?\//.test(i.img) ? "/" + i.img : i.img }; }) };
   WS = !!data.wholesale;
+  PO_NOTE = !RETAIL && data.poNote ? data.poNote : "";   // опт: товары поставщиков — «под заказ» (у нас 0, есть у партнёра)
   ALL = (data.items || []).filter(i => i.qty > 0 && i.opt > 0);
   ALL.forEach(i => { if(typeof i.desc === "string"){ DESC[i.id] = i.desc; INCI[i.id] = i.inci || ""; } else if(i.id in DESC){ i.desc = DESC[i.id]; i.inci = INCI[i.id] || ""; } });
   $("#meta").dataset.upd = data.updated || "";
@@ -708,9 +710,11 @@ function cardHTML(it){
     <button class="thumb" data-open aria-label="${esc(it.name)}">${it.img ? `<img src="${esc(it.img)}" alt="" loading="lazy" decoding="async" width="500" height="500">` : `<span class="ph">${esc((it.brand||it.name||"A").charAt(0))}</span>`}${it.isNew ? '<span class="tag">Новинка</span>' : ""}</button>
     <div class="brand">${esc(it.brand || "")}</div>
     <button class="name" data-open>${esc(it.name)}</button>
+    ${poHTML(it)}
     <div class="act">${buyHTML(it)}</div>
   </article>`;
 }
+const poHTML = it => !RETAIL && it.po && PO_NOTE ? `<div class="stock">${esc(PO_NOTE.charAt(0).toUpperCase() + PO_NOTE.slice(1))}</div>` : "";
 /* ===== Избранное (хранится на устройстве) ===== */
 let FAV = load("amura-fav", []);
 const HEART = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-9.2-9.4C1.6 7.6 3.9 4.5 7.2 4.5c2 0 3.4 1.1 4.8 2.8 1.4-1.7 2.8-2.8 4.8-2.8 3.3 0 5.6 3.1 4.4 6.6-1.7 4.8-9.2 9.4-9.2 9.4Z"/></svg>';
@@ -950,6 +954,7 @@ function openProduct(it){
       <div class="brand">${esc(it.brand || "")}${it.country ? ` · ${esc(it.country)}` : ""}</div>
       <h3>${esc(it.name)}</h3>
       ${it.boxQty ? `<div class="stock">В коробе ${it.boxQty} шт</div>` : ""}
+      ${poHTML(it)}
       <div class="act">${buyHTML(it)}</div>
       <h4 class="sec">Описание</h4>
       <div id="descBox">${descHTML(it)}</div>
@@ -1219,6 +1224,8 @@ $("#drawerBody").addEventListener("submit", async e => {
   if(!RETAIL && !OPT_OK.cart){ okNeed("fOk"); return fail("Отметьте согласие с офертой и обработкой персональных данных"); }
   err.textContent = "";
   const t = totals(f.ship);
+  if(!RETAIL && t.ls.some(l => "own" in l.it && l.q > (l.it.own || 0)) && !(f.ship === "courier" && /алмат/i.test(f.city || "")))
+    return fail(`Товары «${PO_NOTE || "под заказ"}» доставляем курьером по Алматы в течение дня — выберите «Курьер по городу» и город Алматы`);
   const payload = {
     name: f.name, contact: f.contact,
     phone: normPhone(digits),

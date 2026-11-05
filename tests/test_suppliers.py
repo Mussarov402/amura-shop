@@ -32,7 +32,7 @@ class Resp:
 
 class Suppliers(unittest.TestCase):
     def setUp(self):
-        self.patch(oh, "ORDER_SECRET", "test-secret")
+        self.patch(oh, "ORDER_SECRET", b"test-secret")         # на сервере — байты, как в order_hook
         with sp.db() as d:
             for t in ("supplier", "sup_item", "sup_review"):
                 d.run(f"DELETE FROM {t}")
@@ -146,6 +146,65 @@ class Suppliers(unittest.TestCase):
         r = self.c.put("/admin/api/suppliers/settings", json={"fees": {"acq": 3, "tax": 2, "cash": 0}, "note": "под заказ, 1 день"}).get_json()
         self.assertEqual((r["fees"], r["note"]), ({"acq": 3.0, "tax": 2.0, "cash": 0.0}, "под заказ, 1 день"))
         self.assertEqual(self.c.put("/admin/api/suppliers/settings", json={"fees": {"acq": 40}}).status_code, 400)
+
+
+
+class OptStorefront(unittest.TestCase):
+    """Витрина опта и заказ: остаток у партнёра, «под заказ», цена по формуле, только курьер по Алматы, пометка в заказе."""
+    patch = Suppliers.patch
+
+    def setUp(self):
+        Suppliers.setUp(self)
+        sid = self.c.post("/admin/api/suppliers", json={"name": "Сосед", "src": "file", "markup": 150}).get_json()["id"]
+        sp.store(sid, [{"barcode": "8809640730000", "name": "Anua", "stock": 4, "price": 4000},
+                       {"barcode": "8801234567893", "name": "Новый крем", "stock": 2, "price": 2500}])
+        self.data = {"updated": "x", "items": [{"id": "own1", "name": "Свой", "barcode": "111111111111", "qty": 5, "opt": 3000, "rtl": 4000}],
+                     "outItems": [{"id": "p1", "name": "Anua тонер", "barcode": "8809640730000", "qty": 0, "opt": 0, "rtl": 6000}]}
+        sp._offers["t"] = sp._aug["t"] = 0.0
+        self.tg, self.posted = [], []
+        for name, val in {"live": lambda *a, **k: self.data, "too_many": lambda *a, **k: False, "find_or_create_agent": lambda *a: "agent-1",
+                          "organization": lambda: "org-1", "store_id": lambda: "store-1", "fee_service_id": lambda: "fee-1",
+                          "delivery_service_id": lambda: "dlv-1", "notify_bg": lambda fn: None, "is_wholesale": lambda cid: True,
+                          "opt_min": lambda: 0, "tg": lambda method, **k: self.tg.append(k.get("text", "")) or {},
+                          "_post_order": lambda body: self.posted.append(body) or {"name": "1907", "id": "o1"}}.items():
+            self.patch(oh, name, val)
+        self.patch(oh, "catalog", lambda: {i["id"]: i for i in self.data["items"]})
+
+    def test_off_by_default_then_augment(self):
+        self.assertFalse(sp.live_on())
+        self.c.put("/admin/api/suppliers/settings", json={"live": True})
+        self.assertTrue(sp.live_on())
+        v = {i["id"]: i for i in sp.augment(self.data)["items"]}
+        self.assertEqual((v["p1"]["qty"], v["p1"]["own"], v["p1"]["pq"], v["p1"]["po"], v["p1"]["opt"]), (4, 0, 4, True, 4440))
+        self.assertEqual(v["own1"]["qty"], 5)                                              # без предложения — как было
+        self.assertEqual(v["p1"]["rtl"], 6000)                                             # розничная цена не меняется
+
+    def order(self, ship, city="Алматы", qty=3):
+        d = {"name": "Опт", "phone": "+77012345678", "city": city, "shipping": ship, "address": "Абая 10", "items": [{"id": "p1", "qty": qty}, {"id": "own1", "qty": 1}]}
+        return oh.order_core(d, "k" + ship + city + str(len(self.posted)), "1.1.1.1", "cid-1")
+
+    def test_order_courier_almaty_marks_supplier(self):
+        self.c.put("/admin/api/suppliers/settings", json={"live": True})
+        res, st = self.order("courier")
+        self.assertEqual(st, 200, res)
+        pos = self.posted[-1]["positions"]
+        self.assertEqual([(p["quantity"], p["reserve"]) for p in pos[:2]], [(3, 0), (1, 1)])   # у поставщика — без резерва у нас
+        self.assertIn("У поставщика: Anua тонер — 3 шт (у поставщика Сосед)", self.posted[-1]["description"])
+        self.assertTrue(any("Забрать у поставщиков" in t and "Сосед: Anua тонер × 3" in t for t in self.tg))
+
+    def test_pickup_or_region_only_own_stock(self):
+        self.c.put("/admin/api/suppliers/settings", json={"live": True})
+        res, st = self.order("pickup")
+        self.assertEqual(st, 200, res)
+        self.assertEqual([p["assortment"]["meta"]["href"].rsplit("/", 1)[-1] for p in self.posted[-1]["positions"]][:1], ["own1"])
+        self.assertNotIn("p1", json.dumps(self.posted[-1]["positions"]))
+        self.assertNotIn("У поставщика", self.posted[-1]["description"])
+        self.order("courier", city="Астана")
+        self.assertNotIn("У поставщика", self.posted[-1]["description"])
+
+    def test_live_off_no_supplier_goods(self):
+        self.order("courier")
+        self.assertNotIn("У поставщика", self.posted[-1]["description"])
 
 
 if __name__ == "__main__":
