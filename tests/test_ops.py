@@ -179,7 +179,7 @@ class ReadonlyForward(unittest.TestCase):
         c = app.test_client()
         with mock.patch.object(appmod, "READONLY", True), mock.patch.object(appmod, "FORWARD_TO", "89.126.206.3"), \
                 mock.patch("urllib3.HTTPSConnectionPool", Pool):
-            r = c.post("/tg/SECRET?x=1", data=b'{"update_id":1}', headers={"Host": "amura-shop-api.onrender.com", "Content-Type": "application/json"})
+            r = c.post("/tg/SECRET?x=1", data=b'{"update_id":1}', headers={"Host": "api.amura.kz", "Content-Type": "application/json"})
             self.assertEqual((r.status_code, r.get_json()), (200, {"ok": True}))
             self.assertEqual(seen, {"ip": "89.126.206.3", "sni": "api.amura.kz", "method": "POST", "path": "/tg/SECRET?x=1",
                                     "body": b'{"update_id":1}', "host": "api.amura.kz"})
@@ -188,6 +188,25 @@ class ReadonlyForward(unittest.TestCase):
         with mock.patch.object(appmod, "READONLY", True), mock.patch.object(appmod, "FORWARD_TO", "89.126.206.3"), \
                 mock.patch("urllib3.HTTPSConnectionPool", side_effect=OSError("down")):
             self.assertEqual(c.post("/order", json={}).status_code, 503)               # сервер не ответил — по-старому 503
+
+
+    def test_onrender_redirects_to_admin(self):
+        """Приложение, установленное со старого адреса *.onrender.com: GET/HEAD → 301, записи → 308 на admin.amura.kz."""
+        import app as appmod
+        from unittest import mock
+        c = app.test_client()
+        h = {"Host": "amura-shop-api.onrender.com"}
+        with mock.patch.object(appmod, "READONLY", True):
+            r = c.get("/admin?x=1&y=2", headers=h)
+            self.assertEqual((r.status_code, r.headers["Location"]), (301, "https://admin.amura.kz/admin?x=1&y=2"))
+            self.assertEqual(c.head("/admin", headers=h).status_code, 301)
+            for m in ("post", "put", "patch", "delete"):
+                r = getattr(c, m)("/admin/api/orders/1907", json={}, headers=h)
+                self.assertEqual((r.status_code, r.headers["Location"]), (308, "https://admin.amura.kz/admin/api/orders/1907"), m)
+            self.assertNotEqual(c.post("/ops/hello", json={}, headers=h).status_code, 308)     # отчёты сервера — как есть
+            self.assertNotIn(c.options("/order", headers=h).status_code, (301, 308))         # предзапрос CORS не перенаправляем
+            self.assertNotIn(c.get("/", headers={"Host": "api.amura.kz"}).status_code, (301, 308))   # наши домены — без перенаправления
+        self.assertNotIn(c.get("/admin", headers=h).status_code, (301, 308))                 # без READONLY (сервер) — как было
 
 
 if __name__ == "__main__":
