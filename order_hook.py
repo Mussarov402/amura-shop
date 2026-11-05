@@ -827,6 +827,13 @@ def catalog_route():
             return jsonify(error=str(e)[:200]), 502
         data = v[1]                        # МойСклад не ответил — отдаём последние данные
     ws = False if request.args.get("mode") == "retail" else is_wholesale(session_cid())   # розничный сайт — всегда розница
+    if request.args.get("mode") != "retail":                    # опт: товары поставщиков («под заказ»), если владелец включил
+        try:
+            import suppliers
+            if suppliers.live_on():
+                data = suppliers.augment(data)
+        except Exception as e:
+            print("Поставщики: каталог опта без них:", str(e)[:200], flush=True)
     closed = not site_on("rtl" if request.args.get("mode") == "retail" else "opt")
     try:
         import sources
@@ -860,7 +867,7 @@ def catalog_route():
     if hit and hit[0] is data:
         body = hit[1]
     else:
-        raw = json.dumps({"updated": data["updated"], "wholesale": ws, "items": view_items(data["items"], ws)} | ({"closed": SITE_CLOSED} if closed else {}) | ({"promo": True} if promo else {}) | ({"minOrder": mn} if mn else {}) | ({"maxQty": mx} if request.args.get("mode") == "retail" else {}) | ({"cardPay": True} if card else {}) | ({"kaspiPay": True} if kaspi else {}) | hits,
+        raw = json.dumps({"updated": data["updated"], "wholesale": ws, "items": view_items(data["items"], ws)} | ({"poNote": data["poNote"]} if data.get("poNote") else {}) | ({"closed": SITE_CLOSED} if closed else {}) | ({"promo": True} if promo else {}) | ({"minOrder": mn} if mn else {}) | ({"maxQty": mx} if request.args.get("mode") == "retail" else {}) | ({"cardPay": True} if card else {}) | ({"kaspiPay": True} if kaspi else {}) | hits,
                          ensure_ascii=False, separators=(",", ":")).encode()
         body = (raw, gzip.compress(raw, 6))
         _cache[ck] = (data, body)
@@ -1102,6 +1109,15 @@ def _create_order_impl(key):
     return jsonify(**payload) if status == 200 else (jsonify(**payload), status)
 
 
+def _sup_cost(item):
+    try:
+        import suppliers
+        o = suppliers.offers().get(suppliers._bar(item.get("barcode")))
+        return o["cost"] if o else 0
+    except Exception:
+        return 0
+
+
 def _panel_comment(d, panel):
     """Комментарий менеджера к заказу — только для заказов из системы AMURA (panel=True); у сайта описание прежнее."""
     if not panel:
@@ -1143,6 +1159,15 @@ def order_core(d, key, ip, me, source="с сайта", panel=False, paid=None):
         if not v:
             return dict(ok=False, error="Склад сейчас не отвечает, попробуйте через минуту"), 503
         cat = {i["id"]: i for i in v[1]["items"]}
+    sup_on = False
+    if not retail_req and not panel and not paid:                  # опт: товары поставщиков (остаток у нас + у поставщика)
+        try:
+            import suppliers
+            if suppliers.live_on():
+                cat = {i["id"]: i for i in suppliers.augment(live(max_age=60))["items"]}
+                sup_on = suppliers.partner_ok(ship, city)
+        except Exception as e:
+            print("Поставщики: заказ без них:", str(e)[:200], flush=True)
     retail = retail_req                                             # заказ с розничного сайта (amura.kz)
     site = not panel and source == "с сайта"                       # заказ с сайта (не панель и не ИИ) — для модуля «Источники»
     src, disc = None, 0
@@ -1177,6 +1202,9 @@ def order_core(d, key, ip, me, source="с сайта", panel=False, paid=None):
         if not item or qty <= 0:
             continue
         stock = int(item.get("qty") or 0)
+        own = int(item.get("own", stock) or 0)
+        if "own" in item and not sup_on:                            # поставщик — только курьер по Алматы; иначе только наш остаток
+            stock = max(own, 0)
         if mx and qty > mx:                                         # розница: не больше N шт одного товара (перекупы, конкуренты)
             return dict(ok=False, error=f"Не больше {mx} шт одного товара в заказе: {item['name']}"), 400
         if not panel:
@@ -1191,11 +1219,23 @@ def order_core(d, key, ip, me, source="с сайта", panel=False, paid=None):
                 pass
         if qty <= 0 or price <= 0:
             continue
-        lines.append({"id": item["id"], "name": item["name"], "qty": qty, "price": price, "reserve": min(qty, max(stock, 0))})   # резерв — не больше остатка
+        line = {"id": item["id"], "name": item["name"], "qty": qty, "price": price, "reserve": min(qty, max(stock, 0))}   # резерв — не больше остатка
+        if "own" in item:                                           # часть сверх нашего остатка — у поставщика, резерв только на наше
+            line["reserve"] = min(qty, max(own, 0))
+            if qty > max(own, 0):
+                line.update(sup=item.get("sup"), sup_qty=qty - max(own, 0), sup_cost=_sup_cost(item))
+        lines.append(line)
     if not lines:
         return dict(ok=False, error="Корзина пуста или товаров нет в наличии"), 400
 
     ship_name, need_loader = SHIPPING[ship]
+    sup_desc, sup_tg = "", ""
+    if any(l.get("sup_qty") for l in lines):                       # позиции у поставщиков — пометка в заказе и владельцу
+        try:
+            import suppliers
+            sup_desc, sup_tg = suppliers.order_note(lines)
+        except Exception as e:
+            print("Поставщики: пометка заказа не собрана:", str(e)[:200], flush=True)
     logistics = str(d.get("logistics", "")).strip()[:80]
     recipient = str(d.get("recipient", "")).strip()[:100]
     zipcode = re.sub(r"\D", "", str(d.get("zip", "")))[:6]
@@ -1263,7 +1303,7 @@ def order_core(d, key, ip, me, source="с сайта", panel=False, paid=None):
             "store": meta("store", store_id()),          # склад сразу: отгрузка по сценарию проводится, а не остаётся черновиком
             "agent": meta("counterparty", agent),
             "shipmentAddress": city,
-            "description": f"Заказ {source}\n{name}, {contact}\nГород: {city}\nОтправка: {ship_name}" + _panel_comment(d, panel)
+            "description": f"Заказ {source}\n{name}, {contact}\nГород: {city}\nОтправка: {ship_name}" + _panel_comment(d, panel) + sup_desc
                            + (f"\nИсточник: {src['code']}" + (f" (промокод {src['promo']}, скидка {disc:g}%)" if disc else "") if src else "")
                            + (f"\n{CONSENT_TXT}: {consent_time()}, {consent_ver()}" if not panel and d.get("consent") is True else "")
                            + (f"\n{NEWS_TXT}: {'да' if d['news'] else 'нет'}" if retail and isinstance(d.get("news"), bool) else "")
@@ -1278,6 +1318,11 @@ def order_core(d, key, ip, me, source="с сайта", panel=False, paid=None):
         return dict(ok=False, error="Не удалось сохранить заказ, менеджер уже получил его и свяжется с вами"), 502
 
     number = order["name"]
+    if sup_tg:
+        try:
+            tg("sendMessage", chat_id=OWNER, text=f"🧺 Заказ № {number} (опт): {sup_tg}")
+        except Exception as e:
+            print("Поставщики: сообщение владельцу не ушло:", str(e)[:200], flush=True)
     if retail and isinstance(d.get("news"), bool):
         try:                                      # галочка не отмечена — прежнее «да» не снимаем (отказаться — через менеджера, в карточке клиента)
             if d["news"] or get_news(phone) is None:

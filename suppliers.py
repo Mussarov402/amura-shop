@@ -79,10 +79,12 @@ def all_suppliers():
 # ---------- шифрование токенов ----------
 def _fernet():
     from cryptography.fernet import Fernet
-    base = os.environ.get("SUPPLIER_SECRET") or oh.ORDER_SECRET or ""
+    base = os.environ.get("SUPPLIER_SECRET", "").encode() or oh.ORDER_SECRET or b""
+    if isinstance(base, str):
+        base = base.encode()
     if not base:
         raise RuntimeError("на сервере нет секрета для шифрования (ORDER_SECRET)")
-    key = hashlib.sha256(("amura-suppliers:" + base).encode()).digest()       # отдельный ключ, не сам секрет
+    key = hashlib.sha256(b"amura-suppliers:" + base).digest()                 # отдельный ключ, не сам секрет
     return Fernet(base64.urlsafe_b64encode(key))
 
 
@@ -321,6 +323,95 @@ def match(sid=None):
     return matched, review
 
 
+# ---------- витрина опта ----------
+_offers = {"t": 0.0, "v": {}}
+_aug = {"data": None, "t": 0.0, "v": None}
+
+
+def live_on():
+    """Товары поставщиков на опте — отдельный выключатель владельца (вкл после проверки заказа и оплаты)."""
+    try:
+        if not modules.enabled(MOD):
+            return False
+        with db() as d:
+            return inbox.get_setting(d, "sup_live", "0") == "1"
+    except Exception:
+        return False
+
+
+def offers():
+    """Штрихкод → лучшее предложение среди включённых поставщиков (с остатком, дешевле — первым). Кэш минута."""
+    if time.time() - _offers["t"] < 60:
+        return _offers["v"]
+    sups = {s["id"]: s for s in all_suppliers() if s["active"]}
+    f, out = fees(), {}
+    with db() as d:
+        rows = d.run("SELECT sup_id, barcode, name, stock, price FROM sup_item WHERE stock > 0 AND price > 0", many=True) or []
+    for sid, bar, name, stock, cost in rows:
+        s = sups.get(sid)
+        if not s:
+            continue
+        o = {"sup": sid, "supName": s["name"], "qty": int(stock), "cost": cost, "name": name,
+             "price": sale_price(cost, s["markup"], s["discount"], f)}
+        if bar not in out or cost < out[bar]["cost"]:
+            out[bar] = o
+    _offers.update(t=time.time(), v=out)
+    return out
+
+
+def augment(data):
+    """Живой каталог + товары поставщиков (только опт): own — наш остаток, pq — у поставщика, po — «под заказ»
+    (у нас 0, есть у поставщика); qty — сколько можно заказать. Нет нашей оптовой цены — цена по формуле.
+    Добавленные из «На проверке» карточки без цены в МойСклад — тоже здесь. Розничная цена (rtl) не меняется."""
+    if _aug["data"] is data and time.time() - _aug["t"] < 60:
+        return _aug["v"]
+    off = offers()
+    items, seen = [], set()
+    for it in list(data.get("items") or []) + list(data.get("outItems") or []):
+        o = off.get(_bar(it.get("barcode")))
+        own = max(int(it.get("qty") or 0), 0)
+        seen.add(it["id"])
+        if o:
+            x = dict(it) | {"own": own, "pq": o["qty"], "qty": own + o["qty"], "po": own <= 0, "sup": o["sup"]}
+            if (x.get("opt") or 0) <= 0:
+                x.update(opt=o["price"], mid=0, box=0)
+            items.append(x)
+        elif own > 0:
+            items.append(it)
+    with db() as d:
+        added = d.run("SELECT sup_id, barcode, product_id FROM sup_review WHERE state='added' AND product_id != ''", many=True) or []
+    for _, bar, pid in added:
+        o = off.get(bar)
+        if pid in seen or not o:
+            continue
+        items.append({"id": pid, "name": o["name"], "brand": "", "group": "", "code": "", "article": "", "country": "", "barcode": bar,
+                      "qty": o["qty"], "own": 0, "pq": o["qty"], "po": True, "sup": o["sup"], "opt": o["price"], "mid": 0, "box": 0,
+                      "boxQty": 0, "rtl": 0, "img": None, "updated": "", "isNew": False})
+    v = dict(data) | {"items": items, "poNote": note()}
+    _aug.update(data=data, t=time.time(), v=v)
+    return v
+
+
+def partner_ok(ship, city):
+    """Позиции поставщиков — только наш курьер по Алматы в течение дня (решение владельца 05.11.2026)."""
+    try:
+        import checkout
+        return ship in ("courier", "express") and checkout.is_almaty(city)
+    except Exception:
+        return False
+
+
+def order_note(lines):
+    """Строки «у поставщика» для заказа МойСклад и сообщение владельцу: [(товар, шт, поставщик, цена поставщика)]."""
+    sups = {s["id"]: s["name"] for s in all_suppliers()}
+    rows = [(l["name"], l["sup_qty"], sups.get(l["sup"], "поставщик"), l.get("sup_cost", 0)) for l in lines if l.get("sup_qty")]
+    if not rows:
+        return "", ""
+    desc = "\nУ поставщика: " + "; ".join(f"{n} — {q} шт (у поставщика {s})" for n, q, s, _ in rows)
+    tg = "Забрать у поставщиков:\n" + "\n".join(f"• {s}: {n} × {q} (по {round(c):,} ₸)".replace(",", " ") for n, q, s, c in rows)
+    return desc, tg
+
+
 # ---------- система AMURA: API (только владелец) ----------
 def _owner():
     import admin
@@ -350,7 +441,7 @@ def route_list():
     matched, review = match()
     return jsonify(ok=True, suppliers=[_public(s) for s in all_suppliers()], fees=fees(),
                    feeNames={k: v[0] for k, v in FEES.items()}, note=note(), sources=SOURCES,
-                   matched=matched[:500], review=review[:500], counts={"matched": len(matched), "review": len(review)})
+                   matched=matched[:500], review=review[:500], counts={"matched": len(matched), "review": len(review)}, live=live_on())
 
 
 def _clean(b, old=None):
@@ -472,7 +563,10 @@ def route_settings():
             inbox.set_setting(d, "sup_fees", json.dumps(f))
         if "note" in b:
             inbox.set_setting(d, "sup_note", str(b["note"] or "").strip()[:60] or NOTE_DEFAULT)
-    return jsonify(ok=True, fees=fees(), note=note())
+        if "live" in b:
+            inbox.set_setting(d, "sup_live", "1" if b["live"] else "0")
+    _offers["t"] = _aug["t"] = 0.0
+    return jsonify(ok=True, fees=fees(), note=note(), live=live_on())
 
 
 @bp.post("/admin/api/suppliers/review")
