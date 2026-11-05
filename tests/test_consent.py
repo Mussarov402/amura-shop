@@ -10,6 +10,8 @@ import unittest
 os.environ.pop("DATABASE_URL", None)
 os.environ.setdefault("INBOX_SQLITE", os.path.join(tempfile.mkdtemp(), "t.db"))
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+with open(os.path.join(ROOT, "retail", "legal", "requisites.json"), encoding="utf-8") as _f:
+    PRIV = json.load(_f)["privacy_date"]          # дата редакции политики — из опубликованных реквизитов
 sys.path.insert(0, ROOT)
 os.makedirs(os.path.join(ROOT, "fonts"), exist_ok=True)
 for _f in ("DejaVuSans.ttf", "DejaVuSans-Bold.ttf"):
@@ -49,7 +51,7 @@ class Consent(unittest.TestCase):
         self.assertIn("(Алматы)", self.posted[-1]["description"])
         self.assertNotIn(oh.CONSENT_TXT, self.order(mode="retail"))
         self.assertIn(oh.CONSENT_TXT, self.order(consent=True))                 # опт — тоже (юрист, 02.11.2026)
-        self.assertIn("политика от 03.11.2026", self.posted[-1]["description"])  # версия — дата редакции политики
+        self.assertIn("политика от " + PRIV, self.posted[-1]["description"])  # версия — дата редакции политики
         self.assertNotIn(oh.CONSENT_TXT, self.order(mode="retail", consent="1"))  # только настоящая галочка
 
     def test_pay_card_mark(self):
@@ -117,7 +119,7 @@ class Consent(unittest.TestCase):
         v = oh.get_consent("cid-77")
         self.assertEqual(v["how"], "вход по SMS")
         self.assertIn("(Алматы)", v["at"])
-        self.assertEqual(v["ver"], "текст от 03.11.2026, политика от 03.11.2026")
+        self.assertEqual(v["ver"], "текст от 03.11.2026, политика от " + PRIV)
         self.assertIn("в том числе их передачу за рубеж", v["text"])
 
     def test_ai_hello_operator_mask(self):
