@@ -36,7 +36,7 @@ class Math(unittest.TestCase):
         r = mp_calc.calc(10000, {"commission": 15, "tax": 3, "ads": 5}, {"logistics": 500, "processing": 100, "acquiring": 150},
                          4000, 20)
         sums = {x["key"]: x["sum"] for x in r["lines"]}
-        self.assertEqual(sums, {"commission": 1500, "logistics": 500, "processing": 100, "acquiring": 150, "tax": 300, "ads": 500,
+        self.assertEqual(sums, {"commission": 1500, "logistics": 500, "processing": 100, "acquiring": 150, "tax": 300, "cash": 0, "ads": 500,
                                 "pack": 0, "cost": 4000})
         self.assertEqual((r["profit"], r["margin"], r["complete"]), (2950, 29.5, True))
         self.assertEqual(r["minPrice"], round((500 + 100 + 150 + 4000) / (1 - 0.43)))    # при ней маржа ровно 20 %
@@ -216,6 +216,7 @@ class Calculator(unittest.TestCase):
         s = {x["key"]: x["sum"] for x in oz["lines"]}
         self.assertEqual((s["commission"], s["logistics"], s["processing"], s["acquiring"], s["tax"], s["ads"]),
                          (1080, 330, 120, 15, 270, 900))                                 # реклама — план ДРР 10 % по умолчанию
+        self.assertEqual((s["cash"], {x["key"]: x["pct"] for x in oz["lines"]}["cash"]), (90, 1.0))   # снятие 1 % по умолчанию
         self.assertIn("план ДРР 10 %; нет ключей Ozon Performance", {x["key"]: x["note"] for x in oz["lines"]}["ads"])
         wb = ch["wb"]
         s, n = {x["key"]: x["sum"] for x in wb["lines"]}, {x["key"]: x["note"] for x in wb["lines"]}
@@ -241,6 +242,11 @@ class Calculator(unittest.TestCase):
         self.assertEqual({x["key"]: x["sum"] for x in wb["lines"]}["acquiring"], round(12000 * 300 / 19800))
         self.assertNotIn("wbacq", r["settings"])                                         # эквайринг WB вручную больше не задаётся
         self.assertEqual(self.c.post("/admin/api/mp/calc/settings", json={"tax": "много"}).status_code, 400)
+        r = self.c.post("/admin/api/mp/calc/settings", json={"cash": 2}).get_json()       # снятие владелец меняет сам
+        self.assertEqual(r["settings"]["cash"], 2)
+        wb = next(x for x in self.get(id="p1", prices=json.dumps({"wb": 12000}))["channels"] if x["id"] == "wb")
+        self.assertEqual({x["key"]: x["sum"] for x in wb["lines"]}["cash"], 240)
+        self.c.post("/admin/api/mp/calc/settings", json={"cash": ""})
 
     def wb_notes(self):
         wb = next(x for x in self.get(id="p1")["channels"] if x["id"] == "wb")

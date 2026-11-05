@@ -629,14 +629,14 @@ def oz_new_floor(ch, p):
         raise ValueError(f"нет курса {cur}")
     st = mp_calc.settings()
     fixed_kzt += float(st.get("pack") or 0)                 # упаковка, ₸ за единицу
-    total_pct = pct + (st.get("tax") or 0) + (st.get("ads") or 0)
+    total_pct = pct + (st.get("tax") or 0) + (st.get("cash") or 0) + (st.get("ads") or 0)
     if total_pct >= 100:
         raise ValueError("ставки и налог больше 100 % цены")
     zero = (cost + fixed_kzt) / (1 - total_pct / 100)
     if total_pct + mp_calc.MIN_MARGIN >= 100:
         raise ValueError("ставки, налог и маржа больше 100 % цены")
     zero = (cost + fixed_kzt) / (1 - (total_pct + mp_calc.MIN_MARGIN) / 100)   # не безубыточность, а минимум для маржи 15 %
-    return round(zero), (f"себестоимость {round(cost)} ₸, комиссия до {pct:g} %, налог {st.get('tax') or 0:g} %, ДРР {st.get('ads') or 0:g} %, "
+    return round(zero), (f"себестоимость {round(cost)} ₸, комиссия до {pct:g} %, налог {st.get('tax') or 0:g} %, снятие {st.get('cash') or 0:g} %, ДРР {st.get('ads') or 0:g} %, "
                          f"логистика и эквайринг до {round(fixed_kzt)} ₸ (самые высокие ставки магазина)")
 
 
