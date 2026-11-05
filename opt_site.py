@@ -55,7 +55,7 @@ def is_opt_host():
 def _ttl(path):
     if path.startswith("img/"):
         return 86400
-    return 3600 if path.startswith(("fonts/", "vendor/")) or path.endswith(".png") else 60
+    return 3600 if path.startswith(("fonts/", "webfonts/", "vendor/")) or path.endswith(".png") else 60
 
 
 def _pages(path, scheme="https", host=None):
