@@ -230,9 +230,41 @@ def help_route():
     log(200)
     return jsonify(ok=True, shops=[{"id": c.key, "title": c.title, "type": "wb" if isinstance(c, mpk.WB) else "ozon", "keys": c.keys_set()}
                                    for c in mpk.channels()],
-                   read={k: {n: {"params": v[3], "about": v[4]} for n, v in m.items()} for k, m in READ.items()},
+                   read={**{k: {n: {"params": v[3], "about": v[4]} for n, v in m.items()} for k, m in READ.items()},
+                         "ms": {"products": {"params": ["codes", "folder", "offset", "photos"],
+                                             "about": "товары МойСклад (и без остатка): описание, штрихкоды, себестоимость, вес, страна, "
+                                                      "фото — публичные ссылки /pub/msimg/<код>/<n>.jpg"}}},
                    actions={k: {"params": v["params"], "about": v["about"]} for k, v in ACTIONS.items()},
                    rules=rules(), rate=f"{AGENT_RATE} запросов в минуту")
+
+
+@bp.get("/agent/api/read/ms/products")
+def ms_products_route():
+    """Товары МойСклад для новых карточек (и без остатка): p={"codes": [...]} до 50 кодов или {"folder": "бренд", "offset": 0}
+    — группа МС постранично по 50; "photos": false — без ссылок на фото (быстрее). Только чтение."""
+    import ms_goods
+    try:
+        args = json.loads(request.args.get("p") or "{}")
+        if not isinstance(args, dict):
+            raise ValueError
+    except ValueError:
+        return jsonify(ok=False, error="p — JSON-объект параметров"), 400
+    codes, folder = args.get("codes"), str(args.get("folder") or "").strip()
+    if codes is not None and (not isinstance(codes, list) or not codes):
+        return jsonify(ok=False, error="codes — список кодов"), 400
+    if not codes and len(folder) < 2:
+        return jsonify(ok=False, error="Нужны codes (список) или folder (часть названия группы МС)"), 400
+    if codes and len(codes) > ms_goods.MAX_CODES:
+        return jsonify(ok=False, error=f"Не больше {ms_goods.MAX_CODES} кодов за запрос"), 400
+    try:
+        items, missing, nxt = ms_goods.products(codes=codes, folder=folder, offset=args.get("offset") or 0,
+                                                photos=args.get("photos", True) is not False)
+    except Exception as e:
+        log(502, f"ms/products: {str(e)[:150]}")
+        return jsonify(ok=False, error=f"МойСклад: {str(e)[:300]}"), 502
+    log(200, f"ms/products {len(items)}")
+    return jsonify(ok=True, items=items, missing=missing, next=nxt,
+                   units={"cost": "₸", "weight_kg": "кг", "volume_l": "л", "w_cm/h_cm/d_cm": "см (доп. поля МС)"})
 
 
 @bp.get("/agent/api/read/<key>/<name>")
