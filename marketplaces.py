@@ -681,7 +681,7 @@ def kzt_lines(ch, lines):
 
 ECON = [("commission", "Комиссия"), ("logistics", "Логистика и последняя миля"), ("processing", "Приёмка и обработка FBS"),
         ("acquiring", "Эквайринг")]
-OWN = [("pack", "Упаковка"), ("tax", "Налог ИП"), ("ads", "Реклама"), ("cost", "Себестоимость")]
+OWN = [("pack", "Упаковка"), ("tax", "Налог ИП"), ("cash", "Снятие"), ("ads", "Реклама"), ("cost", "Себестоимость")]
 
 
 def economy(ch, lines, mids, kzt):

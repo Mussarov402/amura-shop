@@ -42,7 +42,7 @@ import order_hook as oh
 NBK_URL = "https://nationalbank.kz/rss/get_rates.cfm?fdate={d}"
 MIG_URL = "https://mig.kz/"
 MIN_MARGIN = 15.0      # минимальная маржа на всех маркетплейсах — владелец 03.11.2026 («эквайринг и приёмка ещё не известны, держим запас»)
-SETTINGS = {"tax": "mp_calc_tax", "ads": "mp_calc_ads", "margin": "mp_calc_margin", "pack": "mp_calc_pack"}   # pack — ₸ за единицу   # ставки площадок — только из API
+SETTINGS = {"tax": "mp_calc_tax", "cash": "mp_calc_cash", "ads": "mp_calc_ads", "margin": "mp_calc_margin", "pack": "mp_calc_pack"}   # pack — ₸ за единицу   # ставки площадок — только из API
 FACT_DAYS, FACT_TTL = 90, 6 * 3600
 WAIT = "ждём первые продажи"
 WB_FIN_FIELDS = ["nmId", "docTypeName", "quantity", "retailPriceWithDisc", "commissionPercent", "acquiringFee", "deliveryService",
@@ -141,6 +141,8 @@ def settings():
     out["pack"] = out["pack"] or 0.0                    # упаковка, ₸ за единицу (владелец 03.11.2026), по умолчанию 0
     if out["ads"] is None:
         out["ads"] = 10.0                                 # план ДРР по умолчанию; факт подставляется, когда есть расходы
+    if out["cash"] is None:
+        out["cash"] = 1.0                                 # снятие: комиссия банка за вывод денег свыше 1 млн (Менеджер WB/Ozon, 05.11.2026)
     return out
 
 
@@ -731,7 +733,7 @@ def drr_for(ch, keys, cur_orders=""):
 
 # ---------- расчёт ----------
 LINES = [("commission", "Комиссия"), ("logistics", "Логистика и доставка"), ("processing", "Приёмка и обработка FBS"),
-         ("acquiring", "Эквайринг"), ("tax", "Налог ИП"), ("ads", "Реклама"), ("pack", "Упаковка"), ("cost", "Закупка")]
+         ("acquiring", "Эквайринг"), ("tax", "Налог ИП"), ("cash", "Снятие"), ("ads", "Реклама"), ("pack", "Упаковка"), ("cost", "Закупка")]
 
 
 def calc(price, pct, amount, cost, margin):
@@ -745,7 +747,7 @@ def calc(price, pct, amount, cost, margin):
             v = price * pct[key] / 100
             known_pct += pct[key]
         else:
-            v = amount.get(key, 0.0 if key == "pack" else None)     # упаковка не задана — 0, а не «нет данных»
+            v = amount.get(key, 0.0 if key in ("pack", "cash") else None)     # упаковка и снятие не заданы — 0, а не «нет данных»
             if v is not None:
                 fixed += v
         lines.append({"key": key, "label": label, "sum": None if v is None else round(v),
@@ -789,9 +791,10 @@ def channel_calc(ch, pid, prod, st, price_override=None):
         price_kzt = float(price_override)
     if st["tax"] is not None:
         pct["tax"] = st["tax"]
+    pct["cash"] = float(st.get("cash") or 0)            # снятие денег со счёта — % от цены продажи, как налог
     drr, why = drr_for(ch, raw.get("adKeys") or [])
     pct["ads"] = drr if drr is not None else st["ads"]
-    own_notes = {"tax": "настройка владельца",
+    own_notes = {"tax": "настройка владельца", "cash": "комиссия банка за вывод денег (настройки расчёта)",
                  "ads": f"{why}; план {st['ads']:g} %" if drr is not None else f"план ДРР {st['ads']:g} %; {why}"}
     amount["pack"] = float(st.get("pack") or 0)
     r = calc(price_kzt, pct, amount, prod["cost"], st["margin"])
