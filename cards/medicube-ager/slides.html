@@ -1,0 +1,66 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><link rel="stylesheet" href="../fonts.css">
+<!-- Medicube AGE-R Booster Pro — слайды WB/Ozon в стиле AMURA для маркетплейсов. ?c=pink|black&s=1..6 · 900×1200.
+     Фото: python3 cards/medicube-ager/prep.py (вырезка из фото МС). Рендер: node cards/medicube-ager/render.js.
+     Запрещено (Менеджер/Юрист): «салон дома», «как у косметолога», «омоложение», «клинически доказано», «лечит». -->
+<style>
+*{margin:0;box-sizing:border-box}body{width:900px;height:1200px;position:relative;overflow:hidden;font-family:Inter,sans-serif;color:#2B2B2B;background:#F4EEE6}
+.ab{position:absolute}.bg{position:absolute;inset:0;background:url(src/leaves.png) 70% 0/auto 100%;opacity:.42}
+.fade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(244,238,230,.85),rgba(244,238,230,.35) 45%,rgba(244,238,230,.85))}
+.lg{display:block}.tab{left:50%;transform:translateX(-50%);top:0;background:#fff;border-radius:0 0 22px 22px;padding:22px 34px;display:flex;align-items:center;gap:20px;box-shadow:0 10px 30px rgba(0,0,0,.06)}
+.H{font:800 64px/1.02 MontV,Montserrat,sans-serif;letter-spacing:-.01em;text-transform:uppercase;text-align:center;left:60px;right:60px}
+.sub{font:600 30px/1.25 Inter;text-align:center;left:60px;right:60px}
+.pill{display:inline-flex;align-items:center;gap:12px;padding:14px 24px;border-radius:999px;background:#fff;font:600 24px/1 Inter;box-shadow:0 8px 20px rgba(0,0,0,.06)}
+.dot{width:12px;height:12px;border-radius:50%}
+.card{background:#fff;border-radius:24px;padding:22px 24px;display:flex;gap:18px;align-items:flex-start;box-shadow:0 10px 26px rgba(0,0,0,.06)}
+.card b{display:block;font:800 30px/1.1 MontV,Montserrat}.card span{display:block;font:500 23px/1.3 Inter;opacity:.75;margin-top:6px}
+.ic{flex:none;width:58px;height:58px;border-radius:50%;display:flex;align-items:center;justify-content:center}.ic svg{width:32px;height:32px}
+.num{flex:none;width:66px;height:66px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:800 30px MontV,Montserrat;color:#fff}
+.prod{position:absolute;background-position:center;background-repeat:no-repeat;background-size:contain;filter:drop-shadow(0 28px 34px rgba(0,0,0,.18))}
+</style></head><body><div class="bg"></div><div class="fade"></div><script>
+const q=new URLSearchParams(location.search),C=q.get('c')||'pink',S=+(q.get('s')||1);
+const COL={pink:{acc:'#D9819A',soft:'#F6DCE3',name:'Розовый',img:'src/pink_cut.png',dev:'src/pink_dev.png'},black:{acc:'#3A3A3D',soft:'#E4E2E0',name:'Чёрный',img:'src/black_cut.png',dev:'src/black_dev.png'}}[C];
+const A=COL.acc;
+const LOGO=c=>`<svg class="lg" viewBox="0 0 141 25.5" fill="none" stroke="${c}" stroke-width="1.6"><path transform="translate(0 0.5)" d="M1 24L10 1L19 24"/><path transform="translate(31 0.5)" d="M1 24V1L11 17L21 1V24"/><path transform="translate(64 0.5)" d="M1 1V15a8 8 0 0 0 16 0V1"/><path transform="translate(93 0.5)" d="M1 24V1H9a6.5 6.5 0 0 1 0 13H1M9 14L16 24"/><path transform="translate(121 0.5)" d="M1 24L10 1L19 24"/></svg>`;
+const I={boost:'<path d="M17 4v18M10 15l7 7 7-7M8 28h18"/>',mc:'<path d="M4 17h5l3-8 5 16 4-12 3 4h6"/>',ems:'<path d="M19 3L9 19h8l-2 12 10-16h-8z"/>',air:'<circle cx="17" cy="17" r="3"/><path d="M17 4v5M17 25v5M4 17h5M25 17h5M8 8l3 3M23 23l3 3M26 8l-3 3M11 23l-3 3"/>',led:'<circle cx="17" cy="15" r="7"/><path d="M13 26h8M14 30h6"/>',vib:'<path d="M12 7v20M17 4v26M22 7v20M7 12v10M27 12v10"/>',
+ dev:'<rect x="12" y="3" width="10" height="28" rx="5"/><path d="M15 9h4"/>',usb:'<path d="M17 3v18M12 21h10v5a5 5 0 0 1-10 0z"/>',book:'<path d="M5 6h10a3 3 0 0 1 3 3v19a3 3 0 0 0-3-3H5zM29 6H21a3 3 0 0 0-3 3v19a3 3 0 0 1 3-3h8z"/>'};
+const ico=(k,c=A)=>`<div class="ic" style="background:${COL.soft}"><svg viewBox="0 0 34 34" fill="none" stroke="${c}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${I[k]}</svg></div>`;
+const add=h=>{const t=document.createElement('template');t.innerHTML=h.trim();return document.body.appendChild(t.content.firstChild)};
+const corner=()=>add(`<div class="ab" style="left:50px;top:46px;width:120px">${LOGO('#2B2B2B')}</div><div class="ab" style="right:50px;top:40px;font:700 18px/1 Inter;letter-spacing:.2em;color:${A}">MEDICUBE</div>`);
+const MODES=[['boost','Booster','электропорация: помогает сыворотке лучше впитаться'],['mc','Microcurrent','микротоки для тонуса кожи'],['ems','Derma Shot','EMS-импульсы — ощущение лёгких сокращений'],['air','Air Shot','эффект «микроигл» без игл — для гладкости рельефа'],['led','LED','световой режим во время ухода'],['vib','Вибрация','мягкий массаж при нанесении средств']];
+if(S===1){
+ add(`<div class="ab tab"><div style="font:900 26px/1 MontV,Montserrat;letter-spacing:.12em">MEDICUBE</div><div style="width:1.5px;height:26px;background:#2B2B2B;opacity:.4"></div><div style="width:150px">${LOGO('#2B2B2B')}</div></div>`);
+ add(`<div class="ab" style="left:56px;top:150px;width:460px"><div style="font:700 26px/1.2 Inter;letter-spacing:.06em">AGE-R BOOSTER PRO</div><div style="font:900 190px/.9 MontV,Montserrat;color:${A};letter-spacing:-.05em;margin-top:14px">6 в 1</div><div style="font:800 40px/1.1 MontV,Montserrat;text-transform:uppercase;margin-top:12px">Аппарат<br>для ухода<br>за лицом</div></div>`);
+ add(`<div class="prod" style="right:24px;bottom:40px;width:470px;height:740px;background-image:url(${COL.img})"></div>`);
+ add(`<div class="ab" style="left:56px;top:640px;display:grid;grid-template-columns:1fr 1fr;gap:12px 12px;width:400px">${MODES.map(([k,n])=>`<div class="pill" style="font-size:20px;padding:10px 16px"><span class="dot" style="background:${A}"></span>${n}</div>`).join('')}</div>`);
+ add(`<div class="ab" style="left:56px;bottom:70px"><div class="pill" style="background:${A};color:#fff">${COL.name} · Корея</div></div>`);
+}
+if(S===2){corner();
+ add(`<div class="ab H" style="top:120px">6 режимов</div><div class="ab sub" style="top:200px">в одном аппарате</div>`);
+ add(`<div class="ab" style="left:50px;right:50px;top:280px;display:grid;grid-template-columns:1fr 1fr;gap:18px">${MODES.map(([k,n,t])=>`<div class="card" style="height:258px;flex-direction:column;padding:26px 28px">${ico(k)}<div><b>${n}</b><span>${t}</span></div></div>`).join('')}</div>`);
+}
+if(S===3){corner();
+ add(`<div class="ab H" style="top:120px">Как пользоваться</div>`);
+ add(`<div class="prod" style="right:40px;top:230px;width:230px;height:760px;background-image:url(${COL.dev})"></div>`);
+ const st=[['Очистите кожу','умойтесь и нанесите тонер'],['Нанесите средство','сыворотку или гель для аппарата'],['Выберите режим','кнопка MODE, режим виден на экране'],['Ведите аппаратом','медленно, снизу вверх, по массажным линиям']];
+ add(`<div class="ab" style="left:56px;width:560px;top:250px">${st.map(([b,s],i)=>`<div style="display:flex;gap:22px;align-items:flex-start;margin-bottom:52px"><div class="num" style="background:${A}">${i+1}</div><div><div style="font:800 34px/1.1 MontV,Montserrat">${b}</div><div style="font:500 24px/1.3 Inter;opacity:.75;margin-top:8px">${s}</div></div></div>`).join('')}</div>`);
+ add(`<div class="ab" style="left:56px;bottom:70px"><div class="pill">Подробно — в инструкции из комплекта</div></div>`);
+}
+if(S===4){corner();
+ add(`<div class="ab H" style="top:120px">Комплектация</div>`);
+ add(`<div class="prod" style="left:60px;top:240px;width:440px;height:690px;background-image:url(${COL.img})"></div>`);
+ add(`<div class="ab" style="right:50px;width:330px;top:330px;display:flex;flex-direction:column;gap:20px">${[['dev','Аппарат','AGE-R Booster Pro'],['usb','Кабель','USB-C для зарядки'],['book','Инструкция','по режимам и уходу']].map(([k,b,s])=>`<div class="card">${ico(k)}<div><b>${b}</b><span>${s}</span></div></div>`).join('')}</div>`);
+ add(`<div class="ab" style="left:60px;bottom:70px"><div class="pill"><span class="dot" style="background:${A}"></span>${COL.name} цвет</div></div>`);
+}
+if(S===5){corner();
+ add(`<div class="ab H" style="top:120px">Характеристики</div>`);
+ add(`<div class="prod" style="right:50px;top:250px;width:230px;height:760px;background-image:url(${COL.dev})"></div>`);
+ const R=[['Вес','155 г'],['Аккумулятор','Li-ion 3,7 В'],['Ёмкость','2600 мАч'],['Мощность','до 1,8 Вт'],['Зарядка','USB-C'],['Режимы','6 в 1']];
+ add(`<div class="ab" style="left:56px;width:540px;top:260px;background:#fff;border-radius:28px;padding:16px 34px;box-shadow:0 10px 26px rgba(0,0,0,.06)">${R.map(([a,b],i)=>`<div style="display:flex;justify-content:space-between;align-items:baseline;padding:26px 0;${i?'border-top:1.5px solid #EEE7DD':''}"><span style="font:500 26px Inter;opacity:.7">${a}</span><span style="font:800 34px MontV,Montserrat">${b}</span></div>`).join('')}</div>`);
+}
+if(S===6){corner();
+ add(`<div class="ab H" style="top:120px">Покупайте<br>спокойно</div>`);
+ add(`<div class="prod" style="right:30px;bottom:60px;width:400px;height:640px;background-image:url(${COL.img})"></div>`);
+ const T=[['Medicube, Корея','бренд и страна производства — на коробке'],['Проверьте в пункте выдачи','вскройте посылку и включите аппарат до получения'],['Есть вопрос?','напишите в «Вопросах о товаре» — ответим']];
+ add(`<div class="ab" style="left:56px;width:420px;top:330px;display:flex;flex-direction:column;gap:20px">${T.map(([b,s])=>`<div class="card"><div class="ic" style="background:${COL.soft}"><svg viewBox="0 0 34 34" fill="none" stroke="${A}" stroke-width="2.6"><path d="M7 27L17 7L27 27"/></svg></div><div><b>${b}</b><span>${s}</span></div></div>`).join('')}</div>`);
+}
+</script></body></html>
