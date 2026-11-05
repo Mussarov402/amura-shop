@@ -273,6 +273,18 @@ class PriceCorridor(unittest.TestCase):
         self.price = 0.0
         self.assertEqual(self.price_req(15500)["status"], "new")                        # «Стоп» — всё через «Да»
 
+    def test_first_price_error_reason_in_request(self):
+        """Расчёт первой цены упал — причина в заявке (раньше была только в журнале сервера), заявка ждёт «Да»."""
+        self.price = 0.0
+
+        def boom(*a, **k):
+            raise KeyError("dimensions")
+        self.patch(agent, "min_price_for", boom)
+        r = self.price_req(85990)
+        self.assertEqual(r["status"], "new")
+        summary = self.c.get("/agent/api/requests", headers=self.h).get_json()["items"][0]["summary"]
+        self.assertIn("первая цена: проверка не удалась — 'dimensions' — через «Да»", summary)
+
     def test_first_price_no_sales_and_dedupe(self):
         """Продаж нет: эквайринг 2,5 % и приёмка 0 ₸ по допущению; повтор той же заявки — без новой заявки и сообщения."""
         self.price, self.nosales = 0.0, True

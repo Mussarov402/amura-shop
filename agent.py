@@ -1419,8 +1419,9 @@ def new_request(kind, ch, p, comment, text):
         if kind == "wb_price":
             try:
                 auto, why = wb_first_price(ch, p)
-            except Exception as e:                       # не проверили — дальше обычные правила, причина видна владельцу
+            except Exception as e:                       # не проверили — причина в заявке (раньше была только в журнале), дальше «Да»
                 print("Первая цена WB:", str(e)[:200], flush=True)
+                why = f"первая цена: проверка не удалась — {getattr(e, 'message', None) or str(e) or e.__class__.__name__}"[:220] + " — через «Да»"
         raise_why = ""
         if kind in PRICE_KINDS and not auto and not why:
             try:
