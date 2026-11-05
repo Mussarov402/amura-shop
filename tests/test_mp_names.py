@@ -74,6 +74,15 @@ class Names(unittest.TestCase):
         self.assertEqual(self.puts, [("a1", {"name": "Ozon — Cosmo Market"})])
         self.assertEqual(self.alerts, ["🟦 Контрагент площадки в МойСклад переименован: «Ozon — Ozon KZ (маркетплейс)» → «Ozon — Cosmo Market»"])
 
+    def test_manual_name_kept(self):
+        oz = mpk.Ozon()
+        os.environ["OZON_NAME"] = "Ozon KZ"                                    # в переменной старое/другое название
+        self.addCleanup(lambda: os.environ.pop("OZON_NAME", None))
+        cards = {"a1": {"id": "a1", "name": "Ozon — Cosmo Market"}}            # владелец/Хиро переименовал вручную
+        self.patch(oh, "ms", lambda method, path, json=None, **k: self.puts.append(json) if method == "PUT" else dict(cards["a1"]))
+        mpk.rename_agent(oz, "a1")
+        self.assertEqual((self.puts, self.alerts), ([], []))
+
     def test_no_rename_without_shop_name(self):
         oz = mpk.Ozon()
         self.patch(oz, "call", lambda path, body: {})
