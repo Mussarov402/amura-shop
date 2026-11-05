@@ -1923,8 +1923,58 @@ def client_ip():
 
 
 # ---------- вход по SMS ----------
-_codes = {}            # phone -> {"h": hash кода, "t": время, "tries": n}
-_sms_day = {"d": "", "n": 0}
+class _SmsStore:
+    """Коды SMS и счётчики — в базе (setting), а не в памяти процесса: перезапуск сервера или другой процесс
+    не делают присланный код «неверным» (05.11.2026). В базе только хэш кода, время и число попыток."""
+    PFX = "smscode:"
+
+    def _db(self):
+        import inbox
+        return inbox, inbox.db()
+
+    def get(self, phone, default=None):
+        inbox, db = self._db()
+        with db as d:
+            v = inbox.get_setting(d, self.PFX + phone, "")
+        try:
+            return json.loads(v) if v else default
+        except Exception:
+            return default
+
+    def __setitem__(self, phone, v):
+        inbox, db = self._db()
+        with db as d:
+            inbox.set_setting(d, self.PFX + phone, json.dumps(v))
+
+    def pop(self, phone, default=None):
+        v = self.get(phone, default)
+        inbox, db = self._db()
+        with db as d:
+            d.run("DELETE FROM setting WHERE key=%s", (self.PFX + phone,))
+        return v
+
+
+_codes = _SmsStore()   # phone -> {"h": hash кода, "t": время, "tries": n, "sent": [время отправок за час]}
+
+
+def _sms_day_add(n=0):
+    """Сколько SMS отправлено сегодня (Алматы); n=1 — плюс одна. Хранится в базе (setting «smsday»)."""
+    import inbox
+    today = datetime.now(ALMATY).strftime("%Y-%m-%d")
+    with inbox.db() as d:
+        try:
+            v = json.loads(inbox.get_setting(d, "smsday", "") or "{}")
+        except Exception:
+            v = {}
+        cnt = v.get("n", 0) if v.get("d") == today else 0
+        if n:
+            cnt += n
+            inbox.set_setting(d, "smsday", json.dumps({"d": today, "n": cnt}))
+    return cnt
+
+
+def _tail(phone):
+    return "…" + str(phone)[-4:]
 
 
 def send_sms(phone, text):
@@ -1945,25 +1995,24 @@ def auth_sms_send():
     phone = norm_phone((request.get_json(silent=True) or {}).get("phone"))
     if not re.fullmatch(r"77\d{9}", phone):
         return jsonify(ok=False, error="Укажите казахстанский номер: +7 7__ ___ __ __"), 400
-    if too_many("smsip:" + client_ip(), limit=5, window=3600) or too_many("smsph:" + phone, limit=3, window=3600):
+    now = time.time()
+    prev = _codes.get(phone) or {}
+    sent = [t for t in prev.get("sent", []) if now - t < 3600]      # не больше 3 кодов в час на номер — тоже из базы
+    if too_many("smsip:" + client_ip(), limit=5, window=3600) or len(sent) >= 3:
         return jsonify(ok=False, error="Слишком много кодов. Попробуйте через час или войдите через Telegram"), 429
-    prev = _codes.get(phone)
-    if prev and time.time() - prev["t"] < 60:
+    if prev.get("t") and now - prev["t"] < 60:
         return jsonify(ok=False, error="Код уже отправлен, подождите минуту"), 429
-    today = datetime.now(ALMATY).strftime("%Y-%m-%d")
-    if _sms_day["d"] != today:
-        _sms_day.update(d=today, n=0)
-    if _sms_day["n"] >= SMS_DAILY_LIMIT:
+    if _sms_day_add() >= SMS_DAILY_LIMIT:
         return jsonify(ok=False, error="Вход по SMS временно недоступен. Войдите через Telegram"), 503
     code = f"{secrets.randbelow(1000000):06d}"
     try:
         send_sms(phone, SMS_TEXT.format(code=code))
     except Exception as e:
+        print(f"SMS не отправлено ({_tail(phone)}): {str(e)[:200]}", flush=True)   # причина отказа Mobizon — в журнал, без номера
         return jsonify(ok=False, error=f"Не удалось отправить SMS: {e}"), 502
-    _sms_day["n"] += 1
-    if _sms_day["n"] == SMS_DAILY_LIMIT:
+    if _sms_day_add(1) == SMS_DAILY_LIMIT:
         tg("sendMessage", chat_id=OWNER, text=f"⚠️ Сайт: за сегодня отправлено {SMS_DAILY_LIMIT} SMS — лимит, вход по SMS остановлен до завтра")
-    _codes[phone] = {"h": hashlib.sha256((code + phone).encode()).hexdigest(), "t": time.time(), "tries": 0}
+    _codes[phone] = {"h": hashlib.sha256((code + phone).encode()).hexdigest(), "t": now, "tries": 0, "sent": sent + [now]}
     return jsonify(ok=True)
 
 
@@ -1991,15 +2040,16 @@ def auth_sms_verify():
     d = request.get_json(silent=True) or {}
     phone, code = norm_phone(d.get("phone")), re.sub(r"\D", "", str(d.get("code", "")))
     v = _codes.get(phone)
-    if not v or time.time() - v["t"] > 600:
+    if not v or not v.get("h") or time.time() - v.get("t", 0) > 600:
         return jsonify(ok=False, error="Код устарел, запросите новый"), 400
-    v["tries"] += 1
+    v["tries"] = v.get("tries", 0) + 1
     if v["tries"] > 5:
-        _codes.pop(phone, None)
+        _codes[phone] = {"sent": v.get("sent", [])}             # код сгорел, счётчик отправок за час остаётся
         return jsonify(ok=False, error="Слишком много попыток, запросите новый код"), 429
-    if not hmac.compare_digest(v["h"], hashlib.sha256((code + phone).encode()).hexdigest()):
+    if not hmac.compare_digest(v.get("h", ""), hashlib.sha256((code + phone).encode()).hexdigest()):
+        _codes[phone] = v
         return jsonify(ok=False, error="Неверный код"), 400
-    _codes.pop(phone, None)
+    _codes[phone] = {"sent": v.get("sent", [])}
     cp, new = login_phone(phone, cid=session_cid())        # вошёл без номера (Telegram) и подтверждает его — тот же клиент
     if d.get("consent") is True:
         try:
