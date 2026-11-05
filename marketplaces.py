@@ -85,6 +85,10 @@ def _iso(t):
     return datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
 
+_names = {}       # ключ магазина → (когда, название из кабинета)
+_renamed = {}     # ключ магазина → когда проверяли имя контрагента
+
+
 # ---------- каналы ----------
 class Channel:
     """Общий вид канала (один магазин). fetch → заказы {ext, label, status: live/cancel/wait, raw, at, cutoff, lines[{ref, offer, barcodes, name, qty, price, cur}]};
@@ -111,7 +115,32 @@ class Channel:
 
     @property
     def name(self):
-        return self.env("NAME")
+        """Название магазина: переменная <ПЛОЩАДКА>_NAME, иначе — из кабинета площадки (seller info, кэш сутки)."""
+        return self.env("NAME") or self.api_name()
+
+    def api_name(self):
+        if not self.keys_set():
+            return ""
+        c = _names.get(self.key)
+        if c and time.time() - c[0] < 86400:
+            return c[1]
+        try:
+            raw = setting(f"mp_{self.key}_shopname", "")
+            got = json.loads(raw) if raw else {}
+        except Exception:
+            got = {}
+        if not got or time.time() - got.get("t", 0) > 86400:
+            try:
+                got = {"t": time.time(), "name": (self.fetch_name() or "").strip()[:80]}
+                set_setting(f"mp_{self.key}_shopname", json.dumps(got, ensure_ascii=False))
+            except Exception as e:
+                print(f"{self.base_title}: название магазина из кабинета не получено: {str(e)[:150]}", flush=True)
+                got = got or {"t": time.time(), "name": ""}
+        _names[self.key] = (time.time() if got.get("name") else time.time() - 86400 + 600, got.get("name", ""))
+        return got.get("name", "")
+
+    def fetch_name(self):
+        return ""
 
     @property
     def title(self):
@@ -124,8 +153,9 @@ class Channel:
 
     @property
     def agent_name(self):
+        """Контрагент в МойСклад: «Ozon — Cosmo Market», «WB — <магазин>» (владелец 05.11.2026, без «(маркетплейс)»)."""
         tail = self.name or ("" if self.n == 1 else f"магазин {self.n}")
-        return f"{self.base_agent}" + (f" — {tail}" if tail else "") + " (маркетплейс)"
+        return f"{self.base_agent}" + (f" — {tail}" if tail else "")
 
     def org(self):
         return self.env("ORG_ID") or oh.organization()
@@ -139,6 +169,10 @@ class Ozon(Channel):
 
     def api(self):
         return os.environ.get("OZON_API", "https://api-seller.ozon.ru").rstrip("/")
+
+    def fetch_name(self):
+        c = self.res(self.call("/v1/seller/info", {})).get("company") or {}
+        return str(c.get("name") or c.get("legal_name") or "")
 
     def call(self, path, body):
         r = requests.post(self.api() + path, json=body, timeout=30,
@@ -258,7 +292,7 @@ class Ozon(Channel):
 
 
 class WB(Channel):
-    base, env_prefix, base_title, base_agent, emoji = "wb", "WB", "WB", "Wildberries", "🟪"
+    base, env_prefix, base_title, base_agent, emoji = "wb", "WB", "WB", "WB", "🟪"
     KEYS = ("API_TOKEN",)
     CANCEL_WB = ("canceled", "canceled_by_client", "declined_by_client", "defect")
     KZT = 398
@@ -282,6 +316,10 @@ class WB(Channel):
             return cls.ISO.get(int(code), str(code or ""))
         except (TypeError, ValueError):
             return str(code or "")
+
+    def fetch_name(self):
+        j = self.req("GET", "common", "/api/v1/seller-info")
+        return str(j.get("tradeMark") or j.get("name") or "") if isinstance(j, dict) else ""
 
     def req(self, method, base, path, **kw):
         url = os.environ.get(f"WB_{base.upper()}_API", f"https://{base}-api.wildberries.ru").rstrip("/") + path
@@ -570,18 +608,42 @@ def ms_id_for(line, mp):
 
 # ---------- заказы: маркетплейс → МойСклад ----------
 def agent(ch):
-    """Контрагент канала в МойСклад: находим по названию, нет — создаём один раз (id помним в настройках)."""
+    """Контрагент канала в МойСклад: находим по названию, нет — создаём один раз (id помним в настройках).
+    Название приводим к виду «Ozon — <магазин>» (тот же id — связи с заказами не меняются), владельцу — «было → стало»."""
     aid = setting(f"mp_{ch.key}_agent", "")
     if aid:
+        rename_agent(ch, aid)
         return aid
-    names = {ch.agent_name.lower(), ch.agent_name.split(" (")[0].lower()}
-    rows = oh.ms("GET", "/entity/counterparty", params={"search": ch.agent_name.split(" (")[0], "limit": 20}).get("rows") or []
+    tail = ch.agent_name[len(ch.base_agent):]
+    olds = [ch.agent_name] + [b + tail + x for b in {ch.base_agent, "Wildberries" if ch.base == "wb" else ch.base_agent} for x in ("", " (маркетплейс)")]
+    names = {n.lower() for n in olds}                    # и прежний вид: «… (маркетплейс)», «Wildberries — …» — без дубля
+    rows = []
+    for q in dict.fromkeys(n.split(" (")[0] for n in olds):
+        rows += oh.ms("GET", "/entity/counterparty", params={"search": q, "limit": 20}).get("rows") or []
     hit = next((r for r in rows if r.get("name", "").strip().lower() in names), None)
     aid = hit["id"] if hit else oh.ms("POST", "/entity/counterparty", json={
         "name": ch.agent_name, "companyType": "legal", "tags": ["маркетплейс"],
         "description": f"Покупатели {ch.title} (FBS). Заказы создаёт система AMURA"})["id"]
     set_setting(f"mp_{ch.key}_agent", aid)
+    if hit:
+        rename_agent(ch, aid)
     return aid
+
+
+def rename_agent(ch, aid):
+    """Раз в сутки: имя контрагента площадки в МойСклад = ch.agent_name. Только когда название магазина известно."""
+    if not ch.name or time.time() - _renamed.get(ch.key, 0) < 86400:
+        return
+    _renamed[ch.key] = time.time()
+    try:
+        was = (oh.ms("GET", f"/entity/counterparty/{aid}", timeout=15).get("name") or "").strip()
+        if was and was != ch.agent_name:
+            oh.ms("PUT", f"/entity/counterparty/{aid}", json={"name": ch.agent_name}, timeout=15)
+            print(f"{ch.title}: контрагент переименован «{was}» → «{ch.agent_name}»", flush=True)
+            oh.alert(f"mpname:{ch.key}", f"{ch.emoji} Контрагент площадки в МойСклад переименован: «{was}» → «{ch.agent_name}»", every=60)
+    except Exception as e:
+        _renamed[ch.key] = time.time() - 86400 + 600            # не вышло — повторим через 10 минут
+        print(f"{ch.title}: контрагент не переименован: {str(e)[:200]}", flush=True)
 
 
 def _state(name):

@@ -299,7 +299,7 @@ class Shops(Channels):
     def test_found_by_suffix(self):
         self.assertEqual(list(mpk.CHANNELS), ["ozon", "ozon2", "wb", "wb2"])
         o2, w2 = mpk.CHANNELS["ozon2"], mpk.CHANNELS["wb2"]
-        self.assertEqual((o2.title, o2.mark, o2.agent_name), ("Ozon — Beauty", "Заказ с Ozon (FBS) — Beauty", "Ozon — Beauty (маркетплейс)"))
+        self.assertEqual((o2.title, o2.mark, o2.agent_name), ("Ozon — Beauty", "Заказ с Ozon (FBS) — Beauty", "Ozon — Beauty"))
         self.assertEqual((w2.title, w2.mark), ("WB — Корея", "Заказ с WB (FBS) — Корея"))
         self.assertEqual(mpk.CHANNELS["ozon"].mark, "Заказ с Ozon (FBS)")              # первый магазин — как раньше
         self.assertIs(mpk.channels()[1], o2)                                            # тот же объект между сверками
