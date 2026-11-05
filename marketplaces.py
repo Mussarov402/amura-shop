@@ -168,9 +168,9 @@ class Ozon(Channel):
         return out
 
     SHIPPED = ("delivering", "driver_pickup", "delivered", "sent_by_seller")   # передан в доставку — отгрузка в МойСклад
-    LABEL_FROM = ("awaiting_deliver",) + SHIPPED
+    LABEL_FROM = ("awaiting_deliver",) + SHIPPED            # этикетка Ozon есть после сборки (awaiting_deliver)
     MS_STATE = {"awaiting_packaging": "Новый", "awaiting_deliver": "Собран", "delivering": "Отгружен", "driver_pickup": "Отгружен",
-                "sent_by_seller": "Отгружен", "delivered": "Доставлен"}       # статус заказа МойСклад вслед за Ozon (владелец 04.11.2026)            # этикетка Ozon есть после сборки (awaiting_deliver)
+                "sent_by_seller": "Отгружен", "delivered": "Доставлен"}       # статус заказа МойСклад вслед за Ozon (владелец 04.11.2026)
 
     def label(self, ext):
         """Этикетка отправления для термопринтера (Ozon отдаёт PDF 75×120 мм). → (имя файла, байты)."""

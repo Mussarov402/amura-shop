@@ -21,9 +21,40 @@ def _readonly():
     Telegram, Meta и платёжные системы повторяют вебхук сами — после смены DNS повтор придёт на новый сервер.
     Отчёты сервера (/ops/) и проверка сертификатов (/.well-known/acme-challenge/) работают."""
     if READONLY and request.method not in ("GET", "HEAD", "OPTIONS") and not request.path.startswith(("/ops/", "/.well-known/")):
+        if FORWARD_TO:                                   # после смены DNS: записи (вебхуки, заказы) — на новый сервер
+            try:
+                return _forward()
+            except Exception as e:
+                print("Пересылка на сервер не удалась:", request.path[:60], e.__class__.__name__, str(e)[:120], flush=True)
         r = jsonify(ok=False, error="Система AMURA переезжает на новый сервер — повторите через 15 минут")
         r.status_code, r.headers["Retry-After"] = 503, "600"
         return r
+
+
+FORWARD_TO = os.environ.get("AMURA_FORWARD_TO", "")     # IP нового сервера (Hoster.kz); пусто — только 503
+
+
+def _forward():
+    """Запрос как есть — на новый сервер по https (соединение по IP, проверка сертификата нашего домена).
+    Для тех, у кого ещё старый DNS (Telegram, Meta, покупатели): вебхук и заказ не теряются и не ждут кэша."""
+    import certifi
+    import urllib3
+    from flask import Response
+    host = request.host.split(":")[0].lower()
+    if not (host == "amura.kz" or host.endswith(".amura.kz")):
+        host = "api.amura.kz"                            # amura-shop-api.onrender.com и т. п. — то же приложение на сервере
+    pool = urllib3.HTTPSConnectionPool(FORWARD_TO, 443, server_hostname=host, assert_hostname=host, cert_reqs="CERT_REQUIRED",
+                                       ca_certs=certifi.where(), timeout=urllib3.Timeout(connect=5, read=60), retries=False)
+    skip = {"host", "content-length", "connection", "accept-encoding", "transfer-encoding"}
+    headers = {k: v for k, v in request.headers.items() if k.lower() not in skip}
+    headers.update({"Host": host, "X-Amura-Forwarded": "render"})
+    r = pool.request(request.method, request.full_path.rstrip("?"), body=request.get_data(), headers=headers, redirect=False)
+    print(f"Переслано на сервер: {request.method} {request.path[:60]} → {r.status}", flush=True)
+    out = Response(r.data, status=r.status)
+    for k, v in r.headers.items():
+        if k.lower() in ("content-type", "location", "retry-after"):
+            out.headers[k] = v
+    return out
 
 
 from opt_site import bp as opt_site_bp  # noqa: E402
