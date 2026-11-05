@@ -1818,8 +1818,16 @@ def _ms_match(ch, mp, ident):
 def cur_price(ch, ident):
     """Текущая цена для покупателя в кабинете → (цена, скидка продавца %, цена до скидки)."""
     if isinstance(ch, mpk.WB):
-        g = ((ch.req("GET", "discounts-prices", "/api/v2/list/goods/filter", params={"limit": 1, "filterNmID": int(ident)})
-              .get("data") or {}).get("listGoods") or [{}])[0]
+        try:
+            g = ((ch.req("GET", "discounts-prices", "/api/v2/list/goods/filter", params={"limit": 1, "offset": 0, "filterNmID": int(ident)})
+                  .get("data") or {}).get("listGoods") or [{}])[0]
+        except mpk.ApiError as e:
+            if e.code != 400:
+                raise
+            # свежая карточка (в т. ч. после склейки moveNm) без цены: WB отвечает 400 «Invalid request parameters»
+            # вместо пустого списка — как в калькуляторе (mp_calc.wb_rates), считаем «цены ещё нет» (05.11.2026, #1880)
+            print(f"WB цены: nmID {ident} — 400, считаем без цены: {e.message[:120]}", flush=True)
+            g = {}
         sz = (g.get("sizes") or [{}])[0]
         return float(sz.get("discountedPrice") or sz.get("price") or 0), float(g.get("discount") or 0), float(sz.get("price") or 0)
     import mp_calc

@@ -285,6 +285,20 @@ class PriceCorridor(unittest.TestCase):
         summary = self.c.get("/agent/api/requests", headers=self.h).get_json()["items"][0]["summary"]
         self.assertIn("первая цена: проверка не удалась — 'dimensions' — через «Да»", summary)
 
+    def test_first_price_new_merged_card_400(self):
+        """Свежая карточка после склейки: WB на фильтр цен отвечает 400 — это «цены ещё нет», правило первой цены работает."""
+        self.price = 0.0
+        orig = agent.mpk.WB.req
+
+        def req(ch, method, base, path, **kw):
+            if path == "/api/v2/list/goods/filter" and kw.get("params", {}).get("limit") == 1:
+                raise agent.mpk.ApiError(400, "HTTP 400: Invalid request parameters")
+            return orig(ch, method, base, path, **kw)
+        self.patch(agent.mpk.WB, "req", req)
+        self.assertEqual(agent.cur_price(agent.mpk.CHANNELS["wb"], "244631445"), (0.0, 0.0, 0.0))
+        r = self.price_req(15500)
+        self.assertEqual((r["status"], r["auto"]), ("done", True), self.c.get("/agent/api/requests", headers=self.h).get_json()["items"][0]["summary"])
+
     def test_first_price_no_sales_and_dedupe(self):
         """Продаж нет: эквайринг 2,5 % и приёмка 0 ₸ по допущению; повтор той же заявки — без новой заявки и сообщения."""
         self.price, self.nosales = 0.0, True
