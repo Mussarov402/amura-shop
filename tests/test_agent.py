@@ -1020,14 +1020,17 @@ class OzonKzCardCreate(unittest.TestCase):
         self.assertIn("нет в МойСклад", self.tg[-1])
         self.assertEqual(self.sent, [])
 
-    def test_ru_still_needs_yes_and_stop_respected(self):
+    def test_amura_ozon_auto_like_kz_and_stop_respected(self):
+        """Основной Ozon «AMURA» (ИП AMURA, KZT) — с 05.11.2026 как Ozon KZ: сразу, если цена не ниже минимума."""
         self.patch(agent, "oz_currency", lambda ch: "KZT")
         r = self.new(shop="ozon").get_json()
-        self.assertEqual((r["status"], r["auto"]), ("new", False))
+        self.assertEqual((r["status"], r["auto"]), ("done", True))
+        self.assertEqual(self.new(shop="ozon", price=8000).status_code, 400)          # ниже минимума — отказ, как у KZ
+        self.sent.clear()
         self.c.post("/admin/api/agent/rules", json={"stop": True})
         r = self.new().get_json()
         self.assertEqual((r["status"], r["auto"]), ("new", False))
-        self.assertEqual(self.sent, [])
+        self.assertEqual([x for x in self.sent if x[0] == "/v3/product/import"], [])   # «Стоп» — ничего не создаём
 
 
 class OzonCard(unittest.TestCase):
