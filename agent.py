@@ -402,6 +402,16 @@ def _wb_trash(ch, p):
     return {"nmIDs": nms, "response": ch.req("POST", "content", path, json={"nmIDs": nms})}
 
 
+def _wb_merge(ch, p):
+    """Склейка карточек WB (/content/v2/cards/moveNm): targetIMT — объединить nmIDs в эту склейку; без него — разъединить."""
+    body = {"nmIDs": [int(x) for x in p["nmIDs"]]}
+    if p.get("targetIMT"):
+        body = {"targetIMT": int(p["targetIMT"]), **body}
+    res = ch.req("POST", "content", "/content/v2/cards/moveNm", json=body)
+    _wb_ok(res)
+    return {"request": body, "response": res}
+
+
 WB_NEW = ("subjectID", "vendorCode", "title", "description", "brand", "dimensions", "characteristics", "sizes", "photos")
 PHOTO_TRIES, PHOTO_WAIT = 4, 5                       # новая карточка появляется в списке не сразу — ждём до ~20 с
 
@@ -971,6 +981,9 @@ ACTIONS = {
                      "run": _wb_card_text},
     "wb_card_trash": {"shop": mpk.WB, "params": ["nmIDs"], "about": "убрать карточки WB в корзину (архив) — всегда через «Да»; "
                       "вернуть — кнопка владельца «Вернуть как было» (/content/v2/cards/recover)", "run": _wb_trash},
+    "wb_card_merge": {"shop": mpk.WB, "params": ["nmIDs", "targetIMT?"], "about": "склейка карточек WB (/content/v2/cards/moveNm): "
+                      "targetIMT + nmIDs (до 30, один предмет) — объединить в эту склейку; только nmIDs — разъединить (каждая — своя склейка)",
+                      "run": _wb_merge},
     "wb_card_update": {"shop": mpk.WB, "params": ["nmID", "characteristics?", "dimensions?", "title?", "description?", "documents?", "brand?"],
                        "about": "карточка WB: характеристики [{id, value}] по справочнику charcs, габариты {length, width, height, weightBrutto}, "
                                 "название (≤60), описание, документы [{type, number, startDate, endDate}] (заменяют все документы карточки), бренд. Цену, vendorCode, штрихкоды и фото не меняет", "run": _wb_card_update},
@@ -1076,6 +1089,17 @@ def validate(kind, p):
             v = _iso_day(p[k])
             if len(v) < 10 or not v[:4].isdigit():
                 raise ValueError(f"{k} — дата ГГГГ-ММ-ДД или ДД.ММ.ГГГГ")
+    if kind == "wb_card_merge":
+        nms = p["nmIDs"] if isinstance(p["nmIDs"], list) else [p["nmIDs"]]
+        try:
+            q = {"nmIDs": list(dict.fromkeys(int(x) for x in nms))}
+            if p.get("targetIMT") not in (None, "", 0):
+                q["targetIMT"] = int(p["targetIMT"])
+        except (TypeError, ValueError):
+            raise ValueError("nmIDs — список артикулов WB, targetIMT — число (imtID склейки)")
+        if not 1 <= len(q["nmIDs"]) <= 30:
+            raise ValueError("nmIDs — от 1 до 30 артикулов")
+        p = q
     if kind == "wb_card_trash":
         nms = p["nmIDs"] if isinstance(p["nmIDs"], list) else [p["nmIDs"]]
         try:
@@ -1247,6 +1271,7 @@ def summary(kind, ch, p):
               "wb_campaign": lambda: f"кампания {p['advert_id']}: {dict(start='запустить', pause='пауза', stop='завершить')[p['action']]}",
               "wb_budget_deposit": lambda: f"кампания {p['advert_id']}: пополнить на {p['sum']} ₸",
               "wb_card_text": lambda: f"nmID {p['nmID']}: " + ("название «" + p["title"][:120] + "» " if p.get("title") else "") + ("новое описание" if p.get("description") else ""),
+              "wb_card_merge": lambda: (f"в склейку {p['targetIMT']}: " if p.get("targetIMT") else "разъединить: ") + "nmID " + ", ".join(map(str, p["nmIDs"]))[:300],
               "wb_card_trash": lambda: ("вернуть из корзины" if p.get("_recover") else "в корзину") + " nmID " + ", ".join(map(str, p["nmIDs"]))[:300],
               "wb_card_update": lambda: f"nmID {p['nmID']}: " + "; ".join(x for x in (
                   ("характеристики " + ", ".join(f"{c['id']}={c.get('value')}" for c in p["characteristics"])[:300]) if p.get("characteristics") else "",
@@ -1286,7 +1311,7 @@ def auto_ok(kind, ch, p):
     r = rules()
     if r["stop"]:
         return False
-    if kind in ("wb_card_update", "wb_card_create", "wb_card_media", "ozon_pictures", "ozon_card_update", "ozon_certificate"):   # штрихкоды (wb_card_barcodes) — только «Да»
+    if kind in ("wb_card_update", "wb_card_create", "wb_card_media", "wb_card_merge", "ozon_pictures", "ozon_card_update", "ozon_certificate"):   # штрихкоды (wb_card_barcodes) — только «Да»
         return r["auto_cards"]
     if kind == "ozon_card_create":            # Ozon KZ — сразу, если цена проверена на безубыточность; Ozon RU — через «Да»
         return r["auto_cards"] and ch.key in AUTO_OZ_CREATE and bool(p.get("_floor"))

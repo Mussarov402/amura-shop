@@ -630,6 +630,45 @@ class CardTrash(unittest.TestCase):
 
 
 
+class CardMerge(unittest.TestCase):
+    """wb_card_merge: склейка карточек WB (/content/v2/cards/moveNm) — по правилу «Карточки», без «Да»."""
+    patch = tm.Channels.patch
+
+    def setUp(self):
+        Agent.setUp(self)
+        self.sent, self.wberr = [], None
+        base = mpk.requests.request
+
+        def wb(method, url, params=None, json=None, headers=None, timeout=None):
+            path = url.split(".wildberries.ru", 1)[1]
+            if path == "/content/v2/cards/moveNm":
+                self.sent.append(json)
+                return Resp(200, {"data": None, "error": bool(self.wberr), "errorText": self.wberr or ""})
+            return base(method, url, params=params, json=json, headers=headers, timeout=timeout)
+        self.patch(mpk.requests, "request", wb)
+
+    def new(self, **p):
+        return self.c.post("/agent/api/requests", headers=self.h, json={"kind": "wb_card_merge", "shop": "wb", "params": p})
+
+    def test_merge_auto_by_cards_rule(self):
+        r = self.new(nmIDs=[2150405060, "2150251778"], targetIMT="4446535070").get_json()
+        self.assertEqual(r["status"], "done", r)
+        self.assertEqual(self.sent, [{"targetIMT": 4446535070, "nmIDs": [2150405060, 2150251778]}])
+
+    def test_unmerge_and_validation(self):
+        self.assertEqual(self.new(nmIDs=[2150405060]).get_json()["status"], "done")
+        self.assertEqual(self.sent[-1], {"nmIDs": [2150405060]})                         # без targetIMT — разъединить
+        self.assertEqual(self.new(nmIDs=[]).status_code, 400)
+        self.assertEqual(self.new(nmIDs=list(range(1, 32))).status_code, 400)            # больше 30
+        self.assertEqual(self.new(nmIDs=[1], targetIMT="x").status_code, 400)
+
+    def test_wb_error_shown(self):
+        self.wberr = "Карточки разных предметов"
+        r = self.new(nmIDs=[1, 2], targetIMT=5).get_json()
+        self.assertEqual(r["status"], "error")
+        self.assertIn("разных предметов", json.dumps(r, ensure_ascii=False))
+
+
 class NoShow(unittest.TestCase):
     """mp_noshow — «не выставлять» товар: только после «Да», при любых правилах."""
     patch = tm.Channels.patch
