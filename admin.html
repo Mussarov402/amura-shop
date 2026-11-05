@@ -985,6 +985,38 @@ async function setBuilt(list,on){let bad=[];for(const x of list){try{await api("
 const LBLF={a4:["A4 — 8 на листе","size:A4;margin:0","105mm","74.25mm","grid;grid-template-columns:105mm 105mm"],t58:["Термо 58×40","size:58mm 40mm;margin:0","58mm","40mm","block"],t75:["Термо 75×120","size:75mm 120mm;margin:0","75mm","120mm","block"]};
 const lblFmt=()=>{try{const v=localStorage.getItem("amura_lbl");return LBLF[v]?v:"a4"}catch(e){return "a4"}};
 const lblPick=()=>`<select id="lblf" style="width:auto;flex:none;padding:10px">${Object.entries(LBLF).map(([k,v])=>`<option value="${k}" ${k===lblFmt()?"selected":""}>${v[0]}</option>`).join("")}</select>`;
+/* Файл этикеток площадки (Ozon 75×120, WB 58×40): PDF с сервера под авторизацией — открыть / «Поделиться» на телефоне */
+async function mpPdf(path,name){const w=touchDev?null:window.open("","_blank");toast("Готовлю PDF…",15000);
+ try{const r=await fetch("/admin/api/"+path,{headers:{Authorization:"Bearer "+tok}});if(!r.ok){let m="Файл не получен";try{m=(await r.json()).error||m}catch(e){}throw Error(m)}
+  const f=new File([await r.blob()],name,{type:"application/pdf"}),u=URL.createObjectURL(f);toast("",-1);
+  if(w){w.location.href=u}else if(navigator.canShare&&navigator.canShare({files:[f]})){try{await navigator.share({files:[f],title:name})}catch(e){}}else saveFile(f)}
+ catch(e){if(w)w.close();toast(e.message,5000)}}
+/* «Наклейки» в общем списке: у заказов Ozon/WB — этикетки площадки, у сайта и опта — наши. Один файл — один размер (владелец 05.11.2026) */
+async function stickers(list){if(!list.length)return toast("Нет заказов для наклеек");
+ const ownOf=nums=>list.filter(x=>nums.includes(x.number)).map(x=>({num:x.number,name:x.client,addr:(x.ship||"").split(" — ").slice(1).join(" — ")||x.ship||"",kind:shipKind(x.ship||"")}));
+ let r;try{r=await api("mp/asm/by-orders",{method:"POST",body:JSON.stringify({numbers:list.map(x=>x.number)})})}catch(e){r={shops:[],own:list.map(x=>x.number)}}
+ if(!r.shops.length)return printLabels(ownOf(r.own),"");
+ const ov=ovOpen(),box=ov.querySelector(".eo"),nm=n=>{const m=n%10,h=n%100;return n+" "+(m===1&&h!==11?"заказ":m>=2&&m<=4&&(h<10||h>=20)?"заказа":"заказов")};
+ const draw=()=>{box.innerHTML=`<div style="font-size:18px;font-weight:800;margin-bottom:6px">Наклейки: ${nm(list.length)}</div>
+  <div class="mut" style="margin-bottom:12px">Один файл — один размер. Печать: масштаб 100 %, без полей.</div>`+
+  r.shops.map((g,i)=>`<div class="card" style="margin-bottom:10px"><b>${esc(g.title)}</b> <span class="mut">· этикетки площадки ${g.size} мм</span>
+   ${g.ready.length?`<div style="margin:8px 0"><button class="btn" data-lbl="${i}">${g.wb?"WB":"Ozon"} ${g.size} (${g.ready.length})</button></div><div class="mut">${g.ready.map(x=>"№"+esc(x.number)).join(", ")}</div>`:""}
+   ${g.wait.length?`<div class="b w" style="white-space:normal;display:block;margin-top:8px">${g.wait.map(x=>"№"+esc(x.number)).join(", ")} — сначала подтвердите сборку: этикетку площадка даёт только после неё.</div><div style="margin-top:8px"><button class="btn ghost" data-ship="${i}">Подтвердить сборку (${g.wait.length})</button></div>`:""}</div>`).join("")+
+  (r.own.length?`<div class="card" style="margin-bottom:10px"><b>Наши наклейки</b> <span class="mut">· заказы сайта и опта, формат ${lblFmt()}</span><div style="margin:8px 0"><button class="btn" id="stown">Наши (${r.own.length})</button></div><div class="mut">${r.own.map(n=>"№"+esc(n)).join(", ")}</div></div>`:"")+
+  `<div class="asb"><button class="btn ghost" id="stx">Закрыть</button></div><div class="mut" id="stm" style="margin-top:8px"></div>`;
+  box.querySelector("#stx").onclick=()=>ov.remove();
+  const own=box.querySelector("#stown");if(own)own.onclick=()=>printLabels(ownOf(r.own),"");
+  box.querySelectorAll("[data-lbl]").forEach(b=>b.onclick=()=>{const g=r.shops[+b.dataset.lbl];
+   mpPdf("mp/asm/labels?shop="+encodeURIComponent(g.shop)+"&ids="+encodeURIComponent(g.ready.map(x=>x.ext).join(",")),(g.wb?"Стикеры WB 58x40":"Этикетки Ozon 75x120")+".pdf")});
+  box.querySelectorAll("[data-ship]").forEach(b=>b.onclick=async()=>{const g=r.shops[+b.dataset.ship],m=box.querySelector("#stm");
+   if(!confirm(`Подтвердить сборку ${nm(g.wait.length)} на ${g.wb?"WB":"Ozon"}? Отменить потом нельзя без штрафа площадки. Подтверждайте только собранные и упакованные.`))return;
+   b.disabled=true;b.textContent="Подтверждаю…";
+   try{const x=await api("mp/asm/ship",{method:"POST",body:JSON.stringify({shop:g.shop,ids:g.wait.map(w=>w.ext)})});const bad=Object.entries(x.results||{}).filter(([k,v])=>v);
+    toast(`Подтверждено: ${x.done} из ${g.wait.length}`+(bad.length?" — есть ошибки":""),4000);
+    m.textContent=bad.map(([k,v])=>k+": "+v).join("; ")+(x.done?" Этикетки появятся через минуту-две — площадка их готовит.":"");
+    try{r=await api("mp/asm/by-orders",{method:"POST",body:JSON.stringify({numbers:list.map(o=>o.number)})})}catch(e){}draw()}
+   catch(e){m.textContent=e.message;b.disabled=false;b.textContent=`Подтвердить сборку (${g.wait.length})`}})};
+ draw()}
 async function printLabels(list,kind){if(!list.length)return toast("Нет заказов для наклеек");
  /* PDF точного размера с сервера: телефон и термопринтер не понимают размер страницы из HTML, а PDF печатают как есть */
  try{const r=await api("labels",{method:"POST",body:JSON.stringify({fmt:lblFmt(),items:list.map(x=>({num:x.num,name:x.name||"",addr:x.addr||"",kind:x.kind||kind||"",slot:x.slot||"",phone:x.phone||""}))})});
@@ -1273,7 +1305,7 @@ async orders(q,kind){q=q==null?"":String(q);const rt=kind==="retail",vw=rt?"reta
   b.innerHTML=`<b style="white-space:nowrap">Выбрано ${n}</b><span class="sbsp" style="flex:1"></span><button class="btn" id="sasm">Лист сборки</button><button class="btn ghost" id="slbl">Наклейки</button><button class="btn ghost" id="sbld">Собраны</button><button class="btn ghost" id="sst">Статус ▾</button>${ME&&ME.role==="owner"?'<button class="btn ghost" id="sdel" style="color:var(--bad)">Удалить</button>':""}<button class="btn ghost" id="sclr" aria-label="Снять выбор">✕</button>`;
   const L=()=>all.filter(x=>osel.has(x.number));
   $("#sasm").onclick=()=>printAssembly(L());
-  $("#slbl").onclick=()=>printLabels(L().map(x=>({num:x.number,name:x.client,addr:(x.ship||"").split(" — ").slice(1).join(" — ")||x.ship||"",kind:shipKind(x.ship||"")})),"");
+  $("#slbl").onclick=()=>stickers(L());
   $("#sbld").onclick=async()=>{if(!confirm(`Отметить собранными: ${n} шт? Статус в МойСклад станет «Собран».`))return;await setBuilt(L(),true);osel.clear();selBar();views[vw](q)};
   $("#sst").onclick=()=>bulkState(L(),o.states||[],()=>{osel.clear();selBar();views[vw](q)});
   const sd=$("#sdel");if(sd)sd.onclick=()=>bulkDelete(L(),()=>{osel.clear();selBar();views[vw](q)});
