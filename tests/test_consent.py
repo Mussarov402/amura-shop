@@ -81,6 +81,7 @@ class Consent(unittest.TestCase):
         oh.save_news("77011112233", False, "тест")
         oh.save_news("77019998877", True, "тест")
         self.patch(groups.admin, "need", lambda p: (lambda f: f))
+        self.patch(groups, "wholesale_phones", lambda: set())
         app = Flask(__name__)
         self.patch(admin, "is_admin", lambda: True)
         self.patch(admin, "who", lambda: {"role": "owner", "perms": [], "name": "Владелец"})
@@ -99,8 +100,21 @@ class Consent(unittest.TestCase):
                 ids.append(cid)
         g = json.loads(c.post("/admin/api/inbox/groups", json={"name": "Акция", "members": ids}).data)["id"]
         r = json.loads(c.post(f"/admin/api/inbox/groups/{g}/send", data={"text": "Скидки!"}).data)
-        self.assertEqual((r["total"], r["skipped"]), (3, 1))
-        self.assertEqual(sorted(sent), ["wa:77015550000", "wa:77019998877"])   # отказавшемуся — не уходит, без отметки и согласным — как раньше
+        self.assertEqual((r["total"], r["skipped"]), (3, 2))
+        self.assertEqual(sent, ["wa:77019998877"])          # по согласию (Юрист, 05.11.2026): только с галочкой «да»; без отметки и отказавшимся — нет
+        self.patch(groups, "wholesale_phones", lambda: {"77015550000"})          # оптовик без отметки — пока как раньше (до слова владельца)
+        sent.clear()
+        r = json.loads(c.post(f"/admin/api/inbox/groups/{g}/send", data={"text": "Прайс"}).data)
+        self.assertEqual(sorted(sent), ["wa:77015550000", "wa:77019998877"])
+        with inbox.db() as d:
+            inbox.set_setting(d, groups.OPT_FLAG, "1")                           # владелец включил правило и для опта
+        sent.clear()
+        try:
+            r = json.loads(c.post(f"/admin/api/inbox/groups/{g}/send", data={"text": "Прайс"}).data)
+            self.assertEqual(sent, ["wa:77019998877"])
+        finally:
+            with inbox.db() as d:
+                d.run("DELETE FROM setting WHERE key=%s", (groups.OPT_FLAG,))
 
     def test_login_saves_consent(self):
         cp = {"id": "cid-77", "tags": ["сайт"], "name": "Тамирис", "phone": "+77011112233"}

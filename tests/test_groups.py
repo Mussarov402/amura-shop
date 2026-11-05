@@ -23,6 +23,8 @@ import groups  # noqa: E402
 import inbox  # noqa: E402
 import order_hook as oh  # noqa: E402
 
+WS_REAL = groups.wholesale_phones      # настоящая функция (в setUp подменяется списком)
+
 
 class Groups(unittest.TestCase):
     """Группы из любых мессенджеров и рассылка: WhatsApp/Instagram — только в окне 24 ч, {имя} подставляется."""
@@ -32,6 +34,7 @@ class Groups(unittest.TestCase):
         self.patch(inbox.wa, "send_text", lambda chat, text: self.wa.append((chat, text)))
         self.patch(admin, "who", lambda: {"role": "owner", "perms": [], "name": "Т"})
         self.patch(groups, "PAUSE", 0)
+        self.patch(groups, "wholesale_phones", lambda: {"77011111111", "77022222222"})   # группа «Оптовики»: без отметки — как раньше
         self.patch(groups.threading, "Thread", lambda target, args, daemon: type("T", (), {"start": lambda s: target(*args)})())
         with inbox.db() as d:
             for t in ("msg", "conv"):
@@ -118,12 +121,32 @@ class Groups(unittest.TestCase):
         self.assertEqual(self.c.put(f"/admin/api/inbox/groups/{gid}", json={"all_clients": True}).get_json()["added"], 0)   # повторно — без дублей
         # пустые диалоги не появляются в списке чатов
         self.assertNotIn("Лаура Актау", [c["name"] for c in self.c.get("/admin/api/inbox/convs").get_json()["convs"]])
+        with inbox.db() as d:
+            d.run("DELETE FROM setting WHERE key LIKE 'news:%%'")
+        s = self.c.post(f"/admin/api/inbox/groups/{gid}/send", data={"text": "{имя}, скидки!", "wa_tpl": "promo_oct", "wa_name": "1"}).get_json()
+        self.assertEqual((s["skipped"], sent), (1, []))                         # не оптовик и без галочки «новости и акции» — шаблон не шлём
+        oh.save_news("77006661605", True, "тест")
         s = self.c.post(f"/admin/api/inbox/groups/{gid}/send", data={"text": "{имя}, скидки!", "wa_tpl": "promo_oct", "wa_name": "1"}).get_json()
         self.assertEqual(s["skipped"], 0)
         self.assertEqual(sent, [("wa:77006661605", "promo_oct", "ru", ["Лаура"])])
         self.assertEqual(self.tg[-1], ("sendMessage", {"chat_id": "5005", "text": "Камила, скидки!"}))
         r = self.c.put(f"/admin/api/inbox/groups/{gid}", json={"clients": ["c3"]}).get_json()
         self.assertEqual((r["added"], r["nocontact"]), (0, 1))
+
+    def test_wholesale_phones_from_ms(self):
+        calls = []
+
+        def ms(m, path, params=None, **k):
+            calls.append(params)
+            if len(calls) > 1:
+                raise RuntimeError("МойСклад не ответил")
+            return {"rows": [{"phone": "+7 701 111 11 11"}, {"phone": ""}, {"name": "без номера"}]}
+        self.patch(oh, "ms", ms)
+        self.patch(groups, "_ws", {"t": 0.0, "v": None})
+        self.assertEqual(WS_REAL(), {"77011111111"})
+        self.assertEqual(calls[0]["filter"], "tags=" + oh.WHOLESALE_TAG)
+        groups._ws["t"] = 0.0                                                      # кэш истёк, МойСклад упал — прошлый список
+        self.assertEqual(WS_REAL(), {"77011111111"})
 
 
 if __name__ == "__main__":

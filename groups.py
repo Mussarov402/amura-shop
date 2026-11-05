@@ -2,7 +2,8 @@
 В группу можно добавить любой диалог — Telegram, WhatsApp, Instagram, чат сайта — и отправить всем одно сообщение (текст, фото или файл).
 Ограничения мессенджеров: WhatsApp и Instagram разрешают писать первым только в течение 24 часов после последнего сообщения клиента —
 остальным рассылка не уходит (помечаются «пропущено» с причиной). Telegram и чат сайта — без ограничений.
-Клиентам розницы, снявшим галочку «новости и акции», рассылка не уходит (сервисные сообщения о заказе — как раньше).
+WhatsApp — по согласию (правило Юриста 05.11.2026): рассылка уходит только тем, кто поставил галочку «новости и акции»;
+оптовикам (тег «опт» в МойСклад) без отметки — пока как раньше, до слова владельца (настройка wa_news_opt). Клиентам розницы, снявшим галочку «новости и акции», рассылка не уходит (сервисные сообщения о заказе — как раньше).
 В тексте можно написать {имя} — подставится имя клиента."""
 import json
 import threading
@@ -75,13 +76,64 @@ def declined(d):
 
 
 NO_NEWS = "нет согласия на новости и акции"
+OPT_FLAG = "wa_news_opt"   # "1" — оптовикам тоже только с согласием (Юрист: правило для всех; включает владелец)
+_ws = {"t": 0.0, "v": None}
 
 
-def _card(r, no=frozenset()):
+def agreed(d):
+    """Номера, где стоит галочка «новости и акции»."""
+    out = set()
+    for k, v in d.run("SELECT key, value FROM setting WHERE key LIKE 'news:%%'", many=True) or []:
+        try:
+            if json.loads(v).get("on"):
+                out.add(k[5:])
+        except Exception:
+            pass
+    return out
+
+
+def wholesale_phones():
+    """Номера оптовиков (тег «опт» в МойСклад), кэш 10 минут. МойСклад не ответил — прошлый список (или пустой)."""
+    if _ws["v"] is not None and time.time() - _ws["t"] < 600:
+        return _ws["v"]
+    try:
+        out, off = set(), 0
+        while True:
+            rows = oh.ms("GET", "/entity/counterparty", params={"filter": "tags=" + oh.WHOLESALE_TAG, "limit": 1000, "offset": off},
+                         timeout=30)["rows"]
+            out |= {oh.norm_phone(r.get("phone", "")) for r in rows if r.get("phone")}
+            if len(rows) < 1000 or off > 20000:
+                break
+            off += 1000
+        _ws.update(t=time.time(), v=out - {""})
+    except Exception as e:
+        print("Рассылки: список оптовиков из МойСклад не получен:", str(e)[:200], flush=True)
+        if _ws["v"] is None:
+            return set()
+    return _ws["v"]
+
+
+def blocked(d):
+    """Номера WhatsApp, которым рассылку не шлём: все без галочки «да», кроме оптовиков, пока не включено OPT_FLAG.
+    Возвращает функцию номер → True/False (рассылка запрещена)."""
+    yes, no = agreed(d), declined(d)
+    opt_too = inbox.get_setting(d, OPT_FLAG, "0") == "1"
+    ws = set() if opt_too else wholesale_phones()
+
+    def f(phone):
+        if phone in yes:
+            return False
+        if phone in no:
+            return True
+        return phone not in ws
+    return f
+
+
+def _card(r, no=lambda phone: False):
     cid, name, username, chat, last = r
     ok, why = window(chat, last)
     ch = inbox.channel(chat)
-    if ch == "wa" and admin.wa.number(chat) in no:
+    if ch == "wa" and (no(admin.wa.number(chat)) if callable(no) else admin.wa.number(chat) in no):
         ok, why = False, NO_NEWS
     return {"id": cid, "name": name or "Без имени", "username": username or "", "channel": ch,
             "phone": admin.wa.number(chat) if ch == "wa" else "", "open": ok, "why": why, "nonews": why == NO_NEWS}
@@ -93,7 +145,7 @@ def contacts():
     """Все диалоги для выбора в группу: поиск по имени, @нику и номеру, фильтр по мессенджеру."""
     q, ch = request.args.get("q", "").strip().lower(), request.args.get("ch", "")
     with db() as d:
-        no = declined(d)
+        no = blocked(d)
         rows = [_card(r, no) for r in _contacts(d)]
     if ch:
         rows = [r for r in rows if r["channel"] == ch]
@@ -200,7 +252,7 @@ def groups():
     out = []
     with db() as d:
         for gid, name, at in d.run("SELECT id, name, at FROM grp ORDER BY at DESC", many=True) or []:
-            no = declined(d)
+            no = blocked(d)
             cards = [_card(r, no) for r in _contacts(d, _members(d, gid))]
             chans = {}
             for c in cards:
@@ -237,7 +289,7 @@ def group_get(gid):
         g = d.run("SELECT id, name FROM grp WHERE id=%s", (gid,), one=True)
         if not g:
             return jsonify(ok=False, error="Группа не найдена"), 404
-        no = declined(d)
+        no = blocked(d)
         members = sorted((_card(r, no) for r in _contacts(d, _members(d, gid))), key=lambda c: (not c["open"], c["name"].lower()))
         return jsonify(ok=True, group={"id": g[0], "name": g[1]}, members=members, broadcasts=_bcasts(d, gid))
 
@@ -326,7 +378,7 @@ def group_send(gid):
     with db() as d:
         if not d.run("SELECT id FROM grp WHERE id=%s", (gid,), one=True):
             return jsonify(ok=False, error="Группа не найдена"), 404
-        no = declined(d)
+        no = blocked(d)
         cards = [_card(r, no) for r in _contacts(d, _members(d, gid))]
         if not cards:
             return jsonify(ok=False, error="В группе нет контактов"), 400
