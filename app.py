@@ -95,6 +95,10 @@ from agent import bp as agent_bp  # noqa: E402
 app.register_blueprint(agent_bp)      # рабочее место менеджера WB/Ozon: /agent/api/* по MP_AGENT_TOKEN, заявки — на согласование владельцу
 import marketplaces  # noqa: E402
 marketplaces.start()              # каналы продаж: заказы Ozon/WB → МойСклад, остатки → маркетплейсы
+from suppliers import bp as suppliers_bp  # noqa: E402
+app.register_blueprint(suppliers_bp)  # поставщики на опте (модуль «Поставщики», выключен по умолчанию)
+import suppliers  # noqa: E402
+suppliers.start()                 # остатки и цены поставщиков раз в 15 минут (только при включённом модуле)
 from sources import bp as sources_bp  # noqa: E402
 app.register_blueprint(sources_bp)
 from wishes import bp as wishes_bp  # noqa: E402
