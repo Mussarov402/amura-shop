@@ -234,6 +234,48 @@ def route_labels():
     return Response(pdf, mimetype="application/pdf", headers={"Content-Disposition": "inline; filename*=UTF-8''" + _q(name)})
 
 
+def label_ready(ch, raw):
+    """Есть ли у площадки этикетка: Ozon — после сборки (awaiting_deliver и дальше), WB — задание в поставке."""
+    raw = str(raw or "")
+    if isinstance(ch, mpk.WB):
+        return raw.split("/")[0] in ("confirm", "complete")
+    return raw in mpk.Ozon.LABEL_FROM
+
+
+def by_orders(numbers):
+    """Заказы МойСклад из общего списка → по магазинам площадок: готовые к этикетке и ещё не собранные;
+    остальные номера (сайт, опт) — «свои» наклейки AMURA."""
+    nums = [str(n) for n in numbers if str(n).strip()][:300]
+    chans = {c.key: c for c in mpk.channels()}
+    rows = []
+    if nums:
+        with mpk.db() as d:
+            rows = d.run("SELECT mp, posting, status, number FROM mp_order WHERE number IN (" + ",".join(["%s"] * len(nums)) + ")",
+                         tuple(nums), many=True) or []
+    shops, mine = {}, set()
+    for mp, posting, status, number in rows:
+        ch = chans.get(mp)
+        if not ch:
+            continue
+        mine.add(str(number))
+        g = shops.setdefault(mp, {"shop": mp, "title": ch.title, "wb": isinstance(ch, mpk.WB),
+                                  "size": "58×40" if isinstance(ch, mpk.WB) else "75×120", "ready": [], "wait": []})
+        (g["ready"] if label_ready(ch, status) else g["wait"]).append({"number": str(number), "ext": str(posting)})
+    order = {n: i for i, n in enumerate(nums)}
+    for g in shops.values():                                   # в порядке выбора владельца
+        g["ready"].sort(key=lambda x: order.get(x["number"], 0))
+        g["wait"].sort(key=lambda x: order.get(x["number"], 0))
+    return {"shops": list(shops.values()), "own": [n for n in nums if n not in mine]}
+
+
+def route_by_orders():
+    _, err = mpk._me()
+    if err:
+        return err
+    b = request.get_json(silent=True) or {}
+    return jsonify(ok=True, **by_orders(b.get("numbers") or []))
+
+
 def _q(s):
     from urllib.parse import quote
     return quote(s)
@@ -287,3 +329,4 @@ mpk.bp.add_url_rule("/admin/api/mp/asm/ship", view_func=route_ship, endpoint="as
 mpk.bp.add_url_rule("/admin/api/mp/asm/labels", view_func=route_labels, endpoint="asm_labels")
 mpk.bp.add_url_rule("/admin/api/mp/asm/close", view_func=route_close, endpoint="asm_close", methods=["POST"])
 mpk.bp.add_url_rule("/admin/api/mp/asm/qr", view_func=route_qr, endpoint="asm_qr")
+mpk.bp.add_url_rule("/admin/api/mp/asm/by-orders", view_func=route_by_orders, endpoint="asm_by_orders", methods=["POST"])

@@ -130,5 +130,24 @@ class Assembly(unittest.TestCase):
         self.assertEqual(self.c.get("/admin/api/mp/asm/qr?shop=wb&supply=WB-GI-1").mimetype, "application/pdf")
 
 
+    def test_by_orders_split_by_size(self):
+        oz, wb = mpk.CHANNELS["ozon"], mpk.CHANNELS["wb"]
+        with mpk.db() as d:
+            d.run("DELETE FROM mp_order")
+        mpk._put(oz, "0123-0001-1", status="awaiting_deliver", number="1903")     # собран — этикетка есть
+        mpk._put(oz, "0123-0002-1", status="awaiting_packaging", number="1906")   # ещё не подтверждена сборка
+        mpk._put(wb, "777", status="confirm/waiting", number="1910")
+        mpk._put(wb, "778", status="new/waiting", number="1911")
+        r = asm.by_orders(["1906", "1903", "1910", "1911", "1900"])                # 1900 — заказ сайта
+        sh = {g["shop"]: g for g in r["shops"]}
+        self.assertEqual(r["own"], ["1900"])
+        self.assertEqual((sh["ozon"]["size"], sh["ozon"]["ready"], sh["ozon"]["wait"]),
+                         ("75×120", [{"number": "1903", "ext": "0123-0001-1"}], [{"number": "1906", "ext": "0123-0002-1"}]))
+        self.assertEqual((sh["wb"]["size"], [x["ext"] for x in sh["wb"]["ready"]], [x["ext"] for x in sh["wb"]["wait"]]),
+                         ("58×40", ["777"], ["778"]))
+        j = self.c.post("/admin/api/mp/asm/by-orders", json={"numbers": ["1900"]}).get_json()
+        self.assertEqual((j["shops"], j["own"]), ([], ["1900"]))                  # только свои — старые наклейки
+
+
 if __name__ == "__main__":
     unittest.main()
