@@ -1,0 +1,90 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><link rel="stylesheet" href="../../cards/fonts.css">
+<!-- Стиль AMURA для маркетплейсов: 3 концепции × 3 слайда (обложка, состав, как наносить) на VT PDRN Essence 100.
+     ?c=1|2|3&s=cover|inci|how · 900×1200 · рендер: node docs/mp-style/render.js → docs/mp-style/out/*.png
+     Флакон — фото каталога (img/3a575134…webp), вырезан; сцены не генерировали. Тексты — из ТЗ Маркетолога docs/briefs/vt-pdrn-100.md. -->
+<style>
+*{margin:0;box-sizing:border-box}body{width:900px;height:1200px;position:relative;overflow:hidden;font-family:Inter,sans-serif;color:#2B2B2B}
+.ab{position:absolute}.H{font:800 84px/1.0 MontV,Montserrat,sans-serif;letter-spacing:-.02em}.B{font:600 22px/1 Inter;letter-spacing:.24em;text-transform:uppercase}
+.sub{font:600 34px/1.2 Inter}.pill{display:inline-flex;align-items:center;gap:14px;padding:16px 26px;border-radius:999px;font:600 26px/1 Inter}
+.dot{width:14px;height:14px;border-radius:50%}.prod{position:absolute;background:url(vt_cut.png) center/contain no-repeat;filter:drop-shadow(0 30px 40px rgba(0,0,0,.22))}
+.lg{display:block}.card{display:flex;gap:20px;align-items:center;padding:20px 24px;border-radius:22px;margin-bottom:16px}
+.card b{display:block;font:700 26px/1.15 Inter}.card span{display:block;font:500 21px/1.25 Inter;opacity:.75;margin-top:4px}
+.ic{flex:none;width:58px;height:58px;border-radius:50%;display:flex;align-items:center;justify-content:center}.ic svg{width:34px;height:34px}
+.step{display:flex;gap:26px;align-items:flex-start;margin-bottom:56px}.num{flex:none;width:76px;height:76px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:800 36px MontV,Montserrat}
+.step b{display:block;font:800 36px/1.1 MontV,Montserrat}.step span{display:block;font:500 25px/1.3 Inter;margin-top:8px;opacity:.8}
+</style></head><body><script>
+const q=new URLSearchParams(location.search),C=+(q.get('c')||1),S=q.get('s')||'cover';
+const LOGO=c=>`<svg class="lg" viewBox="0 0 141 25.5" fill="none" stroke="${c}" stroke-width="1.6"><path transform="translate(0 0.5)" d="M1 24L10 1L19 24"/><path transform="translate(31 0.5)" d="M1 24V1L11 17L21 1V24"/><path transform="translate(64 0.5)" d="M1 1V15a8 8 0 0 0 16 0V1"/><path transform="translate(93 0.5)" d="M1 24V1H9a6.5 6.5 0 0 1 0 13H1M9 14L16 24"/><path transform="translate(121 0.5)" d="M1 24L10 1L19 24"/></svg>`;
+const ICON={root:'<path d="M17 4v8M17 12c-4 3-6 8-6 14M17 12c4 3 6 8 6 14M17 18l-5-3M17 20l5-3"/>',shield:'<path d="M17 4l10 4v8c0 7-5 11-10 14C12 27 7 23 7 16V8z"/>',
+ drop:'<path d="M17 4c5 7 9 11 9 16a9 9 0 0 1-18 0c0-5 4-9 9-16z"/>',spark:'<path d="M17 4v26M4 17h26M8 8l18 18M26 8L8 26"/>',leaf:'<path d="M6 28C6 14 14 6 28 6c0 14-8 22-22 22zM6 28L20 14"/>'};
+const ico=(k,c)=>`<svg viewBox="0 0 34 34" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON[k]}</svg>`;
+const INCI=[['root','Phyto PDRN из женьшеня','упругость и уход за морщинками'],['shield','5 церамидов','поддержка защитного барьера'],['drop','Сквалан и масло баобаба','мягкость и питание'],['spark','Ниацинамид и аденозин','ровный тон и уход за морщинками'],['leaf','Пантенол и аллантоин','успокаивают и смягчают']];
+const STEPS=[['Очищение','умойтесь, нанесите тонер или сыворотку'],['Эссенция','наклоните ладонь и флакон в одну линию, нажмите на помпу'],['Распределите','по лицу похлопывающими движениями, затем крем']];
+const N={cover:'01',inci:'04',how:'07'}[S], ACC='#2FA8A0', G='#0E3B2C', BR='#B89760';
+const T={/* концепции */
+1:{name:'Λ-угол',bg:'#F7F3EE',ink:'#2B2B2B',acc:ACC},
+2:{name:'Цветная рамка',bg:'linear-gradient(170deg,#E3F3F1,#F7F3EE 60%)',ink:'#1F2A2A',acc:ACC},
+3:{name:'Зелёная полоса',bg:'#EFE6DA',ink:'#2B2B2B',acc:G},
+4:{name:'Шапка бренд · AMURA',bg:'linear-gradient(160deg,#EAF4F2 0%,#F4F6F6 55%,#E2EBEA 100%)',ink:'#1E2626',acc:ACC}}[C];
+document.body.style.background=T.bg;document.body.style.color=T.ink;
+const add=h=>{const t=document.createElement('template');t.innerHTML=h.trim();return document.body.appendChild(t.content.firstChild)};
+let L=70,TOP=96;                        /* поле текста */
+/* узнаваемый элемент концепции */
+if(C===1){add(`<svg class="ab" style="left:0;top:0" width="130" height="130" viewBox="0 0 130 130"><path d="M0 104L52 0" stroke="${BR}" stroke-width="8"/><path d="M26 130L65 52L104 130" fill="none" stroke="${BR}" stroke-width="2.5"/></svg>`);
+ add(`<div class="ab" style="left:0;right:0;bottom:0;height:70px;background:${G};display:flex;align-items:center;justify-content:space-between;padding:0 44px"><div class="B" style="color:#E9D7AE;font-size:18px">${N} · VT COSMETICS</div><div style="width:110px">${LOGO('#E9D7AE')}</div></div>`);L=110;TOP=140}
+if(C===2){add(`<div class="ab" style="inset:0;border:22px solid ${ACC};border-radius:0"></div>`);add(`<div class="ab" style="inset:22px;border-radius:40px;box-shadow:0 0 0 40px ${ACC}"></div>`);
+ add(`<div class="ab" style="right:56px;top:56px;width:64px;height:64px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;font:800 26px MontV,Montserrat;color:${ACC}">${N}</div>`);
+ add(`<div class="ab" style="left:0;right:0;bottom:46px;display:flex;justify-content:center"><div style="width:120px">${LOGO('#1F2A2A')}</div></div>`);L=74;TOP=90}
+if(C===3){add(`<div class="ab" style="left:0;top:0;bottom:0;width:86px;background:${G};display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:40px 0"><div style="font:800 26px MontV,Montserrat;color:${BR}">${N}</div><div class="B" style="writing-mode:vertical-rl;transform:rotate(180deg);color:#E9D7AE;font-size:20px">VT COSMETICS</div><div style="width:70px;transform:rotate(-90deg);margin-bottom:20px">${LOGO("#E9D7AE")}</div></div>`);L=136;TOP=96}
+
+/* концепция 4: шапка «бренд · AMURA» одной высоты, тонкий+жирный заголовок, огромная цифра, выноски с Λ-маркерами */
+if(C===4){
+ const HEAD=`<div class="ab" style="left:60px;top:54px;display:flex;align-items:center;gap:22px;height:30px"><div style="font:800 30px/30px MontV,Montserrat;letter-spacing:.06em">VT COSMETICS</div><div style="width:1.5px;height:30px;background:#1E2626;opacity:.35"></div><div style="width:165px">${LOGO('#1E2626')}</div></div>`;
+ add(HEAD);
+ const mk=`<svg width="22" height="18" viewBox="0 0 22 18"><path d="M2 17L11 2L20 17" fill="none" stroke="${ACC}" stroke-width="2.6"/></svg>`;
+ const note=(x,y,t,lx,ly)=>{add(`<div class="ab" style="left:${x}px;top:${y}px;display:flex;gap:10px;align-items:center;font:600 24px/1.2 Inter">${mk}<span>${t}</span></div>`);
+   if(lx) add(`<svg class="ab" style="left:0;top:0" width="900" height="1200"><path d="M${lx[0]} ${lx[1]}L${lx[2]} ${lx[3]}" stroke="#1E2626" stroke-width="1.2" opacity=".45"/><circle cx="${lx[2]}" cy="${lx[3]}" r="4" fill="${ACC}"/></svg>`);};
+ if(S==='cover'){
+  add(`<div class="ab" style="left:60px;top:140px;font:300 56px/1.05 MontV,Montserrat">Эссенция для лица <b style="font-weight:900">/ PDRN</b></div>`);
+  add(`<div class="ab" style="left:52px;top:236px;font:900 176px/.9 MontV,Montserrat;letter-spacing:-.05em;color:${ACC}">100 000</div>`);
+  add(`<div class="ab" style="left:60px;top:400px;font:800 64px/1 MontV,Montserrat">ppm <span style="font-weight:300;font-size:40px">фито-PDRN</span></div>`);
+  add(`<div class="prod" style="right:40px;bottom:60px;width:420px;height:690px"></div>`);
+  note(60,560,'из корейского<br>женьшеня',[250,600,478,650]);
+  note(60,690,'упругость и уход<br>за морщинками',[290,730,478,790]);
+  note(60,820,'молочная текстура<br>без отдушки',[270,860,478,930]);
+  add(`<div class="ab" style="left:60px;bottom:90px;font:800 52px/1 MontV,Montserrat">30 <span style="font-weight:300">мл</span></div>`);
+ }
+ if(S==='inci'){
+  add(`<div class="ab" style="left:60px;top:140px;font:300 56px/1.05 MontV,Montserrat">Что <b style="font-weight:900">в составе</b></div>`);
+  add(`<div class="prod" style="right:30px;top:250px;width:330px;height:620px"></div>`);
+  INCI.forEach(([k,b,t],i)=>{const y=270+i*150;add(`<div class="ab" style="left:60px;top:${y}px;width:500px;display:flex;gap:18px;align-items:flex-start"><div style="margin-top:6px">${mk}</div><div><div style="font:800 32px/1.1 MontV,Montserrat">${b}</div><div style="font:500 23px/1.3 Inter;opacity:.7;margin-top:6px">${t}</div></div></div>`);
+   add(`<svg class="ab" style="left:0;top:0" width="900" height="1200"><path d="M560 ${y+20}L640 ${y+20}" stroke="#1E2626" stroke-width="1.2" opacity=".35"/></svg>`);});
+  add(`<div class="ab" style="left:60px;bottom:80px;font:600 24px Inter;opacity:.7">Без отдушки · 30 мл</div>`);
+ }
+ if(S==='how'){
+  add(`<div class="ab" style="left:60px;top:140px;font:300 56px/1.05 MontV,Montserrat">Как <b style="font-weight:900">наносить</b></div>`);
+  add(`<div class="prod" style="right:40px;top:120px;width:250px;height:420px;transform:rotate(-14deg)"></div>`);
+  STEPS.forEach(([b,t],i)=>{const y=330+i*230;add(`<div class="ab" style="left:60px;top:${y}px;width:560px"><div style="font:900 110px/.9 MontV,Montserrat;color:${ACC};letter-spacing:-.04em">0${i+1}</div><div style="font:800 38px/1.1 MontV,Montserrat;margin-top:6px">${b}</div><div style="font:500 25px/1.3 Inter;opacity:.75;margin-top:6px">${t}</div></div>`);});
+  add(`<div class="ab" style="left:60px;bottom:70px;display:flex;gap:10px;align-items:center;font:700 28px Inter">${mk}Утром и вечером</div>`);
+ }
+}
+const card=(bg,c)=>INCI.map(([k,b,s])=>`<div class="card" style="background:${bg}"><div class="ic" style="background:${c}1F">${ico(k,c)}</div><div><b>${b}</b><span>${s}</span></div></div>`).join('');
+const acc=T.acc, chipBg=C===3?'rgba(255,255,255,.7)':'#fff';
+if(C!==4&&S==='cover'){
+ add(`<div class="ab" style="left:${L}px;top:${TOP}px;right:60px"><div class="B" style="color:${acc}">VT COSMETICS</div><div class="H" style="margin-top:20px;font-size:${C===2?88:92}px">ЭССЕНЦИЯ<br>С PDRN</div><div class="sub" style="margin-top:20px;max-width:440px">Упругость и уход за морщинками</div></div>`);
+ add(`<div class="prod" style="right:${C===3?30:50}px;bottom:${C===1?110:C===2?100:60}px;width:400px;height:${C===1?760:740}px"></div>`);
+ add(`<div class="ab" style="left:${L}px;bottom:${C===1?120:C===2?120:80}px"><div class="pill" style="background:${chipBg};box-shadow:0 8px 24px rgba(0,0,0,.08)"><span class="dot" style="background:${ACC}"></span>Phyto PDRN 100 000 ppm · 30 мл</div></div>`);
+}
+if(C!==4&&S==='inci'){
+ add(`<div class="ab H" style="left:${L}px;top:${TOP}px;font-size:64px">ЧТО<br>В СОСТАВЕ</div>`);
+ add(`<div class="prod" style="left:${L-20}px;bottom:${C===1?120:110}px;width:250px;height:600px"></div>`);
+ add(`<div class="ab" style="left:${L+250}px;right:${C===2?64:50}px;top:${TOP+190}px">${card(chipBg,ACC)}<div style="font:600 22px Inter;opacity:.7;margin-top:8px">Без отдушки</div></div>`);
+}
+if(C!==4&&S==='how'){
+ add(`<div class="ab H" style="left:${L}px;top:${TOP}px;font-size:64px">КАК<br>НАНОСИТЬ</div>`);
+ add(`<div class="prod" style="right:${C===2?60:40}px;top:${TOP-20}px;width:210px;height:330px;transform:rotate(-12deg)"></div>`);
+ const st=STEPS.map(([b,s],i)=>`<div class="step"><div class="num" style="background:${acc};color:#fff">${i+1}</div><div><b>${b}</b><span>${s}</span></div></div>`).join('');
+ add(`<div class="ab" style="left:${L}px;right:${C===2?80:60}px;top:${TOP+340}px;padding:56px 44px 6px;border-radius:30px;background:${chipBg}">${st}</div>`);
+ add(`<div class="ab" style="left:${L}px;bottom:${C===1?110:C===2?110:60}px"><div class="pill" style="background:${acc};color:#fff">Утром и вечером</div></div>`);
+}
+</script></body></html>

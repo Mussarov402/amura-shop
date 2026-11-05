@@ -24,6 +24,10 @@ def build(src):
             '<meta name="description" content="Оригинальная корейская косметика с доставкой по Алматы и Казахстану.">')
     s = rep(s, '<link rel="manifest" href="manifest.webmanifest">', '<link rel="manifest" href="/manifest.webmanifest">')
     s = rep(s, '<link rel="apple-touch-icon" href="icon-180.png">', '<link rel="apple-touch-icon" href="/icon-180.png">')
+    # шрифты розницы — с нашего сервера (webfonts/fonts.css), не с Google: IP покупателя не уходит в Google до согласия (Юрист, 05.11.2026)
+    s = rep(s, '<link rel="preconnect" href="https://fonts.googleapis.com">\n', "")
+    s = rep(s, '<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Unbounded:wght@500;700&display=swap" rel="stylesheet">',
+            '<link href="/webfonts/fonts.css" rel="stylesheet">')
     # оформление заказа как на WB — только для розницы, оптовый index.html не меняется
     def read(name):
         with open(os.path.join(ROOT, "retail", name), encoding="utf-8") as f:

@@ -168,6 +168,18 @@ class Ozon(Channel):
         return out
 
     SHIPPED = ("delivering", "driver_pickup", "delivered", "sent_by_seller")   # передан в доставку — отгрузка в МойСклад
+    LABEL_FROM = ("awaiting_deliver",) + SHIPPED            # этикетка Ozon есть после сборки (awaiting_deliver)
+    MS_STATE = {"awaiting_packaging": "Новый", "awaiting_deliver": "Собран", "delivering": "Отгружен", "driver_pickup": "Отгружен",
+                "sent_by_seller": "Отгружен", "delivered": "Доставлен"}       # статус заказа МойСклад вслед за Ozon (владелец 04.11.2026)
+
+    def label(self, ext):
+        """Этикетка отправления для термопринтера (Ozon отдаёт PDF 75×120 мм). → (имя файла, байты)."""
+        r = requests.post(self.api() + "/v2/posting/fbs/package-label", json={"posting_number": [ext]}, timeout=60,
+                          headers={"Client-Id": self.env("CLIENT_ID"), "Api-Key": self.env("API_KEY"), "Content-Type": "application/json"})
+        if r.status_code >= 400 or not r.content.startswith(b"%PDF"):
+            j = _json(r)
+            raise ApiError(r.status_code, str(j.get("message") or f"этикетка не готова (HTTP {r.status_code})")[:300])
+        return f"Этикетка Ozon {ext}.pdf", r.content
 
     def norm(self, p):
         raw = str(p.get("status_alias") or p.get("status") or "")
@@ -185,12 +197,13 @@ class Ozon(Channel):
             com_cur = com.get("currency") if isinstance(com, dict) else ""
             lines.append({"ref": str(x.get("product_id") or ""), "offer": str(x.get("product_offer_id") or x.get("offer_id") or ""),
                           "barcodes": [], "name": str(x.get("product_name") or x.get("name") or ""), "qty": int(x.get("quantity") or 0),
-                          "price": price, "cur": cur,
+                          "price": price, "cur": cur, "sku": str(x.get("sku") or ""),
                           "fact": {"commission": abs(_money(f.get("commission_amount")) or _money(com)), "payout": _money(f.get("payout")),
                                    "cur": str(com_cur or f.get("currency_code") or cur)} if f else {}})
         st = str(p.get("status") or "")
         return {"ext": str(p["posting_number"]), "label": f"Отправление {p['posting_number']}" + (f", заказ Ozon {p['order_number']}" if p.get("order_number") else ""),
-                "shipped": raw in self.SHIPPED or st in self.SHIPPED,
+                "shipped": raw in self.SHIPPED or st in self.SHIPPED, "sticker": raw in self.LABEL_FROM or st in self.LABEL_FROM,
+                "ms_state": self.MS_STATE.get(raw) or self.MS_STATE.get(st),
                 "status": "cancel" if raw in self.CANCEL else "wait" if raw in self.WAIT else "live", "raw": raw,
                 "at": _when(p.get("in_process_at")), "cutoff": _when(p.get("shipment_date") or p.get("cutoff") or ""), "lines": lines}
 
@@ -252,6 +265,16 @@ class WB(Channel):
     SHIPPED_WB = ("sorted", "sold", "ready_for_pickup", "postponed_delivery")   # с supplierStatus complete — передан в доставку
     ISO = {398: "KZT", 643: "RUB", 933: "BYN", 417: "KGS", 860: "UZS", 51: "AMD"}
 
+    def label(self, ext):
+        """Стикер сборочного задания 58×40 мм (WB отдаёт png/svg/zpl, PDF нет — берём png для печати с телефона). → (имя, байты)."""
+        import base64
+        j = self.req("POST", "marketplace", "/api/v3/orders/stickers", params={"type": "png", "width": 58, "height": 40},
+                     json={"orders": [int(ext)]})
+        st = next((x for x in j.get("stickers") or [] if str(x.get("orderId")) == str(ext) and x.get("file")), None)
+        if not st:
+            raise ApiError(404, "стикер не готов: задание ещё не в поставке")
+        return f"Стикер WB {ext}.png", base64.b64decode(st["file"])
+
     @classmethod
     def cur(cls, code):
         """WB отдаёт валюту числом ISO 4217 (643 — рубли): переводим в буквенный код для курса."""
@@ -302,7 +325,8 @@ class WB(Channel):
             cur = "KZT" if o.get("convertedCurrencyCode") == self.KZT else self.cur(o.get("convertedCurrencyCode"))
         if not price:                                    # запасные поля цены в новых ответах WB (копейки)
             price = next((_money(o.get(k)) / 100 for k in ("finalPrice", "salePrice") if _money(o.get(k))), 0.0)
-        return {"shipped": sup == "complete" or wbs in self.SHIPPED_WB,
+        ms_state = None if cancel else "Доставлен" if wbs == "sold" else {"new": "Новый", "confirm": "Собран", "complete": "Отгружен"}.get(sup)
+        return {"shipped": sup == "complete" or wbs in self.SHIPPED_WB, "sticker": sup == "confirm" and not cancel, "ms_state": ms_state,
                 "ext": str(o["id"]), "label": f"Сборочное задание {o['id']}" + (f", заказ WB {o['orderUid']}" if o.get("orderUid") else ""),
                 "status": "cancel" if cancel else "wait" if not st else "live", "raw": f"{sup}/{wbs}" if st else "",
                 "at": _when(o.get("createdAt")), "cutoff": 0,
@@ -726,6 +750,60 @@ def repair_zero(ch, now=None, days=7):
     return fixed
 
 
+# ---------- статус заказа МойСклад вслед за площадкой ----------
+CHAIN = ("Новый", "Подтвержден", "Собран", "Отгружен", "Доставлен")   # «Подтвержден» ставит только человек — ступень между Новый и Собран
+SHIP_WAIT = 60                                          # после «Отгружен» ждём сценарий МойСклад «статус → отгрузка», потом своя
+
+
+def _state_db():
+    d = db()
+    d.run("CREATE TABLE IF NOT EXISTS mp_state (mp TEXT, posting TEXT, state TEXT, at DOUBLE PRECISION, PRIMARY KEY (mp, posting))")
+    d.c.commit()
+    return d
+
+
+def state_of(ch, ext):
+    with _state_db() as d:
+        r = d.run("SELECT state, at FROM mp_state WHERE mp=%s AND posting=%s", (ch.key, ext), one=True)
+    return (r[0], r[1]) if r else (None, 0)
+
+
+def _state_put(ch, ext, state):
+    with _state_db() as d:
+        if d.run("SELECT 1 FROM mp_state WHERE mp=%s AND posting=%s", (ch.key, ext), one=True):
+            d.run("UPDATE mp_state SET state=%s, at=%s WHERE mp=%s AND posting=%s", (state, time.time(), ch.key, ext))
+        else:
+            d.run("INSERT INTO mp_state (mp, posting, state, at) VALUES (%s, %s, %s, %s)", (ch.key, ext, state, time.time()))
+
+
+def _state_name(meta):
+    md = oh.cached("ms_order_states", 3600, lambda: oh.ms("GET", "/entity/customerorder/metadata", timeout=15))
+    href = (meta or {}).get("href", "")
+    return next((x.get("name") for x in md.get("states", []) if x.get("meta", {}).get("href") == href), "")
+
+
+def sync_state(ch, o, rec, target=None):
+    """Статус заказа МойСклад вслед за площадкой: только вперёд по цепочке CHAIN; ручной статус вне цепочки не перебиваем
+    (тревога владельцу). Что уже поставлено — помним (mp_state), МойСклад не дёргаем повторно."""
+    target = target or o.get("ms_state")
+    if not target or state_of(ch, o["ext"])[0] == target:
+        return
+    cur = _state_name((oh.ms("GET", f"/entity/customerorder/{rec['order_id']}").get("state") or {}).get("meta"))
+    if cur and cur not in CHAIN and target in CHAIN:
+        oh.alert(f"mp-state:{ch.key}:{o['ext']}", f"{ch.title}: у заказа {rec['number']} в МойСклад статус «{cur}» поставлен вручную — "
+                                                  f"не меняю на «{target}»", every=7 * 86400)
+    elif target in CHAIN and cur in CHAIN and CHAIN.index(cur) >= CHAIN.index(target):
+        pass                                             # назад не двигаем
+    else:
+        st = _state(target)
+        if not st:
+            oh.alert(f"mp-state-none:{target}", f"В МойСклад нет статуса заказа «{target}» — статусы заказов площадок не меняю", every=86400)
+            return
+        oh.ms("PUT", f"/entity/customerorder/{rec['order_id']}", json={"state": {"meta": st}})
+        print(f"{ch.title}: заказ {rec['number']} ({o['ext']}) — статус «{target}»", flush=True)
+    _state_put(ch, o["ext"], target)
+
+
 # ---------- отгрузка: площадка передала в доставку → отгрузка МойСклад по заказу ----------
 def _ship_db():
     d = db()
@@ -740,6 +818,11 @@ def shipped(ch, ext):
     return r[0] if r else None
 
 
+def _foreign(ch, rec):
+    oh.alert(f"mp-foreign-demand:{ch.key}", f"{ch.title}: отгрузку по заказу {rec['number']} создал не я — сценарий МойСклад на статус "
+                                            f"или вручную. Вторую не создаю. Если это сценарий — он есть и сработал по статусу заказа", every=7 * 86400)
+
+
 def ship_order(ch, ext, rec):
     """Отгрузка шаблоном МойСклад по заказу (shipments.create): позиции и цены — как в заказе, резерв уходит, остаток списывается.
     Отгрузка уже есть (создал человек или сценарий) — вторую не создаём, только запоминаем."""
@@ -750,16 +833,50 @@ def ship_order(ch, ext, rec):
             r = shipments.send(r["id"]) or {}
         if r.get("status") == "error" and "уже есть отгрузка" in r.get("error", ""):
             num = "уже была"
+            _foreign(ch, rec)
         elif r.get("status") != "sent":
             raise RuntimeError(r.get("error") or "отгрузка не создана")
         else:
             num = r.get("msNumber") or ""
     except ValueError as e:                              # по заказу уже есть отгрузка (человек или сценарий МойСклад)
         num = "уже была" if "уже" in str(e) else str(e)[:60]
+        _foreign(ch, rec)
     with _ship_db() as d:
         d.run("INSERT INTO mp_ship (mp, posting, demand, at) VALUES (%s, %s, %s, %s)", (ch.key, ext, num, time.time()))
     print(f"{ch.title}: заказ {rec['number']} ({ext}) передан в доставку — отгрузка {num}", flush=True)
     return num
+
+
+LABEL_LINE = "Этикетка: прикреплена (Файлы)"
+
+
+def _label_db():
+    d = db()
+    d.run("CREATE TABLE IF NOT EXISTS mp_label (mp TEXT, posting TEXT, file TEXT DEFAULT '', at DOUBLE PRECISION, PRIMARY KEY (mp, posting))")
+    d.c.commit()
+    return d
+
+
+def labelled(ch, ext):
+    with _label_db() as d:
+        return bool(d.run("SELECT 1 FROM mp_label WHERE mp=%s AND posting=%s", (ch.key, ext), one=True))
+
+
+def attach_label(ch, ext, rec):
+    """Этикетка площадки → файл заказа МойСклад (открыть и распечатать из приложения МойСклад) + строка в комментарии. Один раз."""
+    import base64
+    name, data = ch.label(ext)
+    oid = rec["order_id"]
+    have = oh.ms("GET", f"/entity/customerorder/{oid}/files", params={"limit": 100}).get("rows") or []
+    if not any(f.get("filename") == name for f in have):           # прошлая попытка могла дойти — второй файл не нужен
+        oh.ms("POST", f"/entity/customerorder/{oid}/files", json=[{"filename": name, "content": base64.b64encode(data).decode()}])
+    o = oh.ms("GET", f"/entity/customerorder/{oid}")
+    if LABEL_LINE not in (o.get("description") or ""):
+        oh.ms("PUT", f"/entity/customerorder/{oid}", json={"description": ((o.get("description") or "") + "\n" + LABEL_LINE).strip()[:4000]})
+    with _label_db() as d:
+        d.run("INSERT INTO mp_label (mp, posting, file, at) VALUES (%s, %s, %s, %s)", (ch.key, ext, name, time.time()))
+    print(f"{ch.title}: этикетка {name} прикреплена к заказу {rec['number']}", flush=True)
+    return name
 
 
 def cancel_order(oid, title):
@@ -784,6 +901,10 @@ def sync_orders(ch, now=None):
         if rec and rec["order_id"]:
             if o["status"] == "cancel" and rec["status"] != "cancel" and shipped(ch, o["ext"]) is not None:
                 _put(ch, o["ext"], status="cancel", error="отменён после отгрузки — возврат")    # отгрузку не трогаем: товар вернётся возвратом
+                try:
+                    sync_state(ch, o, rec, "Возврат")
+                except Exception as e:
+                    print(f"{ch.title}: статус «Возврат» {o['ext']}: {str(e)[:150]}", flush=True)
                 oh.alert(f"mp-return:{ch.key}:{o['ext']}", f"{ch.title} отменил заказ {rec['number']} ({o['ext']}) уже после отгрузки — "
                                                             f"это возврат: отгрузку не трогаю, товар оформится возвратом", every=86400)
             elif o["status"] == "cancel" and rec["status"] != "cancel":
@@ -796,7 +917,21 @@ def sync_orders(ch, now=None):
                                                                f"а в МойСклад отменить не вышло: {str(e)[:200]}", every=3600)
             elif o["status"] != "cancel" and o["raw"] != rec["status"]:
                 _put(ch, o["ext"], status=o["raw"])
-            if o["status"] != "cancel" and o.get("shipped") and shipped(ch, o["ext"]) is None:
+            if o["status"] != "cancel" and o.get("sticker") and not o.get("shipped") and not labelled(ch, o["ext"]):   # нужна до передачи
+                try:
+                    attach_label(ch, o["ext"], rec)
+                except ApiError as e:                    # площадка ещё не выдала этикетку — попробуем при следующей сверке
+                    print(f"{ch.title}: этикетка {o['ext']} пока не получена: {e.message[:150]}", flush=True)
+                except Exception as e:
+                    print(f"{ch.title}: этикетка {o['ext']} не прикреплена: {str(e)[:200]}", flush=True)
+            if o["status"] != "cancel":
+                try:
+                    sync_state(ch, o, rec)
+                except Exception as e:
+                    print(f"{ch.title}: статус заказа {o['ext']} не изменён: {str(e)[:200]}", flush=True)
+            st_now, st_at = state_of(ch, o["ext"])
+            if (o["status"] != "cancel" and o.get("shipped") and shipped(ch, o["ext"]) is None
+                    and (st_now in ("Отгружен", "Доставлен") and time.time() - st_at >= SHIP_WAIT or st_now not in ("Отгружен", "Доставлен") and o.get("ms_state") is None)):
                 try:
                     ship_order(ch, o["ext"], rec)
                 except Exception as e:
@@ -1047,4 +1182,5 @@ def settings_route():
 
 
 import mp_calc  # noqa: E402,F401  — калькулятор прибыли: маршруты на том же blueprint
+import mp_assembly  # noqa: E402,F401  — «Сборка»: сборочный лист, подтверждение сборки, этикетки одним файлом
 import mp_payouts  # noqa: E402,F401  — выплаты площадок → МойСклад (на сухую; проводит владелец)

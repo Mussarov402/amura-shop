@@ -30,10 +30,30 @@ class MpOrders(unittest.TestCase):
         tm.Channels.setUp(self)
         with mpk._ship_db() as d:
             d.run("DELETE FROM mp_ship")
+        with mpk._label_db() as d:
+            d.run("DELETE FROM mp_label")
         self.patch(mp_calc, "channel_calc", calc_stub)
         self.patch(mp_calc, "product", lambda pid: {"cost": 2000})
         self.patch(mp_calc, "settings", lambda: {"margin": 15, "pack": 500, "tax": 4, "ads": 0})
         self.patch(mp_calc, "to_kzt", lambda v, cur, *a, **k: (float(v), "") if cur in ("KZT", "") else (float(v) * 5.5, "курс покупки МиГ: 1 RUB = 5.5 ₸"))
+        self.patch(mpk, "SHIP_WAIT", -1)                                              # без минуты ожидания сценария
+        with mpk._state_db() as d:
+            d.run("DELETE FROM mp_state")
+        oh._cache.pop("ms_order_states", None)
+        self.ms_state, old_ms = {"name": ""}, oh.ms
+        names = ["Новый", "Подтвержден", "Собран", "Отгружен", "Доставлен", "Возврат", "Отменен", "Ручной"]
+
+        def ms(method, path, **kw):
+            if path == "/entity/customerorder/metadata":
+                return {"states": [{"name": n, "meta": {"href": f"https://x/state/{i}"}} for i, n in enumerate(names)]}
+            if path == "/entity/customerorder/o1" and method == "GET" and not kw.get("params"):
+                n = self.ms_state["name"]
+                return {"id": "o1", "description": "Заказ с Ozon (FBS)",
+                        **({"state": {"meta": {"href": f"https://x/state/{names.index(n)}"}}} if n else {})}
+            if path == "/entity/customerorder/o1" and method == "PUT" and "state" in kw.get("json", {}):
+                self.ms_state["name"] = names[int(kw["json"]["state"]["meta"]["href"].rsplit("/", 1)[1])]
+            return old_ms(method, path, **kw)
+        self.patch(oh, "ms", ms)
 
     def test_ozon_v4_price_from_financial_data_in_rub(self):
         p = self.posting(products=[{"product_id": 11, "sku": 9001, "offer_id": "anua-cream", "name": "Anua крем", "quantity": 1,
@@ -99,7 +119,9 @@ class MpOrders(unittest.TestCase):
         self.assertEqual(mpk.shipped(mpk.CHANNELS["ozon"], "0123-0001-1"), "D-7")
         self.oz.postings = [self.posting(status="cancelled")]
         mpk.sync_orders(mpk.CHANNELS["ozon"], NOW)
-        self.assertEqual(self.puts, [])                                            # заказ не «Отменен», резерв не трогаем
+        self.assertNotIn("Отменен", self.ms_state["name"])                          # не «Отменен», резерв не трогаем
+        self.assertEqual(self.ms_state["name"], "Возврат")
+        self.assertFalse(any(p.endswith("/positions/pos1") for p, _ in self.puts))
         self.assertTrue(any("после отгрузки" in a for a in self.alerts))
 
     def test_ship_when_demand_exists(self):
@@ -128,9 +150,98 @@ class MpOrders(unittest.TestCase):
         self.assertIn("Экономика заказа", self.puts[1][1]["description"])
         self.assertIn("была 0", self.puts[1][1]["description"])
 
+    def _ms_files(self):
+        files, old_ms = [], oh.ms
+
+        def ms(method, path, **kw):
+            if path == "/entity/customerorder/o1/files":
+                if method == "POST":
+                    files.append(kw["json"][0])
+                    return [{}]
+                return {"rows": [{"filename": f["filename"]} for f in files]}
+            return old_ms(method, path, **kw)
+        self.patch(oh, "ms", ms)
+        return files
+
+    def test_ozon_label_once(self):
+        files = self._ms_files()
+        pdf = mock.Mock(status_code=200, content=b"%PDF-1.4 label")
+        orig = self.oz.__call__
+
+        def post(url, json=None, headers=None, timeout=None):
+            if url.endswith("/v2/posting/fbs/package-label"):
+                self.assertEqual(json, {"posting_number": ["0123-0001-1"]})
+                return pdf
+            return orig(url, json=json, headers=headers, timeout=timeout)
+        self.patch(mpk.requests, "post", post)
+        self.oz.postings = [self.posting()]
+        mpk.sync_orders(mpk.CHANNELS["ozon"], NOW)
+        self.assertEqual(files, [])                                                # ещё не собран — этикетки нет
+        self.oz.postings = [self.posting(status="awaiting_deliver")]
+        mpk.sync_orders(mpk.CHANNELS["ozon"], NOW)
+        mpk.sync_orders(mpk.CHANNELS["ozon"], NOW)
+        self.assertEqual([f["filename"] for f in files], ["Этикетка Ozon 0123-0001-1.pdf"])
+        import base64
+        self.assertEqual(base64.b64decode(files[0]["content"]), b"%PDF-1.4 label")
+        self.assertEqual([p[1]["description"] for p in self.puts if "description" in p[1]][-1].splitlines()[-1], "Этикетка: прикреплена (Файлы)")
+
+    def test_wb_sticker_png(self):
+        files = self._ms_files()
+        import base64
+        orig = self.wb.__call__
+
+        def req(method, url, params=None, json=None, headers=None, timeout=None):
+            if url.endswith("/api/v3/orders/stickers"):
+                self.assertEqual((params, json), ({"type": "png", "width": 58, "height": 40}, {"orders": [5]}))
+                return tm.Resp(200, {"stickers": [{"orderId": 5, "file": base64.b64encode(b"PNG").decode()}]})
+            return orig(method, url, params=params, json=json, headers=headers, timeout=timeout)
+        self.patch(mpk.requests, "request", req)
+        self.wb.orders = [{"id": 5, "createdAt": iso(NOW - 300), "chrtId": 501, "article": "00615", "skus": ["8809640738135"],
+                           "price": 100000, "currencyCode": 398}]
+        self.wb.status = {5: {"supplierStatus": "new", "wbStatus": "waiting"}}
+        mpk.sync_orders(mpk.CHANNELS["wb"], NOW)
+        self.wb.status = {5: {"supplierStatus": "confirm", "wbStatus": "waiting"}}
+        mpk.sync_orders(mpk.CHANNELS["wb"], NOW)
+        self.assertEqual([f["filename"] for f in files], ["Стикер WB 5.png"])
+
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_state_follows_marketplace(self):
+        ch = mpk.CHANNELS["ozon"]
+        self.oz.postings = [self.posting()]
+        mpk.sync_orders(ch, NOW)                                                   # заказ создан
+        mpk.sync_orders(ch, NOW)
+        self.assertEqual(self.ms_state["name"], "Новый")
+        self.oz.postings = [self.posting(status="awaiting_deliver")]
+        mpk.sync_orders(ch, NOW)
+        self.assertEqual(self.ms_state["name"], "Собран")
+        self.ms_state["name"] = "Доставлен"                                        # человек ушёл вперёд — назад не двигаем
+        with mpk._state_db() as d:
+            d.run("DELETE FROM mp_state")
+        mpk.sync_orders(ch, NOW)
+        self.assertEqual(self.ms_state["name"], "Доставлен")
+        self.ms_state["name"] = "Ручной"
+        with mpk._state_db() as d:
+            d.run("DELETE FROM mp_state")
+        mpk.sync_orders(ch, NOW)
+        self.assertEqual(self.ms_state["name"], "Ручной")                          # вне цепочки — не перебиваем, тревога
+        self.assertTrue(any("вручную" in a for a in self.alerts))
+
+    def test_ship_waits_for_state(self):
+        import shipments
+        calls = []
+        self.patch(shipments, "create", lambda oid, who="": calls.append(oid) or {"status": "sent", "msNumber": "D-1"})
+        self.patch(mpk, "SHIP_WAIT", 3600)
+        self.oz.postings = [self.posting()]
+        mpk.sync_orders(mpk.CHANNELS["ozon"], NOW)
+        self.oz.postings = [self.posting(status="delivering")]
+        mpk.sync_orders(mpk.CHANNELS["ozon"], NOW)
+        self.assertEqual((self.ms_state["name"], calls), ("Отгружен", []))       # сначала статус, отгрузка — после ожидания
+        self.patch(mpk, "SHIP_WAIT", -1)
+        mpk.sync_orders(mpk.CHANNELS["ozon"], NOW)
+        self.assertEqual(calls, ["o1"])
 
 
 class StatusFast(unittest.TestCase):
