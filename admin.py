@@ -1039,7 +1039,7 @@ def order_detail(number):
     sig = oh.sign(o["name"])
     return jsonify(ok=True, number=o["name"], id=o["id"], moment=o.get("moment", "")[:16],
                    pdf=f"{oh.PUBLIC_URL}/order/{o['name']}/pdf?t={sig}", xlsx=f"{oh.PUBLIC_URL}/order/{o['name']}/xlsx?t={sig}&id={o['id']}", client=o["agent"]["name"], state=(o.get("state") or {}).get("name", ""), states=_order_states(),
-                   description=o.get("description") or "", lines=lines, loader=loader, fee=fee, total=o["sum"] / 100,
+                   description=o.get("description") or "", consent=_consent_of(o["name"]), lines=lines, loader=loader, fee=fee, total=o["sum"] / 100,
                    feeRate=oh.FEE_RATE, hasFee=any(p["assortment"].get("name") == oh.FEE_NAME for p in pos),
                    store=(o.get("store") or {}).get("meta", {}).get("href", "").rstrip("/").rsplit("/", 1)[-1],
                    reserved=any((l["reserve"] or 0) > 0 for l in lines if l["type"] in RESERVABLE),
@@ -1432,6 +1432,14 @@ def smart_find(items, q, limit=30):
 
 
 _api_uid = [None]
+def _consent_of(number):
+    try:
+        return oh.order_consent(number)
+    except Exception as e:
+        print("Журнал согласий:", str(e)[:150], flush=True)
+        return None
+
+
 _DIFF_NAMES = {"description": "комментарий", "agent": "контрагент", "moment": "дата", "applicable": "проведение", "deliveryPlannedMoment": "план. дата отгрузки",
                "store": "склад", "organization": "организация", "project": "проект", "salesChannel": "канал продаж", "attributes": "доп. поля",
                "rate": "валюта", "contract": "договор", "vatEnabled": "НДС", "name": "номер", "owner": "владелец", "group": "отдел"}

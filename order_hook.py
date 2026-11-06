@@ -702,6 +702,38 @@ def save_consent(cid, how):
                                                            "text": CONSENT_TEXT}, ensure_ascii=False))
 
 
+def _consent_db():
+    import inbox
+    d = inbox.db()
+    if not _consent_ready[0]:
+        pk = "SERIAL PRIMARY KEY" if inbox.PG else "INTEGER PRIMARY KEY AUTOINCREMENT"
+        d.run(f"CREATE TABLE IF NOT EXISTS consent_log (id {pk}, t DOUBLE PRECISION, at TEXT, number TEXT, cid TEXT, site TEXT, "
+              "ver TEXT, text TEXT, ip TEXT, ua TEXT)")
+        d.c.commit()
+        _consent_ready[0] = True
+    return d
+
+
+_consent_ready = [False]
+
+
+def log_order_consent(number, ip, cid, site, device=True):
+    """Журнал согласий (доказательство для Юриста): заказ, время (Алматы), версия текста и политики, сам текст, IP и устройство.
+    В описание заказа МойСклад и комментарий системы AMURA больше не пишется (владелец 06.11.2026)."""
+    from flask import has_request_context
+    ua = (request.headers.get("User-Agent") or "")[:300] if device and has_request_context() else ""
+    with _consent_db() as d:
+        d.run("INSERT INTO consent_log (t, at, number, cid, site, ver, text, ip, ua) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+              (time.time(), consent_time(), str(number), cid or "", site, consent_ver(), CONSENT_TEXT, (ip or "")[:64], ua))
+
+
+def order_consent(number):
+    """Последняя запись журнала согласий по номеру заказа → {at, ver, site} или None (старые заказы — в их комментарии)."""
+    with _consent_db() as d:
+        r = d.run("SELECT t, at, ver, site FROM consent_log WHERE number=%s ORDER BY id DESC LIMIT 1", (str(number),), one=True)
+    return {"t": r[0], "at": r[1], "ver": r[2], "site": r[3]} if r else None
+
+
 PAY_CARD_TXT = "Оплата: картой на сайте"   # клиент выбрал «Картой сейчас» — в «Моих заказах» у неоплаченного кнопка «Оплатить»
 NEWS_TXT = "Новости и акции AMURA (SMS, e-mail, мессенджеры)"
 
@@ -1305,7 +1337,6 @@ def order_core(d, key, ip, me, source="с сайта", panel=False, paid=None):
             "shipmentAddress": city,
             "description": f"Заказ {source}\n{name}, {contact}\nГород: {city}\nОтправка: {ship_name}" + _panel_comment(d, panel) + sup_desc
                            + (f"\nИсточник: {src['code']}" + (f" (промокод {src['promo']}, скидка {disc:g}%)" if disc else "") if src else "")
-                           + (f"\n{CONSENT_TXT}: {consent_time()}, {consent_ver()}" if not panel and d.get("consent") is True else "")
                            + (f"\n{NEWS_TXT}: {'да' if d['news'] else 'нет'}" if retail and isinstance(d.get("news"), bool) else "")
                            + (f"\n{PAY_CARD_TXT}" if retail and d.get("pay") == "card" else "")
                            + (f"\n{paid['note']}" if paid and paid.get("note") else ""),
@@ -1318,6 +1349,11 @@ def order_core(d, key, ip, me, source="с сайта", panel=False, paid=None):
         return dict(ok=False, error="Не удалось сохранить заказ, менеджер уже получил его и свяжется с вами"), 502
 
     number = order["name"]
+    if not panel and d.get("consent") is True:   # согласие — в журнал согласий (наша база), не в комментарий заказа (владелец 06.11.2026)
+        try:
+            log_order_consent(number, "" if paid else ip, me or agent, "rtl" if retail else "opt", device=not paid)   # после оплаты — запрос платёжки, не клиента
+        except Exception as e:
+            print("Журнал согласий: не записано для заказа", number, str(e)[:150], flush=True)
     if sup_tg:
         try:
             tg("sendMessage", chat_id=OWNER, text=f"🧺 Заказ № {number} (опт): {sup_tg}")

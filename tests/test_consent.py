@@ -1,4 +1,4 @@
-"""Согласие (оба сайта): факт, время и версия — в комментарии заказа и у клиента; первое сообщение ИИ и «оператор»."""
+"""Согласие (оба сайта): факт, время и версия — в журнале согласий по заказу и у клиента; первое сообщение ИИ и «оператор»."""
 import hashlib
 import json
 import os
@@ -28,6 +28,8 @@ ITEM = {"id": "p1", "name": "Крем", "qty": 50, "opt": 5000, "mid": 4900, "bo
 class Consent(unittest.TestCase):
     def setUp(self):
         self.posted = []
+        with oh._consent_db() as d:
+            d.run("DELETE FROM consent_log")
         for name, val in {"catalog": lambda: {"p1": dict(ITEM)}, "too_many": lambda *a, **k: False,
                           "find_or_create_agent": lambda *a: "agent-1", "organization": lambda: "org-1", "store_id": lambda: "store-1",
                           "fee_service_id": lambda: "fee-1", "delivery_service_id": lambda: "dlv-1", "notify_bg": lambda fn: None,
@@ -47,12 +49,26 @@ class Consent(unittest.TestCase):
         return self.posted[-1]["description"]
 
     def test_order_description(self):
-        self.assertIn(oh.CONSENT_TXT + ": ", self.order(mode="retail", consent=True))
-        self.assertIn("(Алматы)", self.posted[-1]["description"])
+        """Согласие — не в комментарии заказа, а в журнале согласий по номеру заказа (владелец 06.11.2026)."""
+        desc = self.order(mode="retail", consent=True)
+        self.assertNotIn(oh.CONSENT_TXT, desc)
+        self.assertNotIn("политика от", desc)
+        c = oh.order_consent(self.num())
+        self.assertIn("(Алматы)", c["at"])
+        self.assertEqual(c["site"], "rtl")
+        self.assertIn("политика от " + PRIV, c["ver"])                          # версия — дата редакции политики
         self.assertNotIn(oh.CONSENT_TXT, self.order(mode="retail"))
-        self.assertIn(oh.CONSENT_TXT, self.order(consent=True))                 # опт — тоже (юрист, 02.11.2026)
-        self.assertIn("политика от " + PRIV, self.posted[-1]["description"])  # версия — дата редакции политики
-        self.assertNotIn(oh.CONSENT_TXT, self.order(mode="retail", consent="1"))  # только настоящая галочка
+        self.assertIsNone(oh.order_consent(self.num()))
+        self.assertNotIn(oh.CONSENT_TXT, self.order(consent=True))              # опт — тоже в журнал
+        self.assertEqual(oh.order_consent(self.num())["site"], "opt")
+        self.order(mode="retail", consent="1")                                   # только настоящая галочка
+        self.assertIsNone(oh.order_consent(self.num()))
+        with oh._consent_db() as d:
+            row = d.run("SELECT ip, text, cid FROM consent_log WHERE number=%s", (str(1500 + 3),), one=True)
+        self.assertEqual(row, ("1.1.1.1", oh.CONSENT_TEXT, "cid-1"))              # доказательство: IP, текст, клиент
+
+    def num(self):
+        return str(1500 + len(self.posted))
 
     def test_pay_card_mark(self):
         self.assertIn(oh.PAY_CARD_TXT, self.order(mode="retail", pay="card"))
