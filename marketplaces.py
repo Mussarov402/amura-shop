@@ -565,6 +565,20 @@ def ms_by_codes(codes):
     return out
 
 
+def ms_by_barcode(bc):
+    """Товар МойСклад по штрихкоду — и без остатка (контекстный поиск МС, затем точная сверка штрихкода). → id или None."""
+    bc = str(bc or "").strip()
+    if not bc:
+        return None
+    try:
+        rows = oh.ms("GET", "/entity/product", params={"search": bc, "limit": 20}, timeout=12).get("rows") or []
+    except Exception as e:
+        print("Товар МойСклад по штрихкоду:", str(e)[:200], flush=True)
+        return None
+    return next((r["id"] for r in rows if not r.get("archived")
+                 and bc in {str(v) for b in r.get("barcodes") or [] for v in b.values()}), None)
+
+
 def mapping(ch):
     """ref товара маркетплейса → id товара МойСклад (+ по артикулу продавца). Не нашли — «без пары»."""
     def build():
