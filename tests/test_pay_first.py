@@ -97,7 +97,8 @@ class PayFirst(unittest.TestCase):
         body = self.posted[-1]
         self.assertEqual(body["state"]["meta"]["href"], "https://x/state/s-ok")  # сразу «Подтвержден»
         self.assertIn("Оплачено картой Freedom Pay, платёж №9001 — ТЕСТ", body["description"])
-        self.assertIn(oh.CONSENT_TXT, body["description"])
+        self.assertNotIn(oh.CONSENT_TXT, body["description"])                 # согласие — в журнале, не в комментарии
+        self.assertTrue(oh.order_consent("1700"))
         self.assertEqual(sum(p["price"] * p["quantity"] for p in body["positions"]) // 100, 14380)
         self.assertEqual(self.c.post("/pay/card/status", json={"token": res["payToken"]}).get_json()["number"], "1700")
         self.assertEqual(freedom.by_pg_order(pg)["number"], "1700")
