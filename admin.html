@@ -1624,16 +1624,16 @@ async agent(){const V=views.agent,n=nav;V.f=V.f||"new";const o=await api("agent"
  $("#agstop").onclick=async()=>{const on=!R.stop;if(on&&!confirm("Остановить всё автоматическое? Каждая заявка менеджера будет ждать вашего «Да»."))return;try{await api("agent/rules",{method:"POST",body:JSON.stringify({stop:on})});toast(on?"Автоматическое остановлено":"Возобновлено");views.agent()}catch(e){err(e)}}},
 async mpkeys(){const o=await api("mpkeys");if(!o)return;
  const when=t=>{const x=new Date(t*1000);return x.toLocaleDateString("ru",{day:"2-digit",month:"2-digit"})+" "+x.toLocaleTimeString("ru",{hour:"2-digit",minute:"2-digit"})};
- $("#main").innerHTML=head("Ключи площадок","Ключи Ozon, WB и Kaspi Pay. Хранятся зашифрованными, видна только маска. Пустое поле — ключ не меняется")+seg("mpkeys")+`<div class="dlw">`+
+ $("#main").innerHTML=head("Ключи площадок","Ключи Ozon, WB, Freedom Pay и Kaspi Pay. Хранятся зашифрованными, видна только маска. Пустое поле — ключ не меняется")+seg("mpkeys")+`<div class="dlw">`+
   o.groups.map(g=>`<div class="card" data-g="${g.id}"><div class="row"><div class="grow"><b>${esc(g.title)}</b></div>${g.check?`<button class="btn sm ghost" data-chk="${g.id}">Проверить</button>`:""}</div>
    <div class="dlf">${g.keys.map(k=>`<label>${esc(k.label)} <span class="mut">${esc(k.name)}</span>
-    <input data-k="${k.name}" autocomplete="off" autocapitalize="off" spellcheck="false" ${k.secret?'type="password"':""} placeholder="${k.set?esc(k.value)+(k.from?" — "+esc(k.from):""):"не вписан"}"></label>
+    ${k.flag?`<select data-k="${k.name}" data-was="${k.value==="1"?"1":"0"}"><option value="0"${k.value==="1"?"":" selected"}>Выключен</option><option value="1"${k.value==="1"?" selected":""}>Включён</option></select>`:`<input data-k="${k.name}" autocomplete="off" autocapitalize="off" spellcheck="false" ${k.secret?'type="password"':""} placeholder="${k.set?esc(k.value)+(k.from?" — "+esc(k.from):""):"не вписан"}">`}</label>
     ${k.from==="система AMURA"?`<button type="button" class="btn sm ghost" data-clr="${k.name}" style="justify-self:start">Вернуть ключ сервера</button>`:""}`).join("")}</div>
    <div class="dlb"><button class="btn" data-save="${g.id}">Сохранить</button><span class="mut" data-m="${g.id}"></span></div></div>`).join("")+
   `<div class="card"><b>Кто менял</b>${o.log.length?o.log.map(l=>`<div class="mut" style="padding:4px 0">${when(l.at)} · ${esc(l.name)} — ${esc(l.action)} · ${esc(l.who)}</div>`).join(""):'<div class="mut" style="padding:6px 0">Изменений пока не было.</div>'}</div></div>`;
  const msg=(g,t)=>{const m=document.querySelector(`[data-m="${g}"]`);if(m)m.textContent=t};
  document.querySelectorAll("[data-save]").forEach(b=>b.onclick=async()=>{const g=b.dataset.save,vals={};
-  document.querySelectorAll(`[data-g="${g}"] [data-k]`).forEach(i=>{if(i.value.trim())vals[i.dataset.k]=i.value.trim()});
+  document.querySelectorAll(`[data-g="${g}"] [data-k]`).forEach(i=>{if(i.dataset.was!==undefined?i.value!==i.dataset.was:i.value.trim())vals[i.dataset.k]=i.value.trim()});
   if(!Object.keys(vals).length)return msg(g,"Впишите ключ — пустые поля не меняются");
   b.disabled=true;try{await api("mpkeys",{method:"PUT",body:JSON.stringify({values:vals})});toast("Ключи сохранены");views.mpkeys()}catch(e){msg(g,e.message);b.disabled=false}});
  document.querySelectorAll("[data-clr]").forEach(b=>b.onclick=async()=>{if(!confirm("Убрать ключ из системы AMURA? Снова будет работать ключ из файла сервера (если он там есть)."))return;
