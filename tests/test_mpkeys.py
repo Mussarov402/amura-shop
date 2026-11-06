@@ -99,6 +99,33 @@ class Keys(unittest.TestCase):
         self.assertEqual(r.status_code, 502)
         self.assertNotIn(KEY, r.get_data(as_text=True))
 
+    def test_freedom_keys_flag_and_check(self):
+        import freedom
+        r = self.c.put("/admin/api/mpkeys", json={"values": {"FREEDOM_TEST": "да"}})
+        self.assertEqual(r.status_code, 400)                                     # переключатель — только 0 / 1
+        self.c.put("/admin/api/mpkeys", json={"values": {"FREEDOM_MERCHANT_ID": "552233", "FREEDOM_SECRET_KEY": "fp-secret-ABCDEFGH", "FREEDOM_TEST": "1"}})
+        self.assertTrue(freedom.keys_set() and freedom.testing())
+        k = {x["name"]: x for g in self.c.get("/admin/api/mpkeys").get_json()["groups"] for x in g["keys"]}
+        self.assertEqual((k["FREEDOM_SECRET_KEY"]["value"], k["FREEDOM_TEST"]["flag"], k["FREEDOM_TEST"]["value"]), ("••••EFGH", True, "1"))
+        sent = []
+
+        def post(url, data=None, timeout=None):
+            sent.append((url, data))
+            ok = data["pg_sig"] == freedom.sign("get_status3.php", {k: v for k, v in data.items() if k != "pg_sig"}, "fp-secret-ABCDEFGH")
+            body = ("<response><pg_status>error</pg_status><pg_error_code>340</pg_error_code><pg_error_description>Платеж не найден</pg_error_description></response>"
+                    if ok else "<response><pg_status>error</pg_status><pg_error_code>9998</pg_error_code><pg_error_description>Неверная подпись запроса</pg_error_description></response>")
+            return type("R", (), {"status_code": 200, "text": body})()
+        with mock.patch.object(freedom.requests, "post", post):
+            j = self.c.post("/admin/api/mpkeys/check/freedom").get_json()
+            self.assertTrue(j["ok"], j)
+            self.assertIn("тестовый режим", j["name"])
+            self.assertTrue(sent[-1][0].endswith("/get_status3.php") and "pg_amount" not in sent[-1][1])   # без суммы — ничего не списывается
+            self.c.put("/admin/api/mpkeys", json={"values": {"FREEDOM_SECRET_KEY": "wrong-secret-0000"}})
+            r = self.c.post("/admin/api/mpkeys/check/freedom")
+        self.assertEqual(r.status_code, 502)
+        self.assertIn("Неверная подпись", r.get_json()["error"])
+        self.assertNotIn("wrong-secret", r.get_data(as_text=True))
+
 
 if __name__ == "__main__":
     unittest.main()

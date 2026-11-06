@@ -30,11 +30,15 @@ GROUPS = [
      "keys": [("WB_API_TOKEN", "Токен API", True), ("WB_NAME", "Название магазина", False)]},
     {"id": "wb2", "title": "Wildberries 2", "check": "wb", "shop": "wb2",
      "keys": [("WB_API_TOKEN_2", "Токен API", True), ("WB_NAME_2", "Название магазина", False)]},
+    {"id": "freedom", "title": "Freedom Pay — оплата картой (розница)", "check": "freedom", "shop": "",
+     "keys": [("FREEDOM_MERCHANT_ID", "Merchant ID", False), ("FREEDOM_SECRET_KEY", "Secret key", True),
+              ("FREEDOM_TEST", "Тестовый режим (платежи без списания)", False)]},
     {"id": "apipay_opt", "title": "Kaspi Pay (ApiPay) — ИП опта", "check": "", "shop": "",
      "keys": [("APIPAY_API_KEY_OPT", "Ключ ApiPay", True)]},
 ]
 NAMES = {k for g in GROUPS for k, _, _ in g["keys"]}
 SECRET = {k for g in GROUPS for k, _, s in g["keys"] if s}
+FLAGS = {"FREEDOM_TEST"}                               # переключатель: «1» — вкл, «0» — выкл
 _orig = {k: os.environ.get(k) for k in NAMES}        # значения из app.env на момент запуска — вернуть, если поле очистили
 _ready = [False]
 _lock = threading.Lock()
@@ -129,7 +133,7 @@ def route_list():
         keys = []
         for name, label, secret in g["keys"]:
             v = os.environ.get(name, "")
-            keys.append({"name": name, "label": label, "secret": secret, "set": bool(v), "value": mask(v, secret),
+            keys.append({"name": name, "label": label, "secret": secret, "set": bool(v), "value": mask(v, secret), "flag": name in FLAGS,
                          "from": "система AMURA" if st.get(name) else ("сервер" if v else "")})
         groups.append({"id": g["id"], "title": g["title"], "check": bool(g["check"]), "keys": keys})
     with db() as d:
@@ -147,6 +151,8 @@ def route_save():
     b = request.get_json(silent=True) or {}
     vals = {k: str(v).strip() for k, v in (b.get("values") or {}).items() if k in NAMES and str(v or "").strip()}
     clear = [k for k in (b.get("clear") or []) if k in NAMES]
+    if any(vals[k] not in ("0", "1") for k in FLAGS & set(vals)):
+        return jsonify(ok=False, error="Переключатель — 0 или 1"), 400
     if any(len(v) > 2000 or "\n" in v for v in vals.values()):
         return jsonify(ok=False, error="Ключ слишком длинный или с переносом строки"), 400
     who = me.get("name") or "владелец"
@@ -171,6 +177,8 @@ def route_check(gid):
     if not g:
         return jsonify(ok=False, error="Проверка для этого блока не нужна"), 400
     apply()
+    if g["check"] == "freedom":
+        return _check_freedom()
     import marketplaces as mpk
     ch = {c.key: c for c in mpk.channels()}.get(g["shop"])
     if not ch or not ch.keys_set():
@@ -188,3 +196,27 @@ def route_check(gid):
     except Exception as e:
         return jsonify(ok=False, error=f"Не удалось проверить: {e.__class__.__name__}"), 502
     return jsonify(ok=True, **info)
+
+
+def _check_freedom():
+    """Freedom Pay: запрос статуса несуществующего платежа (get_status3.php) — без списания и без создания платежа.
+    Неверный Merchant ID или ключ — Freedom отвечает ошибкой подписи / магазина; «платёж не найден» — ключи приняты."""
+    import secrets
+    import freedom
+    if not freedom.keys_set():
+        return jsonify(ok=False, error="Ключи не вписаны"), 400
+    params = {"pg_merchant_id": freedom.merchant(), "pg_order_id": "amura-check-" + secrets.token_hex(4), "pg_salt": secrets.token_hex(8)}
+    params["pg_sig"] = freedom.sign("get_status3.php", params)
+    try:
+        r = freedom.requests.post(f"{freedom.API}/get_status3.php", data=params, timeout=20)
+        x = freedom._xml(r.text)
+    except Exception as e:
+        return jsonify(ok=False, error=f"Freedom не ответил: {e.__class__.__name__}"), 502
+    desc = str(x.get("pg_error_description") or x.get("pg_description") or "")[:200]
+    low = desc.lower()
+    test = " · тестовый режим" if freedom.testing() else " · боевой режим"
+    if x.get("pg_status") == "ok" or (x.get("pg_status") == "error" and any(w in low for w in ("не найден", "not found", "отсутств", "не существ"))):
+        return jsonify(ok=True, name=f"Merchant {freedom.merchant()} — ключи приняты" + test, currency="", country="")
+    if not x:
+        return jsonify(ok=False, error=f"Freedom ответил непонятно (HTTP {r.status_code})"), 502
+    return jsonify(ok=False, error=f"Freedom не принял ключи: {desc or x.get('pg_error_code') or 'ошибка'}"), 502
