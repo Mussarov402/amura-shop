@@ -1013,8 +1013,20 @@ class OzonKzCardCreate(unittest.TestCase):
         self.assertIn("ниже минимальной цены для маржи 15 %: минимум 10714 ₸", r.get_json()["error"])   # (5000 + 1000) / (1 − 0,29 − 0,15)
         self.assertEqual(self.sent, [])
 
+    def test_no_stock_found_in_whole_ms(self):
+        """Товара нет в каталоге с остатком — ищем во всём МойСклад: по коду, затем по штрихкоду (Manyo/AXIS-Y, 06.11.2026)."""
+        self.patch(oh, "panel_catalog", lambda: {})
+        self.patch(mpk, "ms_by_codes", lambda codes: {"01087": "m1"} if "01087" in codes else {})
+        self.patch(mpk, "ms_by_barcode", lambda bc: None)
+        self.assertEqual(self.new().get_json()["status"], "done")
+        self.patch(mpk, "ms_by_codes", lambda codes: {})
+        self.patch(mpk, "ms_by_barcode", lambda bc: "m1" if bc == "8809640730016" else None)
+        self.assertEqual(self.new(barcode="8809640730016").get_json()["status"], "done")
+
     def test_kz_unknown_cost_waits_for_yes(self):
         self.patch(oh, "panel_catalog", lambda: {})
+        self.patch(mpk, "ms_by_codes", lambda codes: {})
+        self.patch(mpk, "ms_by_barcode", lambda bc: None)
         r = self.new().get_json()
         self.assertEqual((r["status"], r["auto"]), ("new", False))
         self.assertIn("нет в МойСклад", self.tg[-1])

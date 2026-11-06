@@ -642,6 +642,10 @@ def oz_new_floor(ch, p):
     keys = {str(p.get(k) or "").strip().lower() for k in ("offer_id", "barcode")} - {""}
     pid = next((i["id"] for i in oh.panel_catalog().values()
                 if keys & {str(i.get(k) or "").strip().lower() for k in ("code", "article", "barcode")}), None)
+    if not pid and str(p.get("offer_id") or "").strip():        # товара нет в каталоге с остатком — ищем во всём МойСклад
+        pid = mpk.ms_by_codes([p["offer_id"]]).get(str(p["offer_id"]).strip().lower())
+    if not pid and str(p.get("barcode") or "").strip():
+        pid = mpk.ms_by_barcode(p["barcode"])
     if not pid:
         raise ValueError("товара с таким артикулом или штрихкодом нет в МойСклад — себестоимость неизвестна")
     cost = mp_calc.product(pid).get("cost")
