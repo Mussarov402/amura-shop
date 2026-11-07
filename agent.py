@@ -2406,6 +2406,22 @@ def revert(rid):
     return jsonify(ok=status == "done", id=nid, status=status, result=out, **({} if status == "done" else {"error": "WB не принял откат"}))
 
 
+# ---------- реальная стоимость доставки (Хиро / Аналитик, 07.11.2026) — только расчёт, ничего не заказывает ----------
+@bp.get("/agent/api/report/delivery_estimate")
+def delivery_estimate_report():
+    """Последний расчёт dlv_estimate: Яндекс Алматы, СДЭК пункт и дверь, 0,5 и 1,5 кг (ср / медиана / p90, ₸).
+    ?run=1 — пересчитать в фоне (цены у Яндекса и СДЭК только запрашиваются, заказов нет). Адреса клиентов не отдаём."""
+    import re as _re
+    import delivery_estimate
+    started = delivery_estimate.run_bg() if request.args.get("run") == "1" else False
+    out = delivery_estimate.last()
+    r = dict(out.get("result") or {})
+    if r.get("errors"):
+        r["errors"] = [_re.sub(r"«[^»]*»", "«…»", e) if e.startswith("Яндекс") else e for e in r["errors"]]
+    log(200, "delivery_estimate" + (" run" if started else ""))
+    return jsonify(ok=True, running=out.get("running"), started=started, result=r or None)
+
+
 # ---------- габариты для расчёта коробок S/M/L (Аналитик, слово владельца 03.11.2026) — только чтение, без ПД ----------
 @bp.get("/agent/api/report/dims")
 def dims_report():
