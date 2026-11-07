@@ -168,6 +168,8 @@ READ = {
         "transactions": ("POST", "", "/v3/finance/transaction/list", ["*"], "финансовые операции"),
         "transaction_totals": ("POST", "", "/v3/finance/transaction/totals", ["*"], "итоги начислений за период или по отправлению (date или posting_number)"),
         "cash_flow": ("POST", "", "/v1/finance/cash-flow-statement/list", ["*"], "периоды выплат: продажи, комиссии, услуги"),
+        "realization": ("POST", "", "/v2/finance/realization", ["*"], "отчёт о реализации за месяц ({month, year})"),
+        "realization_posting": ("POST", "", "/v1/finance/realization/posting", ["*"], "реализация по отправлениям за месяц ({month, year})"),
         "posting": ("POST", "", "/v3/posting/fbs/get", ["*"], "отправление FBS по posting_number, with.financial_data — начисления по нему"),
         "actions": ("GET", "", "/v1/actions", [], "акции"),
         "action_candidates": ("POST", "", "/v1/actions/candidates", ["*"], "товары, которые можно добавить в акцию"),
