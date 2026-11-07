@@ -132,8 +132,14 @@ def run():
     ya = c["svc"]["yandex"]
     if ya.get("token"):
         wh = store.get("wh_addr") or ""
-        src = geocode(wh if "алмат" in wh.lower() else f"{wh}, Алматы") if wh else None
-        res["from"] = wh if src else "центр Алматы (адрес склада не найден на карте)"
+        pin = None
+        if store.get("wh_coords"):                       # точка склада из настроек доставки важнее поиска адреса на карте
+            try:
+                pin = delivery.resolve_coords(store["wh_coords"])
+            except Exception as e:
+                res["errors"].append(f"Координаты склада не прочитаны: {str(e)[:100]}")
+        src = pin or (geocode(wh if "алмат" in wh.lower() else f"{wh}, Алматы") if wh else None)
+        res["from"] = (f"{wh} (точка из настроек)" if pin else wh) if src else "центр Алматы (адрес склада не найден на карте)"
         src = src or ALMATY
         pts = []
         for a in list(dict.fromkeys(almaty))[:MAX_POINTS]:
