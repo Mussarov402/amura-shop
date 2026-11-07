@@ -67,6 +67,21 @@ def _clean_addr(a):
     return re.sub(r"\s+", " ", a).strip(" ,.")
 
 
+def last_claim_source(token):
+    """Координаты точки «source» последней заявки в кабинете Яндекс Доставки (claims/search — только чтение) → (lon, lat) или None."""
+    try:
+        r = requests.post(delivery.Yandex.BASE + "/b2b/cargo/integration/v2/claims/search", json={"offset": 0, "limit": 5},
+                          headers={"Authorization": "Bearer " + token, "Accept-Language": "ru"}, timeout=20)
+        for c in (r.json().get("claims") or []) if r.ok else []:
+            for p in c.get("route_points") or []:
+                xy = (p.get("address") or {}).get("coordinates")
+                if p.get("type") == "source" and isinstance(xy, list) and len(xy) == 2:
+                    return float(xy[0]), float(xy[1])
+    except Exception as e:
+        print("Доставка, расчёт: точка из заявок Яндекса не получена:", str(e)[:120], flush=True)
+    return None
+
+
 def yandex_price(token, a, b, kg, box):
     body = {"items": [{"quantity": 1, "weight": kg, "size": {"length": box[0] / 100, "width": box[1] / 100, "height": box[2] / 100}}],
             "route_points": [{"coordinates": list(a)}, {"coordinates": list(b)}], "requirements": {"taxi_class": "courier"}}
@@ -138,8 +153,16 @@ def run():
                 pin = delivery.resolve_coords(store["wh_coords"])
             except Exception as e:
                 res["errors"].append(f"Координаты склада не прочитаны: {str(e)[:100]}")
-        src = pin or (geocode(wh if "алмат" in wh.lower() else f"{wh}, Алматы") if wh else None)
-        res["from"] = (f"{wh} (точка из настроек)" if pin else wh) if src else "центр Алматы (адрес склада не найден на карте)"
+        how = "точка из настроек" if pin else ""
+        src = pin
+        if not src and wh:                               # как у настоящих заказов (courier.warehouse): поиск по Алматы
+            import courier
+            src = courier.geocode(wh)
+            how = "адрес склада на карте" if src else ""
+        if not src:                                      # точка отправления последней настоящей заявки Яндекса
+            src = last_claim_source(ya["token"])
+            how = "как в последней заявке Яндекса" if src else ""
+        res["from"] = f"{wh or 'склад'} ({how})" if src else "центр Алматы (адрес склада не найден на карте)"
         src = src or ALMATY
         pts = []
         for a in list(dict.fromkeys(almaty))[:MAX_POINTS]:
