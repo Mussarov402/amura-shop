@@ -179,7 +179,7 @@ class Ozon(Channel):
                           headers={"Client-Id": self.env("CLIENT_ID"), "Api-Key": self.env("API_KEY"), "Content-Type": "application/json"})
         j = _json(r)
         if r.status_code >= 400:
-            raise ApiError(r.status_code, (str(j.get("message") or "") or f"HTTP {r.status_code}")[:300])
+            raise ApiError(r.status_code, (str(j.get("message") or "") or f"HTTP {r.status_code} {path}: {_body(r)}")[:300])
         return j
 
     @staticmethod
@@ -540,6 +540,12 @@ def shown(qty, pct=None, share=100):
 def _catalog():
     """Товары МойСклад, как в системе AMURA: id → {code, article, barcode, qty (доступно), name}."""
     return oh.panel_catalog()
+
+
+def _body(r):
+    """Начало ответа без JSON-сообщения — чтобы было видно, что ответила площадка (страница шлюза, пустой ответ)."""
+    t = " ".join((getattr(r, "text", "") or "").split())[:120]
+    return t or "пустой ответ"
 
 
 def ms_by_codes(codes):

@@ -166,6 +166,9 @@ READ = {
         "analytics": ("POST", "", "/v1/analytics/data", ["*"], "аналитика (выручка, заказы)"),
         "queries": ("POST", "", "/v1/analytics/product-queries", ["*"], "поисковые запросы по товарам"),
         "transactions": ("POST", "", "/v3/finance/transaction/list", ["*"], "финансовые операции"),
+        "transaction_totals": ("POST", "", "/v3/finance/transaction/totals", ["*"], "итоги начислений за период или по отправлению (date или posting_number)"),
+        "cash_flow": ("POST", "", "/v1/finance/cash-flow-statement/list", ["*"], "периоды выплат: продажи, комиссии, услуги"),
+        "posting": ("POST", "", "/v3/posting/fbs/get", ["*"], "отправление FBS по posting_number, with.financial_data — начисления по нему"),
         "actions": ("GET", "", "/v1/actions", [], "акции"),
         "action_candidates": ("POST", "", "/v1/actions/candidates", ["*"], "товары, которые можно добавить в акцию"),
         "category_tree": ("POST", "", "/v1/description-category/tree", ["*"], "дерево категорий и типов товаров"),
@@ -695,7 +698,16 @@ def _oz_pictures(ch, p):
     for k in ("color_image", "images360"):
         if p.get(k):
             body[k] = p[k]
-    return ch.call("/v1/product/pictures/import", body)
+    try:
+        return ch.call("/v1/product/pictures/import", body)
+    except mpk.ApiError as e:
+        if "obsolete" not in (e.message or "").lower() and e.code != 404:
+            raise
+    try:                                   # Ozon выключил v1 («obsolete method cannot be used», 06.11.2026) — пробуем v2
+        return ch.call("/v2/product/pictures/import", body)
+    except mpk.ApiError as e:
+        raise mpk.ApiError(e.code, f"Ozon выключил загрузку картинок v1, v2 не принял ({e.message[:150]}) — "
+                                   "обновите фото повторной ozon_card_create с images") from None
 
 
 def oz_attrs(ch, offer):
@@ -1492,6 +1504,11 @@ def new_request(kind, ch, p, comment, text):
         status, res = execute(rid, "правило владельца")
         if status == "done" and why.startswith("подтяжка"):
             raised(why)
+        if status == "done" and kind in SUPERSEDE:
+            try:
+                close_superseded()
+            except Exception as e:
+                print("Заявки на карточки — сверка:", str(e)[:150], flush=True)
         return rid, status, True, res
     ask_owner(rid, text, comment)
     return rid, "new", False, None
@@ -1647,6 +1664,33 @@ def same_in_cabinet(kind, ch, p):
     return abs(buyer - float(p["price"])) < 1
 
 
+SUPERSEDE = {"ozon_card_create": "offer_id", "wb_card_create": "vendorCode"}   # новая карточка: ключ — артикул продавца
+
+
+def close_superseded():
+    """Ждущая «Да» заявка на карточку, если позже такую же (вид, магазин, артикул) уже выполнили другой заявкой, — «неактуальна»:
+    иначе «Да» по старой вернёт старую цену (Менеджер WB/Ozon, 06.11.2026). На площадку ничего не отправляем. → сколько закрыто."""
+    n = 0
+    with db() as d:
+        for kind, key in SUPERSEDE.items():
+            done = {}
+            for rid, shop_, raw in d.run("SELECT id, shop, params FROM agent_req WHERE status='done' AND kind=%s", (kind,), many=True) or []:
+                ident = str(json.loads(raw or "{}").get(key) or "").strip().lower()
+                if ident:
+                    done[(shop_, ident)] = max(done.get((shop_, ident), 0), rid)
+            for rid, shop_, raw in d.run("SELECT id, shop, params FROM agent_req WHERE status='new' AND kind=%s", (kind,), many=True) or []:
+                ident = str(json.loads(raw or "{}").get(key) or "").strip().lower()
+                newer = done.get((shop_, ident), 0)
+                if ident and newer > rid:
+                    d.run("UPDATE agent_req SET status='rejected', result=%s, decided=%s, who=%s WHERE id=%s AND status='new'",
+                          (json.dumps({"note": f"неактуальна: выполнено заявкой № {newer}"}, ensure_ascii=False), time.time(),
+                           "система (выполнено другой заявкой)", rid))
+                    n += 1
+    if n:
+        print(f"Заявки на карточки закрыты как выполненные другой заявкой: {n}", flush=True)
+    return n
+
+
 def close_same():
     """Ждущие «Да» заявки на цены: уже стоит в кабинете — «выполнено (уже стоит)»; WB, где цена в кабинете уже не ниже цены
     заявки (и больше 0), — «неактуальна» (владелец 04.11.2026: «Да, закрой»; и дальше автоматически). На площадку ничего не уходит,
@@ -1676,6 +1720,10 @@ def close_same():
         except Exception as e:
             print(f"Цена № {rid} — сверка с кабинетом:", str(e)[:120], flush=True)
     print(f"Заявки на цены закрыты: «уже стоит» — {n}, неактуальные (в кабинете уже не ниже) — {stale}", flush=True)
+    try:
+        stale += close_superseded()
+    except Exception as e:
+        print("Заявки на карточки — сверка:", str(e)[:150], flush=True)
     return n + stale
 
 

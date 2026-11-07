@@ -1137,6 +1137,27 @@ class OzonCard(unittest.TestCase):
         self.assertIn("карточка в объединении", j["error"])
 
 
+
+class Superseded(unittest.TestCase):
+    """Ждущая «Да» заявка на карточку, если ту же (вид, магазин, артикул) потом выполнили другой заявкой, — «неактуальна» (06.11.2026)."""
+    def test_old_card_request_closed(self):
+        with agent.db() as d:
+            d.run("DELETE FROM agent_req")
+            ins = lambda kind, shop, p, st: d.run("INSERT INTO agent_req (at, kind, shop, params, summary, comment, status, result, decided, who) "
+                                                  "VALUES (0, %s, %s, %s, '', '', %s, '', 0, '')", (kind, shop, json.dumps(p), st), ins=True)
+            old = ins("ozon_card_create", "ozon", {"offer_id": "01127", "price": 3000}, "new")
+            other_shop = ins("ozon_card_create", "ozon2", {"offer_id": "01127", "price": 3000}, "new")
+            other_code = ins("ozon_card_create", "ozon", {"offer_id": "00363", "price": 3000}, "new")
+            ins("ozon_card_create", "ozon", {"offer_id": "01127", "price": 9000}, "done")
+            later = ins("ozon_card_create", "ozon", {"offer_id": "01127", "price": 9500}, "new")      # новее выполненной — ждёт
+        self.assertEqual(agent.close_superseded(), 1)
+        with agent.db() as d:
+            st = dict(d.run("SELECT id, status FROM agent_req", many=True))
+            note = d.run("SELECT result FROM agent_req WHERE id=%s", (old,), one=True)[0]
+        self.assertEqual((st[old], st[other_shop], st[other_code], st[later]), ("rejected", "new", "new", "new"))
+        self.assertIn("выполнено заявкой №", note)
+
+
 if __name__ == "__main__":
     unittest.main()
 
