@@ -100,6 +100,71 @@ def route_list():
                    at=int(time.time()))
 
 
+# ---------- общий лист подбора (владелец 07.11.2026: «не удобно с одного на другой магазин переключать») ----------
+def tag(ch):
+    """Метка магазина в листе: «WB», «Ozon AMURA», «Ozon Cosmo Market»."""
+    kind = "WB" if isinstance(ch, mpk.WB) else "Ozon"
+    name = str(ch.title).split(" — ", 1)[1] if " — " in str(ch.title) else ""
+    same = [c for c in mpk.channels() if c.keys_set() and isinstance(c, type(ch))]
+    return f"{kind} {name}".strip() if len(same) > 1 or kind == "Ozon" else kind
+
+
+def wb_sticker_numbers(ch, ids):
+    """Номер на стикере WB (partA + partB, как напечатано) по заданиям в поставке → {id: «1234567 8901»}."""
+    out = {}
+    for k in range(0, len(ids), 100):
+        j = ch.req("POST", "marketplace", "/api/v3/orders/stickers", params={"type": "svg", "width": 58, "height": 40},
+                   json={"orders": [int(x) for x in ids[k:k + 100]]})
+        for st in j.get("stickers") or []:
+            a, b = st.get("partA"), st.get("partB")
+            if a or b:
+                out[str(st.get("orderId"))] = f"{a or ''} {b or ''}".strip()
+    return out
+
+
+def pick():
+    """Новые и собранные заказы FBS всех магазинов: строка на заказ с номером этикетки площадки. → (строки, итог, ошибки)."""
+    cat, rows, items, errors = mpk._catalog(), [], {}, []
+    for ch in [c for c in mpk.channels() if c.keys_set()]:
+        try:
+            new, done, _ = lists(ch)
+            mp = mpk.mapping(ch)
+            stick = {}
+            if isinstance(ch, mpk.WB) and done:
+                try:
+                    stick = wb_sticker_numbers(ch, [o["ext"] for o in done])
+                except mpk.ApiError as e:
+                    errors.append(f"{ch.title}: номера стикеров — {e.message[:120]}")
+            for state, group in (("new", new), ("done", done)):
+                vr, it = view(ch, group, mp, cat)
+                for r in vr:
+                    wb = isinstance(ch, mpk.WB)
+                    rows.append({"shop": ch.key, "tag": tag(ch), "kind": "wb" if wb else "ozon", "state": state, "ext": r["ext"],
+                                 "sticker": (stick.get(r["ext"], "") if wb else r["ext"]), "number": r["number"],
+                                 "cutoff": r["cutoff"], "lines": r["lines"]})
+                for x in it:
+                    k = x["id"] or ("code:" + str(x["code"]))
+                    t = items.setdefault(k, {**x, "qty": 0, "orders": 0, "shops": []})
+                    t["qty"] += x["qty"]
+                    t["orders"] += x["orders"]
+                    if tag(ch) not in t["shops"]:
+                        t["shops"].append(tag(ch))
+        except (mpk.ApiError, ValueError) as e:
+            errors.append(f"{ch.title}: {getattr(e, 'message', str(e))[:150]}")
+    first = lambda r: (str((r["lines"] or [{}])[0].get("code") or "~"), r["tag"], r["ext"])
+    rows.sort(key=first)                                  # по коду товара — собирать за один проход
+    return rows, sorted(items.values(), key=lambda x: (str(x["code"]), x["name"])), errors
+
+
+def route_pick():
+    _, err = mpk._me()
+    if err:
+        return err
+    rows, items, errors = pick()
+    shops = [{"id": c.key, "title": c.title, "kind": "wb" if isinstance(c, mpk.WB) else "ozon", "tag": tag(c)} for c in mpk.channels() if c.keys_set()]
+    return jsonify(ok=True, shops=shops, rows=rows, items=items, errors=errors, at=int(time.time()))
+
+
 # ---------- подтвердить сборку ----------
 def ozon_ship(ch, o):
     prods = [{"product_id": int(l["sku"] or l["ref"]), "quantity": l["qty"]} for l in o["lines"]]
@@ -325,6 +390,7 @@ def route_qr():
 
 
 mpk.bp.add_url_rule("/admin/api/mp/asm", view_func=route_list, endpoint="asm_list")
+mpk.bp.add_url_rule("/admin/api/mp/asm/pick", view_func=route_pick, endpoint="asm_pick")
 mpk.bp.add_url_rule("/admin/api/mp/asm/ship", view_func=route_ship, endpoint="asm_ship", methods=["POST"])
 mpk.bp.add_url_rule("/admin/api/mp/asm/labels", view_func=route_labels, endpoint="asm_labels")
 mpk.bp.add_url_rule("/admin/api/mp/asm/close", view_func=route_close, endpoint="asm_close", methods=["POST"])

@@ -74,7 +74,7 @@ class Assembly(unittest.TestCase):
                                                  "price": 100000, "currencyCode": 398} for i in self.sup_orders.get("WB-GI-1", [])]})
             if path == "/api/v3/orders/stickers":
                 self.calls.append(("stickers", json["orders"]))
-                return tm.Resp(200, {"stickers": [{"orderId": i, "file": base64.b64encode(png()).decode()} for i in json["orders"]]})
+                return tm.Resp(200, {"stickers": [{"orderId": i, "partA": 1234567, "partB": 8900 + i, "file": base64.b64encode(png()).decode()} for i in json["orders"]]})
             if path == "/api/v3/supplies/WB-GI-1/deliver":
                 self.calls.append(("deliver",))
                 return tm.Resp(204, None)
@@ -129,6 +129,21 @@ class Assembly(unittest.TestCase):
         self.assertTrue(self.c.post("/admin/api/mp/asm/close", json={"shop": "wb", "supply": "WB-GI-1"}).get_json()["ok"])
         self.assertEqual(self.c.get("/admin/api/mp/asm/qr?shop=wb&supply=WB-GI-1").mimetype, "application/pdf")
 
+
+    def test_pick_all_shops_with_label_numbers(self):
+        """Один лист подбора на все магазины: строка на заказ, номер этикетки площадки (WB — partA partB, Ozon — отправление)."""
+        self.oz.postings = [self.posting(), self.posting(num="0123-0003-1", status="awaiting_deliver")]
+        self.c.post("/admin/api/mp/asm/ship", json={"shop": "wb", "ids": ["5"]})        # 5 — в поставке, 6 — ещё новое
+        j = self.c.get("/admin/api/mp/asm/pick").get_json()
+        rows = {(r["kind"], r["ext"]): r for r in j["rows"]}
+        self.assertEqual(rows[("wb", "5")]["sticker"], "1234567 8905")
+        self.assertEqual((rows[("wb", "6")]["state"], rows[("wb", "6")]["sticker"]), ("new", ""))   # стикер — после сборки
+        self.assertEqual(rows[("ozon", "0123-0003-1")]["sticker"], "0123-0003-1")
+        self.assertEqual(rows[("ozon", "0123-0001-1")]["tag"].split()[0], "Ozon")
+        self.assertEqual({r["kind"] for r in j["rows"]}, {"wb", "ozon"})
+        it = next(x for x in j["items"] if x["code"] == "00615")
+        self.assertEqual(it["qty"], sum(l["qty"] for r in j["rows"] for l in r["lines"] if l["code"] == "00615"))   # итог по всем магазинам
+        self.assertEqual(len(it["shops"]), 2)
 
     def test_by_orders_split_by_size(self):
         oz, wb = mpk.CHANNELS["ozon"], mpk.CHANNELS["wb"]
