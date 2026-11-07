@@ -1158,6 +1158,31 @@ class Superseded(unittest.TestCase):
         self.assertIn("выполнено заявкой №", note)
 
 
+
+class DeliveryEstimate(unittest.TestCase):
+    def test_report_hides_addresses(self):
+        import delivery_estimate
+        from flask import Flask
+        os.environ["MP_AGENT_TOKEN"] = TOKEN
+        self.addCleanup(lambda: os.environ.pop("MP_AGENT_TOKEN", None))
+        modules.update("agent", on=True)
+        self.addCleanup(lambda: modules.update("agent", on=False))
+        agent._hits.clear()
+        old = delivery_estimate.last, delivery_estimate.run_bg
+        self.addCleanup(lambda: (setattr(delivery_estimate, "last", old[0]), setattr(delivery_estimate, "run_bg", old[1])))
+        runs = []
+        delivery_estimate.run_bg = lambda: runs.append(1) or True
+        delivery_estimate.last = lambda: {"running": False, "result": {"yandex": {"0,5 кг": {"avg": 1500}},
+                                                                       "errors": ["Яндекс «ул. Абая 1, кв 5»: нет цены", "СДЭК «Тараз»: нет тарифа"]}}
+        app = Flask(__name__)
+        app.register_blueprint(agent.bp)
+        c = app.test_client()
+        j = c.get("/agent/api/report/delivery_estimate?run=1", headers={"Authorization": f"Bearer {TOKEN}"}).get_json()
+        self.assertEqual((j["started"], j["result"]["yandex"]["0,5 кг"]["avg"], runs), (True, 1500, [1]))
+        self.assertEqual(j["result"]["errors"], ["Яндекс «…»: нет цены", "СДЭК «Тараз»: нет тарифа"])
+        self.assertEqual(c.get("/agent/api/report/delivery_estimate").status_code, 401)
+
+
 if __name__ == "__main__":
     unittest.main()
 
