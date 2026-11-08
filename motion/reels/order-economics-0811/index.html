@@ -1,0 +1,146 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><link rel="stylesheet" href="../../glass/glass.css">
+<!-- Экономика одного заказа с amura.kz — объяснение для владельца (задача Хиро, 08.11.2026), не реклама.
+     Стиль AMURA: зелёный #14503c и белый. Голос — ElevenLabs «Artem», в git не храним (voice.wav).
+     Рендер: node motion/glass/render.js motion/reels/order-economics-0811 -->
+<style>
+#bg { position: absolute; inset: 0; background: radial-gradient(90% 65% at 50% 38%, #1f6b52 0%, #14503c 50%, #0b3326 100%) }
+#bg i { position: absolute; border-radius: 50%; border: 2px solid rgba(255,255,255,.07) }
+.ttl { position: absolute; left: 70px; right: 70px; top: 210px; text-align: center; font: 800 80px/1.06 Inter, sans-serif; letter-spacing: -.02em; opacity: 0 }
+.card { position: absolute; left: 70px; width: 940px; border-radius: 48px; background: #fff; color: #14503c; padding: 56px 60px; opacity: 0; box-shadow: 0 40px 90px rgba(0,0,0,.3) }
+.ln { display: flex; justify-content: space-between; align-items: baseline; font: 600 44px/1.1 Inter, sans-serif; padding: 18px 0; opacity: 0 }
+.ln b { font-weight: 800; font-variant-numeric: tabular-nums }
+.ln.m { color: #5b7a6f }
+.ln.m b { color: #c0392b }
+.sep { height: 3px; background: #14503c; border-radius: 2px; margin: 20px 0; opacity: 0 }
+.big { font: 800 150px/1 Inter, sans-serif; letter-spacing: -.04em; font-variant-numeric: tabular-nums }
+.lbl { font: 700 30px/1.2 Inter, sans-serif; letter-spacing: .12em; text-transform: uppercase; opacity: .65 }
+.tb { width: 100%; border-collapse: collapse; font: 600 34px/1.15 Inter, sans-serif }
+.tb th { font: 700 24px/1.2 Inter, sans-serif; letter-spacing: .06em; text-transform: uppercase; color: #5b7a6f; text-align: right; padding: 0 0 18px }
+.tb th:first-child, .tb td:first-child { text-align: left }
+.tb td { padding: 22px 0; border-top: 2px solid #e3ece8; text-align: right; font-variant-numeric: tabular-nums }
+.tb td small { display: block; font: 500 26px/1.2 Inter, sans-serif; color: #5b7a6f }
+.tb tr { opacity: 0 }
+.chip { display: inline-block; padding: 10px 20px; border-radius: 999px; font: 800 36px/1 Inter, sans-serif }
+.chip.g { background: #14503c; color: #fff }
+.chip.y { background: #f3b73f; color: #3b2a00 }
+.num { flex: none; width: 76px; height: 76px; border-radius: 50%; background: #14503c; color: #fff; display: flex; align-items: center; justify-content: center; font: 800 38px Inter, sans-serif }
+.row { display: flex; gap: 30px; align-items: flex-start; opacity: 0 }
+.rt { font: 700 46px/1.15 Inter, sans-serif }
+.rs { font: 500 34px/1.3 Inter, sans-serif; color: #5b7a6f; margin-top: 8px }
+.wt { position: absolute; left: 70px; right: 70px; text-align: center; color: #fff; opacity: 0 }
+#sub { position: absolute; left: 60px; right: 60px; top: 1530px; text-align: center }
+#sub span { position: absolute; left: 0; right: 0; opacity: 0; font: 600 44px/1.3 Inter, sans-serif; color: #fff }
+#sub span em { font-style: normal; background: rgba(6,32,23,.72); padding: 6px 18px; border-radius: 14px; -webkit-box-decoration-break: clone; box-decoration-break: clone }
+</style>
+</head><body>
+<div id="bg"><i style="left:-260px;top:-180px;width:760px;height:760px"></i><i style="right:-320px;top:980px;width:900px;height:900px"></i></div>
+<script src="../../glass/glass.js"></script>
+<script>
+(function(){
+const { A, make, show, type, cue, E } = G;
+const END = 93;
+A(document.getElementById('bg'), [{ transform: 'scale(1)' }, { transform: 'scale(1.06)' }], 0, END, 'linear');
+
+/* ---- субтитры: фразы раскладываем по отрезкам голоса пропорционально длине ---- */
+const SEG = [
+  [0.3, 5.11, ['Разберём, сколько мы зарабатываем на одном заказе с сайта,', 'если покупатель берёт одну штуку.']],
+  [6.5, 19.9, ['Товар за 5 000 ₸. Закупка — 3 000.', 'Эквайринг Фридом, 3,5 % — 175.', 'Налог и снятие — 150. Упаковка — 500.', 'До доставки остаётся 1 175 ₸.']],
+  [20.65, 26.35, ['Если заказ меньше порога, доставку оплачивает покупатель.', 'Его деньги почти полностью покрывают наши расходы.']],
+  [27.09, 41.54, ['Смотрим по службам.', 'Казпочта по Алматы — около 1 350 ₸ с одной штуки.', 'Казпочта в дальние регионы — около 890.', 'СДЭК до пункта выдачи — около 1 310.', 'Курьер Яндекс — около 900.']],
+  [42.21, 49.81, ['Одна штука за 5 000 приносит от 900 до 1 350 ₸ —', 'около нашего правила: не меньше 1 000 с единицы.']],
+  [50.55, 55.95, ['А товар дешевле 2 700 ₸ — маски, патчи —', 'тысячу не даёт даже без доставки.']],
+  [56.75, 67.52, ['Поэтому два решения.', 'Первое: минимальный заказ с доставкой — 5 000 ₸,', 'самовывоз без минимума.', 'Второе: дешёвые товары продаём', 'как «добавьте к заказу» или наборами.']],
+  [68.33, 78.4, ['Пороги бесплатной доставки:', 'Казпочта — от 15 000, СДЭК и курьер — от 25 000.', 'Чем больше корзина, тем выгоднее заказ:', 'доставку покрывает сама сумма.']],
+  [79.11, 89.9, ['Формула простая: цена минус закупка,', 'минус 6,5 %, минус упаковка,', 'плюс разница по доставке.', 'Если в итоге с единицы больше тысячи — заказ здоровый.']],
+];
+const sub = make('<div id="sub"></div>'); const P = [];
+SEG.forEach(([a, b, ph]) => { const n = ph.reduce((s, x) => s + x.length + 12, 0); let t = a;
+  ph.forEach(x => { const d = (b - a) * (x.length + 12) / n; P.push([t, t + d]);
+    const s = make(`<span><em>${x}</em></span>`, sub); A(s, [{ opacity: 0 }, { opacity: 1, offset: .02 }, { opacity: 1, offset: .98 }, { opacity: 0 }], t, Math.max(.3, d - .05), 'linear', 'none'); t += d; }); });
+const p = i => P[i][0];     // время начала фразы i
+
+/* ---- помощники ---- */
+const pop = (el, t, k = 'ping') => { A(el, [{ opacity: 0, transform: 'translateY(24px)' }, { opacity: 1, transform: 'none' }], t, .45, E.back, 'forwards'); if (k) cue(t, k); return el; };
+function scene(t0, t1, title, top, h) {
+  const tt = make('<div class="ttl"></div>'); A(tt, [{ opacity: 0, transform: 'translateY(-20px)' }, { opacity: 1, transform: 'none' }], t0 + .1, .45, E.out); show(tt, t0 + .1, t1, .3); tt.innerHTML = title;
+  const c = make(`<div class="card" style="top:${top}px;${h ? 'height:' + h + 'px' : ''}"></div>`);
+  A(c, [{ opacity: 0, transform: 'scale(.8)' }, { opacity: 1, transform: 'none' }], t0 + .35, .5, E.back, 'forwards'); cue(t0 + .35, 'ding');
+  A(c, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(.94)' }], t1 - .35, .35, E.io, 'forwards');
+  A(tt, [{ opacity: 1 }, { opacity: 0 }], t1 - .35, .35, E.io, 'forwards');
+  if (t1 < END - 2) cue(t1 - .35, 'whoosh');
+  return c;
+}
+const ln = (c, a, b, m) => make(`<div class="ln${m ? ' m' : ''}"><span>${a}</span><b>${b}</b></div>`, c);
+
+/* 1. Вопрос 0–5.8 */
+const hook = make('<div class="g-type" style="top:620px;font-size:88px"></div>');
+const he = type(hook, 'Сколько мы<br>зарабатываем<br>на одном заказе?', .3, .045);
+const hs = make('<div class="wt" style="top:1130px;font:600 44px/1.3 Inter,sans-serif;opacity:0">amura.kz · покупатель берёт 1 штуку</div>');
+pop(hs, he + .1, 'pop');
+A(hook, [{ opacity: 1 }, { opacity: 0, transform: 'scale(.92)' }], 5.45, .35, E.io, 'forwards');
+A(hs, [{ opacity: 1 }, { opacity: 0 }], 5.45, .35, E.io, 'forwards'); cue(5.45, 'whoosh');
+
+/* 2. Разбор цены 5.8–20.3 */
+{ const c = scene(5.8, 20.3, 'Товар за 5 000 ₸', 430);
+  pop(ln(c, 'Цена', '5 000'), p(2));
+  pop(ln(c, '− закупка', '3 000', 1), p(2) + 1.3);
+  pop(ln(c, '− эквайринг Фридом 3,5 %', '175', 1), p(3));
+  pop(ln(c, '− налог и снятие', '150', 1), p(4));
+  pop(ln(c, '− упаковка', '500', 1), p(4) + 1.5);
+  pop(make('<div class="sep"></div>', c), p(5) - .2, null);
+  pop(make('<div style="text-align:center;opacity:0;margin-top:26px"><div class="lbl">остаётся до доставки</div><div class="big" style="margin-top:14px">1 175 ₸</div></div>', c), p(5), 'pop');
+}
+
+/* 3. Ниже порога 20.3–26.7 */
+{ const c = scene(20.3, 26.7, 'Заказ меньше<br>порога', 620);
+  pop(make(`<div style="text-align:center;opacity:0"><div class="lbl">доставку оплачивает</div><div style="font:800 96px/1.05 Inter,sans-serif;letter-spacing:-.03em;margin-top:18px">покупатель</div></div>`, c), p(6) + 1.2, 'pop');
+  pop(make('<div class="rs" style="text-align:center;margin-top:40px;font-size:38px;opacity:0">его деньги почти полностью<br>покрывают наши расходы</div>', c), p(7));
+}
+
+/* 4. По службам 26.7–50.2 */
+{ const c = scene(26.7, 50.2, 'Одна штука за 5 000 ₸<br>по службам', 470);
+  const tb = make(`<table class="tb"><tr style="opacity:1"><th>Служба</th><th>Платит<br>покупатель</th><th>Стоит<br>нам</th><th>С 1 шт.</th></tr></table>`, c);
+  const R = [['Казпочта', 'Алматы', '1 500', '1 230', '≈ 1 350', 'g'], ['Казпочта', 'дальние регионы', '1 500', '1 690', '≈ 890', 'y'],
+             ['СДЭК', 'до пункта выдачи', '2 500', '2 200', '≈ 1 310', 'g'], ['Яндекс', 'курьер', '3 000', '3 074', '≈ 900', 'y']];
+  R.forEach(([a, s, b, d, r, k], i) => pop(make(`<tr><td>${a}<small>${s}</small></td><td>${b}</td><td>${d}</td><td><span class="chip ${k}">${r}</span></td></tr>`, tb.tBodies[0] || tb), p(9 + i) + .3));
+  const rule = make('<div class="wt" style="top:1200px"><div style="font:600 40px/1.2 Inter,sans-serif;opacity:.8">итог с одной штуки</div><div style="font:800 96px/1.05 Inter,sans-serif;letter-spacing:-.03em;margin-top:10px">900 – 1 350 ₸</div><div style="margin-top:22px"><span class="chip" style="background:#fff;color:#14503c;font-size:40px;padding:14px 30px">правило: не меньше 1 000 ₸ с единицы</span></div></div>');
+  pop(rule, p(13) + .4, 'pop'); A(rule, [{ opacity: 1 }, { opacity: 0 }], 49.85, .35, E.io, 'forwards');
+}
+
+/* 5. Дешёвые товары 50.2–56.35 */
+{ const c = scene(50.2, 56.35, 'Товар дешевле<br>2 700 ₸', 600);
+  pop(make('<div style="display:flex;gap:20px;justify-content:center;opacity:0"><span class="chip y">маски</span><span class="chip y">патчи</span></div>', c), p(15) + 1.2, 'pop');
+  pop(make(`<div style="text-align:center;opacity:0;margin-top:40px"><div class="lbl">даже без доставки</div><div style="font:800 84px/1.05 Inter,sans-serif;letter-spacing:-.03em;margin-top:16px">меньше 1 000 ₸</div><div class="rs" style="font-size:36px">с одной штуки</div></div>`, c), p(16));
+}
+
+/* 6. Два решения 56.35–67.9 */
+{ const c = scene(56.35, 67.9, 'Два решения', 520);
+  pop(make(`<div class="row"><div class="num">1</div><div><div class="rt">Минимальный заказ<br>с доставкой — 5 000 ₸</div><div class="rs">самовывоз — без минимума</div></div></div>`, c), p(18));
+  pop(make('<div style="height:2px;background:#e3ece8;margin:46px 0;opacity:0"></div>', c), p(20) - .3, null);
+  pop(make(`<div class="row"><div class="num">2</div><div><div class="rt">Дешёвые товары —<br>«добавьте к заказу»</div><div class="rs">или наборами</div></div></div>`, c), p(20));
+}
+
+/* 7. Пороги бесплатной доставки 67.9–78.75 */
+{ const c = scene(67.9, 78.75, 'Бесплатная доставка', 500);
+  pop(make(`<div class="ln" style="font-size:48px"><span>Казпочта</span><b>от 15 000 ₸</b></div>`, c), p(23) + .2);
+  pop(make(`<div class="ln" style="font-size:48px;border-top:2px solid #e3ece8"><span>СДЭК и курьер</span><b>от 25 000 ₸</b></div>`, c), p(23) + 2);
+  pop(make(`<div style="margin-top:40px;padding:34px 36px;border-radius:32px;background:#eef5f1;opacity:0"><div class="rt" style="font-size:42px">Больше корзина — выгоднее заказ</div><div class="rs">доставку покрывает сама сумма</div></div>`, c), p(24), 'pop');
+}
+
+/* 8. Формула 78.75–90.2 */
+{ const c = scene(78.75, 90.2, 'Формула', 430);
+  pop(ln(c, 'Цена', ''), p(26));
+  pop(ln(c, '− закупка', '', 1), p(26) + 1.4);
+  pop(ln(c, '− 6,5 %', '', 1), p(27));
+  pop(ln(c, '− упаковка', '', 1), p(27) + 1.3);
+  pop(make('<div class="ln"><span>± разница по доставке</span><b></b></div>', c), p(28));
+  pop(make('<div class="sep"></div>', c), p(29) - .2, null);
+  pop(make('<div style="text-align:center;opacity:0;margin-top:24px"><div class="lbl">с одной штуки</div><div style="font:800 90px/1.05 Inter,sans-serif;letter-spacing:-.03em;margin-top:12px">больше 1 000 ₸</div><div style="margin-top:20px"><span class="chip g" style="font-size:40px;padding:14px 30px">заказ здоровый</span></div></div>', c), p(29) + 1.4, 'pop');
+}
+
+/* финал */
+const fin = make('<div class="wt" style="top:860px;font:800 120px/1 Inter,sans-serif;letter-spacing:.14em"></div>'); fin.textContent = 'AMURA';
+pop(fin, 90.4, 'pop');
+window.REEL_END = END;
+})();
+</script></body></html>
