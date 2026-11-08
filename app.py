@@ -92,6 +92,8 @@ apipay.start()                    # оплата Kaspi (ApiPay): сверка н
 from marketplaces import bp as marketplaces_bp  # noqa: E402
 app.register_blueprint(marketplaces_bp)
 from agent import bp as agent_bp  # noqa: E402
+from site_price import bp as site_price_bp  # noqa: E402
+app.register_blueprint(site_price_bp)  # цена розничного сайта — «оптовый магазин для всех» (выключатель владельца)
 from ms_goods import bp as ms_goods_bp  # noqa: E402
 app.register_blueprint(ms_goods_bp)   # /pub/msimg/<код>/<n>.jpg — фото товаров МС для WB/Ozon (публично, только фото)
 app.register_blueprint(agent_bp)      # рабочее место менеджера WB/Ozon: /agent/api/* по MP_AGENT_TOKEN, заявки — на согласование владельцу

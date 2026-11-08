@@ -503,6 +503,11 @@ def refresh(max_age):
         except Exception as e:
             print("Товары вне выгрузки не получены:", e, flush=True)
         data = build_live(products, stock)
+        try:
+            import site_price
+            data = site_price.apply(data)            # «Новая модель цен» розницы (владелец 08.11.2026): rtl = цена сайта
+        except Exception as e:
+            print("Цены сайта не применены:", str(e)[:150], flush=True)
         _cache["live"] = (time.time(), data)
         return data
 

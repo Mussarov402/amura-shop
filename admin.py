@@ -2822,11 +2822,15 @@ def sources_admin():
     if off:
         return off
     if request.method == "POST":
-        try:
-            sources.save(request.get_json(silent=True) or {})
-        except ValueError as e:
-            return jsonify(ok=False, error=str(e)), 400
-    return jsonify(ok=True, sources=sources.all_sources(), report=sources.report(_days()))
+        b = request.get_json(silent=True) or {}
+        if set(b) == {"promoRetail"}:                    # выключатель промокодов на розничном сайте
+            sources.set_promo_retail(bool(b["promoRetail"]))
+        else:
+            try:
+                sources.save(b)
+            except ValueError as e:
+                return jsonify(ok=False, error=str(e)), 400
+    return jsonify(ok=True, sources=sources.all_sources(), report=sources.report(_days()), promoRetail=sources.promo_retail_on())
 
 
 @bp.post("/admin/api/sources/export")
