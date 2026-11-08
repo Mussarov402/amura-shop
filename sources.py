@@ -72,9 +72,23 @@ def by_promo(promo):
     return _lookup()[1].get(promo) if promo else None
 
 
+def promo_retail_on():
+    """Промокоды на розничном сайте (владелец 08.11.2026: при марже 15–20 % промокод 10 % съедает прибыль) — по умолчанию выключены."""
+    try:
+        with inbox.db() as d:
+            return inbox.get_setting(d, "promo_retail", "0") == "1"
+    except Exception:
+        return False
+
+
+def set_promo_retail(on_):
+    with inbox.db() as d:
+        inbox.set_setting(d, "promo_retail", "1" if on_ else "0")
+
+
 def promo_available():
     try:
-        return on() and bool(_lookup()[1])
+        return on() and promo_retail_on() and bool(_lookup()[1])
     except Exception:
         return False
 
@@ -123,7 +137,7 @@ def for_order(d):
     """Источник заказа с сайта: верный промокод важнее метки. Возвращает (src | None, скидка %)."""
     if not on():
         return None, 0
-    s = by_promo(d.get("promo")) if str(d.get("mode", "")) == "retail" else None   # промокод — только на розничном сайте
+    s = by_promo(d.get("promo")) if str(d.get("mode", "")) == "retail" and promo_retail_on() else None   # промокод — только на рознице и если включён
     if s:
         return s, (s["discount"] if s["discount"] > 0 else 0)
     return by_code(d.get("ref")), 0
@@ -177,7 +191,7 @@ def visit():
 def promo_check():
     if request.method == "OPTIONS":
         return "", 204
-    if not on() or request.args.get("retail") != "1" or oh.too_many("promo:" + _ip(), limit=30, window=600):   # только розница
+    if not on() or not promo_retail_on() or request.args.get("retail") != "1" or oh.too_many("promo:" + _ip(), limit=30, window=600):
         return jsonify(ok=False, error="Промокод не найден"), 404
     s = by_promo(request.args.get("code"))
     if not s:

@@ -95,7 +95,19 @@ class Sources(unittest.TestCase):
         a = next(x for x in r["rows"] if x["code"] == "aigerim")
         self.assertEqual((a["orders"], a["revenue"], a["cancelled"]), (0, 0, 1))
 
+    def test_promo_off_by_default(self):
+        """Промокоды на рознице по умолчанию выключены (владелец 08.11.2026): проверка — 404, в заказе скидки нет."""
+        sources.set_promo_retail(False)
+        self.add(promo="AIG10", discount=10)
+        sources.reset()
+        self.assertEqual(self.c.get("/ref/promo?retail=1&code=AIG10").status_code, 404)
+        self.order(promo="aig10", mode="retail")
+        self.assertEqual(self.posted[-1]["positions"][0]["price"], 669000)
+        self.assertFalse(sources.promo_available())
+
     def test_promo(self):
+        sources.set_promo_retail(True)
+        self.addCleanup(lambda: sources.set_promo_retail(False))
         self.add(promo="aig10")
         self.add(name="Реклама", code="ads")
         self.assertEqual(json.loads(self.c.get("/ref/promo?retail=1&code=AIG10").data)["discount"], 0)
