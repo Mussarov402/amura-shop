@@ -736,7 +736,9 @@ class WBCardCreate(unittest.TestCase):
         def wb(method, url, params=None, json=None, headers=None, timeout=None):
             path = url.split(".wildberries.ru", 1)[1]
             if path == "/content/v2/get/cards/list":
-                return Resp(200, {"cards": self.cards})
+                if getattr(self, "lag", False) and (json["settings"].get("filter") or {}).get("textSearch"):
+                    return Resp(200, {"cards": []})                                 # свежая карточка ещё не в поиске WB
+                return Resp(200, {"cards": self.cards, "cursor": {"total": len(self.cards)}})
             if path == "/content/v2/object/charcs/7":
                 return Resp(200, {"data": [{"charcID": 1, "name": "Объём", "charcType": 4}]})
             if path in ("/content/v2/cards/upload", "/content/v3/media/save", "/content/v2/cards/update"):
@@ -779,6 +781,13 @@ class WBCardCreate(unittest.TestCase):
         r = self.new("wb_card_create", **self.NEW).get_json()
         self.assertEqual((r["status"], r["auto"]), ("new", False))
         self.assertEqual(self.sent, [])
+
+    def test_media_fresh_card_not_in_search(self):
+        """Новая карточка без фото: поиск WB её ещё не видит — находим листанием списка (MEDIHEAL, 09.11.2026)."""
+        self.lag = True
+        r = self.new("wb_card_media", nmID=222, photos=["https://admin.amura.kz/pub/msimg/00700/1.jpg"]).get_json()
+        self.assertEqual(r["status"], "done", r)
+        self.assertEqual(self.sent[-1], ("/content/v3/media/save", {"nmId": 222, "data": ["https://admin.amura.kz/pub/msimg/00700/1.jpg"]}))
 
     def test_media_auto_and_revert(self):
         r = self.new("wb_card_media", nmID=111, photos=["https://amura.kz/cards/00615/1.png"]).get_json()
