@@ -28,6 +28,10 @@ class Reviews(unittest.TestCase):
             for k in ("reviews_on", "reviews_premod"):
                 d.run("DELETE FROM setting WHERE key=%s", (k,))
         oh._cache.pop("rv_sum", None)
+        for k in [k for k in oh._cache if str(k).startswith("rv_bought:")]:
+            oh._cache.pop(k, None)
+        self.orders = [{"state": {"name": "Новый"}, "positions": {"rows": [{"assortment": {"id": "p1"}}]}}]
+        self.ms_down = False
         self.me = None
         self.sent = []
         self.patch(oh, "session_cid", lambda: self.me)
@@ -39,7 +43,9 @@ class Reviews(unittest.TestCase):
         def ms(method, path, **kw):
             if "counterparty" in path:
                 return {"name": "Аружан Сериккызы (Алматы)", "actualAddress": "Алматы", "phone": "+77012345678"}
-            return {"rows": [{"positions": {"rows": [{"assortment": {"id": "p1"}}]}}]}
+            if self.ms_down:
+                raise RuntimeError("МойСклад 503")
+            return {"rows": self.orders}
         self.patch(oh, "ms", ms)
         app = Flask(__name__)
         app.register_blueprint(reviews.bp)
@@ -75,6 +81,37 @@ class Reviews(unittest.TestCase):
         self.post(id="p1", rating=4, text="Передумала, хорошо")                               # повторный — правка, не второй отзыв
         with reviews.db() as d:
             self.assertEqual(d.run("SELECT COUNT(*) FROM review", one=True)[0], 1)
+
+    def test_only_buyers(self):
+        """Владелец 09.11.2026: отзыв — только покупатели этого товара; МС упал — 503; отменённый заказ не в счёт."""
+        self.me = "c3"
+        self.orders = [{"state": {"name": "Новый"}, "positions": {"rows": [{"assortment": {"id": "p9"}}]}}]
+        r = self.post(id="p1", rating=5, text="Отлично")
+        self.assertEqual((r.status_code, json.loads(r.data)["error"]), (403, "Отзыв могут оставить только покупатели этого товара"))
+        self.assertIs(json.loads(self.c.get("/reviews?id=p1").data)["can_review"], False)
+        self.me = "c4"
+        self.orders = [{"state": {"name": "Отменён"}, "positions": {"rows": [{"assortment": {"id": "p1"}}]}}]
+        self.assertEqual(self.post(id="p1", rating=5, text="Отлично").status_code, 403)           # отменённый — не покупка
+        self.me = "c5"
+        self.ms_down = True
+        r = self.post(id="p1", rating=5, text="Отлично")
+        self.assertEqual((r.status_code, json.loads(r.data)["error"]), (503, "Не получилось проверить покупку, попробуйте позже"))
+        with reviews.db() as d:
+            self.assertEqual(d.run("SELECT COUNT(*) FROM review", one=True)[0], 0)                # без проверки не принимаем
+        self.ms_down = False
+        self.me = "c6"
+        self.orders = [{"state": {"name": "Отгружен"}, "positions": {"rows": [{"assortment": {"id": "p1"}}]}}]
+        self.assertIs(json.loads(self.c.get("/reviews?id=p1").data)["can_review"], True)
+        self.assertEqual(self.post(id="p1", rating=5, text="Отлично").status_code, 200)
+
+    def test_unverified_hidden_on_site(self):
+        with reviews.db() as d:
+            d.run("INSERT INTO review (pid, pname, cid, name, city, rating, text, verified, status, at) VALUES "
+                  "('p1','Крем','old','Старый','',1,'старый отзыв без покупки',0,'ok',1)")
+        oh._cache.pop("rv_sum", None)
+        j = json.loads(self.c.get("/reviews?id=p1").data)
+        self.assertEqual((j["items"], j["count"]), ([], 0))
+        self.assertEqual(json.loads(self.c.get("/reviews/summary").data)["items"], {})
 
     def test_module_off(self):
         with reviews.db() as d:

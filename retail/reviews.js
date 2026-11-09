@@ -1,5 +1,6 @@
 /* Розничный сайт: отзывы о товарах. Звёзды на карточках, список отзывов и «Оставить отзыв» в окне товара.
-   Оставить отзыв может только вошедший покупатель; новые отзывы появляются после проверки в панели (Товары → Отзывы). */
+   Оставить отзыв может только тот, кто покупал этот товар (владелец 09.11.2026); новые отзывы появляются после проверки
+   в системе AMURA (Товары → Отзывы). */
 (function(){
 if(!window.AMURA_RETAIL) return;
 let ON = true;
@@ -20,12 +21,14 @@ function boxHTML(j, it){
   return `<div class="rv-h"><h4>Отзывы</h4>${j.count ? `<span>${STAR(Math.round(j.avg))} <b>${String(j.avg).replace(".", ",")}</b> · ${fmt(j.count)} ${plur(j.count)}</span>` : ""}</div>
     ${j.items.length ? j.items.map(r => `<div class="rv-i">
       <div class="rv-t">${STAR(r.rating)}<span class="kv">${esc(r.date)}</span></div>
-      <div class="rv-n">${esc(r.name)}${r.city ? `, ${esc(r.city)}` : ""}${r.verified ? ' <em>купил на сайте</em>' : ""}</div>
+      <div class="rv-n">${esc(r.name)}${r.city ? `, ${esc(r.city)}` : ""}${r.verified ? ' <em>покупатель</em>' : ""}</div>
       ${r.text ? `<p>${esc(r.text)}</p>` : ""}
       ${r.answer ? `<div class="rv-a"><b>Ответ AMURA:</b> ${esc(r.answer)}</div>` : ""}</div>`).join("")
       : `<p class="kv">Отзывов пока нет — будьте первым.</p>`}
     ${mine && mine.status === "new" ? `<p class="kv">Ваш отзыв на проверке — скоро появится.</p>` : ""}
-    <button type="button" class="btn ghost" data-rvw>${!AUTH.token ? "Войти и оставить отзыв" : mine ? "Изменить мой отзыв" : "Оставить отзыв"}</button>
+    ${!AUTH.token ? `<button type="button" class="btn ghost" data-rvw>Войдите, чтобы оставить отзыв</button>`
+      : j.can_review === false ? `<p class="kv">Отзывы оставляют только покупатели этого товара.</p>`
+      : `<button type="button" class="btn ghost" data-rvw>${mine ? "Изменить мой отзыв" : "Оставить отзыв"}</button>`}
     <div id="rvForm"></div>`;
 }
 function formHTML(mine){
@@ -70,6 +73,7 @@ $("#sheet").addEventListener("click", async e => {
       const r = await fetch(`${CONFIG.apiUrl}/reviews`, { method: "POST", headers: authHeaders(), body: JSON.stringify({ id: it.id, rating, text }) });
       const j = await r.json().catch(() => ({}));
       if(r.status === 401){ closeAll(); toast("Войдите заново"); return go("me"); }
+      if(r.status === 403 && j.buyers){ $("#rvForm").innerHTML = `<p class="kv">${esc(j.error)}</p>`; return; }
       if(!r.ok || !j.ok) throw new Error(j.error || "Не получилось отправить");
       toast(j.status === "new" ? "Спасибо! Отзыв появится после проверки" : "Спасибо за отзыв!");
       loadBox(it); loadSummary();

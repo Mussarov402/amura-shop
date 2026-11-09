@@ -1,7 +1,8 @@
 """Отзывы о товарах (розничный сайт amura.kz) — хранятся в нашей базе, в МойСклад не попадают.
 
-Оставить отзыв может только вошедший покупатель (звёзды 1–5 и текст; один отзыв на товар, повторный — правка).
-Отметка «Купил на сайте» — если товар есть в его заказах. Модуль включается в панели (Товары → Отзывы);
+Оставить отзыв может только тот, кто покупал этот товар у нас (владелец 09.11.2026): товар есть в его неотменённых заказах
+МойСклад (сайт, опт, розница). Не покупал — 403; МойСклад не ответил — 503, без проверки не принимаем.
+На сайте — только подтверждённые (verified=1); старые без покупки остаются в системе AMURA с пометкой «без покупки». Модуль включается в панели (Товары → Отзывы);
 по умолчанию новые отзывы ждут проверки и появляются на сайте после «Опубликовать». Владельцу — сообщение в Telegram.
 """
 import re
@@ -49,7 +50,7 @@ COLS = "id, name, city, rating, text, verified, answer, at, status, pid, pname"
 def summary():
     def load():
         with db() as d:
-            rows = d.run("SELECT pid, AVG(rating), COUNT(*) FROM review WHERE status='ok' GROUP BY pid", many=True)
+            rows = d.run("SELECT pid, AVG(rating), COUNT(*) FROM review WHERE status='ok' AND verified=1 GROUP BY pid", many=True)
         return {r[0]: [round(float(r[1]), 1), int(r[2])] for r in rows}
     return oh.cached("rv_sum", 120, load)
 
@@ -67,7 +68,7 @@ def list_route():
     if not conf()["on"]:
         return jsonify(ok=True, on=False, items=[], avg=0, count=0)
     with db() as d:
-        rows = d.run(f"SELECT {COLS} FROM review WHERE pid=%s AND status='ok' ORDER BY at DESC LIMIT 50", (pid,), many=True)
+        rows = d.run(f"SELECT {COLS} FROM review WHERE pid=%s AND status='ok' AND verified=1 ORDER BY at DESC LIMIT 50", (pid,), many=True)
         mine = None
         cid = oh.session_cid()
         if cid:
@@ -76,14 +77,48 @@ def list_route():
     s = summary().get(pid, [0, 0])
     if mine:
         mine = {k: mine[k] for k in ("rating", "text", "status")}
-    return jsonify(ok=True, on=True, avg=s[0], count=s[1], items=[_row(r) for r in rows], mine=mine)
+    can = None
+    if cid:
+        try:
+            can = bought(cid, pid)
+        except Exception as e:
+            print("Отзывы: проверка покупки не удалась:", str(e)[:200], flush=True)
+    return jsonify(ok=True, on=True, avg=s[0], count=s[1], items=[_row(r) for r in rows], mine=mine, can_review=can)
+
+
+CANCEL = ("отмен", "отказ", "аннул")                       # «Отменён», «Отмена», «Отказ клиента» — покупкой не считаются
+MAX_ORDERS = 1000
+
+
+def purchased(cid):
+    """Товары во всех неотменённых заказах покупателя в МойСклад (сайт, опт, розница) → множество id. Кэш 5 минут на покупателя.
+    Ошибка МойСклад — исключение (отзыв без проверки не принимаем)."""
+    def load():
+        got, off = set(), 0
+        while off < MAX_ORDERS:
+            rows = oh.ms("GET", "/entity/customerorder", params={"filter": f"agent={oh.API}/entity/counterparty/{cid}", "limit": 100,
+                                                                 "offset": off, "expand": "positions.assortment,state"}, timeout=20)["rows"]
+            for o in rows:
+                st = str((o.get("state") or {}).get("name") or "").lower()
+                if any(w in st for w in CANCEL):
+                    continue
+                for p in (o.get("positions") or {}).get("rows") or []:
+                    a = p.get("assortment") or {}
+                    if a.get("id"):
+                        got.add(a["id"])
+                    prod = (a.get("product") or {}).get("meta", {}).get("href", "")   # модификация — считаем покупку товара
+                    if prod:
+                        got.add(prod.rstrip("/").rsplit("/", 1)[-1])
+            if len(rows) < 100:
+                break
+            off += 100
+        return got
+    return oh.cached("rv_bought:" + cid, 300, load)
 
 
 def bought(cid, pid):
-    """Есть ли товар в заказах покупателя (последние 50 заказов в МойСклад)."""
-    rows = oh.ms("GET", "/entity/customerorder", params={"filter": f"agent={oh.API}/entity/counterparty/{cid}", "limit": 50,
-                                                         "expand": "positions.assortment"}, timeout=15)["rows"]
-    return any(p.get("assortment", {}).get("id") == pid for o in rows for p in o.get("positions", {}).get("rows", []))
+    """Покупал ли покупатель этот товар (неотменённый заказ). Ошибка МойСклад — исключение."""
+    return pid in purchased(cid)
 
 
 @bp.route("/reviews", methods=["POST", "OPTIONS"])
@@ -120,10 +155,13 @@ def add_route():
         prof = {"name": "", "city": ""}
     name = (prof.get("name") or "").split(" ")[0][:40]
     try:
-        verified = 1 if bought(cid, pid) else 0
+        ok = bought(cid, pid)
     except Exception as e:
         print("Отзывы: проверка покупки не удалась:", str(e)[:200], flush=True)
-        verified = 0
+        return jsonify(ok=False, error="Не получилось проверить покупку, попробуйте позже"), 503
+    if not ok:
+        return jsonify(ok=False, error="Отзыв могут оставить только покупатели этого товара", buyers=True), 403
+    verified = 1
     status = "new" if c["premod"] else "ok"
     with db() as d:
         old = d.run("SELECT id FROM review WHERE pid=%s AND cid=%s", (pid, cid), one=True)

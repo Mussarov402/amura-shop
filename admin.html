@@ -1112,7 +1112,7 @@ async reviews(st="new"){const o=await api("reviews?status="+st);
  <div class="card">${o.items.length?o.items.map(r=>`<div class="rvi" data-id="${r.id}">
    <div class="rvh">${stars(r.rating)}<span class="mut">${esc(r.date)}</span></div>
    <b class="rvp">${esc(r.pname||r.pid)}</b>
-   <div class="mut">${esc(r.name)}${r.city?", "+esc(r.city):""}${r.verified?' · <span class="rvv">купил на сайте</span>':""}</div>
+   <div class="mut">${esc(r.name)}${r.city?", "+esc(r.city):""}${r.verified?' · <span class="rvv">купил у нас</span>':' · <b class="nost">без покупки — на сайте не показывается</b>'}</div>
    ${r.text?`<div class="rvt">${esc(r.text)}</div>`:""}
    ${r.answer?`<div class="rva"><b>Ответ магазина:</b> ${esc(r.answer)}</div>`:""}
    <div class="rvb">${r.status!=="ok"?'<button class="btn" data-ra="ok">Опубликовать</button>':""}${r.status!=="hidden"?'<button class="btn ghost" data-ra="hidden">Скрыть</button>':""}<button class="btn ghost" data-ra="answer">${r.answer?"Изменить ответ":"Ответить"}</button><button class="btn ghost" data-ra="delete">Удалить</button></div></div>`).join("")
