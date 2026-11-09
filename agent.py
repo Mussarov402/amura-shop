@@ -334,6 +334,16 @@ def _wb_get_card(ch, nm):
     cards = ch.req("POST", "content", "/content/v2/get/cards/list",
                    json={"settings": {"cursor": {"limit": 10}, "filter": {"textSearch": str(nm), "withPhoto": -1}}}).get("cards") or []
     c = next((x for x in cards if int(x.get("nmID") or 0) == nm), None)
+    cursor = {"limit": 100}
+    for _ in range(0 if c else 10):                 # свежая карточка ещё не в поиске WB (textSearch) — листаем список, новые первыми
+        j = ch.req("POST", "content", "/content/v2/get/cards/list",
+                   json={"settings": {"sort": {"ascending": False}, "cursor": cursor, "filter": {"withPhoto": -1}}})
+        page = j.get("cards") or []
+        c = next((x for x in page if int(x.get("nmID") or 0) == nm), None)
+        cur = j.get("cursor") or {}
+        if c or len(page) < 100 or not cur.get("nmID"):
+            break
+        cursor = {"limit": 100, "updatedAt": cur.get("updatedAt"), "nmID": cur.get("nmID")}
     if not c:
         raise mpk.ApiError(404, "карточка не найдена в нашем кабинете")
     return c
