@@ -1,0 +1,77 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><link rel="stylesheet" href="../fonts.css">
+<!-- Баннеры розничного сайта amura.kz (задача Хиро/владельца 09.11.2026). ?b=1..5&f=d|m
+     d — компьютер 1500×500 (размер карусели «m», 3:1), m — телефон 1280×720 (16:9, поле imgM).
+     Фото: python3 cards/banners-site/prep.py. Рендер: node cards/banners-site/render.js → out/b<N>_<d|m>.png
+     Только правда с сайта (сверено 09.11): бесплатная доставка от 20 000 ₸ (СДЭК и курьер), AGE-R — 60 000 ₸ в рознице,
+     самовывоз — ТЦ «Байсат», Вт–Сб 10–18. Слово «оригинал» не пишем (правило владельца 03.11), пока он не разрешит. -->
+<style>
+*{margin:0;box-sizing:border-box}
+body{position:relative;overflow:hidden;font-family:Inter,sans-serif;background:#F4EEE6;color:#fff}
+.ab{position:absolute}
+.panel{left:0;top:0;bottom:0;background:#14503C}
+.panel:after{content:"";position:absolute;right:-1px;top:0;bottom:0;width:var(--cv);background:#F4EEE6;border-radius:100% 0 0 100%/50% 0 0 50%}
+.ring{border-radius:50%;border:2px solid rgba(255,255,255,.1)}
+.blob{border-radius:50%;background:radial-gradient(circle at 50% 45%,#fff 0%,#E4EFE9 55%,rgba(228,239,233,0) 72%)}
+.txt{display:flex;flex-direction:column;justify-content:center}
+.k{font:700 var(--fk)/1 Inter;letter-spacing:.14em;text-transform:uppercase;opacity:.72;margin-bottom:var(--g1)}
+.h{font:800 var(--fh)/1.04 Montserrat,sans-serif;letter-spacing:-.01em}
+.s{font:500 var(--fs)/1.3 Inter;opacity:.85;margin-top:var(--g1)}
+.btn{align-self:flex-start;margin-top:var(--g2);background:#fff;color:#14503C;border-radius:999px;padding:var(--bp);font:700 var(--fb)/1 Inter;display:flex;gap:.5em;align-items:center}
+.prod{position:absolute;bottom:var(--floor);filter:drop-shadow(0 22px 26px rgba(20,40,30,.22))}
+.shadow{position:absolute;border-radius:50%;background:radial-gradient(closest-side,rgba(20,60,40,.25),rgba(20,60,40,0))}
+.chip{position:absolute;white-space:nowrap;background:#fff;color:#14503C;border-radius:999px;font:800 var(--fc)/1 Montserrat;padding:.45em .9em;box-shadow:0 10px 26px rgba(0,0,0,.12);display:flex;gap:.4em;align-items:center}
+.chip i{font-style:normal;width:1.15em;height:1.15em;border-radius:50%;background:#14503C;color:#fff;display:grid;place-items:center;font:800 .62em/1 Inter}
+.logo{display:block}
+</style></head><body>
+<script>
+const q = new URLSearchParams(location.search), B = +(q.get('b') || 1), M = q.get('f') === 'm';
+const W = M ? 1280 : 1500, H = M ? 720 : 500;
+document.body.style.cssText += `width:${W}px;height:${H}px`;
+const V = M ? { pw: 690, cv: 120, pad: 56, fk: 26, fh: 66, fs: 38, fb: 34, bp: '20px 34px', g1: '16px', g2: '30px', fc: 34, floor: '56px' }
+            : { pw: 860, cv: 170, pad: 84, fk: 20, fh: 60, fs: 24, fb: 24, bp: '16px 28px', g1: '12px', g2: '26px', fc: 26, floor: '44px' };
+const r = document.documentElement.style;
+for (const [k, v] of Object.entries(V)) r.setProperty('--' + k, typeof v === 'number' ? v + 'px' : v);
+const mk = (h, p = document.body) => { const t = document.createElement('template'); t.innerHTML = h.trim(); return p.appendChild(t.content.firstChild); };
+
+/* баннеры: k — надстрочник, h — заголовок (3–6 слов), s — подпись, btn — кнопка, P — товары [код, высота в долях H, сдвиг], chip — плашка */
+const BN = {
+  1: { k: 'amura.kz', h: 'Хиты корейского<br>ухода', s: 'Больше 70 брендов из Кореи<br>в наличии в Алматы', sm: '70+ брендов из Кореи', btn: 'Смотреть хиты',
+       P: [['01250', .5, 0], ['00615', .74, 0], ['00690', .66, 0], ['00784', .56, 0], ['01335', .36, 0]],
+       PM: [['00615', .74, 0], ['00690', .66, 0], ['00784', .56, 0], ['01335', .36, 0]] },
+  2: { k: 'Доставка', h: 'Бесплатная доставка<br>от 20 000 ₸', s: 'СДЭК по всему Казахстану<br>Курьер по Алматы', sm: 'СДЭК и курьер', btn: 'В каталог',
+       P: [['00668', .66, 0], ['00615', .74, 0], ['01335', .38, 0]], box: 1 },
+  3: { k: 'VT Cosmetics', h: 'Reedle Shot<br>и PDRN от VT', s: 'Сделано в Корее', sm: 'Сделано в Корее', btn: 'Смотреть VT',
+       P: [['00661', .62, 0], ['00690', .72, 0], ['00784', .6, 0], ['00668', .66, 0]] },
+  4: { k: 'Medicube', h: 'AGE-R<br>Booster Pro', s: 'Аппарат для ухода за кожей · 6 в 1', sm: 'Уход за кожей · 6 в 1', btn: 'Подробнее',
+       P: [['01122', .84, 0]], chip: '60 000 ₸' },
+  5: { k: 'Склад в Алматы', h: 'Из Кореи —<br>со склада<br>в Алматы', s: 'Самовывоз бесплатно: ТЦ «Байсат»<br>Вт–Сб 10:00–18:00', sm: 'Самовывоз бесплатно', btn: 'Как забрать',
+       P: [['00615', .62, 0], ['00784', .52, 0], ['01250', .44, 0]], pin: 1 },
+}, b = BN[B];
+
+/* левая зелёная часть с текстом */
+const pn = mk(`<div class="ab panel" style="width:${V.pw}px;--cv:${V.cv}px"></div>`);
+mk(`<div class="ab ring" style="left:${-H * .35}px;top:${-H * .45}px;width:${H * 1.1}px;height:${H * 1.1}px"></div>`);
+mk(`<div class="ab ring" style="left:${V.pw * .45}px;top:${H * .55}px;width:${H * .9}px;height:${H * .9}px;border-color:rgba(255,255,255,.07)"></div>`);
+const tx = mk(`<div class="ab txt" style="left:${V.pad}px;top:0;bottom:0;width:${V.pw - V.cv - V.pad + 30}px"></div>`);
+mk(`<div class="k">${b.k}</div>`, tx); mk(`<div class="h">${b.h}</div>`, tx); mk(`<div class="s">${M ? b.sm : b.s}</div>`, tx);
+mk(`<div class="btn">${b.btn}<span>→</span></div>`, tx);
+/* логотип в углу */
+mk(`<img class="ab logo" src="../amura-logo.svg" style="z-index:30;right:${M ? 40 : 34}px;top:${M ? 34 : 28}px;height:${M ? 22 : 18}px;opacity:.75">`);
+
+/* правая часть: светлое пятно + товары по нижней линии */
+const x0 = V.pw - V.cv * .3, x1 = W - (M ? 30 : 50), cx = (x0 + x1) / 2, floor = parseFloat(V.floor);
+mk(`<div class="ab blob" style="left:${cx - H * .62}px;top:${H * .5 - H * .62}px;width:${H * 1.24}px;height:${H * 1.24}px"></div>`);
+const imgs = (M && b.PM || b.P).map(([c, hk]) => new Promise(ok => { const i = new Image(); i.onload = () => ok({ i, h: H * hk }); i.src = 'src/' + c + '.png'; }));
+Promise.all(imgs).then(L => {
+  let ws = L.map(o => o.i.naturalWidth / o.i.naturalHeight * o.h), gap = -Math.min(...ws) * .12, tot = ws.reduce((a, w) => a + w, 0) + gap * (L.length - 1);
+  const room = (x1 - x0) * .86; if (tot > room) { const k = room / tot; ws = ws.map(w => w * k); L.forEach(o => o.h *= k); gap *= k; tot = room; }
+  let x = cx - tot / 2; const mid = (L.length - 1) / 2;
+  mk(`<div class="shadow" style="left:${cx - tot * .6}px;bottom:${floor - 22}px;width:${tot * 1.2}px;height:50px"></div>`);
+  L.forEach((o, j) => { const el = mk(`<img class="prod" src="${o.i.src}" style="left:${x}px;height:${o.h}px;z-index:${10 - Math.round(Math.abs(j - mid) * 2)}">`); x += ws[j] + gap; });
+  if (b.chip) mk(`<div class="chip" style="left:${cx + tot / 2 - 20}px;top:${H * .2}px;z-index:20">${b.chip}</div>`);
+  if (b.box) mk(`<div class="chip" style="left:${cx - tot / 2 - (M ? 120 : 90)}px;top:${H * .14}px;z-index:20"><i>✓</i>0 ₸ доставка</div>`);
+  if (b.pin) mk(`<div class="chip" style="left:${cx - tot / 2 - (M ? 110 : 80)}px;top:${H * .12}px;z-index:20"><i>⌖</i>Алматы</div>`);
+  document.querySelectorAll('.chip').forEach(c => { const r = c.getBoundingClientRect(); if (r.right > W - 24) c.style.left = (W - 24 - r.width) + 'px'; });
+  document.body.dataset.ready = 1;
+});
+</script></body></html>
