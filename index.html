@@ -101,15 +101,28 @@ html.qon #viewHome .hero{display:none}   /* идёт поиск — баннер
 .tiers-legend{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;position:relative;z-index:1}
 .tiers-legend span{background:rgba(255,255,255,.1);border:1px solid rgba(205,176,126,.4);border-radius:99px;padding:4px 12px;font-size:13px;font-weight:600;color:#F1E6D2}
 /* карусель баннеров (как на WB/Ozon/Kaspi): слайды из banners.json — текст на цвете или картинка */
-.banners{position:relative;border-radius:var(--radius-lg);overflow:hidden}
-.bTrack{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;scroll-behavior:smooth}
+/* один стандарт на оба сайта: компьютер 3:1 (1800×600), телефон 16:9 (1280×720, imgM); место под карусель занято сразу — страница не прыгает,
+   картинку не режем: не того размера — вписываем целиком на фоне баннера */
+.banners{position:relative;border-radius:var(--radius-lg);overflow:hidden;aspect-ratio:3/1;background:#14503C}
+.bTrack{display:flex;height:100%;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;scroll-behavior:smooth}
 .bTrack::-webkit-scrollbar{display:none}
-.bSlide{flex:0 0 100%;scroll-snap-align:start;position:relative;min-height:210px;color:#fff;padding:30px 32px 40px;display:flex;flex-direction:column;justify-content:center;text-decoration:none;overflow:hidden;cursor:default}
+.bSlide{flex:0 0 100%;height:100%;scroll-snap-align:start;position:relative;color:#fff;padding:30px 32px 40px;display:flex;flex-direction:column;justify-content:center;text-decoration:none;overflow:hidden;cursor:default}
 .bSlide[data-link]{cursor:pointer}
 .bSlide::after{content:"";position:absolute;right:-80px;top:-120px;width:360px;height:360px;border-radius:50%;border:1px solid rgba(255,255,255,.18);box-shadow:0 0 0 40px rgba(255,255,255,.04),0 0 0 90px rgba(255,255,255,.03);pointer-events:none}
-.bSlide.pic{padding:0;min-height:0;aspect-ratio:4/1}
+.bSlide.pic{padding:0;background:#14503C}
 .bSlide.pic::after{display:none}
-.bSlide.pic img{width:100%;height:100%;object-fit:cover;display:block}
+.bSlide.pic picture{display:block;width:100%;height:100%}
+.bSlide.pic img{width:100%;height:100%;object-fit:contain;display:block}
+@media(max-width:640px){
+  .banners{aspect-ratio:16/9}
+  .banners[data-m="0"]{aspect-ratio:3/1}               /* только картинки и ни одной для телефона — показываем компьютерные целиком */
+  .bSlide:not(.pic){padding:16px 18px 26px}
+  .bSlide h1{font-size:20px;margin-bottom:6px;max-width:none}
+  .bSlide p{font-size:13px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .bSlide .tiers-legend{margin-top:8px}
+  .bSlide .bBtn{margin-top:8px;padding:7px 12px;font-size:13px}
+  .bDots{bottom:8px}
+}
 .bSlide .bBtn{align-self:flex-start;margin-top:16px;background:#fff;color:#0E3B2C;border-radius:10px;padding:9px 16px;font-weight:700;font-size:14px;position:relative;z-index:1}
 .bNav{position:absolute;top:50%;transform:translateY(-50%);z-index:2;border:0;width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.92);display:grid;place-items:center;box-shadow:0 2px 10px rgba(0,0,0,.25);opacity:0;transition:opacity .2s}
 .banners:hover .bNav{opacity:1}
@@ -306,8 +319,6 @@ form.co{display:grid;gap:12px;padding-top:6px}
   .catBtn{order:3;padding:10px 12px}
   .catBtn span{display:none}
   .search{order:4;flex:1 1 0}
-  .bSlide{min-height:170px;padding:18px 18px 32px}
-  .bSlide.pic{aspect-ratio:2/1}
   .hero h1{font-size:22px;margin-bottom:6px}
   .hero p{font-size:13.5px}
   .tiers-legend{margin-top:10px}
@@ -645,21 +656,7 @@ input,select,textarea{font-size:16px!important}
 .rv-f{display:grid;gap:8px}
 .rv-pick{display:flex;gap:4px}.rv-pick button{border:0;background:none;font-size:32px;line-height:1;color:var(--line);cursor:pointer;padding:2px}.rv-pick button.on{color:#E8A317}
 .rv-f textarea{width:100%;border:1px solid var(--line);background:var(--bg);border-radius:12px;padding:10px 12px;font:inherit;font-size:15px;color:var(--ink);resize:vertical}
-/* розница: одна высота у всей карусели (выбирается в панели) — картинки не обрезаются соседним текстовым баннером.
-   Компьютер: s 4:1 (1600×400), m 3:1 (1500×500), l 5:2 (1500×600). Телефон: всегда 16:9 (1280×720). */
-.banners[data-size] .bSlide{min-height:0}
-.banners[data-size="s"] .bSlide{aspect-ratio:4/1}
-.banners[data-size="m"] .bSlide{aspect-ratio:3/1}
-.banners[data-size="l"] .bSlide{aspect-ratio:5/2}
-.bSlide.pic picture{display:block;width:100%;height:100%}
-@media(max-width:640px){
-  .banners[data-size] .bSlide{aspect-ratio:16/9}
-  .banners[data-size] .bSlide:not(.pic){padding:16px 18px 26px}
-  .banners[data-size] .bSlide h1{font-size:20px;margin-bottom:6px;max-width:none}
-  .banners[data-size] .bSlide p{font-size:13px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-  .banners[data-size] .tiers-legend{margin-top:8px}
-  .banners[data-size] .bBtn{margin-top:8px;padding:7px 12px;font-size:13px}
-}
+/* баннеры розницы — те же размеры, что у опта (opt/index.html): компьютер 3:1 (1800×600), телефон 16:9 (1280×720) */
 /* розница: товар — отдельная страница на весь экран (retail/product.js) */
 body.rpage .modal{padding:0;z-index:45;display:block;height:100%;height:100dvh}   /* на весь экран и на iPhone: окно не зависит от высоты содержимого */
 body.rpage .sheet{position:absolute;inset:0;max-width:none;max-height:none;height:auto;border-radius:0;align-content:start;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
@@ -1144,10 +1141,15 @@ function renderBanners(cfg){
   const slides = (cfg.slides || []).filter(b => b.img || b.title);
   if(!slides.length) { $("#banners").hidden = true; return; }
   const box = $("#banners"), track = $("#bTrack"), dots = $("#bDots");
+  const key = JSON.stringify(slides);
+  if(renderBanners.key === key) return;                // тот же набор (из кэша и с сервера) — не перерисовываем
+  renderBanners.key = key;
   box.hidden = false; box.classList.toggle("one", slides.length < 2);
+  box.dataset.m = slides.some(b => !b.img || b.imgM) ? "1" : "0";
   const html = slides.map((b, i) => {
     const link = b.link ? ` data-link='${esc(JSON.stringify(b.link))}'` : "";
-    if(b.img) return `<div class="bSlide pic"${link} role="group" aria-label="${i + 1} из ${slides.length}"><img src="${esc(b.img)}" alt="${esc(b.title || "Баннер")}" loading="${i ? "lazy" : "eager"}"></div>`;
+    const load = i ? 'loading="lazy"' : 'loading="eager" fetchpriority="high"';
+    if(b.img) return `<div class="bSlide pic"${link} style="background:${esc(b.bg || "#14503C")}" role="group" aria-label="${i + 1} из ${slides.length}"><picture>${b.imgM ? `<source media="(max-width:640px)" srcset="${esc(b.imgM)}">` : ""}<img src="${esc(b.img)}" alt="${esc(b.title || "Баннер")}" width="1800" height="600" decoding="async" ${load}></picture></div>`;
     return `<div class="bSlide"${link} style="background:${esc(b.bg || "#14503C")}" role="group" aria-label="${i + 1} из ${slides.length}">
       <h1>${esc(b.title)}</h1>${b.text ? `<p>${esc(b.text)}</p>` : ""}
       ${b.tags ? `<div class="tiers-legend">${b.tags.map(t => `<span>${esc(t)}</span>`).join("")}</div>` : ""}
@@ -1181,6 +1183,12 @@ function renderBanners(cfg){
   track.addEventListener("touchstart", () => { paused = true; setTimeout(() => paused = false, 8000); }, { passive: true });
   const sec = Number(cfg.autoplaySec) || 6;
   if(slides.length > 1) renderBanners.t = setInterval(() => { if(!paused && VIEW === "home" && document.visibilityState === "visible"){ fix(); show(idx() + 1); } }, sec * 1000);
+}
+// сначала — баннеры прошлого визита (сразу, без ожидания сервера), потом свежие из панели
+function loadBanners(url, dflt){
+  const c = load("banners", null);
+  renderBanners(c && c.slides ? c : dflt);
+  return getJSON(url, 8000).then(d => { save("banners", d); renderBanners(d); });
 }
 /* баннеры розницы — retail/banners.js */   // из панели управления, запасной — banners.json
 
@@ -3469,32 +3477,13 @@ $("#sheet").addEventListener("click", async e => {
 });
 loadSummary();
 })();
-/* ===== Розница: свои баннеры (панель → Товары → Баннеры → «Розничный сайт») ===== */
-// Высота карусели (size: s/m/l) и отдельная картинка для телефона (imgM) — только здесь, оптовый сайт их не знает.
-const RBANNERS_DEFAULT = { autoplaySec: 6, size: "m", slides: [
+/* ===== Розница: свои баннеры (система AMURA → Товары → Баннеры → «Розничный сайт») ===== */
+// Размеры, картинка для телефона (imgM) и кэш прошлого визита — общие с оптом (renderBanners / loadBanners в opt/index.html).
+const RBANNERS_DEFAULT = { autoplaySec: 6, slides: [
   { title: "Корейская косметика с доставкой", text: "Оригинальный уход со склада в Алматы. Доставка по городу и по всему Казахстану.", tags: ["Оригинал", "Доставка по Казахстану"], bg: "#14503C" },
   { title: "Новинки недели", text: "Свежие поступления — смотрите первыми.", button: "Смотреть новинки", link: { sort: "new" }, bg: "#1E3A5F" }
 ] };
-(function(){
-  const base = renderBanners;
-  renderBanners = function(cfg){
-    base(cfg);
-    const box = $("#banners");
-    box.dataset.size = ["s", "m", "l"].includes(cfg.size) ? cfg.size : "m";
-    const mob = {};
-    (cfg.slides || []).forEach(b => { if(b.img && b.imgM) mob[b.img] = b.imgM; });
-    box.querySelectorAll(".bSlide.pic img").forEach(img => {
-      const m = mob[img.getAttribute("src")];
-      if(!m) return;
-      const pic = document.createElement("picture"), src = document.createElement("source");
-      src.media = "(max-width:640px)"; src.srcset = m;
-      img.replaceWith(pic); pic.append(src, img);
-      img.closest(".bSlide").classList.add("hasM");
-    });
-  };
-  renderBanners(RBANNERS_DEFAULT);
-  getJSON(CONFIG.apiUrl + "/banners?site=retail", 8000).then(c => renderBanners(c)).catch(() => {});
-})();
+loadBanners(CONFIG.apiUrl + "/banners?site=retail", RBANNERS_DEFAULT).catch(() => {});
 /* Розничный сайт: товар открывается отдельной страницей (как на WB), со своей ссылкой amura.kz/#p/<id>.
    Кнопка «Назад» телефона/браузера возвращает в каталог на то же место; ссылкой можно поделиться.
    Внутри — то же окно товара (#sheet): цены, корзина, описание, отзывы работают как раньше. Только розница. */

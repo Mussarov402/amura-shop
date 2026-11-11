@@ -1749,11 +1749,42 @@ def pay():
 
 # ---------- баннеры главной ----------
 # Оптовый сайт — баннеры в доп. поле организации МойСклад (как раньше); розничный — в нашей базе (setting banners_retail).
-# Высота карусели (size) и отдельная картинка для телефона (imgM) — только у розницы; картинки можно загрузить из панели.
-BANNER_SIZES = ("s", "m", "l")
-BANNER_IMG_MAX = 3 * 1024 * 1024
+# Один стандарт на оба сайта (решение владельца 11.11.2026): компьютер 3:1 (1800×600), телефон 16:9 (1280×720, поле imgM).
+# Картинки из панели сжимаем в WebP при загрузке; на сайте их не режем — вписываем целиком.
+BANNER_IMG_MAX = 8 * 1024 * 1024
 BANNER_IMG_TYPES = ("image/jpeg", "image/png", "image/webp")
+BANNER_KINDS = {"d": (1800, 600, "3:1 — 1800×600"), "m": (1280, 720, "16:9 — 1280×720")}
+BANNER_TTL = 3600            # список баннеров меняется только из панели, а она сбрасывает кэш сама
 _bimg_ready = [False]
+
+
+def banner_webp(data, width):
+    """Картинка → WebP не шире width, ~200 КБ. Возвращает (bytes, w, h) исходника."""
+    import io
+    from PIL import Image, ImageOps
+    im = ImageOps.exif_transpose(Image.open(io.BytesIO(data)))
+    w0, h0 = im.size
+    if im.mode not in ("RGB", "RGBA"):
+        im = im.convert("RGBA" if "A" in im.getbands() or im.mode == "P" else "RGB")
+    if im.width > width:
+        im = im.resize((width, round(im.height * width / im.width)), Image.LANCZOS)
+    out = b""
+    for q in (80, 70, 60, 50):
+        buf = io.BytesIO()
+        im.save(buf, "WEBP", quality=q, method=6)
+        out = buf.getvalue()
+        if len(out) <= 250 * 1024:
+            break
+    return out, w0, h0
+
+
+def banner_warn(w, h, kind):
+    want_w, want_h, label = BANNER_KINDS[kind]
+    if abs(w / max(h, 1) - want_w / want_h) > 0.03:
+        return f"Нужно {label}, а у картинки {w}×{h} — на сайте впишется целиком с полями по краям"
+    if w < want_w * 0.8:
+        return f"Картинка {w}×{h} — маловата, нужно {label}: может быть нечёткой"
+    return ""
 
 
 def _bimg_db():
@@ -1799,8 +1830,7 @@ def _clean_banners(d):
         if s.get("off"):
             out["off"] = True
         slides.append(out)
-    size = d.get("size") if d.get("size") in BANNER_SIZES else "m"
-    return {"autoplaySec": min(max(int(d.get("autoplaySec") or 6), 3), 20), "size": size, "slides": slides}
+    return {"autoplaySec": min(max(int(d.get("autoplaySec") or 6), 3), 20), "size": "m", "slides": slides}
 
 
 def banners_saved():
@@ -1828,17 +1858,16 @@ def banners_public():
     """Баннеры для сайта (?site=retail — розничного); пусто — сайт показывает свои баннеры по умолчанию."""
     retail = _site() == "retail"
     try:
-        d = oh.cached("banners_retail" if retail else "banners", 60, banners_retail if retail else banners_saved)
+        d = oh.cached("banners_retail" if retail else "banners", BANNER_TTL, banners_retail if retail else banners_saved)
     except Exception:
         d = None
     if not d:
         return jsonify(error="none"), 404
-    body = {"autoplaySec": d.get("autoplaySec", 6), "slides": [s for s in d["slides"] if not s.get("off")]}
-    if retail:
-        body["size"] = d.get("size", "m")
+    body = {"autoplaySec": d.get("autoplaySec", 6), "size": "m", "slides": [s for s in d.get("slides") or [] if not s.get("off")]}
     resp = jsonify(**body)
-    resp.headers["Cache-Control"] = "public, max-age=60"
-    return oh.cors(resp)
+    resp.headers["Cache-Control"] = "public, max-age=60, stale-while-revalidate=600"
+    resp.add_etag()
+    return oh.cors(resp.make_conditional(request))
 
 
 @bp.get("/banners/img/<bid>")
@@ -1849,7 +1878,16 @@ def banner_img(bid):
         r = d.run("SELECT data, mime FROM banner_img WHERE id=%s", (bid,), one=True)
     if not r:
         return jsonify(error="none"), 404
-    resp = oh.cors(oh.Response(bytes(r[0]), mimetype=r[1]))
+    data, mime = bytes(r[0]), r[1]
+    if mime != "image/webp" and len(data) > 300 * 1024:      # загруженные до сжатия (PNG по 2 МБ) — сжимаем один раз и сохраняем
+        try:
+            data, mime = banner_webp(data, 1800)[0], "image/webp"
+            with _bimg_db() as d:
+                d.run("UPDATE banner_img SET data=%s, mime=%s WHERE id=%s", (data, mime, bid))
+        except Exception as e:
+            print("Баннеры: сжатие", bid, e, flush=True)
+            data, mime = bytes(r[0]), r[1]
+    resp = oh.cors(oh.Response(data, mimetype=mime))
     resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
     return resp
 
@@ -1857,7 +1895,7 @@ def banner_img(bid):
 @bp.post("/admin/api/banners/upload")
 @guard
 def banner_upload():
-    """Картинка баннера из панели: храним у себя, отдаём по постоянной ссылке /banners/img/<id>."""
+    """Картинка баннера из панели (?kind=d — компьютер, m — телефон): сжимаем в WebP и отдаём по постоянной ссылке /banners/img/<id>."""
     f = request.files.get("file")
     if not f:
         return jsonify(ok=False, error="Файл не выбран"), 400
@@ -1866,12 +1904,18 @@ def banner_upload():
         return jsonify(ok=False, error="Нужна картинка JPG, PNG или WEBP"), 400
     data = f.read()
     if len(data) > BANNER_IMG_MAX:
-        return jsonify(ok=False, error="Картинка больше 3 МБ — уменьшите её"), 413
+        return jsonify(ok=False, error="Картинка больше 8 МБ — уменьшите её"), 413
+    kind = request.args.get("kind") if request.args.get("kind") in BANNER_KINDS else "d"
+    try:
+        webp, w, h = banner_webp(data, BANNER_KINDS[kind][0])
+    except Exception:
+        return jsonify(ok=False, error="Не получилось открыть картинку — сохраните её как JPG или PNG"), 400
     bid = secrets.token_hex(12)
     with _bimg_db() as d:
-        d.run("INSERT INTO banner_img (id, mime, data, at) VALUES (%s,%s,%s,%s)", (bid, mime, data, time.time()))
+        d.run("INSERT INTO banner_img (id, mime, data, at) VALUES (%s,%s,%s,%s)", (bid, "image/webp", webp, time.time()))
     root = request.url_root.replace("http://", "https://", 1).rstrip("/")
-    return jsonify(ok=True, url=f"{root}/banners/img/{bid}")
+    return jsonify(ok=True, url=f"{root}/banners/img/{bid}", w=w, h=h, kb=round(len(webp) / 1024), was_kb=round(len(data) / 1024),
+                   warn=banner_warn(w, h, kind))
 
 
 @bp.route("/admin/api/banners", methods=["GET", "PUT"])
