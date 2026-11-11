@@ -1781,11 +1781,12 @@ async delivery(){const o=await api("delivery");const n=nav;const S=o.services,R=
  const num=(id,label,val,unit)=>`<label>${label}<span class="dln"><input id="${id}" inputmode="numeric" value="${val}"><i>${unit}</i></span></label>`;
  $("#main").innerHTML=head("Доставка","Подключение служб доставки и цена доставки для клиента")+seg("delivery")+`<div class="dlw">
  ${svc("yandex","Курьер по Алматы, в тот же день")}${svc("cdek","По Казахстану: курьер или пункт выдачи")}
- <div class="card dlc"><b>Цена доставки на розничном сайте</b><div class="mut">По Алматы — Яндекс «в течение дня», срочный курьер и самовывоз (бесплатно). В другие города — только пункт выдачи СДЭК. У каждого способа своя цена и своя сумма, от которой доставка бесплатная (0 — бесплатной нет)</div>
-  <div class="dlz" style="margin-top:10px">${num("r-sdd_price","Алматы, в течение дня — цена",R.sdd_price??1000,"₸")}${num("r-sdd_free","Алматы, в течение дня — бесплатно от",R.sdd_free??15000,"₸")}</div>
+ <div class="card dlc"><b>Цена доставки на розничном сайте</b><div class="mut">По Алматы — Яндекс «в течение дня», срочный курьер и самовывоз (бесплатно). В другие города — только пункт выдачи СДЭК. У каждого способа своя цена; бесплатная доставка — одна сумма на все способы, кроме Express (0 — бесплатной нет)</div>
+  <div class="dlz" style="margin-top:10px">${num("r-free_all","Бесплатная доставка по Казахстану — от",R.free_all??50000,"₸")}</div>
+  <div class="dlz">${num("r-sdd_price","Алматы, в течение дня — цена",R.sdd_price??1000,"₸")}</div>
   <div class="dlz">${num("r-express_price","Алматы, срочно (Яндекс Экспресс) — цена, всегда платно",R.express_price??2500,"₸")}</div>
   <div class="dlz"><label class="dll">Express: автовызов курьера (тариф «Курьер»), когда заказ отметили «Собран»<select id="r-xauto"><option value="1" ${(R.xauto??1)?"selected":""}>Включён — вызывается сам</option><option value="0" ${(R.xauto??1)?"":"selected"}>Выключен — вручную</option></select></label>${num("r-xauto_limit","Автовызов, если Яндекс просит не больше (дороже — спросит вас)",R.xauto_limit??3000,"₸")}</div>
-  <div class="dlz">${num("r-cdek_price","Другие города, пункт выдачи СДЭК — цена",R.cdek_price??1500,"₸")}${num("r-cdek_free","Пункт выдачи СДЭК — бесплатно от",R.cdek_free??20000,"₸")}</div>
+  <div class="dlz">${num("r-cdek_price","Пункт выдачи СДЭК — цена",R.cdek_price??1500,"₸")}</div>
   <div class="mut dlx" id="dlx2"></div>
   <div hidden><div class="dltr" id="dltr"></div><button type="button" id="dlta"></button>${num("r-free_from","",R.free_from,"₸")}${num("r-door_extra","",R.door_extra??1000,"₸")}<div id="dlx"></div></div></div>
  <div class="card dlc"><b>График работы</b><div class="mut">Один график на всё: в эти часы сайт принимает Express, в эти дни возит курьер «в течение дня», его же видит покупатель у самовывоза. Выключенный день — выходной.</div>
@@ -1815,8 +1816,8 @@ async delivery(){const o=await api("delivery");const n=nav;const S=o.services,R=
 
  ex();$("#r-free_from").oninput=ex;
  const ex2=()=>{const v=k=>+($("#r-"+k).value.replace(/\D/g,"")||0),pr=(s,p,f)=>f&&s>=f?"бесплатно":fmt(p)+" ₸";
-  $("#dlx2").innerHTML=[8000,16000,21000].map(s=>`Товаров на ${fmt(s)} ₸: в течение дня — ${pr(s,v("sdd_price"),v("sdd_free"))}, срочно — ${fmt(v("express_price"))} ₸, СДЭК — ${pr(s,v("cdek_price"),v("cdek_free"))}`).join("<br>")};
- ex2();["sdd_price","sdd_free","express_price","cdek_price","cdek_free"].forEach(k=>$("#r-"+k).oninput=ex2);
+  $("#dlx2").innerHTML=[8000,25000,v("free_all")||60000].map(s=>`Товаров на ${fmt(s)} ₸: в течение дня — ${pr(s,v("sdd_price"),v("free_all"))}, срочно — ${fmt(v("express_price"))} ₸, СДЭК — ${pr(s,v("cdek_price"),v("free_all"))}`).join("<br>")};
+ ex2();["free_all","sdd_price","express_price","cdek_price"].forEach(k=>$("#r-"+k).oninput=ex2);
  document.querySelectorAll(".dlday").forEach(b=>b.onclick=()=>{b.classList.toggle("on");b.setAttribute("aria-pressed",b.classList.contains("on"));if(b.classList.contains("xhon"))b.parentNode.querySelectorAll("input").forEach(i=>i.disabled=!b.classList.contains("on"))});
  const slotRow=x=>{const r=document.createElement("div");r.className="dlsr";
   r.innerHTML=`<input class="dlsn" placeholder="Название, напр. Вечер" value="${esc(x.name)}" aria-label="Название интервала"><div class="dlst2"><input class="dlsf" type="time" value="${esc(x.from)}" aria-label="С"><span>—</span><input class="dlsto" type="time" value="${esc(x.to)}" aria-label="До"><button type="button" class="dlsx" aria-label="Удалить интервал">✕</button></div>`;
@@ -1824,7 +1825,7 @@ async delivery(){const o=await api("delivery");const n=nav;const S=o.services,R=
  (G.slots.length?G.slots:[]).forEach(slotRow);
  $("#dlsa").onclick=()=>{const last=[...document.querySelectorAll(".dlsto")].pop();const r=slotRow({name:"",from:last&&last.value||"",to:""});r.querySelector(".dlsn").focus()};
  const collect=()=>{const b={rules:{},store:{}};for(const k of Object.keys(S)){b[k]={};document.querySelectorAll(`[data-s="${k}"] [data-f]`).forEach(i=>b[k][i.dataset.f]=i.value)}
-  b.cdek.test=$("#d-cdek-test").checked;["free_from","door_extra","weight","cutoff","box_w","box_h","box_d","sdd_price","sdd_free","express_price","cdek_price","cdek_free","xauto","xauto_limit"].forEach(k=>b.rules[k]=$("#r-"+k).value.replace(/\D/g,"")||0);b.tiers=tiers();
+  b.cdek.test=$("#d-cdek-test").checked;["free_from","door_extra","weight","cutoff","box_w","box_h","box_d","free_all","sdd_price","express_price","cdek_price","xauto","xauto_limit"].forEach(k=>b.rules[k]=$("#r-"+k).value.replace(/\D/g,"")||0);b.tiers=tiers();
   b.schedule={days:[...document.querySelectorAll(".xhd .xhon")].map(x=>x.classList.contains("on")?"1":"0").join(""),
    slots:[...document.querySelectorAll(".dlsr")].map(r=>({name:r.querySelector(".dlsn").value,from:r.querySelector(".dlsf").value,to:r.querySelector(".dlsto").value})).filter(x=>x.name.trim())};
   b.express_hours=[...document.querySelectorAll(".xhd")].map(r=>r.querySelector(".xhon").classList.contains("on")?[r.querySelector(".xhf").value,r.querySelector(".xht").value]:null);

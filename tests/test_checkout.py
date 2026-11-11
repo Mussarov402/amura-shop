@@ -37,10 +37,13 @@ class Prices(unittest.TestCase):
     def test_rates(self):
         cp = checkout.client_price
         self.assertEqual(cp(3000, "courier", "Алматы"), 1000)          # в течение дня
-        self.assertEqual(cp(15000, "courier", "Алматы"), 0)            # бесплатно от 15 000
+        self.assertEqual(cp(15000, "courier", "Алматы"), 1000)         # порог один на все способы — 50 000
+        self.assertEqual(cp(50000, "courier", "Алматы"), 0)
         self.assertEqual(cp(30000, "express", "Алматы"), 2500)         # срочно — всегда платно
         self.assertEqual(cp(17000, "cdek", "Караганда"), 1500)
-        self.assertEqual(cp(20000, "cdek", "Астана"), 0)               # СДЭК бесплатно от 20 000
+        self.assertEqual(cp(20000, "cdek", "Астана"), 1500)
+        self.assertEqual(cp(50000, "cdek", "Астана"), 0)               # бесплатно от 50 000 по всему Казахстану
+        self.assertEqual(cp(90000, "express", "Алматы"), 2500)         # Express — никогда не бесплатно
         self.assertEqual(cp(3000, "pickup", "Алматы"), 0)
 
     def test_allowed(self):
@@ -61,7 +64,8 @@ class Options(unittest.TestCase):
         r = json.loads(self.c.get("/delivery/options?city=Алматы&sum=3000").data)
         self.assertTrue(r["almaty"])
         self.assertEqual([(m["id"], m["price"]) for m in r["methods"]], [("courier", 1000), ("cdek", 1500), ("pickup", 0), ("express", 2500)])
-        self.assertEqual(r["rates"]["courier"], {"price": 1000, "free": 15000})
+        self.assertEqual(r["rates"]["courier"], {"price": 1000, "free": 50000})
+        self.assertEqual(r["freeFrom"], 50000)
         self.assertIsInstance(r["slots"], list)
 
     def test_cdek_down_fast(self):
@@ -135,6 +139,18 @@ class Orders(unittest.TestCase):
         d = {"name": "Аружан", "phone": "+77012345678", "city": "Алматы", "shipping": "courier", "mode": "retail",
              "items": [{"id": "p1", "qty": 1}], **kw}
         return oh.order_core(d, "o" + str(len(self.posted)) + json.dumps(kw, ensure_ascii=False), "1.1.1.1", "cid-1")
+
+    def test_same_price_as_cart(self):
+        """Корзина (/delivery/options) и заказ считают доставку одинаково: ниже 50 000 — цена способа, от 50 000 — бесплатно, Express — всегда платно."""
+        s = delivery.slots_ahead(days=7)
+        for qty, ship, extra in ((16, "courier", {"address": "Абая 10", "slot": s[0]}), (17, "courier", {"address": "Абая 10", "slot": s[0]}),
+                                 (17, "express", {"address": "Абая 10"}), (17, "pickup", {})):
+            goods = 3000 * qty
+            res, st = self.order(shipping=ship, items=[{"id": "p1", "qty": qty}], **extra)
+            self.assertEqual(st, 200, res)
+            opt = {m["id"]: m["price"] for m in checkout.options("Алматы", goods)["methods"]}
+            self.assertEqual(res["total"] - goods, opt[ship], (qty, ship))
+        self.assertEqual(checkout.options("Алматы", 51000)["freeFrom"], 50000)
 
     def test_almaty_courier_slot(self):
         s = delivery.slots_ahead(days=7)

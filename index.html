@@ -642,6 +642,18 @@ input,select,textarea{font-size:16px!important}
 .rseen-row.grid::-webkit-scrollbar{display:none}.rseen-row .card{scroll-snap-align:start}
 @media(min-width:760px){.rseen-row.grid{grid-auto-columns:minmax(170px,30%)}}
 .rseen + .rsup{margin-top:14px}.rseen-clr{width:100%;margin-top:16px}
+/* бесплатная доставка: строка вверху сайта, полоса в корзине, «Нужно быстрее?», серый Express */
+.rtopfree{background:#0E3B2C;color:#E8F1EC;text-align:center;font-size:12.5px;font-weight:600;padding:6px 12px;line-height:1.3}
+.rfree.ok{color:#1E7A4C;font-weight:700}
+.rfree small{display:block;margin-top:6px;font-size:12px;font-weight:500;color:var(--muted)}
+.rlink{border:0;background:none;padding:0;font:inherit;color:#1E7A4C;font-weight:700;text-decoration:underline;cursor:pointer}
+.rside>.rfree:first-child{margin:0 0 12px}
+.rfast-h{font-size:13px;font-weight:700;color:var(--muted);margin:10px 2px 6px}
+.rfree-note{margin-top:6px}
+.rtabs button.roff{opacity:.5;cursor:not-allowed}
+.rfreebox:empty{display:none}
+.rfreebox .rfree{margin:0}
+@media(min-width:900px){.rfreebox{display:none}}   /* на компьютере полоса — в блоке «Итого» справа */
 /* Розничный сайт: отзывы */
 .rpc-rate{font-size:13px;font-weight:700;display:flex;align-items:center;gap:3px}
 .rpc-rate b{color:#E8A317;font-size:14px}.rpc-rate span{color:var(--muted);font-weight:500}
@@ -2373,9 +2385,28 @@ const MON = ["января","февраля","марта","апреля","мая
 const WANT = "amura-r-checkout";                 // «после входа вернуться к оформлению»
 /* способы получения: Алматы — Яндекс «в течение дня», пункт СДЭК, самовывоз, Express; другие города — только пункт выдачи СДЭК */
 const isAlm = f => DLV.opts && DLV.city === ((f && f.city) || "") ? DLV.opts.almaty : /алмат/i.test((f && f.city) || "");
-/* Express — только в часы приёма (настраиваются в панели): сервер не отдаёт его в способах, вкладку не показываем */
+/* Express — только в часы приёма (настраиваются в системе AMURA): вне их вкладка серая, с подписью «с 09:30», выбрать нельзя */
 const xOff = f => DLV.opts && DLV.city === ((f && f.city) || "") && DLV.opts.express && !DLV.opts.express.open;
-const tabsFor = f => isAlm(f) ? [["courier", "В течение дня"], ["cdek", "Пункт СДЭК"], ["pickup", "Самовывоз"], ["express", "Express"]].filter(t => t[0] !== "express" || !xOff(f)) : [["cdek", "Пункт выдачи СДЭК"]];
+/* как на маркетплейсах: пункты выдачи — основной способ, курьер — дополнительный платный («Нужно быстрее?») */
+const MAIN = [["cdek", "Пункт СДЭК"], ["pickup", "Самовывоз"]], FAST = [["courier", "Курьер сегодня"], ["express", "Express"]];
+const tabsFor = f => isAlm(f) ? MAIN.concat(FAST.filter(t => t[0] !== "express" || !xOff(f))) : [["cdek", "Пункт выдачи СДЭК"]];
+/* бесплатная доставка — одна сумма на все способы, кроме Express (Настройки → Доставка); помним с прошлого раза, пока не узнали город */
+const FREE = () => { const v = DLV.opts && DLV.opts.freeFrom; if(v !== undefined && v !== null) save("free-all", v); return v ?? load("free-all", 50000); };
+getJSON(`${CONFIG.apiUrl}/delivery/options?city=&sum=0`, 15000).then(o => { if(o && o.freeFrom !== undefined){ save("free-all", o.freeFrom); topFree(); if(VIEW === "cart") try{ paint(); }catch{} } }).catch(() => {});
+function freeBar(goods, ff, cartStep){
+  if(!ff) return "";
+  if(goods >= ff) return `<div class="rfree ok">🎉 Доставка будет бесплатной</div>`;
+  return `<div class="rfree">До бесплатной доставки ещё <b>${fmt(ff - goods)} ₸</b><i><b style="width:${Math.round(100 * goods / ff)}%"></b></i>`
+    + (cartStep ? `<small>Добавьте ещё товары — доставка по Казахстану бесплатно от ${fmt(ff)} ₸. <button type="button" class="rlink" data-rhits>Подобрать товары</button></small>` : "") + `</div>`;
+}
+/* строка вверху сайта */
+function topFree(){
+  const ff = FREE(); let el = $("#rTopFree");
+  if(!ff){ if(el) el.remove(); return; }
+  if(!el){ el = document.createElement("div"); el.id = "rTopFree"; el.className = "rtopfree"; document.body.prepend(el); }
+  el.textContent = `Бесплатная доставка по Казахстану от ${fmt(ff)} ₸`;
+}
+topFree();
 const isCour = s => s === "courier" || s === "express";
 const _dlvPrice = dlvPrice;
 dlvPrice = function(ship, goods){          // цена по способу: своя цена и свой порог бесплатной доставки (rates с сервера)
@@ -2469,25 +2500,28 @@ function provHTML(f){
   return `<div class="rprov"><b class="${name === "Яндекс Доставка" ? "ya" : name === "СДЭК" ? "cd" : ""}">${name}</b><span>${note}</span></div>`;
 }
 function dlvCard(f, t){
-  const TB = tabsFor(f);
-  const tabs = TB.map(([id, name]) => {
+  const TB = tabsFor(f), alm = isAlm(f), off = alm && xOff(f), ff = FREE();
+  const tab = ([id, name]) => {
+    if(id === "express" && off){ const x = DLV.opts.express, at = (String(x.next || "").match(/\d{1,2}:\d{2}/) || [""])[0];
+      return `<button type="button" role="tab" aria-selected="false" disabled class="roff" title="Express — ${esc(x.hours || "")}${x.next ? ". Откроется " + esc(x.next) : ""}">${name}<small>${at ? "доступен с " + at : "сейчас закрыт"}</small></button>`; }
     const p = id === "pickup" ? 0 : dlvPrice(id, t.goods);
-    return `<button type="button" role="tab" aria-selected="${f.ship === id}" data-rm="${id}">${name}${p === null ? "" : `<small>${priceTxt(p)}</small>`}</button>`; }).join("");
+    return `<button type="button" role="tab" aria-selected="${f.ship === id}" data-rm="${id}">${name}${p === null ? "" : `<small>${priceTxt(p)}</small>`}</button>`; };
   const e = eta(f), w = t.dlv === null ? (f.city ? "считаем…" : "") : priceTxt(t.dlv);
-  return `<div class="rtabs n${TB.length}" role="tablist">${tabs}</div>${provHTML(f)}${addrRow(f)}
+  const tabsHTML = alm ? `<div class="rtabs n2" role="tablist">${MAIN.map(tab).join("")}</div><div class="rfast-h">Нужно быстрее?</div><div class="rtabs n2" role="tablist">${FAST.map(tab).join("")}</div>`
+    : `<div class="rtabs n${TB.length}" role="tablist">${TB.map(tab).join("")}</div>`;
+  return `${tabsHTML}${ff ? `<div class="kv rfree-note">Доставка бесплатно от ${fmt(ff)} ₸${alm ? " — кроме Express" : ""}</div>` : ""}${provHTML(f)}${addrRow(f)}
     <div class="reta"><b>${esc(e)}${w ? `, <span class="${t.dlv === 0 ? "free" : ""}">${w}</span>` : ""}</b><span>${fmt(t.count)} шт</span></div>
     ${DLV.opts && DLV.opts.warn ? `<div class="kv">${esc(DLV.opts.warn)}</div>` : ""}
-    ${xOff(f) ? `<div class="kv">Express — ${esc(DLV.opts.express.hours || "")}${DLV.opts.express.next ? `. Откроется ${esc(DLV.opts.express.next)}` : ""}</div>` : ""}
     <div class="rthumbs">${t.ls.slice(0, 8).map(l => `<span>${l.it.img ? `<img src="${esc(l.it.img)}" alt="" loading="lazy">` : `<i>${esc((l.it.brand || l.it.name || "A").charAt(0))}</i>`}${l.q > 1 ? `<em>${l.q}</em>` : ""}</span>`).join("")}${t.ls.length > 8 ? `<span><i>+${t.ls.length - 8}</i></span>` : ""}</div>
     ${slotsHTML(f)}`;
 }
 function totalsHTML(f, t){
-  const o = DLV.opts, ff = freeFrom(f.ship), rest = ff && t.goods < ff ? ff - t.goods : 0, restC = 0;
+  const ff = freeFrom(f.ship);
   const login = !AUTH.token;
   return `<div class="rtot"><span>Итого</span><b>${fmt(t.total)} ₸</b></div>
     <div class="rrow"><span>${fmt(t.count)} ${plural(t.count, "товар", "товара", "товаров")} на сумму</span><span>${fmt(t.goods)} ₸</span></div>
     <div class="rrow"><span>Доставка</span><span class="${t.dlv === 0 ? "free" : ""}">${t.dlv === null ? (f.city ? "считаем…" : "укажите город") : priceTxt(t.dlv)}</span></div>
-    ${rest ? `<div class="rfree">До бесплатной доставки ещё <b>${fmt(rest)} ₸</b><i><b style="width:${Math.round(100 * t.goods / ff)}%"></b></i></div>` : ""}
+    ${f.ship !== "pickup" ? freeBar(t.goods, ff) : ""}
     ${PROMO_ON || PROMO ? `<div class="field" style="margin-top:10px"><label for="fPromo">Промокод</label><div style="display:flex;gap:8px"><input id="fPromo" autocapitalize="characters" autocomplete="off" placeholder="Если есть" value="${esc(PROMO ? PROMO.code : "")}" style="flex:1;min-width:0"><button class="btn ghost" id="promoBtn" type="button" style="width:auto;flex:none;padding:0 14px">${PROMO ? "Убрать" : "Применить"}</button></div><div class="kv" id="promoMsg" style="margin-top:4px">${PROMO ? (PROMO.discount > 0 ? `Скидка ${PROMO.discount}% учтена в цене` : "Промокод применён") : ""}</div></div>` : ""}
     <div class="err" id="rErr"></div>
     ${consentHTML("rAgree", CONSENT.cart)}
@@ -2568,12 +2602,13 @@ function stepCart(f, all){
             <button type="button" class="rbuy" data-rbuy>Купить</button></div>
         </div>
         <button type="button" class="rico rdel" data-rdel aria-label="Удалить">${TRASH}</button></div>`; }).join("")}
+      <div class="rcard rfreebox" id="rFreeM">${t.ls.length ? freeBar(t.goods, FREE(), true) : ""}</div>
     </div>
     <aside class="rcard rside" id="rTot">${cartTotalsHTML(f, t)}</aside></div>
     <div class="rfix" id="rFix"><button type="button" class="rfixb" data-rnext ${t.ls.length ? "" : "disabled"}><span>К оформлению · ${fmt(t.count)}</span><b>${fmt(t.total)} ₸</b></button></div>`;
 }
 function cartTotalsHTML(f, t){
-  return `<div class="rtot"><span>Итого</span><b>${fmt(t.total)} ₸</b></div>
+  return `${t.ls.length ? freeBar(t.goods, FREE(), true) : ""}<div class="rtot"><span>Итого</span><b>${fmt(t.total)} ₸</b></div>
     <div class="rrow"><span>${plTov(t.count)} на сумму</span><span>${fmt(t.goods)} ₸</span></div>
     <div class="rrow"><span>Доставка</span><span class="${t.dlv === 0 ? "free" : ""}">${t.dlv === null ? (f.city ? "считаем…" : "укажите адрес") : priceTxt(t.dlv)}</span></div>
     <button type="button" class="btn rgo" data-rnext ${t.ls.length ? "" : "disabled"}>Перейти к оформлению</button>
@@ -2607,6 +2642,7 @@ function paint(){
     $("#rAddrTop").innerHTML = addrRow(f);
     document.querySelectorAll(".rwhen").forEach(x => x.textContent = w);
     $("#rTot").innerHTML = cartTotalsHTML(f, t);
+    const fm = $("#rFreeM"); if(fm) fm.innerHTML = t.ls.length ? freeBar(t.goods, FREE(), true) : "";
     const b = $("#rFix .rfixb"); b.disabled = !t.ls.length; b.innerHTML = `<span>К оформлению · ${fmt(t.count)}</span><b>${fmt(t.total)} ₸</b>`;
   } else {
     const t = tot(f.ship);
@@ -2738,6 +2774,7 @@ $("#drawerBody").addEventListener("change", e => {
 $("#drawerBody").addEventListener("click", e => {
   if(!$("#rFix") && !e.target.closest("[data-rlogin]")) return;
   if(e.target.closest("[data-rnext]")) return toCheckout();
+  if(e.target.closest("[data-rhits]")){ go("home"); const g = $(".toolbar"); if(g) scrollTo({ top: g.offsetTop - 120 }); return; }
   if(e.target.closest("[data-rback]")){ STEP = "cart"; renderRetailCart(); return; }
   if(e.target.closest("[data-rgo]") || e.target.id === "rGo"){ if(LEGAL() && !CONSENT.cart) return consentNeed("rAgree"); return submit(); }
   const pm = e.target.closest("[data-rpaym]");
