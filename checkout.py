@@ -33,21 +33,26 @@ def allowed(city):
     return ("courier", "cdek", "pickup", "express") if delivery.express_state()["open"] else ("courier", "cdek", "pickup")
 
 
+def free_all():
+    """Порог бесплатной доставки — один на все способы, кроме Express (Настройки → Доставка, по умолчанию 50 000 ₸)."""
+    return int(delivery.conf()["rules"].get("free_all", 50000) or 0)
+
+
 def client_price(goods_sum, method, city):
-    """Цена доставки для клиента: у каждого способа своя цена и свой порог бесплатной доставки (Обзор → Доставка)."""
+    """Цена доставки для клиента: у каждого способа своя цена (Настройки → Доставка), бесплатно — от общего порога; Express всегда платно."""
     r = delivery.conf()["rules"]
     if method == "pickup":
         return 0
     if method == "express":
         return int(r["express_price"])
-    price, free = (r["sdd_price"], r["sdd_free"]) if method == "courier" else (r["cdek_price"], r["cdek_free"])
-    return 0 if free and goods_sum >= free else int(price)
+    free = free_all()
+    return 0 if free and goods_sum >= free else int(r["sdd_price"] if method == "courier" else r["cdek_price"])
 
 
 def rates():
-    r = delivery.conf()["rules"]
-    return {"courier": {"price": r["sdd_price"], "free": r["sdd_free"]}, "express": {"price": r["express_price"], "free": 0},
-            "cdek": {"price": r["cdek_price"], "free": r["cdek_free"]}}
+    r, free = delivery.conf()["rules"], free_all()
+    return {"courier": {"price": r["sdd_price"], "free": free}, "express": {"price": r["express_price"], "free": 0},
+            "cdek": {"price": r["cdek_price"], "free": free}}
 
 
 # ---------- СДЭК: город, сроки, пункты выдачи (с кэшем — СДЭК отвечает не мгновенно) ----------
@@ -159,7 +164,7 @@ def options(city, goods_sum):
             err = "Сроки СДЭК сейчас недоступны"
             print("Корзина: сроки СДЭК:", str(e)[:200], flush=True)
     slots = delivery.slots_ahead(days=4) if alm else []
-    ff = c["rules"]["free_from"]
+    ff = free_all()
     rng = lambda p: [p[0], p[1] or p[0]] if p and p[0] is not None else None  # noqa: E731
     all_methods = {
         "courier": {"id": "courier", "name": "В течение дня", "price": client_price(goods_sum, "courier", city),

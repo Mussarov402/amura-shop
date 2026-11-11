@@ -212,3 +212,15 @@ input,select,textarea{font-size:16px!important}
 .rseen-row.grid::-webkit-scrollbar{display:none}.rseen-row .card{scroll-snap-align:start}
 @media(min-width:760px){.rseen-row.grid{grid-auto-columns:minmax(170px,30%)}}
 .rseen + .rsup{margin-top:14px}.rseen-clr{width:100%;margin-top:16px}
+/* бесплатная доставка: строка вверху сайта, полоса в корзине, «Нужно быстрее?», серый Express */
+.rtopfree{background:#0E3B2C;color:#E8F1EC;text-align:center;font-size:12.5px;font-weight:600;padding:6px 12px;line-height:1.3}
+.rfree.ok{color:#1E7A4C;font-weight:700}
+.rfree small{display:block;margin-top:6px;font-size:12px;font-weight:500;color:var(--muted)}
+.rlink{border:0;background:none;padding:0;font:inherit;color:#1E7A4C;font-weight:700;text-decoration:underline;cursor:pointer}
+.rside>.rfree:first-child{margin:0 0 12px}
+.rfast-h{font-size:13px;font-weight:700;color:var(--muted);margin:10px 2px 6px}
+.rfree-note{margin-top:6px}
+.rtabs button.roff{opacity:.5;cursor:not-allowed}
+.rfreebox:empty{display:none}
+.rfreebox .rfree{margin:0}
+@media(min-width:900px){.rfreebox{display:none}}   /* на компьютере полоса — в блоке «Итого» справа */
