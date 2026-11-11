@@ -1,0 +1,23 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><link rel="stylesheet" href="../fonts.css">
+<!-- opt.amura.kz: мобильная версия баннера «Подарок при покупке от 150 000 ₸» (1280×720, 16:9, поле imgM) — задача Хиро 11.11.2026.
+     Тексты и условия — как в нынешнем баннере для компьютера, ничего не добавляем. Товары — вырезка из того же баннера:
+     скачать https://admin.amura.kz/banners/img/8e76ea95c940dba46a3f0d70 → src/gift_full.png и выполнить:
+     python3 -c "from PIL import Image,ImageDraw;im=Image.open('src/gift_full.png').convert('RGB').crop((890,30,2172,724));m=Image.new('L',im.size,255);d=ImageDraw.Draw(m);[d.line([(i,0),(i,im.height)],fill=int(255*i/140)) for i in range(140)];d.rectangle([0,0,95,330],fill=0);from PIL import ImageChops;g=Image.linear_gradient('L').resize(im.size).point(lambda v:min(255,int(v*im.height/90)));im.putalpha(ImageChops.multiply(m,g));im.save('src/gift_prod.png')"
+     Рендер: node cards/banners-site/render.js gift → out/gift_m.png -->
+<style>
+*{margin:0;box-sizing:border-box}
+body{width:1280px;height:720px;position:relative;overflow:hidden;background:radial-gradient(70% 90% at 75% 40%,#1f6b4a 0%,#0f4630 45%,#072b1d 100%);font-family:Montserrat,sans-serif;color:#fff}
+.ab{position:absolute}
+.prod{right:-30px;bottom:8px;width:700px}
+.rib{left:-60px;bottom:-40px;width:900px;height:220px;border-radius:50%;border-top:10px solid #d9b45a;opacity:.55;transform:rotate(-8deg);filter:blur(.5px)}
+.t1{left:60px;top:78px;font:900 54px/1.08 Montserrat;letter-spacing:.01em;text-shadow:0 4px 20px rgba(0,0,0,.35)}
+.t2{left:56px;top:226px;font:900 96px/1 Montserrat;letter-spacing:-.02em;background:linear-gradient(180deg,#fff3c4 0%,#e9c46a 45%,#b8862b 100%);-webkit-background-clip:text;color:transparent;filter:drop-shadow(0 6px 18px rgba(0,0,0,.35));white-space:nowrap}
+.t3{left:60px;top:370px;font:600 36px/1.3 Inter,sans-serif;opacity:.95}
+</style></head><body>
+<div class="ab rib"></div>
+<img class="ab prod" src="src/gift_prod.png">
+<div class="ab t1">ПОДАРОК<br>ПРИ ПОКУПКЕ</div>
+<div class="ab t2">ОТ 150&nbsp;000&nbsp;₸</div>
+<div class="ab t3">Одним чеком — один<br>из этих коллагенов<br>в подарок</div>
+<script>document.body.dataset.ready = 1</script>
+</body></html>
