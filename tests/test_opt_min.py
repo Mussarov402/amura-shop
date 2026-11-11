@@ -69,7 +69,7 @@ class OptMin(unittest.TestCase):
         self.assertEqual(self.order(qty=1, me="cid-3")[1], 200)      # метка в МойСклад
 
     def test_retail_and_off(self):
-        self.assertEqual(self.order(qty=1, me="cid-9", mode="retail")[1], 200)   # розница — без минимума
+        self.assertEqual(self.order(qty=1, me="cid-9", mode="retail", shipping="cdek", pvz={"code": "A1", "address": "Абая 1"})[1], 200)   # розница — без минимума
         oh.set_opt_min(0)
         self.assertEqual(self.order(qty=1)[1], 200)
 

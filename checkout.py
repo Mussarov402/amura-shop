@@ -26,11 +26,13 @@ def door_extra():
     return int(delivery.conf()["rules"].get("door_extra", 1000) or 0)
 
 
-def allowed(city):
-    """Способы получения на рознице: Алматы — Яндекс «в течение дня», пункт СДЭК, самовывоз, Express; другие города — пункт выдачи СДЭК."""
+def allowed(city, pickup=False):
+    """Способы получения на рознице: Алматы — Яндекс «в течение дня», пункт СДЭК, Express; другие города — пункт выдачи СДЭК.
+    Самовывоза на сайте нет (решение владельца 11.11.2026: «на клиентском сайте только доставкой»); pickup=True — заказ из системы AMURA."""
     if not is_almaty(city):
         return ("cdek",)
-    return ("courier", "cdek", "pickup", "express") if delivery.express_state()["open"] else ("courier", "cdek", "pickup")
+    out = ("courier", "cdek", "express") if delivery.express_state()["open"] else ("courier", "cdek")
+    return out + ("pickup",) if pickup else out
 
 
 def free_all():
@@ -252,14 +254,15 @@ def me_retail():
 
 
 # ---------- для order_core: розничный заказ ----------
-def order_delivery(d, ship, city, goods_sum):
-    """(цена, текст для описания, ошибка) для розничного заказа; цена считается здесь, не в браузере."""
+def order_delivery(d, ship, city, goods_sum, panel=False):
+    """(цена, текст для описания, ошибка) для розничного заказа; цена считается здесь, не в браузере.
+    panel=True — заказ оформляет менеджер в системе AMURA: самовывоз ему доступен."""
     address = str(d.get("address", "")).strip()[:200]
-    if ship not in allowed(city):
+    if ship not in allowed(city, pickup=panel):
         if ship == "express" and is_almaty(city):
             x = delivery.express_state()
             return 0, "", f"Express сейчас не принимаем{', откроется ' + x['next'] if x['next'] else ''}. Выберите доставку в течение дня"
-        return 0, "", ("По Алматы — доставка в течение дня, пункт СДЭК, самовывоз или Express" if is_almaty(city)
+        return 0, "", ("По Алматы — пункт выдачи СДЭК, курьер в течение дня или Express" if is_almaty(city)
                        else "В ваш город доставляем в пункт выдачи СДЭК")
     if ship == "pickup":
         return 0, "Самовывоз", None

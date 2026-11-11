@@ -39,6 +39,8 @@ class RetailOrder(unittest.TestCase):
         d = {"name": "Тамирис", "phone": "+77012345678", "city": "Алматы", "shipping": "pickup", "items": [{"id": "p1", "qty": qty}]}
         if mode:
             d["mode"] = mode
+        if d.get("mode") == "retail" and d.get("shipping") == "pickup":     # на розничном сайте самовывоза нет — пункт СДЭК
+            d = {**d, "shipping": "cdek", "pvz": {"code": "A1", "address": "Абая 1"}}
         return oh.order_core(d, "k" + str(len(self.posted)), "1.1.1.1", "cid-1" if mode else None)
 
     def test_retail_prices_and_mark(self):
