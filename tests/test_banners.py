@@ -1,4 +1,4 @@
-"""Баннеры: у розничного сайта свои (в нашей базе), с высотой и картинкой для телефона; загрузка картинок из панели."""
+"""Баннеры: у розничного сайта свои (в нашей базе); один стандарт 3:1 + телефон 16:9 на обоих сайтах; загрузка со сжатием в WebP."""
 import io
 import json
 import os
@@ -61,13 +61,13 @@ class Banners(unittest.TestCase):
         self.assertTrue(r["ok"])
         self.assertEqual(self.puts, [])                                                  # в МойСклад не пишем
         pub = json.loads(self.c.get("/banners?site=retail").data)
-        self.assertEqual(pub["size"], "l")
+        self.assertEqual(pub["size"], "m")                                              # высота одна — 3:1
         self.assertEqual(pub["slides"][0]["imgM"], "https://x/m.jpg")
         self.assertEqual([s["title"] for s in pub["slides"]], ["", "Т"])
         self.assertNotIn("imgM", pub["slides"][1])                                       # телефонная — только вместе с основной картинкой
         opt = json.loads(self.c.get("/banners").data)
         self.assertEqual(opt["slides"][0]["title"], "Опт")
-        self.assertNotIn("size", opt)
+        self.assertEqual(opt["size"], "m")
 
     def test_bad_size_falls_back(self):
         self.c.put("/admin/api/banners?site=retail", data=json.dumps({"size": "xxl", "slides": [{"title": "А"}]}), content_type="application/json")
@@ -82,14 +82,46 @@ class Banners(unittest.TestCase):
         self.c.put("/admin/api/banners", data=json.dumps({"slides": [{"title": "Новый"}]}), content_type="application/json")
         self.assertEqual(len(self.puts), 1)
 
-    def test_upload_and_serve(self):
-        png = b"\x89PNG\r\n\x1a\n" + b"0" * 100
-        r = self.c.post("/admin/api/banners/upload", data={"file": (io.BytesIO(png), "b.png", "image/png")}, content_type="multipart/form-data")
-        url = json.loads(r.data)["url"]
-        self.assertTrue(url.startswith("https://"))
-        g = self.c.get(url.split("localhost", 1)[1])
-        self.assertEqual(g.data, png)
-        self.assertEqual(g.mimetype, "image/png")
+    def png(self, w, h):
+        from PIL import Image, ImageDraw
+        im = Image.linear_gradient("L").resize((w, h)).convert("RGB")                     # похоже на баннер: фон, плашки, текст
+        dr = ImageDraw.Draw(im)
+        for i in range(0, w, 90):
+            dr.rectangle([i, h // 4, i + 60, h // 2], fill=(20 + i % 200, 80, 60))
+            dr.text((i, h * 3 // 4), "Подарок 50 000", fill=(255, 255, 255))
+        b = io.BytesIO()
+        im.save(b, "PNG")
+        return b.getvalue()
+
+    def test_upload_compresses_to_webp(self):
+        png = self.png(2172, 724)
+        r = json.loads(self.c.post("/admin/api/banners/upload?kind=d", data={"file": (io.BytesIO(png), "b.png", "image/png")}, content_type="multipart/form-data").data)
+        self.assertTrue(r["url"].startswith("https://"))
+        self.assertEqual((r["w"], r["h"], r["warn"]), (2172, 724, ""))                   # 3:1 — без предупреждения
+        g = self.c.get(r["url"].split("localhost", 1)[1])
+        self.assertEqual(g.mimetype, "image/webp")
+        self.assertLessEqual(len(g.data), 250 * 1024)
+        self.assertIn("immutable", g.headers["Cache-Control"])
+        from PIL import Image
+        self.assertEqual(Image.open(io.BytesIO(g.data)).size, (1800, 600))
+        m = json.loads(self.c.post("/admin/api/banners/upload?kind=m", data={"file": (io.BytesIO(png), "b.png", "image/png")}, content_type="multipart/form-data").data)
+        self.assertIn("16:9", m["warn"])                                                   # для телефона нужно 16:9
+
+    def test_old_png_compressed_on_read(self):
+        png = self.png(900, 300)
+        png = png + b"\0" * (400 * 1024)                                                   # «тяжёлый» PNG, как загруженные раньше
+        with admin._bimg_db() as d:
+            d.run("INSERT INTO banner_img (id, mime, data, at) VALUES (%s,%s,%s,%s)", ("a" * 24, "image/png", png, 0))
+        g = self.c.get("/banners/img/" + "a" * 24)
+        self.assertEqual(g.mimetype, "image/webp")
+        self.assertLess(len(g.data), len(png))
+
+    def test_banners_etag(self):
+        r = self.c.get("/banners")
+        r2 = self.c.get("/banners", headers={"If-None-Match": r.headers["ETag"]})
+        self.assertEqual(r2.status_code, 304)
+
+    def test_upload_rejects(self):
         bad = self.c.post("/admin/api/banners/upload", data={"file": (io.BytesIO(b"x"), "a.pdf", "application/pdf")}, content_type="multipart/form-data")
         self.assertEqual(bad.status_code, 400)
 
