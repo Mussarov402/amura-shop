@@ -70,19 +70,31 @@ const home = () => !st.q && !st.brand && st.sort === "pop";   // главная 
 const sel = $("#sort");
 if(sel && !sel.querySelector('option[value="pop"]')){ sel.insertAdjacentHTML("afterbegin", '<option value="pop">Популярные</option>'); }
 if(st.sort === "default"){ st.sort = "pop"; if(sel) sel.value = "pop"; }
-$("#home").addEventListener("click", () => { st.sort = "pop"; if(sel) sel.value = "pop"; }, true);   // логотип — снова подборка
-let FY = null;                                    // порядок подборки до следующей перерисовки — подгрузка при прокрутке его не меняет
+$("#home").addEventListener("click", () => { st.sort = "pop"; if(sel) sel.value = "pop"; fyReset(); }, true);   // логотип — снова подборка, свежая
+/* порядок подборки держим всю сессию (и после «назад» с товара, и после обновления цен): просмотренный товар не перетасовывает
+   ленту под пальцем, как на WB. Новый порядок — только по логотипу. Хранится в sessionStorage — переживает и перезагрузку вкладки. */
+const FYK = "amura-fy";
+let FYS = (() => { try{ return JSON.parse(sessionStorage.getItem(FYK)) || null; }catch{ return null; } })();
+const fyReset = () => { FYS = null; try{ sessionStorage.removeItem(FYK); }catch{} };
 const _filtered = filtered;
 filtered = function(){
   const list = _filtered.apply(this, arguments);
-  if(home()) return FY || (FY = forYou(list));
+  if(home()){
+    if(FYS && FYS.ids && FYS.ids.length){
+      const m = new Map(list.map(it => [it.id, it])), out = FYS.ids.map(id => m.get(id)).filter(Boolean), had = new Set(FYS.ids);
+      if(out.length >= list.length * 0.8){ FEED = FYS.feed && m.has(FYS.feed) ? FYS.feed : null; return out.concat(list.filter(it => !had.has(it.id))); }
+    }
+    const fy = forYou(list);
+    FYS = { ids: fy.map(it => it.id), feed: FEED };
+    try{ sessionStorage.setItem(FYK, JSON.stringify(FYS)); }catch{}
+    return fy;
+  }
   FEED = null;
   if(st.sort === "pop"){ const n = POP.size; list.sort((a, b) => (POP.has(a.id) ? POP.get(a.id) : n) - (POP.has(b.id) ? POP.get(b.id) : n) || (a.brand || "").localeCompare(b.brand || "", "ru") || a.name.localeCompare(b.name, "ru")); }
   return list;
 };
 const _render = render;
 render = function(){
-  FY = null;
   const r = _render.apply(this, arguments);
   if(home()) $("#title").textContent = "Подобрали для вас";
   if(sel) sel.style.display = home() ? "none" : "";

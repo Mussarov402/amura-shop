@@ -2302,14 +2302,17 @@ refreshCard = function(id){
   });
 };
 
-function cartTarget(){
-  return [...document.querySelectorAll('.tabbar [data-view="cart"], .topnav [data-view="cart"]')]
-    .map(b => b.querySelector(".ic") || b).find(e => { const r = e.getBoundingClientRect(); return r.width && getComputedStyle(e.closest("nav")).display !== "none"; });
+/* куда лететь: на странице товара — значки в её шапке; иначе — нижнее меню на телефоне или шапка на компьютере */
+function navTarget(view){
+  if(document.body.classList.contains("rpage")) return document.querySelector(view === "cart" ? "#sheet [data-rpcart]" : "#sheet [data-rpfav]");
+  return [...document.querySelectorAll(`.tabbar [data-view="${view}"], .topnav [data-view="${view}"]`)]
+    .map(b => b.querySelector(".ic") || b).find(e => { const r = e.getBoundingClientRect(); return r.width && r.bottom > 0 && r.top < innerHeight && getComputedStyle(e.closest("nav")).display !== "none"; });
 }
+const cartTarget = () => navTarget("cart");
 function bump(t, delay){ if(t) t.animate([{ transform: "scale(1)" }, { transform: "scale(1.3)" }, { transform: "scale(1)" }], { duration: 380, delay: delay || 0, easing: "ease-out" }); }
 /* фото летит дугой к значку корзины, уменьшаясь; исходное фото на миг бледнеет */
-function fly(src){
-  const t = cartTarget();
+function fly(src, t){
+  t = t || cartTarget();
   if(!src || !t || matchMedia("(prefers-reduced-motion: reduce)").matches) return bump(t);
   const a = src.getBoundingClientRect(), b = t.getBoundingClientRect();
   const size = Math.max(48, Math.min(a.width, a.height, 150));
@@ -2347,6 +2350,14 @@ $("#sheet").addEventListener("click", e => {
   const s = $("#sheet"); if(cart[s.dataset.id]) fly(s.querySelector(".pic img") || s.querySelector(".pic .ph"));   // кнопку уже перерисовали — окно берём напрямую
 });
 
+/* ❤ — фото летит в «Избранное» (после toggleFav сердечко уже нажато) */
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-fav]"); if(!b || b.getAttribute("aria-pressed") !== "true") return;
+  const box = b.closest(".card, .rpc, #sheet");
+  const src = box && (box.querySelector(".thumb img, .pic img") || box.querySelector(".thumb .ph, .pic .ph"));
+  const t = navTarget("fav");
+  if(src && t) fly(src, t); else bump(t);
+});
 if(typeof render === "function" && ALL.length) render();
 })();
 /* Розничный сайт (amura.kz): корзина и оформление заказа как на WB — два шага.
@@ -3493,6 +3504,8 @@ const PH = "#p/", TITLE = document.title;
 const CART_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l-1 12H6L5 8Z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/></svg>';
 const SHARE_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5"/><path d="M5 13v6h14v-6"/></svg>';
 const isPage = () => document.body.classList.contains("rpage");
+const HEART_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-9.2-9.4C1.6 7.6 3.9 4.5 7.2 4.5c2 0 3.4 1.1 4.8 2.8 1.4-1.7 2.8-2.8 4.8-2.8 3.3 0 5.6 3.1 4.4 6.6-1.7 4.8-9.2 9.4-9.2 9.4Z"/></svg>';
+try{ history.scrollRestoration = "manual"; }catch{}   // место в каталоге после «назад» ставим сами — браузер иначе кидает наверх
 const cartN = () => Object.values(cart).reduce((s, q) => s + q, 0);
 
 function rateLine(id){
@@ -3513,7 +3526,7 @@ function unlock(){
   if(lockY === null) return;
   const y = lockY; lockY = null;
   Object.assign(document.body.style, { position: "", top: "", left: "", right: "", width: "" });
-  scrollTo(0, y);
+  scrollTo(0, y); requestAnimationFrame(() => scrollTo(0, y));   // Safari после свайпа «назад» иногда сбивает первый scrollTo
 }
 const _open = openProduct;
 openProduct = function(it, fromHistory){
@@ -3525,6 +3538,7 @@ openProduct = function(it, fromHistory){
     <button type="button" class="rp-back" data-rpback aria-label="Назад"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
     <span class="rp-t">${esc(it.brand || "Товар")}</span>
     <button type="button" class="rp-ic" data-rpshare aria-label="Поделиться">${SHARE_SVG}</button>
+    <button type="button" class="rp-ic" data-rpfav aria-label="Избранное">${HEART_SVG}<em id="rpFav" ${FAV.length ? "" : "hidden"}>${FAV.length}</em></button>
     <button type="button" class="rp-ic" data-rpcart aria-label="Корзина">${CART_SVG}<em id="rpCnt" ${n ? "" : "hidden"}>${n}</em></button></div>`);
   const h3 = sh.querySelector(".info h3"); if(h3) h3.insertAdjacentHTML("afterend", rateLine(it.id));
   const br = sh.querySelector(".info .brand"); if(br && window.VERIFIED_SVG && !br.querySelector(".rpc-ok")) br.insertAdjacentHTML("afterbegin", window.VERIFIED_SVG);   // синяя галочка «оригинал», как в каталоге
@@ -3533,7 +3547,7 @@ openProduct = function(it, fromHistory){
   document.title = it.name + " — AMURA";
   const h = PH + encodeURIComponent(it.id);
   if(!fromHistory && location.hash !== h){
-    try{ if(location.hash.startsWith(PH)) history.replaceState({ rp: 1 }, "", h); else history.pushState({ rp: 1 }, "", h); }catch{}
+    try{ if(location.hash.startsWith(PH) || (history.state && history.state.rs)) history.replaceState({ rp: 1 }, "", h); else history.pushState({ rp: 1 }, "", h); }catch{}
   }
 };
 
@@ -3548,6 +3562,8 @@ closeAll = function(){
 
 const _cnt = renderCartCount;
 renderCartCount = function(){ _cnt(); const c = $("#rpCnt"); if(c){ const n = cartN(); c.textContent = n; c.hidden = !n; } };
+const _fc = renderFavCount;
+renderFavCount = function(){ _fc(); const c = $("#rpFav"); if(c){ c.textContent = FAV.length; c.hidden = !FAV.length; } };
 
 $("#sheet").addEventListener("click", e => {
   if(!isPage()) return;
@@ -3556,6 +3572,7 @@ $("#sheet").addEventListener("click", e => {
     return;
   }
   if(e.target.closest("[data-rpcart]")) return go("cart");
+  if(e.target.closest("[data-rpfav]")) return go("fav");
   if(e.target.closest("[data-rprate]")){ const b = $("#rvBox"); if(b) b.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
   if(e.target.closest("[data-rpshare]")){
     const url = location.href, title = document.title;
@@ -3653,19 +3670,31 @@ const home = () => !st.q && !st.brand && st.sort === "pop";   // главная 
 const sel = $("#sort");
 if(sel && !sel.querySelector('option[value="pop"]')){ sel.insertAdjacentHTML("afterbegin", '<option value="pop">Популярные</option>'); }
 if(st.sort === "default"){ st.sort = "pop"; if(sel) sel.value = "pop"; }
-$("#home").addEventListener("click", () => { st.sort = "pop"; if(sel) sel.value = "pop"; }, true);   // логотип — снова подборка
-let FY = null;                                    // порядок подборки до следующей перерисовки — подгрузка при прокрутке его не меняет
+$("#home").addEventListener("click", () => { st.sort = "pop"; if(sel) sel.value = "pop"; fyReset(); }, true);   // логотип — снова подборка, свежая
+/* порядок подборки держим всю сессию (и после «назад» с товара, и после обновления цен): просмотренный товар не перетасовывает
+   ленту под пальцем, как на WB. Новый порядок — только по логотипу. Хранится в sessionStorage — переживает и перезагрузку вкладки. */
+const FYK = "amura-fy";
+let FYS = (() => { try{ return JSON.parse(sessionStorage.getItem(FYK)) || null; }catch{ return null; } })();
+const fyReset = () => { FYS = null; try{ sessionStorage.removeItem(FYK); }catch{} };
 const _filtered = filtered;
 filtered = function(){
   const list = _filtered.apply(this, arguments);
-  if(home()) return FY || (FY = forYou(list));
+  if(home()){
+    if(FYS && FYS.ids && FYS.ids.length){
+      const m = new Map(list.map(it => [it.id, it])), out = FYS.ids.map(id => m.get(id)).filter(Boolean), had = new Set(FYS.ids);
+      if(out.length >= list.length * 0.8){ FEED = FYS.feed && m.has(FYS.feed) ? FYS.feed : null; return out.concat(list.filter(it => !had.has(it.id))); }
+    }
+    const fy = forYou(list);
+    FYS = { ids: fy.map(it => it.id), feed: FEED };
+    try{ sessionStorage.setItem(FYK, JSON.stringify(FYS)); }catch{}
+    return fy;
+  }
   FEED = null;
   if(st.sort === "pop"){ const n = POP.size; list.sort((a, b) => (POP.has(a.id) ? POP.get(a.id) : n) - (POP.has(b.id) ? POP.get(b.id) : n) || (a.brand || "").localeCompare(b.brand || "", "ru") || a.name.localeCompare(b.name, "ru")); }
   return list;
 };
 const _render = render;
 render = function(){
-  FY = null;
   const r = _render.apply(this, arguments);
   if(home()) $("#title").textContent = "Подобрали для вас";
   if(sel) sel.style.display = home() ? "none" : "";
@@ -3842,6 +3871,82 @@ document.addEventListener("click", e => {
 });
 addEventListener("resize", () => { if(!panel.hidden) place(); });
 document.addEventListener("keydown", e => { if(e.key === "Escape" && !panel.hidden){ close(); q.blur(); } });
+})();
+/* Розничный сайт: «назад» как на WB и Ozon.
+   - Товар открыт из каталога, бренда или главной → «назад» (свайп, «<» в шапке товара, кнопка браузера) — к той же карточке
+     на том же месте; лента «Подобрали для вас» та же (retail/hits.js держит порядок всю сессию).
+   - Поиск: в истории одна запись на весь поиск (поле, подсказки, результаты). Товар из поиска встаёт на её место,
+     поэтому «назад» и с товара, и со страницы результатов — на главную, туда, где были до поиска; поле очищается.
+   - Safari выгрузил вкладку и открыл заново — возвращаем подгруженные страницы и место (sessionStorage).
+   - Картинки карточек грузим заранее, за 1–2 экрана до появления, чтобы при быстрой прокрутке не было белых карточек.
+   Только розница. */
+(function(){
+if(!window.AMURA_RETAIL) return;
+const q = $("#q"), isPage = () => document.body.classList.contains("rpage");
+let preY = null;          // где был покупатель на главной до поиска
+let fromSearch = false;   // открытый товар — из поиска
+
+q.addEventListener("focus", () => { if(preY === null && VIEW === "home" && !st.q && !isPage()) preY = scrollY; });
+
+function clearSearch(){
+  q.value = ""; if(window.qSync) qSync();
+  if(st.q){ st.q = ""; st.shown = PAGE; render(); }
+  const y = preY || 0; preY = null;
+  scrollTo(0, y); requestAnimationFrame(() => scrollTo(0, y));
+}
+
+/* поиск: одна запись в истории */
+$("#searchForm").addEventListener("submit", () => setTimeout(() => {
+  if(st.q && !isPage() && !(history.state && history.state.rs)) try{ history.pushState({ rs: 1 }, "", "#s"); }catch{}
+}, 0));
+
+const _open = openProduct;
+openProduct = function(it, fromHistory){
+  if(!fromHistory && !isPage()) fromSearch = !!(st.q || q.value.trim() || (history.state && history.state.rs));
+  return _open.apply(this, arguments);
+};
+const _close = closeAll;
+closeAll = function(){
+  const was = isPage();
+  const r = _close.apply(this, arguments);
+  if(was && fromSearch){ fromSearch = false; clearSearch(); }
+  return r;
+};
+addEventListener("popstate", () => {          // «назад» со страницы результатов
+  if(!isPage() && !(history.state && history.state.rs) && (st.q || q.value) && VIEW === "home") clearSearch();
+});
+$("#qx").addEventListener("click", () => { if(!st.q) preY = null; });
+
+/* Safari выгрузил вкладку — вернуть подгруженное и место */
+const POS = "amura-pos";
+addEventListener("pagehide", () => {
+  const y = isPage() ? -parseInt(document.body.style.top || "0", 10) : scrollY;
+  try{ sessionStorage.setItem(POS, JSON.stringify({ y, shown: st.shown, q: st.q, brand: st.brand, view: VIEW, t: Date.now() })); }catch{}
+});
+(() => {
+  const nav = performance.getEntriesByType && performance.getEntriesByType("navigation")[0];
+  if(!nav || nav.type !== "back_forward" || location.hash) return;
+  let p = null; try{ p = JSON.parse(sessionStorage.getItem(POS)); }catch{}
+  if(!p || Date.now() - p.t > 30 * 60000 || p.view !== "home" || p.q) return;
+  const t0 = Date.now(), tick = setInterval(() => {
+    if(!ALL.length){ if(Date.now() - t0 > 15000) clearInterval(tick); return; }
+    clearInterval(tick);
+    if(p.brand && st.brand !== p.brand && window.selectBrand) selectBrand(p.brand);
+    st.shown = Math.max(st.shown, p.shown || PAGE); render();
+    scrollTo(0, p.y); requestAnimationFrame(() => scrollTo(0, p.y));
+  }, 100);
+})();
+
+/* картинки — заранее, за 1–2 экрана (Safari сам начинает слишком поздно) */
+const io = "IntersectionObserver" in window ? new IntersectionObserver(es => es.forEach(e => {
+  if(e.isIntersecting){ e.target.loading = "eager"; io.unobserve(e.target); }
+}), { rootMargin: "1600px 0px" }) : null;
+const watch = root => { if(io && root.querySelectorAll) root.querySelectorAll('.thumb img[loading="lazy"]').forEach(i => io.observe(i)); };
+if(io){
+  watch(document);
+  new MutationObserver(ms => ms.forEach(m => m.addedNodes.forEach(n => { if(n.nodeType === 1) watch(n); })))
+    .observe(document.body, { childList: true, subtree: true });
+}
 })();
 /* Аналитика карточек (модуль «Аналитика» в системе AMURA): обезличенные события розничного сайта — заход, просмотр карточки,
    добавление в корзину, оформление. Без cookies и без персональных данных: случайный номер посещения живёт в sessionStorage
