@@ -7,6 +7,8 @@ const PH = "#p/", TITLE = document.title;
 const CART_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l-1 12H6L5 8Z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/></svg>';
 const SHARE_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5"/><path d="M5 13v6h14v-6"/></svg>';
 const isPage = () => document.body.classList.contains("rpage");
+const HEART_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-9.2-9.4C1.6 7.6 3.9 4.5 7.2 4.5c2 0 3.4 1.1 4.8 2.8 1.4-1.7 2.8-2.8 4.8-2.8 3.3 0 5.6 3.1 4.4 6.6-1.7 4.8-9.2 9.4-9.2 9.4Z"/></svg>';
+try{ history.scrollRestoration = "manual"; }catch{}   // место в каталоге после «назад» ставим сами — браузер иначе кидает наверх
 const cartN = () => Object.values(cart).reduce((s, q) => s + q, 0);
 
 function rateLine(id){
@@ -27,7 +29,7 @@ function unlock(){
   if(lockY === null) return;
   const y = lockY; lockY = null;
   Object.assign(document.body.style, { position: "", top: "", left: "", right: "", width: "" });
-  scrollTo(0, y);
+  scrollTo(0, y); requestAnimationFrame(() => scrollTo(0, y));   // Safari после свайпа «назад» иногда сбивает первый scrollTo
 }
 const _open = openProduct;
 openProduct = function(it, fromHistory){
@@ -39,6 +41,7 @@ openProduct = function(it, fromHistory){
     <button type="button" class="rp-back" data-rpback aria-label="Назад"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
     <span class="rp-t">${esc(it.brand || "Товар")}</span>
     <button type="button" class="rp-ic" data-rpshare aria-label="Поделиться">${SHARE_SVG}</button>
+    <button type="button" class="rp-ic" data-rpfav aria-label="Избранное">${HEART_SVG}<em id="rpFav" ${FAV.length ? "" : "hidden"}>${FAV.length}</em></button>
     <button type="button" class="rp-ic" data-rpcart aria-label="Корзина">${CART_SVG}<em id="rpCnt" ${n ? "" : "hidden"}>${n}</em></button></div>`);
   const h3 = sh.querySelector(".info h3"); if(h3) h3.insertAdjacentHTML("afterend", rateLine(it.id));
   const br = sh.querySelector(".info .brand"); if(br && window.VERIFIED_SVG && !br.querySelector(".rpc-ok")) br.insertAdjacentHTML("afterbegin", window.VERIFIED_SVG);   // синяя галочка «оригинал», как в каталоге
@@ -47,7 +50,7 @@ openProduct = function(it, fromHistory){
   document.title = it.name + " — AMURA";
   const h = PH + encodeURIComponent(it.id);
   if(!fromHistory && location.hash !== h){
-    try{ if(location.hash.startsWith(PH)) history.replaceState({ rp: 1 }, "", h); else history.pushState({ rp: 1 }, "", h); }catch{}
+    try{ if(location.hash.startsWith(PH) || (history.state && history.state.rs)) history.replaceState({ rp: 1 }, "", h); else history.pushState({ rp: 1 }, "", h); }catch{}
   }
 };
 
@@ -62,6 +65,8 @@ closeAll = function(){
 
 const _cnt = renderCartCount;
 renderCartCount = function(){ _cnt(); const c = $("#rpCnt"); if(c){ const n = cartN(); c.textContent = n; c.hidden = !n; } };
+const _fc = renderFavCount;
+renderFavCount = function(){ _fc(); const c = $("#rpFav"); if(c){ c.textContent = FAV.length; c.hidden = !FAV.length; } };
 
 $("#sheet").addEventListener("click", e => {
   if(!isPage()) return;
@@ -70,6 +75,7 @@ $("#sheet").addEventListener("click", e => {
     return;
   }
   if(e.target.closest("[data-rpcart]")) return go("cart");
+  if(e.target.closest("[data-rpfav]")) return go("fav");
   if(e.target.closest("[data-rprate]")){ const b = $("#rvBox"); if(b) b.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
   if(e.target.closest("[data-rpshare]")){
     const url = location.href, title = document.title;

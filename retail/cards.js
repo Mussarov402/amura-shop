@@ -51,14 +51,17 @@ refreshCard = function(id){
   });
 };
 
-function cartTarget(){
-  return [...document.querySelectorAll('.tabbar [data-view="cart"], .topnav [data-view="cart"]')]
-    .map(b => b.querySelector(".ic") || b).find(e => { const r = e.getBoundingClientRect(); return r.width && getComputedStyle(e.closest("nav")).display !== "none"; });
+/* куда лететь: на странице товара — значки в её шапке; иначе — нижнее меню на телефоне или шапка на компьютере */
+function navTarget(view){
+  if(document.body.classList.contains("rpage")) return document.querySelector(view === "cart" ? "#sheet [data-rpcart]" : "#sheet [data-rpfav]");
+  return [...document.querySelectorAll(`.tabbar [data-view="${view}"], .topnav [data-view="${view}"]`)]
+    .map(b => b.querySelector(".ic") || b).find(e => { const r = e.getBoundingClientRect(); return r.width && r.bottom > 0 && r.top < innerHeight && getComputedStyle(e.closest("nav")).display !== "none"; });
 }
+const cartTarget = () => navTarget("cart");
 function bump(t, delay){ if(t) t.animate([{ transform: "scale(1)" }, { transform: "scale(1.3)" }, { transform: "scale(1)" }], { duration: 380, delay: delay || 0, easing: "ease-out" }); }
 /* фото летит дугой к значку корзины, уменьшаясь; исходное фото на миг бледнеет */
-function fly(src){
-  const t = cartTarget();
+function fly(src, t){
+  t = t || cartTarget();
   if(!src || !t || matchMedia("(prefers-reduced-motion: reduce)").matches) return bump(t);
   const a = src.getBoundingClientRect(), b = t.getBoundingClientRect();
   const size = Math.max(48, Math.min(a.width, a.height, 150));
@@ -96,5 +99,13 @@ $("#sheet").addEventListener("click", e => {
   const s = $("#sheet"); if(cart[s.dataset.id]) fly(s.querySelector(".pic img") || s.querySelector(".pic .ph"));   // кнопку уже перерисовали — окно берём напрямую
 });
 
+/* ❤ — фото летит в «Избранное» (после toggleFav сердечко уже нажато) */
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-fav]"); if(!b || b.getAttribute("aria-pressed") !== "true") return;
+  const box = b.closest(".card, .rpc, #sheet");
+  const src = box && (box.querySelector(".thumb img, .pic img") || box.querySelector(".thumb .ph, .pic .ph"));
+  const t = navTarget("fav");
+  if(src && t) fly(src, t); else bump(t);
+});
 if(typeof render === "function" && ALL.length) render();
 })();
