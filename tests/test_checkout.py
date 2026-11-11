@@ -47,7 +47,8 @@ class Prices(unittest.TestCase):
         self.assertEqual(cp(3000, "pickup", "Алматы"), 0)
 
     def test_allowed(self):
-        self.assertEqual(checkout.allowed("Алматы"), ("courier", "cdek", "pickup", "express"))
+        self.assertEqual(checkout.allowed("Алматы"), ("courier", "cdek", "express"))          # самовывоза на сайте нет
+        self.assertEqual(checkout.allowed("Алматы", pickup=True), ("courier", "cdek", "express", "pickup"))
         self.assertEqual(checkout.allowed("Караганда"), ("cdek",))
 
 
@@ -63,7 +64,7 @@ class Options(unittest.TestCase):
     def test_almaty(self):
         r = json.loads(self.c.get("/delivery/options?city=Алматы&sum=3000").data)
         self.assertTrue(r["almaty"])
-        self.assertEqual([(m["id"], m["price"]) for m in r["methods"]], [("courier", 1000), ("cdek", 1500), ("pickup", 0), ("express", 2500)])
+        self.assertEqual([(m["id"], m["price"]) for m in r["methods"]], [("courier", 1000), ("cdek", 1500), ("express", 2500)])
         self.assertEqual(r["rates"]["courier"], {"price": 1000, "free": 50000})
         self.assertEqual(r["freeFrom"], 50000)
         self.assertIsInstance(r["slots"], list)
@@ -79,7 +80,7 @@ class Options(unittest.TestCase):
         checkout.cdek_eta = boom
         checkout._cdek_down[0] = 0
         r = json.loads(self.c.get("/delivery/options?city=Алматы&sum=3000").data)
-        self.assertEqual([m["price"] for m in r["methods"]], [1000, 1500, 0, 2500])   # цены есть и без СДЭК
+        self.assertEqual([m["price"] for m in r["methods"]], [1000, 1500, 2500])   # цены есть и без СДЭК
         r = json.loads(self.c.get("/delivery/options?city=Астана&sum=3000").data)
         self.assertEqual(r["methods"][0]["price"], 1500)               # цена есть и без СДЭК
         self.assertTrue(r["warn"])
@@ -144,7 +145,7 @@ class Orders(unittest.TestCase):
         """Корзина (/delivery/options) и заказ считают доставку одинаково: ниже 50 000 — цена способа, от 50 000 — бесплатно, Express — всегда платно."""
         s = delivery.slots_ahead(days=7)
         for qty, ship, extra in ((16, "courier", {"address": "Абая 10", "slot": s[0]}), (17, "courier", {"address": "Абая 10", "slot": s[0]}),
-                                 (17, "express", {"address": "Абая 10"}), (17, "pickup", {})):
+                                 (17, "express", {"address": "Абая 10"}), (16, "cdek", {"pvz": {"code": "A1", "address": "Абая 1"}})):
             goods = 3000 * qty
             res, st = self.order(shipping=ship, items=[{"id": "p1", "qty": qty}], **extra)
             self.assertEqual(st, 200, res)
@@ -164,9 +165,9 @@ class Orders(unittest.TestCase):
 
     def test_comment_only_from_panel(self):
         """Комментарий менеджера пишется только в заказ из системы; у сайта описание то же, что и без него."""
-        self.order(shipping="pickup")
+        self.order(shipping="cdek", pvz={"code": "A1", "address": "Абая 1"})
         plain = self.posted[-1]["description"]
-        self.order(shipping="pickup", comment="позвонить перед отправкой")
+        self.order(shipping="cdek", pvz={"code": "A1", "address": "Абая 1"}, comment="позвонить перед отправкой")
         self.assertEqual(self.posted[-1]["description"], plain)                       # сайт: комментарий игнорируется
         d = {"name": "Аружан", "phone": "+77012345678", "city": "Алматы", "shipping": "pickup", "items": [{"id": "p1", "qty": 1}]}
         oh.order_core(d, "panel-1", "1.1.1.1", None, source="из панели", panel=True)
@@ -204,9 +205,10 @@ class Orders(unittest.TestCase):
         res, st = self.order(city="Астана", shipping="cdek", pvz={"code": "AST7", "address": "Кенесары 40"})
         self.assertEqual(st, 200)
         self.assertIn("Пункт выдачи СДЭК — Кенесары 40 (код AST7)", self.posted[-1]["description"])
-        res, st = self.order(shipping="pickup")
-        self.assertEqual(res["total"], 3000)
-        self.assertEqual(len(self.posted[-1]["positions"]), 1)        # без позиции «Доставка»
+        n = len(self.posted)
+        res, st = self.order(shipping="pickup")                       # самовывоза на сайте больше нет — заказ не создаём
+        self.assertEqual(st, 400)
+        self.assertEqual(len(self.posted), n)
 
     def test_browser_price_ignored(self):
         res, st = self.order(address="Абая 10", slot=delivery.slots_ahead(days=7)[0], delivery=0, total=1)

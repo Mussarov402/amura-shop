@@ -13,26 +13,20 @@ const WANT = "amura-r-checkout";                 // «после входа ве
 const isAlm = f => DLV.opts && DLV.city === ((f && f.city) || "") ? DLV.opts.almaty : /алмат/i.test((f && f.city) || "");
 /* Express — только в часы приёма (настраиваются в системе AMURA): вне их вкладка серая, с подписью «с 09:30», выбрать нельзя */
 const xOff = f => DLV.opts && DLV.city === ((f && f.city) || "") && DLV.opts.express && !DLV.opts.express.open;
-/* как на маркетплейсах: пункты выдачи — основной способ, курьер — дополнительный платный («Нужно быстрее?») */
-const MAIN = [["cdek", "Пункт СДЭК"], ["pickup", "Самовывоз"]], FAST = [["courier", "Курьер сегодня"], ["express", "Express"]];
+/* как на маркетплейсах: пункты выдачи — основной способ, курьер — дополнительный платный («Нужно быстрее?»).
+   Самовывоза на сайте нет (решение владельца 11.11.2026); у кого в корзине остался pickup — form() переключит на пункт СДЭК */
+const MAIN = [["cdek", "Пункт выдачи СДЭК"]], FAST = [["courier", "Курьер сегодня"], ["express", "Express"]];
 const tabsFor = f => isAlm(f) ? MAIN.concat(FAST.filter(t => t[0] !== "express" || !xOff(f))) : [["cdek", "Пункт выдачи СДЭК"]];
 /* бесплатная доставка — одна сумма на все способы, кроме Express (Настройки → Доставка); помним с прошлого раза, пока не узнали город */
 const FREE = () => { const v = DLV.opts && DLV.opts.freeFrom; if(v !== undefined && v !== null) save("free-all", v); return v ?? load("free-all", 50000); };
-getJSON(`${CONFIG.apiUrl}/delivery/options?city=&sum=0`, 15000).then(o => { if(o && o.freeFrom !== undefined){ save("free-all", o.freeFrom); topFree(); if(VIEW === "cart") try{ paint(); }catch{} } }).catch(() => {});
+getJSON(`${CONFIG.apiUrl}/delivery/options?city=&sum=0`, 15000).then(o => { if(o && o.freeFrom !== undefined){ save("free-all", o.freeFrom); if(VIEW === "cart") try{ paint(); }catch{} } }).catch(() => {});
 function freeBar(goods, ff, cartStep){
   if(!ff) return "";
   if(goods >= ff) return `<div class="rfree ok">🎉 Доставка будет бесплатной</div>`;
   return `<div class="rfree">До бесплатной доставки ещё <b>${fmt(ff - goods)} ₸</b><i><b style="width:${Math.round(100 * goods / ff)}%"></b></i>`
     + (cartStep ? `<small>Добавьте ещё товары — доставка по Казахстану бесплатно от ${fmt(ff)} ₸. <button type="button" class="rlink" data-rhits>Подобрать товары</button></small>` : "") + `</div>`;
 }
-/* строка вверху сайта */
-function topFree(){
-  const ff = FREE(); let el = $("#rTopFree");
-  if(!ff){ if(el) el.remove(); return; }
-  if(!el){ el = document.createElement("div"); el.id = "rTopFree"; el.className = "rtopfree"; document.body.prepend(el); }
-  el.textContent = `Бесплатная доставка по Казахстану от ${fmt(ff)} ₸`;
-}
-topFree();
+
 const isCour = s => s === "courier" || s === "express";
 const _dlvPrice = dlvPrice;
 dlvPrice = function(ship, goods){          // цена по способу: своя цена и свой порог бесплатной доставки (rates с сервера)
@@ -133,7 +127,7 @@ function dlvCard(f, t){
     const p = id === "pickup" ? 0 : dlvPrice(id, t.goods);
     return `<button type="button" role="tab" aria-selected="${f.ship === id}" data-rm="${id}">${name}${p === null ? "" : `<small>${priceTxt(p)}</small>`}</button>`; };
   const e = eta(f), w = t.dlv === null ? (f.city ? "считаем…" : "") : priceTxt(t.dlv);
-  const tabsHTML = alm ? `<div class="rtabs n2" role="tablist">${MAIN.map(tab).join("")}</div><div class="rfast-h">Нужно быстрее?</div><div class="rtabs n2" role="tablist">${FAST.map(tab).join("")}</div>`
+  const tabsHTML = alm ? `<div class="rtabs n${MAIN.length}" role="tablist">${MAIN.map(tab).join("")}</div><div class="rfast-h">Нужно быстрее?</div><div class="rtabs n2" role="tablist">${FAST.map(tab).join("")}</div>`
     : `<div class="rtabs n${TB.length}" role="tablist">${TB.map(tab).join("")}</div>`;
   return `${tabsHTML}${ff ? `<div class="kv rfree-note">Доставка бесплатно от ${fmt(ff)} ₸${alm ? " — кроме Express" : ""}</div>` : ""}${provHTML(f)}${addrRow(f)}
     <div class="reta"><b>${esc(e)}${w ? `, <span class="${t.dlv === 0 ? "free" : ""}">${w}</span>` : ""}</b><span>${fmt(t.count)} шт</span></div>

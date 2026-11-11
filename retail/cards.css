@@ -31,3 +31,7 @@
 .rpc-ok path+path{stroke:#fff}
 /* телефон: в конце ленты карточки не уходят под нижнее меню (название и цена видны целиком) */
 @media (max-width:760px){ html.retail body{padding-bottom:calc(112px + max(8px,calc(env(safe-area-inset-bottom,0px) - 12px)))} }
+/* бренд отдельной строкой над названием, как на опте: «✓ SEN SULU» — капсом, серым, мелко (владелец, 11.11.2026) */
+.rpc-brand{display:flex;align-items:center;gap:4px;margin-top:2px;font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;line-height:1.3;min-width:0}
+.rpc-brand span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rpc-brand .rpc-ok{width:14px;height:14px;margin:0}

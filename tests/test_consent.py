@@ -44,6 +44,8 @@ class Consent(unittest.TestCase):
 
     def order(self, **extra):
         d = {"name": "Тамирис", "phone": "+77012345678", "city": "Алматы", "shipping": "pickup", "items": [{"id": "p1", "qty": 2}]} | extra
+        if d.get("mode") == "retail" and d.get("shipping") == "pickup":     # на розничном сайте самовывоза нет — пункт СДЭК
+            d = {**d, "shipping": "cdek", "pvz": {"code": "A1", "address": "Абая 1"}}
         res, st = oh.order_core(d, "c" + str(len(self.posted)) + json.dumps(extra), "1.1.1.1", "cid-1")
         self.assertEqual(st, 200, res)
         return self.posted[-1]["description"]
