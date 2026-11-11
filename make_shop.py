@@ -35,6 +35,9 @@ def build(src):
     # свои баннеры розницы (retail/banners.js): оптовые не загружаем
     s = rep(s, 'loadBanners(CONFIG.apiUrl + "/banners", BANNERS_DEFAULT).catch(() => getJSON("banners.json", 8000).then(renderBanners)).catch(() => {});',
             "/* баннеры розницы — retail/banners.js */")
+    # розница: с покупателями в WhatsApp не переписываемся (решение владельца 04.11.2026) — номер менеджера не вшиваем,
+    # оптовое оформление с WhatsApp и PDF-накладной на рознице недостижимо (корзина своя — retail/cart.js)
+    s = rep(s, 'managerWa: "77003671350",', 'managerWa: "",')
     css = read("cards.css") + read("cart.css") + read("reviews.css") + read("banners.css") + read("product.css") + read("hits.css") + read("search.css")    # карточки, корзина как на WB, отзывы, баннеры, страница товара
     js = read("cards.js") + read("cart.js") + read("reviews.js") + read("banners.js") + read("product.js") + read("hits.js") + read("recs.js") + read("search.js") + read("nav.js") + read("stats.js")
     r = legal_req()

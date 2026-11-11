@@ -29,3 +29,5 @@
 }
 .rpc-ok{width:15px;height:15px;fill:#2F80ED;stroke:#2F80ED;vertical-align:-2px;margin-right:4px;flex:none}
 .rpc-ok path+path{stroke:#fff}
+/* телефон: в конце ленты карточки не уходят под нижнее меню (название и цена видны целиком) */
+@media (max-width:760px){ html.retail body{padding-bottom:calc(112px + max(8px,calc(env(safe-area-inset-bottom,0px) - 12px)))} }

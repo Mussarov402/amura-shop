@@ -967,7 +967,7 @@ api = async function(path, opts){
   }
   if(path.startsWith("/auth/tg/poll") && LEGAL() && CONSENT.auth) path += "&consent=1";
   try{ return await _api(path, opts); }
-  catch(e){ if(path === "/auth/sms/send" && /telegram/i.test(e.message)) throw new Error("Вход по SMS временно недоступен. Попробуйте позже или напишите нам в WhatsApp"); throw e; }
+  catch(e){ if(path === "/auth/sms/send" && /telegram/i.test(e.message)) throw new Error("Вход по SMS временно недоступен. Попробуйте позже или войдите через Telegram"); throw e; }
 };
 const _go = go;
 go = function(v, keep){ if(v === "cart"){ STEP = NEXT || "cart"; NEXT = ""; } return _go(v, keep); };
