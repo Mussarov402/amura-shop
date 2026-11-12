@@ -126,6 +126,21 @@ class Keys(unittest.TestCase):
         self.assertIn("Неверная подпись", r.get_json()["error"])
         self.assertNotIn("wrong-secret", r.get_data(as_text=True))
 
+    def test_apipay_retail_key_and_check(self):
+        import apipay
+        self.c.put("/admin/api/mpkeys", json={"values": {"APIPAY_API_KEY": "apipay-key-SECRET-77ab"}})
+        self.assertEqual(apipay.key(), "apipay-key-SECRET-77ab")                    # ключ из базы — у модуля оплаты
+        k = {x["name"]: x for g in self.c.get("/admin/api/mpkeys").get_json()["groups"] for x in g["keys"]}
+        self.assertEqual(k["APIPAY_API_KEY"]["value"], "••••77ab")
+        resp = lambda code, body: type("R", (), {"status_code": code, "json": lambda s: body})()
+        with mock.patch.object(apipay.requests, "get", lambda *a, **kw: resp(404, {"message": "not found", "is_sandbox": True})):
+            j = self.c.post("/admin/api/mpkeys/check/apipay").get_json()
+        self.assertEqual((j["ok"], j["name"]), (True, "ключ принят · песочница"))
+        with mock.patch.object(apipay.requests, "get", lambda *a, **kw: resp(401, {})):
+            r = self.c.post("/admin/api/mpkeys/check/apipay")
+        self.assertEqual(r.status_code, 502)
+        self.assertNotIn("SECRET", r.get_data(as_text=True))
+
 
 if __name__ == "__main__":
     unittest.main()

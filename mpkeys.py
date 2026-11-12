@@ -33,6 +33,8 @@ GROUPS = [
     {"id": "freedom", "title": "Freedom Pay — оплата картой (розница)", "check": "freedom", "shop": "",
      "keys": [("FREEDOM_MERCHANT_ID", "Merchant ID", False), ("FREEDOM_SECRET_KEY", "Secret key", True),
               ("FREEDOM_TEST", "Тестовый режим (платежи без списания)", False)]},
+    {"id": "apipay", "title": "Kaspi Pay (ApiPay) — розница amura.kz", "check": "apipay", "shop": "",
+     "keys": [("APIPAY_API_KEY", "Ключ ApiPay", True)]},
     {"id": "apipay_opt", "title": "Kaspi Pay (ApiPay) — ИП опта", "check": "", "shop": "",
      "keys": [("APIPAY_API_KEY_OPT", "Ключ ApiPay", True)]},
 ]
@@ -179,6 +181,8 @@ def route_check(gid):
     apply()
     if g["check"] == "freedom":
         return _check_freedom()
+    if g["check"] == "apipay":
+        return _check_apipay()
     import marketplaces as mpk
     ch = {c.key: c for c in mpk.channels()}.get(g["shop"])
     if not ch or not ch.keys_set():
@@ -220,3 +224,26 @@ def _check_freedom():
     if not x:
         return jsonify(ok=False, error=f"Freedom ответил непонятно (HTTP {r.status_code})"), 502
     return jsonify(ok=False, error=f"Freedom не принял ключи: {desc or x.get('pg_error_code') or 'ошибка'}"), 502
+
+
+def _check_apipay():
+    """ApiPay: запрос несуществующего счёта — ничего не создаёт. 401/403 — ключ не принят; иначе ключ работает.
+    Боевой или песочница — по is_sandbox, если ApiPay его отдаёт, иначе по адресу API."""
+    import apipay
+    if not apipay.keys_set():
+        return jsonify(ok=False, error="Ключ не вписан"), 400
+    try:
+        r = apipay.requests.get(apipay.API + "/invoices/0", headers={"X-API-Key": apipay.key(), "Accept": "application/json"}, timeout=20)
+    except Exception as e:
+        return jsonify(ok=False, error=f"ApiPay не ответил: {e.__class__.__name__}"), 502
+    if r.status_code in (401, 403):
+        return jsonify(ok=False, error="ApiPay не принял ключ — проверьте, что скопирован полностью"), 502
+    if r.status_code >= 500:
+        return jsonify(ok=False, error=f"ApiPay ответил {r.status_code} — попробуйте позже"), 502
+    try:
+        j = r.json()
+    except ValueError:
+        j = {}
+    sb = j.get("is_sandbox") if isinstance(j, dict) else None
+    mode = "песочница" if sb is True or (sb is None and "sandbox" in apipay.API) else "боевой" if sb is False else "режим ApiPay не сообщил"
+    return jsonify(ok=True, name=f"ключ принят · {mode}", currency="", country="")
