@@ -223,3 +223,7 @@ input,select,textarea{font-size:16px!important}
 .rfreebox:empty{display:none}
 .rfreebox .rfree{margin:0}
 @media(min-width:900px){.rfreebox{display:none}}   /* на компьютере полоса — в блоке «Итого» справа */
+/* iPhone: окна с полями — над клавиатурой (высоту ставит fitSheets по visualViewport); поля 16px — иначе Safari приближает страницу */
+.rsbox{max-height:min(88dvh,calc(100% - 8px))}
+.rsheet input,.rsheet textarea,.rsheet select{font-size:16px}
+#rsErr .rlink{font-size:inherit}

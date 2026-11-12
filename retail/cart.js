@@ -299,9 +299,11 @@ function openSheet(){
     <div id="rSheetBody"></div>
     <div class="err" id="rsErr"></div>
     <button type="button" class="btn" id="rsOk">${cdek ? "Выбрать" : "Готово"}</button></div>`;
-  el.hidden = false; document.body.classList.add("rsheet-open");
+  el.hidden = false; document.body.classList.add("rsheet-open"); delete el.dataset.force; fitSheets();
   sheetBody();
   $("#rCity").addEventListener("focus", e => drawCities(e.target.value === form().city ? "" : e.target.value));
+  if(f.city && !knownCity(f.city)){ const near = nearCities(f.city);    // сохранён город не из списка (например, «Алматы тест») — подскажем
+    $("#rsErr").innerHTML = `Город «${esc(f.city)}» не нашли${near.length ? `. Может быть: ${near.map(c => `<button type="button" class="rlink" data-city="${esc(c)}">${esc(c)}</button>`).join(", ")}` : " — выберите из списка"}`; }
   if(!f.city) setTimeout(() => $("#rCity").focus(), 50);
 }
 function sheetBody(){
@@ -321,6 +323,25 @@ function courierNote(){
   const f = form(), o = DLV.opts;
   return f.city && o ? `${f.ship === "express" ? "Срочный курьер Яндекс, за 1–2 часа" : "Курьер Яндекс привезёт в выбранное окно"} · ${priceTxt(dlvPrice(f.ship, tot(f.ship).goods))}` : "";
 }
+/* iPhone: клавиатура закрывает низ экрана, а fixed-окно остаётся под ней. Ставим нижние окна (.rsheet) в видимую часть
+   (visualViewport), поле в фокусе — в середину окна; нажатие мимо окна при открытой клавиатуре только убирает клавиатуру */
+const VV = window.visualViewport; let vvAt = 0;
+function fitSheets(){
+  document.querySelectorAll(".rsheet:not([hidden])").forEach(el => {
+    if(VV){ el.style.top = VV.offsetTop + "px"; el.style.height = VV.height + "px"; el.style.bottom = "auto"; }
+  });
+}
+if(VV){ const on = () => { vvAt = Date.now(); fitSheets(); }; VV.addEventListener("resize", on); VV.addEventListener("scroll", on); }
+document.addEventListener("focusin", e => {
+  const box = e.target.closest && e.target.closest(".rsheet .rsbox"); if(!box || !e.target.matches("input, textarea")) return;
+  setTimeout(() => { fitSheets(); e.target.scrollIntoView({ block: "center", behavior: "smooth" }); }, 320);
+});
+function backdrop(el, close){
+  const a = document.activeElement;
+  if(a && el.contains(a) && a.matches("input, textarea")){ a.blur(); return; }   // сначала прячем клавиатуру, окно не закрываем
+  if(Date.now() - vvAt < 600) return;                                         // экран только что сдвинулся — это не нажатие мимо окна
+  close();
+}
 function closeSheet(){ const el = $("#rSheet"); if(el) el.hidden = true; document.body.classList.remove("rsheet-open"); paint(); }
 let cityT = 0;
 /* города Казахстана для подсказки: сначала крупные, потом все остальные по алфавиту (можно вписать и свой посёлок) */
@@ -337,9 +358,24 @@ const cityKey = v => String(v || "").toLowerCase().replace(/ё/g, "е").replace(
 function drawCities(q){
   const box = $("#rCityList"); if(!box) return;
   const k = cityKey(q), hit = k ? KZ_CITIES.filter(c => cityKey(c).startsWith(k)).concat(KZ_CITIES.filter(c => !cityKey(c).startsWith(k) && cityKey(c).includes(k))) : KZ_CITIES;
+  const near = hit.length ? [] : nearCities(q);
   box.innerHTML = hit.length ? hit.map(c => `<button type="button" data-city="${esc(c)}">${esc(c)}</button>`).join("")
-    : `<div class="kv">Такого города нет в списке — можно оставить как написали, СДЭК проверит</div>`;
+    : near.length ? `<div class="kv">Такого города нет. Может быть:</div>` + near.map(c => `<button type="button" data-city="${esc(c)}">${esc(c)}</button>`).join("")
+    : `<div class="kv">Такого города нет в списке — проверьте написание или нажмите «${esc(($("#rsOk") || {}).textContent || "Готово")}», оставим как написали</div>`;
   box.hidden = false;
+}
+/* город из списка; набрали с ошибкой или с лишним («Алматы тест») — предлагаем ближайшие */
+const knownCity = v => KZ_CITIES.find(c => cityKey(c) === cityKey(v)) || "";
+function lev(a, b){ const d = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for(let i = 1; i <= a.length; i++){ let p = d[0]; d[0] = i;
+    for(let j = 1; j <= b.length; j++){ const t = d[j]; d[j] = Math.min(d[j] + 1, d[j - 1] + 1, p + (a[i - 1] === b[j - 1] ? 0 : 1)); p = t; } }
+  return d[b.length]; }
+function nearCities(q){
+  const k = cityKey(q); if(!k) return [];
+  const words = k.split(" ").filter(w => w.length >= 3);
+  return KZ_CITIES.map(c => { const ck = cityKey(c);
+    const sc = words.some(w => ck === w) ? 0 : words.some(w => ck.startsWith(w) || w.startsWith(ck)) ? 1 : Math.min(lev(ck, k), ...words.map(w => lev(ck, w))) + 1;
+    return [c, sc]; }).filter(x => x[1] <= 3).sort((a, b) => a[1] - b[1]).slice(0, 5).map(x => x[0]);
 }
 function pickCity(city){
   const inp = $("#rCity"), box = $("#rCityList"); clearTimeout(cityT);
@@ -349,9 +385,6 @@ function pickCity(city){
 }
 function sheetInput(e){
   if(e.target.id === "rCity") drawCities(e.target.value);
-  if(e.target.id === "rCity"){ clearTimeout(cityT); cityT = setTimeout(() => {
-    const city = e.target.value.trim(); if(city === form().city) return;
-    DLV.pvzSel = null; DLV.pvz = []; DLV.pvzFor = ""; saveForm({ city, address: "" }); Promise.resolve(loadDlv(city)).then(() => { saveForm({}); sheetBody(); }); sheetBody(); }, 600); }
   if(e.target.id === "pvzQ") drawPvz(e.target.value);
 }
 function sheetChange(e){
@@ -359,12 +392,20 @@ function sheetChange(e){
     document.querySelectorAll("#pvzList label").forEach(l => l.classList.toggle("on", l.querySelector("input").checked)); saveForm({}); }
 }
 function sheetClick(e){
-  if(e.target.id === "rSheet" || e.target.closest("[data-rclose]")) return closeSheet();
+  if(e.target.closest("[data-rclose]")) return closeSheet();
+  if(e.target.id === "rSheet") return backdrop($("#rSheet"), closeSheet);
   const pc = e.target.closest("[data-city]"); if(pc) return pickCity(pc.dataset.city);
   if(e.target.id !== "rCity" && $("#rCityList")) $("#rCityList").hidden = true;
   if(e.target.id !== "rsOk") return;
-  const f = form(), city = $("#rCity").value.trim(), err = $("#rsErr");
-  if(!city){ err.textContent = "Укажите город"; return $("#rCity").focus(); }
+  const f = form(), err = $("#rsErr"), typed = $("#rCity").value.trim();
+  if(!typed){ err.textContent = "Укажите город"; return $("#rCity").focus(); }
+  let city = knownCity(typed) || typed;
+  if(!knownCity(typed) && $("#rSheet").dataset.force !== typed){        // не из списка — сначала предложим похожие, второе нажатие оставит как есть
+    const near = nearCities(typed); $("#rSheet").dataset.force = typed;
+    err.innerHTML = near.length ? `Не нашли город «${esc(typed)}». Может быть: ${near.map(c => `<button type="button" class="rlink" data-city="${esc(c)}">${esc(c)}</button>`).join(", ")}`
+      : `Не нашли город «${esc(typed)}» — проверьте написание. Нажмите ещё раз, если всё верно`;
+    return;
+  }
   if(city !== f.city){ DLV.pvzSel = null; saveForm({ city }); loadDlv(city); sheetBody(); return; }
   if(f.ship === "cdek"){
     const manual = $("#fAddr") ? $("#fAddr").value.trim() : "";
@@ -981,11 +1022,14 @@ function openCityPick(){
   let el = $("#rCitySheet");
   if(!el){ el = document.createElement("div"); el.id = "rCitySheet"; el.className = "rsheet"; document.body.appendChild(el);
     el.addEventListener("click", e => {
-      if(e.target === el || e.target.closest("[data-rcclose]")) return closeCityPick();
+      if(e.target.closest("[data-rcclose]")) return closeCityPick();
+      if(e.target === el) return backdrop(el, closeCityPick);
       const pc = e.target.closest("[data-tcity]"); if(pc) return setTopCity(pc.dataset.tcity);
       if(e.target.closest("#rcGeo")){ const g = $("#rcGeo"); g.disabled = true; g.lastChild.textContent = "Определяем…";
         return geoCity().then(c => { if(c) setTopCity(c); else { g.disabled = false; g.lastChild.textContent = "Не получилось — выберите из списка"; } }); }
-      if(e.target.id === "rcOk"){ const v = $("#rcQ").value.trim(); if(v) setTopCity(v); else $("#rcQ").focus(); }
+      if(e.target.id === "rcOk"){ const v = $("#rcQ").value.trim(); if(!v) return $("#rcQ").focus();
+        if(knownCity(v) || el.dataset.force === v) return setTopCity(knownCity(v) || v);
+        el.dataset.force = v; drawTopCities(v); }                           // не из списка — сначала покажем похожие
     });
     el.addEventListener("input", e => { if(e.target.id === "rcQ") drawTopCities(e.target.value); });
     el.addEventListener("keydown", e => { if(e.target.id === "rcQ" && e.key === "Enter"){ e.preventDefault(); const v = e.target.value.trim(); const first = $("#rcList [data-tcity]"); if(first && v) setTopCity(first.dataset.tcity); else if(v) setTopCity(v); } });
@@ -997,7 +1041,7 @@ function openCityPick(){
     ${navigator.geolocation ? `<button type="button" class="rgeo" id="rcGeo">${PIN_S}<span>Определить автоматически</span></button>` : ""}
     <div class="rcl" id="rcList"></div>
     <button type="button" class="btn" id="rcOk">Готово</button></div>`;
-  el.hidden = false; document.body.classList.add("rsheet-open");
+  el.hidden = false; document.body.classList.add("rsheet-open"); fitSheets();
   drawTopCities(""); setTimeout(() => { const i = $("#rcQ"); if(i) i.focus(); }, 50);
 }
 function drawTopCities(q){
@@ -1005,7 +1049,8 @@ function drawTopCities(q){
   const k = cityKey(q), cur = form().city;
   const hit = k ? KZ_CITIES.filter(c => cityKey(c).startsWith(k)).concat(KZ_CITIES.filter(c => !cityKey(c).startsWith(k) && cityKey(c).includes(k))) : KZ_CITIES;
   box.innerHTML = hit.length ? hit.map(c => `<button type="button" data-tcity="${esc(c)}" class="${c === cur ? "on" : ""}">${esc(c)}${c === cur ? " ✓" : ""}</button>`).join("")
-    : `<div class="kv">Такого города нет в списке — нажмите «Готово», оставим как написали</div>`;
+    : (n => n.length ? `<div class="kv">Такого города нет. Может быть:</div>` + n.map(c => `<button type="button" data-tcity="${esc(c)}">${esc(c)}</button>`).join("")
+      : `<div class="kv">Такого города нет в списке — проверьте написание или нажмите «Готово», оставим как написали</div>`)(nearCities(q));
 }
 function closeCityPick(){ const el = $("#rCitySheet"); if(el) el.hidden = true; if(!($("#rSheet") && !$("#rSheet").hidden)) document.body.classList.remove("rsheet-open"); }
 function setTopCity(city){
