@@ -330,7 +330,7 @@ class WB(Channel):
         j = _json(r)
         if r.status_code >= 400:
             e = j[0] if isinstance(j, list) and j else j if isinstance(j, dict) else {}
-            msg = " — ".join(str(e[k]) for k in ("message", "errorText", "title", "detail") if e.get(k)) or (r.text or "").strip()[:200]
+            msg = " — ".join(str(e[k]) for k in ("message", "errorText", "title", "detail") if e.get(k)) or _plain(r.text)
             extra = {k: e[k] for k in ("additionalErrors", "errors", "data", "origin", "requestId") if e.get(k)}   # «bad request» без подробностей
             if extra:
                 msg += " " + json.dumps(extra, ensure_ascii=False)[:300]
@@ -540,6 +540,42 @@ def shown(qty, pct=None, share=100):
 def _catalog():
     """Товары МойСклад, как в системе AMURA: id → {code, article, barcode, qty (доступно), name}."""
     return oh.panel_catalog()
+
+
+def _plain(text):
+    """Ответ без JSON → короткий текст: страница шлюза (HTML «502 Bad Gateway») — только её заголовок, без разметки."""
+    t = str(text or "").strip()
+    if t.startswith("<"):
+        m = re.search(r"<title>(.*?)</title>", t, re.I | re.S) or re.search(r"<h1>(.*?)</h1>", t, re.I | re.S)
+        return (m.group(1).strip() if m else "страница шлюза без текста")[:120]
+    return t[:200]
+
+
+def transient(e):
+    """Временный сбой площадки (5xx, 429, нет ответа) — ключ тут ни при чём, повторяем сами."""
+    import requests as _rq
+    return isinstance(e, _rq.RequestException) or (isinstance(e, ApiError) and (e.code >= 500 or e.code == 429))
+
+
+def orders_alert(ch, e, now):
+    """Сообщение владельцу о том, что заказы площадки не забираются. Временный сбой (502 и т. п.) — только если длится
+    больше 30 минут; ключ не принят (401/403) — сразу, с подсказкой, где его поменять (владелец 12.11.2026: «502 — проверьте ключ» сбивало)."""
+    since = ch.last.setdefault("orders_fail", now)
+    if transient(e):
+        if now - since < TRANSIENT_ALERT:
+            return None
+        code = getattr(e, "code", None)
+        text = (f"{ch.title}: площадка не отвечает" + (f" ({code})" if code else "") + f" уже {int((now - since) // 60)} мин — "
+                "заказы заберём, как только она заработает (пробуем каждые 5 минут). Ключ в порядке, ничего делать не нужно.")
+    elif isinstance(e, ApiError) and e.code in (401, 403):
+        text = f"{ch.title}: площадка не принимает ключ ({e.code}) — заказы не забираются. Проверьте ключ: Настройки → Ключи площадок."
+    else:
+        text = f"{ch.title}: заказы не забираются — {str(e)[:250]}"
+    oh.alert(f"mp-orders:{ch.key}", text, every=3 * 3600)
+    return text
+
+
+TRANSIENT_ALERT = 1800
 
 
 def _body(r):
@@ -1132,9 +1168,10 @@ def tick(now=None):
                 ch.last["orders"] = now
                 try:
                     _log(ch, "orders", True, {"made": sync_orders(ch, now)})
+                    ch.last.pop("orders_fail", None)
                 except Exception as e:
                     _log(ch, "orders", False, str(e)[:300])
-                    oh.alert(f"mp-orders:{ch.key}", f"{ch.title}: заказы не забираются — {str(e)[:250]}. Проверьте ключ на Render", every=3 * 3600)
+                    orders_alert(ch, e, now)
                 if now - ch.last.get("repair", 0) >= 1800:     # заказы с ценой 0 за 7 дней — цена и экономика, как только площадка её отдаст
                     ch.last["repair"] = now
                     try:
