@@ -161,6 +161,9 @@ READ = {
         "product_attributes": ("POST", "", "/v4/product/info/attributes", ["*"], "характеристики карточек (filter {offer_id: [...]}, limit, last_id)"),
         "prices": ("POST", "", "/v5/product/info/prices", ["*"], "цены, комиссии"),
         "reviews": ("POST", "", "/v1/review/list", ["*"], "отзывы"),
+        "questions": ("POST", "", "/v1/question/list", ["*"], "вопросы покупателей (filter {status: UNPROCESSED / PROCESSED / ALL}, last_id)"),
+        "question_info": ("POST", "", "/v1/question/info", ["*"], "вопрос по question_id"),
+        "question_answers": ("POST", "", "/v1/question/answer/list", ["*"], "ответы на вопрос (question_id, sku)"),
         "review_info": ("POST", "", "/v1/review/info", ["*"], "отзыв"),
         "review_comments": ("POST", "", "/v1/review/comment/list", ["*"], "комментарии к отзыву"),
         "analytics": ("POST", "", "/v1/analytics/data", ["*"], "аналитика (выручка, заказы)"),
@@ -834,6 +837,11 @@ def _oz_review(ch, p):
     return ch.call("/v1/review/comment/create", {"review_id": str(p["id"]), "text": p["text"], "mark_review_as_processed": True})
 
 
+def _oz_question(ch, p):
+    """Ответ на вопрос покупателя Ozon (/v1/question/answer/create): Ozon требует question_id, sku товара и текст."""
+    return ch.call("/v1/question/answer/create", {"question_id": str(p["id"]), "sku": int(p["sku"]), "text": p["text"]})
+
+
 def _oz_price(ch, p):
     """Цена Ozon: в заявке — ₸ (или в currency_code), Ozon получает цену в валюте кабинета."""
     money, cur, note = oz_money(ch, p)
@@ -1071,6 +1079,7 @@ ACTIONS = {
                           "run": _wb_deposit, "money": True},
     "wb_promotion": {"shop": mpk.WB, "params": ["promotionID", "nmIDs"], "about": "добавить товары в акцию WB", "run": _wb_promo},
     "ozon_review_answer": {"shop": mpk.Ozon, "params": ["id", "text"], "about": "ответ на отзыв Ozon", "run": _oz_review},
+    "ozon_question_answer": {"shop": mpk.Ozon, "params": ["id", "sku", "text"], "about": "ответ на вопрос покупателя Ozon (id вопроса, sku товара)", "run": _oz_question},
     "ozon_price": {"shop": mpk.Ozon, "params": ["offer_id", "price?", "old_price?", "min_price?", "currency_code?", "auto_action_enabled?",
                                                  "auto_add_to_ozon_actions_list_enabled?"],
                    "about": "цена Ozon в ₸ (сервер пересчитает в валюту кабинета по курсу МиГ) или в currency_code; min_price — ниже неё Ozon "
@@ -1321,6 +1330,7 @@ def summary(kind, ch, p):
     a = ACTIONS[kind]["about"]
     detail = {"wb_feedback_answer": lambda: f"отзыв {p['id']}: «{p['text'][:300]}»", "wb_question_answer": lambda: f"вопрос {p['id']}: «{p['text'][:300]}»",
               "ozon_review_answer": lambda: f"отзыв {p['id']}: «{p['text'][:300]}»",
+              "ozon_question_answer": lambda: f"вопрос {p['id']}: «{p['text'][:300]}»",
               "wb_price": lambda: f"nmID {p['nmID']}: " + ", ".join(x for x in (f"цена {p['price']} ₸" if p.get("price") is not None else "",
                                                                                  f"скидка {p['discount']} %" if p.get("discount") is not None else "") if x),
               "ozon_price": lambda: f"{p['offer_id']}: " + ", ".join(x for x in (
@@ -1377,7 +1387,7 @@ def auto_ok(kind, ch, p):
         return r["auto_cards"]
     if kind == "ozon_card_create":            # Ozon KZ — сразу, если цена проверена на безубыточность; Ozon RU — через «Да»
         return r["auto_cards"] and ch.key in AUTO_OZ_CREATE and bool(p.get("_floor"))
-    if kind == "wb_question_answer":
+    if kind in ("wb_question_answer", "ozon_question_answer"):
         return r["auto_questions"]
     if kind == "wb_feedback_answer" and r["auto_reviews"]:
         fb = (ch.req("GET", "feedbacks", "/api/v1/feedback", params={"id": str(p["id"])}).get("data") or {})

@@ -167,6 +167,21 @@ class Agent(unittest.TestCase):
         self.assertEqual(self.new("ozon_review_answer", shop="ozon", id="r3", text="Нам жаль").get_json()["status"], "new")
         self.assertEqual([x["review_id"] for x in sent], ["r5"])
 
+    def test_ozon_question_answer(self):
+        """Ответ на вопрос Ozon (владелец 12.11.2026): /v1/question/answer/create с question_id, sku и текстом — по правилу «Вопросы»."""
+        sent = []
+
+        def oz(url, json=None, headers=None, timeout=None):
+            if url.endswith("/v1/question/answer/create"):
+                sent.append(json)
+                return Resp(200, {"answer_id": "a1"})
+            raise AssertionError(url)
+        self.patch(mpk.requests, "post", oz)
+        r = self.new("ozon_question_answer", shop="ozon", id="q7", sku=123456, text="Да, подходит для сухой кожи").get_json()
+        self.assertEqual((r["status"], r["auto"]), ("done", True))
+        self.assertEqual(sent, [{"question_id": "q7", "sku": 123456, "text": "Да, подходит для сухой кожи"}])
+        self.assertEqual(self.new("ozon_question_answer", shop="ozon", id="q8", text="Да").status_code, 400)        # без sku — нельзя
+
     def test_bids_need_shop_budget(self):
         self.assertEqual(self.new("wb_bid", advert_id=5, nm_id=1, bid=150).get_json()["status"], "new")      # бюджет 0 — через «Да»
         self.c.post("/admin/api/agent/rules", json={"budgets": {"wb": 5000}})
