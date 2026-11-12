@@ -273,15 +273,11 @@ class Kaspi(unittest.TestCase):
         modules.update("kaspipay", on=False)
         self.assertNotIn("kaspiPay", json.loads(c.get(rule + "?mode=retail").data))
 
-    def test_retired_hidden_on_site_and_settings(self):
-        self.patch(apipay, "RETIRED", True)                                    # владелец 05.11.2026: ApiPay не используем
-        self.patch(oh, "live", lambda max_age=None: {"updated": "x", "items": [dict(ITEM)]})
-        self.addCleanup(lambda: [oh._cache.pop(k) for k in list(oh._cache) if isinstance(k, tuple) and k[0] == "catjson"])
-        app = Flask(__name__)
-        app.register_blueprint(oh.bp)
-        self.assertNotIn("kaspiPay", json.loads(app.test_client().get("/catalog?mode=retail").data))   # модуль включён, ключ есть — всё равно нет
-        self.assertNotIn("kaspipay", [m["id"] for m in modules.listing()])
-
+    def test_back_on_site_and_settings(self):
+        """Владелец 12.11.2026: Kaspi через ApiPay снова на рознице — модуль виден в «Настройках», выключен по умолчанию."""
+        self.assertFalse(apipay.RETIRED)
+        self.assertIn("kaspipay", [m["id"] for m in modules.listing()])
+        self.assertFalse(modules.REGISTRY["kaspipay"].get("default", False))
 
 if __name__ == "__main__":
     unittest.main()
