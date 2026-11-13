@@ -1288,6 +1288,30 @@ def labels_make():
     return jsonify(ok=True, url=f"/labels/{tok}.pdf")
 
 
+@bp.post("/admin/api/orders/shiplabels")
+@need("orders")
+def shiplabels_make():
+    """Адресные этикетки своих заказов (сайт и опт) — 75×120 или 58×40 мм, по номерам заказов МойСклад (владелец 13.11.2026)."""
+    import ship_label
+    b = request.get_json(silent=True) or {}
+    nums = [str(x) for x in (b.get("numbers") or []) if str(x).strip()][:ship_label.MAX]
+    if not nums:
+        return jsonify(ok=False, error="Нет заказов для этикеток"), 400
+    fmt = b.get("fmt") if b.get("fmt") in ship_label.SIZES else "t75"
+    try:
+        items = ship_label.load(nums)
+    except Exception as e:
+        return jsonify(ok=False, error="МойСклад не ответил: " + str(e)[:150]), 502
+    if not items:
+        return jsonify(ok=False, error="Заказы не найдены в МойСклад"), 404
+    now = time.time()
+    for k in [k for k, v in _labels.items() if now - v[0] > 1800]:
+        _labels.pop(k, None)
+    tok = secrets.token_urlsafe(18)
+    _labels[tok] = (now, ship_label.pdf(items, fmt, ship_label.shop_phone()))
+    return jsonify(ok=True, url=f"/labels/{tok}.pdf", count=len(items))
+
+
 @bp.get("/labels/<tok>.pdf")
 def labels_get(tok):
     from flask import Response
