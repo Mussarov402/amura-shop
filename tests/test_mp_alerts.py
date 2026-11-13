@@ -48,6 +48,33 @@ class Alerts(unittest.TestCase):
         self.assertIn("Ключи площадок", t)
         self.assertEqual(len(self.sent), 1)
 
+    def test_stocks_rate_limit_after_3_cycles(self):
+        ch, e = Ch(), mpk.ApiError(429, "You have reached request rate limit per second")
+        self.assertIsNone(mpk.stocks_alert(ch, e))
+        self.assertIsNone(mpk.stocks_alert(ch, e))
+        t = mpk.stocks_alert(ch, e)
+        self.assertIn("остатки не обновляются 45 минут", t)
+        self.assertIn("ограничивает частоту запросов", t)
+        self.assertEqual(len(self.sent), 1)
+
+    def test_ozon_call_retries_rate_limit(self):
+        import time
+        calls = []
+
+        def post(url, json=None, headers=None, timeout=None):
+            calls.append(1)
+            code = 429 if len(calls) < 3 else 200
+            return type("R", (), {"status_code": code, "text": "You have reached request rate limit per second" if code == 429 else "{}",
+                                  "json": lambda s: {"result": []} if code == 200 else {"message": "rate limit"}})()
+        old_post, old_sleep = mpk.requests.post, time.sleep
+        mpk.requests.post, mpk.time.sleep = post, lambda s: None
+        try:
+            ch = mpk.Ozon(1)
+            self.assertEqual(ch.call("/v2/products/stocks", {}), {"result": []})
+        finally:
+            mpk.requests.post, mpk.time.sleep = old_post, old_sleep
+        self.assertEqual(len(calls), 3)
+
 
 if __name__ == "__main__":
     unittest.main()

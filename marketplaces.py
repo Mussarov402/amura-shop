@@ -175,8 +175,12 @@ class Ozon(Channel):
         return str(c.get("name") or c.get("legal_name") or "")
 
     def call(self, path, body):
-        r = requests.post(self.api() + path, json=body, timeout=30,
-                          headers={"Client-Id": self.env("CLIENT_ID"), "Api-Key": self.env("API_KEY"), "Content-Type": "application/json"})
+        for wait in RATE_WAITS + (None,):                # лимит Ozon «request rate limit per second» (429) — повтор 1 → 2 → 4 → 8 с
+            r = requests.post(self.api() + path, json=body, timeout=30,
+                              headers={"Client-Id": self.env("CLIENT_ID"), "Api-Key": self.env("API_KEY"), "Content-Type": "application/json"})
+            if wait is None or not _rate_limited(r):
+                break
+            time.sleep(wait)
         j = _json(r)
         if r.status_code >= 400:
             raise ApiError(r.status_code, (str(j.get("message") or "") or f"HTTP {r.status_code} {path}: {_body(r)}")[:300])
@@ -287,7 +291,7 @@ class Ozon(Channel):
                     self.sent[s["ref"]] = s["stock"]
                 elif not r.get("updated"):
                     errors.append(f"{r.get('offer_id')}: " + "; ".join(str(e.get("message") or e.get("code") or e) for e in r.get("errors") or []))
-            time.sleep(0.5)
+            time.sleep(1)                                 # пачки строго по очереди, с паузой — не упираться в лимит Ozon
         return errors
 
 
@@ -542,6 +546,13 @@ def _catalog():
     return oh.panel_catalog()
 
 
+RATE_WAITS = (1, 2, 4, 8)
+
+
+def _rate_limited(r):
+    return r.status_code == 429 or (r.status_code >= 400 and "rate limit" in (getattr(r, "text", "") or "").lower())
+
+
 def _plain(text):
     """Ответ без JSON → короткий текст: страница шлюза (HTML «502 Bad Gateway») — только её заголовок, без разметки."""
     t = str(text or "").strip()
@@ -576,6 +587,25 @@ def orders_alert(ch, e, now):
 
 
 TRANSIENT_ALERT = 1800
+STOCK_FAILS_ALERT = 3                                    # 3 цикла по 15 минут ≈ 45 минут
+
+
+def stocks_alert(ch, e):
+    """Остатки не ушли. Временный сбой / лимит частоты площадки — владельцу только после 3 циклов подряд (≈ 45 мин); иначе — сразу."""
+    n = ch.last["stocks_fails"] = ch.last.get("stocks_fails", 0) + 1
+    if transient(e) or "rate limit" in str(e).lower():
+        if n < STOCK_FAILS_ALERT:
+            print(f"{ch.title}: остатки не ушли ({n}-й раз подряд), повторим: {str(e)[:150]}", flush=True)
+            return None
+        why = "ограничивает частоту запросов" if ("rate limit" in str(e).lower() or getattr(e, "code", 0) == 429) else "не отвечает"
+        who = "Ozon" if isinstance(ch, Ozon) else "WB" if isinstance(ch, WB) else "площадка"
+        text = f"{ch.title}: остатки не обновляются {n * STOCKS_EVERY // 60} минут — {who} {why}, повторяем."
+    elif isinstance(e, ApiError) and e.code in (401, 403):
+        text = f"{ch.title}: площадка не принимает ключ ({e.code}) — остатки не обновляются. Проверьте ключ: Настройки → Ключи площадок."
+    else:
+        text = f"{ch.title}: остатки не обновляются — {str(e)[:250]}"
+    oh.alert(f"mp-stocks:{ch.key}", text, every=3 * 3600)
+    return text
 
 
 def _body(r):
@@ -1189,9 +1219,10 @@ def tick(now=None):
                     if force:
                         ch.sent_at = now
                     _log(ch, "stocks", not r["errors"] or r["sent"] > 0, r)   # красное — только если не ушло ничего
+                    ch.last["stocks_fails"] = 0
                 except Exception as e:
                     _log(ch, "stocks", False, str(e)[:300])
-                    oh.alert(f"mp-stocks:{ch.key}", f"{ch.title}: остатки не обновляются — {str(e)[:250]}", every=3 * 3600)
+                    stocks_alert(ch, e)
         day = datetime.now(ALMATY).strftime("%Y-%m-%d")
         if datetime.now(ALMATY).hour >= 10 and setting("mp_payout_day", "") != day and setting("mp_payout_auto", "0") == "1":
             set_setting("mp_payout_day", day)                # выплаты — раз в сутки, только если владелец включил
