@@ -990,10 +990,10 @@ const LBLF={a4:["A4 — 8 на листе","size:A4;margin:0","105mm","74.25mm",
 const lblFmt=()=>{try{const v=localStorage.getItem("amura_lbl");return LBLF[v]?v:"a4"}catch(e){return "a4"}};
 const lblPick=()=>`<select id="lblf" style="width:auto;flex:none;padding:10px">${Object.entries(LBLF).map(([k,v])=>`<option value="${k}" ${k===lblFmt()?"selected":""}>${v[0]}</option>`).join("")}</select>`;
 /* Файл этикеток площадки (Ozon 75×120, WB 58×40): PDF с сервера под авторизацией — открыть / «Поделиться» на телефоне */
-async function mpPdf(path,name){const w=touchDev?null:window.open("","_blank");toast("Готовлю PDF…",15000);
+async function mpPdf(path,name){const w=null;toast("Готовлю PDF…",15000);
  try{const r=await fetch("/admin/api/"+path,{headers:{Authorization:"Bearer "+tok}});if(!r.ok){let m="Файл не получен";try{m=(await r.json()).error||m}catch(e){}throw Error(m)}
   const f=new File([await r.blob()],name,{type:"application/pdf"}),u=URL.createObjectURL(f);toast("",-1);
-  if(w){w.location.href=u}else if(navigator.canShare&&navigator.canShare({files:[f]})){try{await navigator.share({files:[f],title:name})}catch(e){}}else saveFile(f)}
+  if(w)w.close();openDoc(u,name)}
  catch(e){if(w)w.close();toast(e.message,5000)}}
 /* «Наклейки» в общем списке: у заказов Ozon/WB — этикетки площадки, у сайта и опта — наши. Один файл — один размер (владелец 05.11.2026) */
 async function stickers(list){if(!list.length)return toast("Нет заказов для наклеек");
@@ -2521,14 +2521,16 @@ async function clientCard(id,back,backLbl){
  const close=fromPop=>{if(!box||box.hidden)return;box.hidden=true;seq++;pages.innerHTML="";cur=null;document.documentElement.style.overflow="";
   if(hist&&!fromPop){hist=false;history.back()}hist=false};
  const build=()=>{box=document.createElement("div");box.id="dv";
-  box.innerHTML='<div class="dvb"><button class="dvx" aria-label="Закрыть">✕</button><div class="dvt"></div><button class="dvs">Поделиться</button></div><div class="dvp"></div>';
+  box.innerHTML='<div class="dvb"><button class="dvx" aria-label="Закрыть">✕</button><div class="dvt"></div><button class="dvpr" title="Печать" aria-label="Печать">🖨</button><button class="dvs">Поделиться</button></div><div class="dvp"></div>';
   document.body.appendChild(box);pages=box.querySelector(".dvp");ttl=box.querySelector(".dvt");
   box.querySelector(".dvx").onclick=()=>close();
   box.querySelector(".dvs").onclick=e=>{if(cur)fileAct(e.currentTarget,cur.url,cur.name,"application/pdf",true)};
+  box.querySelector(".dvpr").onclick=()=>printDoc();
   const st=document.createElement("style");st.textContent=`#dv{position:fixed;inset:0;z-index:10000;background:#2B302D;display:flex;flex-direction:column}#dv[hidden]{display:none}
 #dv .dvb{display:flex;align-items:center;gap:10px;padding:calc(8px + env(safe-area-inset-top,0px)) 12px 8px;background:#0E3B2C;color:#fff;flex:none}
 #dv .dvx{width:40px;height:40px;border-radius:50%;border:0;background:rgba(255,255,255,.16);color:#fff;font-size:20px;flex:none;cursor:pointer}
 #dv .dvt{flex:1;min-width:0;font-weight:700;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#dv .dvpr{width:40px;height:40px;border-radius:50%;border:0;background:rgba(255,255,255,.16);color:#fff;font-size:19px;flex:none;cursor:pointer}
 #dv .dvs{border:0;border-radius:20px;background:#C9A24A;color:#fff;font:inherit;font-weight:700;font-size:13px;padding:9px 14px;flex:none;cursor:pointer}
 #dv .dvp{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;padding:10px 8px calc(16px + env(safe-area-inset-bottom,0px));touch-action:pan-x pan-y pinch-zoom}
 #dv canvas{display:block;width:100%;max-width:900px;margin:0 auto 10px;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.35)}
@@ -2537,11 +2539,21 @@ async function clientCard(id,back,backLbl){
   pages.innerHTML='<div class="dvm">Открываю документ…</div>';box.hidden=false;document.documentElement.style.overflow="hidden";
   try{history.pushState({dv:1},"",location.href);hist=true}catch(_){}
   let f;try{f=await getFile(url,name||"doc.pdf","application/pdf")}catch(e){if(my===seq)pages.innerHTML='<div class="dvm">'+esc(e.message||"Не удалось открыть")+'</div>';return}
+  cur.file=f;
   try{const L=await loadLib();const doc=await L.getDocument({data:new Uint8Array(await f.arrayBuffer())}).promise;if(my!==seq)return;pages.innerHTML="";
    const w=Math.min(pages.clientWidth-16,900),dpr=Math.min(window.devicePixelRatio||1,3);
    for(let i=1;i<=doc.numPages;i++){const pg=await doc.getPage(i);if(my!==seq)return;const v0=pg.getViewport({scale:1}),v=pg.getViewport({scale:w/v0.width*dpr});
     const c=document.createElement("canvas");c.width=v.width;c.height=v.height;pages.appendChild(c);await pg.render({canvasContext:c.getContext("2d"),viewport:v}).promise}}
   catch(e){if(my!==seq)return;const fr=document.createElement("iframe");fr.src=URL.createObjectURL(f);pages.innerHTML="";pages.style.padding="0";pages.appendChild(fr)}};
+ /* «Печать» (владелец 15.11.2026): компьютер — PDF в скрытом iframe и системное окно печати (размер страницы — как у этикетки,
+    масштаб 100 %); телефон — лист «Поделиться», в нём «Напечатать» (iOS / Android не дают печатать PDF из веб-приложения напрямую) */
+ const printDoc=async()=>{if(!cur)return;let f=cur.file;try{if(!f)f=cur.file=await getFile(cur.url,cur.name||"doc.pdf","application/pdf")}catch(e){return toast(e.message||"Файл не получен")}
+  if(!touchDev){const old=document.getElementById("dvprint");if(old)old.remove();const fr=document.createElement("iframe");fr.id="dvprint";
+   fr.style.cssText="position:fixed;right:0;bottom:0;width:1px;height:1px;border:0;opacity:0";fr.src=URL.createObjectURL(f);
+   fr.onload=()=>setTimeout(()=>{try{fr.contentWindow.focus();fr.contentWindow.print()}catch(e){window.open(fr.src,"_blank")}},300);document.body.appendChild(fr);
+   toast("Окно печати: выберите термопринтер, масштаб 100 %, без полей",5000);return}
+  if(navigator.canShare&&navigator.canShare({files:[f]})){toast("В меню выберите «Напечатать»",5000);try{await navigator.share({files:[f],title:cur.name})}catch(e){}return}
+  toast("Прямой печати на этом устройстве нет — сохраните PDF и напечатайте из приложения принтера",6000);saveFile(f)};
  window.docOpen=()=>!!(box&&!box.hidden);
  addEventListener("popstate",()=>{if(box&&!box.hidden){hist=false;close(true)}});
  addEventListener("keydown",e=>{if(e.key==="Escape")close()});
