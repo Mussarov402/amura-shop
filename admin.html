@@ -953,8 +953,8 @@ const viewOrder=async(n,oid,opt={})=>{const ov=document.createElement("div");ov.
    api("orders/"+encodeURIComponent(d.number)+"/ship?id="+encodeURIComponent(d.id||""),{method:"POST"}).then(r=>{toast(r.op.status==="sent"?"Отгружено: отгрузка №"+r.op.msNumber+" ✓":r.op.status==="error"?"Не отгружено: "+r.op.error:"Сохранено. МойСклад не ответил — отгрузка создастся автоматически",6000);ov.remove();viewOrder(d.number,d.id)})
     .catch(e=>{b.disabled=false;b.lastChild.textContent="Отгрузить";if(e.message!=="401")alert(e.message)})}
   else if(a==="xlsx")fileAct(b,d.xlsx,nm+".xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",true);
-  else if(a==="slbl"){const ov2=ovOpen(),bx=ov2.querySelector(".eo");bx.innerHTML=`<div style="font-size:18px;font-weight:800;margin-bottom:6px">Этикетка заказа №${esc(d.number)}</div><div class="mut" style="margin-bottom:10px">Термопринтер: масштаб 100 %, без полей.</div><div style="display:flex;gap:8px;flex-wrap:wrap">${shipPick("slsz")}<button class="btn" id="slgo">Открыть PDF</button><button class="btn ghost" id="slx">Закрыть</button></div>`;
-   bx.querySelector("#slx").onclick=()=>ov2.remove();bx.querySelector("#slgo").onclick=()=>{shipLabels([d.number],bx.querySelector("#slsz").value);ov2.remove()}}
+  else if(a==="slbl"){const ov2=ovOpen(),bx=ov2.querySelector(".eo");bx.innerHTML=`<div style="font-size:18px;font-weight:800;margin-bottom:6px">Этикетка заказа №${esc(d.number)}</div><div class="mut" style="margin-bottom:10px">Термопринтер: масштаб 100 %, без полей.</div><div style="display:flex;gap:8px;flex-wrap:wrap">${shipPick("slsz")}${shipBarBox("slbc")}<button class="btn" id="slgo">Открыть PDF</button><button class="btn ghost" id="slx">Закрыть</button></div>`;
+   bx.querySelector("#slx").onclick=()=>ov2.remove();bx.querySelector("#slgo").onclick=()=>{shipLabels([d.number],bx.querySelector("#slsz").value,bx.querySelector("#slbc").checked);ov2.remove()}}
   else if(a==="pdf")openDoc(d.pdf,nm+".pdf");else fileAct(b,d.pdf,nm+".pdf","application/pdf",true)});
  if(ov.querySelector("#shpon"))ov.querySelector("#shpon").onclick=async e=>{e.preventDefault();if(!confirm("Включить отгрузку из системы? В заказах появится кнопка «Отгрузить». Сценарий МойСклад продолжит работать — по заказу, где отгрузка уже есть, вторая не создастся."))return;
   try{await api("ship/flag",{method:"POST",body:JSON.stringify({on:true})});ov.remove();viewOrder(d.number,d.id)}catch(x){if(x.message!=="401")alert(x.message)}}};
@@ -1006,10 +1006,10 @@ async function stickers(list){if(!list.length)return toast("Нет заказо�
   r.shops.map((g,i)=>`<div class="card" style="margin-bottom:10px"><b>${esc(g.title)}</b> <span class="mut">· этикетки площадки ${g.size} мм</span>
    ${g.ready.length?`<div style="margin:8px 0"><button class="btn" data-lbl="${i}">${g.wb?"WB":"Ozon"} ${g.size} (${g.ready.length})</button></div><div class="mut">${g.ready.map(x=>"№"+esc(x.number)).join(", ")}</div>`:""}
    ${g.wait.length?`<div class="b w" style="white-space:normal;display:block;margin-top:8px">${g.wait.map(x=>"№"+esc(x.number)).join(", ")} — сначала подтвердите сборку: этикетку площадка даёт только после неё.</div><div style="margin-top:8px"><button class="btn ghost" data-ship="${i}">Подтвердить сборку (${g.wait.length})</button></div>`:""}</div>`).join("")+
-  (r.own.length?`<div class="card" style="margin-bottom:10px"><b>Наши этикетки</b> <span class="mut">· заказы сайта и опта: номер со штрихкодом, получатель, адрес, доставка</span><div style="margin:8px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center">${shipPick("stsz")}<button class="btn" id="stown">Наши (${r.own.length})</button></div><div class="mut">${r.own.map(n=>"№"+esc(n)).join(", ")}</div></div>`:"")+
+  (r.own.length?`<div class="card" style="margin-bottom:10px"><b>Наши этикетки</b> <span class="mut">· заказы сайта и опта: номер со штрихкодом, получатель, адрес, доставка</span><div style="margin:8px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center">${shipPick("stsz")}${shipBarBox("stbc")}<button class="btn" id="stown">Наши (${r.own.length})</button></div><div class="mut">${r.own.map(n=>"№"+esc(n)).join(", ")}</div></div>`:"")+
   `<div class="asb"><button class="btn ghost" id="stx">Закрыть</button></div><div class="mut" id="stm" style="margin-top:8px"></div>`;
   box.querySelector("#stx").onclick=()=>ov.remove();
-  const own=box.querySelector("#stown");if(own)own.onclick=()=>shipLabels(r.own,(box.querySelector("#stsz")||{}).value);
+  const own=box.querySelector("#stown");if(own)own.onclick=()=>shipLabels(r.own,(box.querySelector("#stsz")||{}).value,(box.querySelector("#stbc")||{}).checked);
   box.querySelectorAll("[data-lbl]").forEach(b=>b.onclick=()=>{const g=r.shops[+b.dataset.lbl];
    mpPdf("mp/asm/labels?shop="+encodeURIComponent(g.shop)+"&ids="+encodeURIComponent(g.ready.map(x=>x.ext).join(",")),(g.wb?"Стикеры WB 58x40":"Этикетки Ozon 75x120")+".pdf")});
   box.querySelectorAll("[data-ship]").forEach(b=>b.onclick=async()=>{const g=r.shops[+b.dataset.ship],m=box.querySelector("#stm");
@@ -1025,9 +1025,11 @@ async function stickers(list){if(!list.length)return toast("Нет заказо�
 const SHIPF={t75:"75×120 (как Ozon)",t58:"58×40 (как WB)"};
 const shipFmt=()=>{try{const v=localStorage.getItem("amura_shiplbl");return SHIPF[v]?v:"t75"}catch(e){return "t75"}};
 const shipPick=id=>`<select id="${id}" style="width:auto;flex:none;padding:10px">${Object.entries(SHIPF).map(([k,v])=>`<option value="${k}" ${k===shipFmt()?"selected":""}>${v}</option>`).join("")}</select>`;
-async function shipLabels(numbers,fmt){numbers=[...new Set(numbers.filter(Boolean))];if(!numbers.length)return toast("Нет заказов для этикеток");fmt=fmt||shipFmt();
+const shipBar=()=>{try{return localStorage.getItem("amura_shipbar")==="1"}catch(e){return false}};
+const shipBarBox=id=>`<label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="${id}" ${shipBar()?"checked":""}> Штрихкод</label>`;
+async function shipLabels(numbers,fmt,bar){if(bar===undefined)bar=shipBar();try{localStorage.setItem("amura_shipbar",bar?"1":"0")}catch(e){}numbers=[...new Set(numbers.filter(Boolean))];if(!numbers.length)return toast("Нет заказов для этикеток");fmt=fmt||shipFmt();
  try{localStorage.setItem("amura_shiplbl",fmt)}catch(e){}toast("Готовлю этикетки…",15000);
- try{const r=await api("orders/shiplabels",{method:"POST",body:JSON.stringify({numbers,fmt})});toast("",-1);openDoc(r.url,"AMURA-этикетки-"+(fmt==="t58"?"58x40":"75x120")+".pdf")}catch(e){toast(e.message)}}
+ try{const r=await api("orders/shiplabels",{method:"POST",body:JSON.stringify({numbers,fmt,barcode:!!bar})});toast("",-1);openDoc(r.url,"AMURA-этикетки-"+(fmt==="t58"?"58x40":"75x120")+".pdf")}catch(e){toast(e.message)}}
 async function printLabels(list,kind){if(!list.length)return toast("Нет заказов для наклеек");
  /* PDF точного размера с сервера: телефон и термопринтер не понимают размер страницы из HTML, а PDF печатают как есть */
  try{const r=await api("labels",{method:"POST",body:JSON.stringify({fmt:lblFmt(),items:list.map(x=>({num:x.num,name:x.name||"",addr:x.addr||"",kind:x.kind||kind||"",slot:x.slot||"",phone:x.phone||""}))})});

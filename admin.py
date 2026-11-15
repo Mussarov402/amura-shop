@@ -1308,7 +1308,7 @@ def shiplabels_make():
     for k in [k for k, v in _labels.items() if now - v[0] > 1800]:
         _labels.pop(k, None)
     tok = secrets.token_urlsafe(18)
-    _labels[tok] = (now, ship_label.pdf(items, fmt, ship_label.shop_phone()))
+    _labels[tok] = (now, ship_label.pdf(items, fmt, ship_label.shop_phone(), barcode=b.get("barcode") is True))
     return jsonify(ok=True, url=f"/labels/{tok}.pdf", count=len(items))
 
 
