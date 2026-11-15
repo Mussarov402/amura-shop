@@ -19,7 +19,7 @@ class Label(unittest.TestCase):
     def test_parse(self):
         x = sl.parse(O, POS)
         self.assertEqual((x["name"], x["phone"], x["city"], x["method"], x["addr"]),
-                         ("Тестова Айгерим", "+7 700 123 45 67", "Алматы", "Пункт выдачи СДЭК", "ALM12, ул. Тестовая, 1"))
+                         ("Тестова Айгерим", "+77001234567", "Алматы", "Пункт выдачи СДЭК", "ALM12, ул. Тестовая, 1"))   # телефон — как в заказе
         self.assertEqual((x["lines"], x["qty"], x["paid"], x["track"]), (1, 2, True, ""))      # услуга (доставка) не считается
         self.assertFalse(sl.parse(dict(O, payedSum=0), POS)["paid"])
 
@@ -31,6 +31,17 @@ class Label(unittest.TestCase):
             self.assertAlmostEqual(float(pages[0].mediabox.width) / 72 * 25.4, w, 0)
             self.assertAlmostEqual(float(pages[0].mediabox.height) / 72 * 25.4, h, 0)
             self.assertIn("01234", pages[0].extract_text())
+
+    def test_long_address_whole_no_barcode_by_default(self):
+        from pypdf import PdfReader
+        addr = "Кассина 146/4, 3 блок, 2 подъезд, 9 этаж, кв. 79, домофон 79, вход со двора, позвонить за 30 минут"
+        o = dict(O, description="Заказ с сайта\nТестова Айгерим, WhatsApp +77001234567\nГород: Алматы\nОтправка: Курьер по городу — " + addr)
+        x = sl.parse(o, POS)
+        self.assertEqual((x["name"], x["addr"]), ("Тестова Айгерим", addr))                    # «WhatsApp» в имя не попадает
+        for fmt in sl.SIZES:
+            txt = PdfReader(io.BytesIO(sl.pdf([x], fmt))).pages[0].extract_text().replace("\n", " ")
+            self.assertIn("позвонить за 30 минут", txt)                                         # адрес целиком, без обрезки
+            self.assertIn("Курьер по городу", txt)
 
 
 if __name__ == "__main__":
