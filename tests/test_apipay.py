@@ -307,6 +307,32 @@ class Kaspi(unittest.TestCase):
         self.assertEqual(len(self.posted), 1)
         self.assertEqual(self.alerts, [])                                       # не «двойная оплата»
 
+    def test_new_order_cancels_old_invoice(self):
+        """Тест владельца 18.11: выбрал СДЭК, получил счёт, потом переоформил на самовывоз и оплатил.
+        Новый счёт отменяет прежний (в Kaspi висит один) — в МойСклад самовывоз и 0 ₸ доставки."""
+        import checkout
+        self.patch(checkout, "order_delivery", lambda d, ship, city, goods: (0, "Самовывоз", None) if ship == "pickup"
+                   else (1200, "Пункт выдачи СДЭК — ш. Северное кольцо, 68/3 (код ALM182)", None))
+        r1, _ = self.checkout(shipping="cdek", items=[{"id": "p1", "qty": 1}])
+        self.assertEqual(r1["total"], 6690 + 1200)
+        self.init(r1["payToken"])
+        old = self.api.next
+        self.api.last()["status"] = "pending"
+        r2, _ = self.checkout(shipping="pickup", items=[{"id": "p1", "qty": 1}])
+        self.assertEqual(r2["total"], 6690)
+        j = self.init(r2["payToken"])
+        self.assertEqual(j["total"], 6690)
+        self.assertEqual(self.api.inv[old]["status"], "cancelled")                  # старый счёт СДЭК отменён в ApiPay
+        self.assertEqual(freedom.get_draft(r1["draft"])["status"], "cancelled")
+        self.assertEqual([x["total"] for x in freedom.my_drafts("cid-1")], [6690])
+        self.api.last()["status"] = "paid"
+        self.status(r2["payToken"])
+        apipay.after_paid(self.api.next)
+        body = self.posted[-1]
+        self.assertIn("Самовывоз", body["description"])
+        self.assertNotIn("СДЭК", body["description"])
+        self.assertEqual(sum(p["price"] * p["quantity"] for p in body["positions"]) // 100, 6690)   # без позиции «Доставка»
+
     def test_catalog_flag(self):
         self.patch(oh, "live", lambda max_age=None: {"updated": "x", "items": [dict(ITEM)]})
         self.addCleanup(lambda: [oh._cache.pop(k) for k in list(oh._cache) if isinstance(k, tuple) and k[0] == "catjson"])

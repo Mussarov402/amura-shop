@@ -3014,6 +3014,8 @@ async function submit(){
   const digits = normPhone(String(f.phone).replace(/\D/g, ""));
   if(!f.name) return fail("Укажите имя получателя", "#rName");
   if(!/^7\d{10}$/.test(digits)) return fail("Укажите телефон получателя", "#rPhone");
+  const seen = document.querySelector('#rDlv [data-rm][aria-selected="true"]');   // в заказ — ровно тот способ, что выбран на экране
+  if(seen && seen.dataset.rm !== f.ship){ saveForm({ ship: seen.dataset.rm }); paint(); return fail("Способ доставки обновился — проверьте сумму и нажмите ещё раз"); }
   if(f.ship !== "pickup" && !f.city) return openSheet();
   if(f.ship === "cdek" && !DLV.pvzSel && !f.address){ fail("Выберите пункт выдачи"); return openSheet(); }
   if(isCour(f.ship) && !f.address){ fail("Укажите адрес доставки"); return openSheet(); }

@@ -170,6 +170,7 @@ def init(number):
     amount = int(dr["total"])
     if amount < 1 or amount != dr["total"]:
         raise ValueError("Сумма заказа не определена")
+    cancel_others(dr["cid"], dr["id"])     # в Kaspi у покупателя должен висеть один счёт — по этому заказу (тест 18.11: оплатили вчерашний)
     p8 = phone8((dr["data"].get("d") or {}).get("phone"))
     if not p8:
         raise ValueError("Счёт Kaspi выставляется на казахстанский мобильный номер — укажите его в заказе или оплатите картой")
@@ -208,6 +209,22 @@ def cancel_active(number):
         refresh(p["invoiceId"], force=True)
     except Exception as e:
         print("ApiPay: счёт не отменён:", str(e)[:200], flush=True)
+
+
+def cancel_others(cid, keep):
+    """Покупатель оформил новый заказ: его прежние неоплаченные черновики с живым счётом Kaspi отменяем (счёт — в ApiPay, черновик — «cancelled»).
+    Иначе в приложении Kaspi висят два счёта, и можно оплатить старый — со старым способом доставки и суммой.
+    Старый всё-таки успели оплатить — побеждает оплата (как в cancel)."""
+    if not cid:
+        return
+    with freedom.db() as d:
+        rows = d.run("SELECT id FROM card_draft WHERE cid=%s AND status='new' AND id<>%s AND created>%s",
+                     (cid, int(keep), time.time() - 2 * freedom.DRAFT_TTL), many=True) or []
+    for (did,) in rows:
+        try:
+            cancel(f"D{did}")
+        except Exception as e:
+            print("ApiPay: прежний заказ не отменён:", did, str(e)[:200], flush=True)
 
 
 def cancel(number):
