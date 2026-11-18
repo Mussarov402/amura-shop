@@ -2303,6 +2303,13 @@ def client_orders(cid):
                        "payCard": f"{o['name']}_{sign(o['name'])}" if (PAY_CARD_TXT in (o.get("description") or "") and (o.get("payedSum") or 0) < o["sum"]
                                                                         and not re.search(r"отмен|возврат", (o.get("state") or {}).get("name", ""), re.I)) else "",
                        "pdfUrl": f"{PUBLIC_URL}/order/{o['name']}/pdf?t={sign(o['name'])}"})
+    def _kaspi_status(n):                            # последний счёт Kaspi по черновику: cancelled / expired / error — покупатель видит, что случилось
+        try:
+            import apipay
+            k = apipay.last_for(n)
+            return k["status"] if k else ""
+        except Exception:
+            return ""
     try:                                             # розница с оплатой картой: неоплаченные черновики — «Ожидает оплаты» (сутки)
         import freedom
         for dr in freedom.my_drafts(cid):
@@ -2311,7 +2318,7 @@ def client_orders(cid):
                               "status": "Ожидает оплаты", "sum": dr["total"], "count": sum(l["qty"] for l in ls),
                               "items": [{"id": l["id"], "name": l["name"], "qty": l["qty"], "price": l["price"]} for l in ls],
                               "ship": dr["data"].get("shipName", ""), "extra": dr["data"].get("dlv", 0), "paid": False,
-                              "payCard": freedom.draft_token(dr["id"]), "pdfUrl": ""})
+                              "payCard": freedom.draft_token(dr["id"]), "pdfUrl": "", "kaspi": _kaspi_status("D" + str(dr["id"]))})
     except Exception as e:
         print("Мои заказы: черновики не получены:", e, flush=True)
     try:                                             # уже оплачено картой (тест тоже) — «Оплатить» не показываем

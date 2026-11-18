@@ -227,3 +227,10 @@ input,select,textarea{font-size:16px!important}
 .rsbox{max-height:min(88dvh,calc(100% - 8px))}
 .rsheet input,.rsheet textarea,.rsheet select{font-size:16px}
 #rsErr .rlink{font-size:inherit}
+/* «Отменить заказ» у счёта Kaspi: второстепенная кнопка и подтверждение на странице */
+.rkcan{text-align:center;margin-top:8px}
+.rkc{color:var(--muted);font-weight:600}
+.rkq{display:grid;gap:4px;text-align:center;background:var(--bg);border-radius:14px;padding:12px}
+.rkq span{color:var(--muted);font-size:13px}
+.rkq .rpay2{margin-top:8px}
+.btn.rkdanger{background:#B3261E}

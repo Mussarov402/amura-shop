@@ -161,6 +161,8 @@ def _draft(number):
 def init(number):
     """Счёт по черновику «D<id>»: сумма — из черновика (браузеру не доверяем), номер — из заказа. Уже есть живой счёт — он и возвращается."""
     dr = _draft(number)
+    if dr["status"] == "cancelled":
+        raise ValueError("Заказ отменён — оформите его заново из корзины")
     if dr["status"] != "new":
         raise ValueError("Заказ уже оплачен")
     if time.time() - dr["created"] > freedom.DRAFT_TTL:
@@ -208,6 +210,28 @@ def cancel_active(number):
         print("ApiPay: счёт не отменён:", str(e)[:200], flush=True)
 
 
+def cancel(number):
+    """Покупатель нажал «Отменить заказ»: живой счёт Kaspi отменяем в ApiPay, черновик — «cancelled» (в МойСклад его и не было).
+    Оплата успела пройти (сейчас или позже, пока сверка ещё смотрит счёт) — побеждает оплата: refresh создаст заказ как обычно.
+    Возвращает (черновик, последний счёт) после отмены."""
+    dr = _draft(number)
+    did = dr["id"]
+    p = last_for(number)
+    if dr["status"] == "new" and p and p["status"] in ACTIVE:
+        if keys_set():
+            try:
+                call("POST", f"/invoices/{p['invoiceId']}/cancel")
+            except Exception as e:
+                print("ApiPay: счёт не отменён:", str(e)[:200], flush=True)
+            p = refresh(p["invoiceId"], force=True) or p
+    with freedom._draft_lock:
+        dr = freedom.get_draft(did)
+        if dr["status"] == "new" and not (p and p["status"] in ("paid", "mismatch")):
+            freedom._dset(did, status="cancelled")
+            dr = freedom.get_draft(did)
+    return dr, (last_for(number) if p else None)
+
+
 # ---------- статус: опрос ApiPay ----------
 def refresh(iid, force=False):
     """Спрашиваем ApiPay о счёте и записываем статус. Стал «оплачен» — проверяем сумму и запускаем after_paid (один раз)."""
@@ -241,7 +265,7 @@ def refresh(iid, force=False):
                 return by_invoice(iid)
             _set(iid, status="paid", test=test, paid_at=now, note="")
             dr = freedom.get_draft(int(p["number"][1:])) if p["number"].startswith("D") else None
-            if dr and dr["status"] == "new":
+            if dr and dr["status"] in ("new", "cancelled"):      # оплата пришла в момент отмены — побеждает оплата: заказ создаём как обычно
                 freedom._dset(dr["id"], status="paid")
                 run = True
             elif dr:                                             # черновик уже оплачен картой — деньги пришли дважды
@@ -393,6 +417,23 @@ def init_route():
     except Exception as e:
         print("ApiPay: ошибка выставления счёта:", str(e)[:200], flush=True)
         return jsonify(ok=False, error="Kaspi сейчас не принимает счёт, попробуйте позже или оплатите картой"), 502
+
+
+@bp.route("/pay/kaspi/cancel", methods=["POST", "OPTIONS"])
+def cancel_route():
+    """Сайт: «Отменить заказ» на экране счёта Kaspi и в «Моих заказах». Товары черновика — обратно в корзину (lines)."""
+    if request.method == "OPTIONS":
+        return "", 204
+    number = _token()
+    if not number:
+        return jsonify(ok=False, error="Заказ не найден"), 404
+    try:
+        dr, p = cancel(number)
+    except ValueError as e:
+        return jsonify(ok=False, error=str(e)), 400
+    out = _view(p, number)
+    out["lines"] = [{"id": l["id"], "qty": l["qty"]} for l in (dr["data"].get("lines") or [])]
+    return jsonify(out)
 
 
 @bp.route("/pay/kaspi/status", methods=["POST", "OPTIONS"])
