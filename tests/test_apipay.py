@@ -260,6 +260,53 @@ class Kaspi(unittest.TestCase):
         self.assertTrue(self.c.post("/pay/card/init", json={"token": res["payToken"]}).get_json()["ok"])
         self.assertEqual(apipay.last_for(f"D{res['draft']}")["status"], "cancelled")
 
+    def cancel(self, token):
+        apipay._seen.clear()
+        return self.c.post("/pay/kaspi/cancel", json={"token": token}).get_json()
+
+    def test_cancel_order(self):
+        """«Отменить заказ»: счёт Kaspi отменяется в ApiPay, черновик — «отменён», товары — обратно в корзину; в МойСклад ничего."""
+        res, _ = self.checkout()
+        self.init(res["payToken"])
+        self.api.last()["status"] = "pending"
+        j = self.cancel(res["payToken"])
+        self.assertEqual((j["ok"], j["status"], j["draft"]), (True, "cancelled", "cancelled"))
+        self.assertEqual(j["lines"], [{"id": "p1", "qty": 2}])
+        self.assertIn(("POST", f"/invoices/{self.api.next}/cancel"), [(s[0], s[1]) for s in self.api.sent])
+        self.assertEqual(self.posted, [])
+        self.assertEqual(freedom.my_drafts("cid-1"), [])                        # из «Моих заказов» уходит
+        self.assertIn("отменён", self.init(res["payToken"])["error"])           # новый счёт по отменённому — нельзя
+
+    def test_paid_wins_over_cancel(self):
+        """Оплата прошла ровно в момент отмены: побеждает оплата — заказ создаётся, отмену не показываем."""
+        res, _ = self.checkout()
+        self.init(res["payToken"])
+        real = self.api.__call__
+        def paid_on_cancel(method, url, **kw):                                  # Kaspi успел провести оплату — отмена уже не срабатывает
+            if method == "POST" and url.endswith("/cancel"):
+                self.api.last()["status"] = "paid"
+                return Resp(400, {"success": False, "error_code": "invoice_paid", "message": "Счёт уже оплачен"})
+            return real(method, url, **kw)
+        self.patch(apipay.requests, "request", paid_on_cancel)
+        j = self.cancel(res["payToken"])
+        self.assertEqual((j["status"], j["draft"]), ("paid", "paid"))
+        apipay.after_paid(self.api.next)
+        self.assertEqual(len(self.posted), 1)                                   # заказ создан как обычно
+
+    def test_paid_after_cancel_still_orders(self):
+        """Отменили, а Kaspi чуть позже прислал «оплачен» (сверка ещё смотрит счёт) — заказ всё равно создаётся."""
+        res, _ = self.checkout()
+        self.init(res["payToken"])
+        self.cancel(res["payToken"])
+        self.api.last()["status"] = "paid"
+        apipay._seen.clear()
+        p = apipay.refresh(self.api.next, force=True)
+        self.assertEqual(p["status"], "paid")
+        self.assertEqual(freedom.get_draft(res["draft"])["status"], "paid")
+        apipay.after_paid(self.api.next)
+        self.assertEqual(len(self.posted), 1)
+        self.assertEqual(self.alerts, [])                                       # не «двойная оплата»
+
     def test_catalog_flag(self):
         self.patch(oh, "live", lambda max_age=None: {"updated": "x", "items": [dict(ITEM)]})
         self.addCleanup(lambda: [oh._cache.pop(k) for k in list(oh._cache) if isinstance(k, tuple) and k[0] == "catjson"])

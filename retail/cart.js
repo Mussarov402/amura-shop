@@ -541,6 +541,7 @@ async function kaspiScreen(title, body, token, total, again){
   title.textContent = "Оплата Kaspi";
   const paint = (st, j = {}) => {
     const box = body.querySelector("#kaspiBox"); if(!box) return;
+    const asking = !!box.querySelector(".rkq");                       // открыт вопрос «Отменить заказ?» — опрос его не сбрасывает
     const wait = st === "processing" || st === "pending" || st === "cancelling" || st === "load";
     const bad = { cancelled: "Счёт отменён в Kaspi", expired: "Время на оплату счёта истекло", error: j.error || "Kaspi не принял счёт" }[st];
     box.innerHTML = `<div class="rdone-h"><div><h3>${wait ? (st === "pending" ? "Счёт отправлен в Kaspi" : "Отправляем счёт в Kaspi…") : bad || esc(j.fail || "Не получилось выставить счёт")}</h3>
@@ -551,11 +552,15 @@ async function kaspiScreen(title, body, token, total, again){
         <div class="rkwait"><span class="rkdot"></span>Ждём оплату в Kaspi…</div>`
       : `<button class="btn" type="button" data-rk-again>Выставить счёт ещё раз</button>${window.CARD_PAY ? `<button class="btn ghost" type="button" data-rk-card>💳 Оплатить картой</button>` : ""}`}
       <div class="rhint mut" style="text-align:center;margin:6px 0 10px">Заказ оформится после оплаты. Оплатить можно и позже — в «Моих заказах», в течение суток</div>
-      <button class="btn ghost" type="button" data-rk-orders>Мои заказы</button>`;
+      <button class="btn ghost" type="button" data-rk-orders>Мои заказы</button>
+      ${cancelHTML()}`;
+    if(asking) cancelAsk(box, true);
   };
   body.innerHTML = `<div class="done rdone" id="kaspiBox"></div>`;
   paint("load");
   body.onclick = async e => {
+    if(e.target.closest("[data-rk-cancel]") || e.target.closest("[data-rk-no]")) return cancelAsk(body, !!e.target.closest("[data-rk-cancel]"));
+    if(e.target.closest("[data-rk-yes]")){ body.dataset.kaspi = ""; return cancelKaspi(token, body); }
     if(e.target.closest("[data-rk-orders]")){ body.dataset.kaspi = ""; return openOrders(); }
     if(e.target.closest("[data-rk-again]")) return kaspiScreen(title, body, token, total, true);
     const c = e.target.closest("[data-rk-card]");
@@ -566,6 +571,7 @@ async function kaspiScreen(title, body, token, total, again){
   try{ j = await kaspiApi("init", token); }
   catch(x){ if(alive()) paint("fail", { fail: x.message }); return; }
   for(let i = 0; alive(); i++){
+    if(j.draft === "cancelled") return backToCart(j);
     if(j.draft && j.draft !== "new" || j.status === "paid"){   // оплачен — «Спасибо! Заказ оплачен» (номер заказа подставится, когда появится)
       body.dataset.kaspi = ""; window.PAY_RET = { r: "ok", n: token, how: "kaspi" }; return openOrders();
     }
@@ -575,6 +581,30 @@ async function kaspiScreen(title, body, token, total, again){
     if(!alive()) return;
     try{ j = { ...j, ...(await kaspiApi("status", token)) }; }catch{}
   }
+}
+/* «Отменить заказ»: второстепенная кнопка, подтверждение прямо на странице (не confirm()) — счёт Kaspi отменяется,
+   товары возвращаются в корзину. Оплата успела пройти — побеждает оплата: «Спасибо! Заказ оплачен» */
+const cancelHTML = () => `<div class="rkcan" data-rk-box><button type="button" class="rlink rkc" data-rk-cancel>Отменить заказ</button></div>`;
+function cancelAsk(root, open){
+  const box = root.querySelector("[data-rk-box]"); if(!box) return;
+  box.innerHTML = open ? `<div class="rkq"><b>Отменить заказ?</b><span>Счёт в Kaspi тоже отменится</span>
+      <div class="rpay2"><button type="button" class="btn ghost" data-rk-no>Нет</button><button type="button" class="btn rkdanger" data-rk-yes>Да, отменить</button></div></div>`
+    : `<button type="button" class="rlink rkc" data-rk-cancel>Отменить заказ</button>`;
+}
+function backToCart(j){
+  (j.lines || []).forEach(l => { const it = byId(l.id); if(it) cart[l.id] = Math.min((cart[l.id] || 0) + l.qty, it.qty || l.qty); });
+  save("amura-cart2", cart); renderCartCount(); STEP = "cart";
+  go("cart"); toast("Заказ отменён — товары снова в корзине");
+}
+async function cancelKaspi(token, root){
+  const b = root && root.querySelector("[data-rk-yes]"); if(b){ b.disabled = true; b.textContent = "Отменяем…"; }
+  let j;
+  try{ j = await kaspiApi("cancel", token); }
+  catch(x){ toast(x.message); if(b){ b.disabled = false; b.textContent = "Да, отменить"; } return; }
+  if(j.status === "paid" || (j.draft && !["new", "cancelled"].includes(j.draft))){   // оплата прошла раньше отмены
+    window.PAY_RET = { r: "ok", n: token, how: "kaspi" }; return openOrders();
+  }
+  backToCart(j);
 }
 const CHECK_BIG = '<svg class="rdone-ok" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="22"/><path d="M14 24.5l7 7 13-14"/></svg>';
 
@@ -774,6 +804,14 @@ document.addEventListener("click", e => {
   if(e.target.closest("[data-paid-orders]")){ const pr = window.PAY_RET; if(pr) pr.shown = "done"; MO.page = "orders"; renderMe(); try{ history.replaceState(null, "", "#orders"); }catch{} }
   if(e.target.closest("[data-paid-shop]")){ const pr = window.PAY_RET; if(pr) pr.shown = "done"; go("home"); }
 });
+document.addEventListener("click", e => {   // «Отменить заказ» у неоплаченного в «Моих заказах»
+  const box = e.target.closest(".mo [data-rk-box], .moview [data-rk-box], #meBody [data-rk-box]"); if(!box || !box.dataset.rkToken) return;
+  e.stopPropagation();
+  const wrap = { querySelector: () => box };
+  if(e.target.closest("[data-rk-cancel]")) return cancelAsk(wrap, true);
+  if(e.target.closest("[data-rk-no]")) return cancelAsk(wrap, false);
+  if(e.target.closest("[data-rk-yes]")) return cancelKaspi(box.dataset.rkToken, box);
+}, true);
 document.addEventListener("click", e => {   // «Kaspi» в «Моих заказах» — экран счёта Kaspi вместо списка
   const b = e.target.closest("[data-rkaspi]"); if(!b) return;
   e.stopPropagation(); const mb = $("#viewMe .mo-top"); if(mb) mb.hidden = true;
@@ -789,7 +827,7 @@ const PAGES = { "#orders": "orders", "#seen": "seen" };   // экраны вну
 const MO = { p: null, orders: null, tab: "active", page: PAGES[location.hash] || "", keep: !!PAGES[location.hash] };
 function moStatus(o){
   const s = o.status || "", pick = /самовывоз/i.test(o.ship || "");
-  if(o.draft) return ["Ожидает оплаты", "wait"];
+  if(o.draft) return [{ cancelled: "Счёт отклонён в Kaspi", expired: "Время на оплату истекло", error: "Kaspi не принял счёт" }[o.kaspi] || "Ожидает оплаты", "wait"];
   if(/отмен/i.test(s)) return ["Отменён", "off"];
   if(/возврат/i.test(s)) return ["Возврат", "off"];
   if(/доставлен/i.test(s)) return ["Получен", "ok"];
@@ -807,8 +845,10 @@ function moPay(o){
   if(!o.payCard) return "";
   const two = o.draft && window.KASPI_PAY && window.CARD_PAY;   // две кнопки — без суммы (она над кнопками), чтобы влезло в одну строку
   const card = (!o.draft || window.CARD_PAY) ? `<button type="button" class="btn rpaynow" data-rpaynow="${esc(o.payCard)}">💳 ${two ? "Картой" : `Оплатить ${fmt(o.sum)} ₸`}</button>` : "";
-  const kaspi = o.draft && window.KASPI_PAY ? `<button type="button" class="btn rpaynow${card ? " ghost" : ""}" data-rkaspi="${esc(o.payCard)}" data-sum="${o.sum}">${two ? "Kaspi" : `Оплатить в Kaspi ${fmt(o.sum)} ₸`}</button>` : "";
-  return card && kaspi ? `<div class="rpay2">${card}${kaspi}</div>` : card + kaspi;
+  const again = ["cancelled", "expired", "error"].includes(o.kaspi);
+  const kaspi = o.draft && window.KASPI_PAY ? `<button type="button" class="btn rpaynow${card ? " ghost" : ""}" data-rkaspi="${esc(o.payCard)}" data-sum="${o.sum}">${two ? "Kaspi" : again ? "Оплатить в Kaspi ещё раз" : `Оплатить в Kaspi ${fmt(o.sum)} ₸`}</button>` : "";
+  const cancel = o.draft && window.KASPI_PAY ? `<div class="rkcan" data-rk-box data-rk-token="${esc(o.payCard)}"><button type="button" class="rlink rkc" data-rk-cancel>Отменить заказ</button></div>` : "";
+  return (card && kaspi ? `<div class="rpay2">${card}${kaspi}</div>` : card + kaspi) + cancel;
 }
 function moCard(o, i){
   const [st, tone] = moStatus(o), its = o.items || [];

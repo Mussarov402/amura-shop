@@ -203,6 +203,8 @@ def _pay_target(number):
         dr = get_draft(int(str(number)[1:]))
         if not dr:
             raise ValueError("Заказ не найден")
+        if dr["status"] == "cancelled":
+            raise ValueError("Заказ отменён — оформите его заново из корзины")
         if dr["status"] != "new":
             raise ValueError("Заказ уже оплачен")
         if time.time() - dr["created"] > DRAFT_TTL:
