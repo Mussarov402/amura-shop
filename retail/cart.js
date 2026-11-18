@@ -15,8 +15,11 @@ const isAlm = f => DLV.opts && DLV.city === ((f && f.city) || "") ? DLV.opts.alm
 const xOff = f => DLV.opts && DLV.city === ((f && f.city) || "") && DLV.opts.express && !DLV.opts.express.open;
 /* как на маркетплейсах: пункты выдачи — основной способ, курьер — дополнительный платный («Нужно быстрее?»).
    Самовывоза на сайте нет (решение владельца 11.11.2026); у кого в корзине остался pickup — form() переключит на пункт СДЭК */
-const MAIN = [["cdek", "Пункт выдачи СДЭК"]], FAST = [["courier", "Курьер сегодня"], ["express", "Express"]];
-const tabsFor = f => isAlm(f) ? MAIN.concat(FAST.filter(t => t[0] !== "express" || !xOff(f))) : [["cdek", "Пункт выдачи СДЭК"]];
+const MAIN0 = [["cdek", "Пункт выдачи СДЭК"]], FAST = [["courier", "Курьер сегодня"], ["express", "Express"]];
+/* самовывоз — только если сервер его отдаёт (выключатель в Настройки → Доставка) */
+const pickOn = () => !!(DLV.opts && (DLV.opts.methods || []).some(m => m.id === "pickup"));
+const MAINF = () => pickOn() ? MAIN0.concat([["pickup", "Самовывоз"]]) : MAIN0;
+const tabsFor = f => isAlm(f) ? MAINF().concat(FAST.filter(t => t[0] !== "express" || !xOff(f))) : [["cdek", "Пункт выдачи СДЭК"]];
 /* бесплатная доставка — одна сумма на все способы, кроме Express (Настройки → Доставка); помним с прошлого раза, пока не узнали город */
 const FREE = () => { const v = DLV.opts && DLV.opts.freeFrom; if(v !== undefined && v !== null) save("free-all", v); return v ?? load("free-all", 50000); };
 getJSON(`${CONFIG.apiUrl}/delivery/options?city=&sum=0`, 15000).then(o => { if(o && o.freeFrom !== undefined){ save("free-all", o.freeFrom); if(VIEW === "cart") try{ paint(); }catch{} } }).catch(() => {});
@@ -127,7 +130,7 @@ function dlvCard(f, t){
     const p = id === "pickup" ? 0 : dlvPrice(id, t.goods);
     return `<button type="button" role="tab" aria-selected="${f.ship === id}" data-rm="${id}">${name}${p === null ? "" : `<small>${priceTxt(p)}</small>`}</button>`; };
   const e = eta(f), w = t.dlv === null ? (f.city ? "считаем…" : "") : priceTxt(t.dlv);
-  const tabsHTML = alm ? `<div class="rtabs n${MAIN.length}" role="tablist">${MAIN.map(tab).join("")}</div><div class="rfast-h">Нужно быстрее?</div><div class="rtabs n2" role="tablist">${FAST.map(tab).join("")}</div>`
+  const tabsHTML = alm ? `<div class="rtabs n${MAINF().length}" role="tablist">${MAINF().map(tab).join("")}</div><div class="rfast-h">Нужно быстрее?</div><div class="rtabs n2" role="tablist">${FAST.map(tab).join("")}</div>`
     : `<div class="rtabs n${TB.length}" role="tablist">${TB.map(tab).join("")}</div>`;
   return `${tabsHTML}${ff ? `<div class="kv rfree-note">Доставка бесплатно от ${fmt(ff)} ₸${alm ? " — кроме Express" : ""}</div>` : ""}${provHTML(f)}${addrRow(f)}
     <div class="reta"><b>${esc(e)}${w ? `, <span class="${t.dlv === 0 ? "free" : ""}">${w}</span>` : ""}</b><span>${fmt(t.count)} шт</span></div>

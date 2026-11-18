@@ -1796,6 +1796,7 @@ async delivery(){const o=await api("delivery");const n=nav;const S=o.services,R=
   <div class="dlz" style="margin-top:10px">${num("r-free_all","Бесплатная доставка по Казахстану — от",R.free_all??50000,"₸")}</div>
   <div class="dlz">${num("r-sdd_price","Алматы, в течение дня — цена",R.sdd_price??1000,"₸")}</div>
   <div class="dlz">${num("r-express_price","Алматы, срочно (Яндекс Экспресс) — цена, всегда платно",R.express_price??2500,"₸")}</div>
+  <div class="dlz"><label class="dll">Самовывоз на розничном сайте (amura.kz)<select id="r-rpickup"><option value="1" ${(R.rpickup??1)?"selected":""}>Включён — покупатель может выбрать самовывоз</option><option value="0" ${(R.rpickup??1)?"":"selected"}>Выключен — только доставка</option></select></label></div>
   <div class="dlz"><label class="dll">Express: автовызов курьера (тариф «Курьер»), когда заказ отметили «Собран»<select id="r-xauto"><option value="1" ${(R.xauto??1)?"selected":""}>Включён — вызывается сам</option><option value="0" ${(R.xauto??1)?"":"selected"}>Выключен — вручную</option></select></label>${num("r-xauto_limit","Автовызов, если Яндекс просит не больше (дороже — спросит вас)",R.xauto_limit??3000,"₸")}</div>
   <div class="dlz">${num("r-cdek_price","Пункт выдачи СДЭК — цена",R.cdek_price??1500,"₸")}</div>
   <div class="mut dlx" id="dlx2"></div>
@@ -1836,7 +1837,7 @@ async delivery(){const o=await api("delivery");const n=nav;const S=o.services,R=
  (G.slots.length?G.slots:[]).forEach(slotRow);
  $("#dlsa").onclick=()=>{const last=[...document.querySelectorAll(".dlsto")].pop();const r=slotRow({name:"",from:last&&last.value||"",to:""});r.querySelector(".dlsn").focus()};
  const collect=()=>{const b={rules:{},store:{}};for(const k of Object.keys(S)){b[k]={};document.querySelectorAll(`[data-s="${k}"] [data-f]`).forEach(i=>b[k][i.dataset.f]=i.value)}
-  b.cdek.test=$("#d-cdek-test").checked;["free_from","door_extra","weight","cutoff","box_w","box_h","box_d","free_all","sdd_price","express_price","cdek_price","xauto","xauto_limit"].forEach(k=>b.rules[k]=$("#r-"+k).value.replace(/\D/g,"")||0);b.tiers=tiers();
+  b.cdek.test=$("#d-cdek-test").checked;["free_from","door_extra","weight","cutoff","box_w","box_h","box_d","free_all","sdd_price","express_price","cdek_price","rpickup","xauto","xauto_limit"].forEach(k=>b.rules[k]=$("#r-"+k).value.replace(/\D/g,"")||0);b.tiers=tiers();
   b.schedule={days:[...document.querySelectorAll(".xhd .xhon")].map(x=>x.classList.contains("on")?"1":"0").join(""),
    slots:[...document.querySelectorAll(".dlsr")].map(r=>({name:r.querySelector(".dlsn").value,from:r.querySelector(".dlsf").value,to:r.querySelector(".dlsto").value})).filter(x=>x.name.trim())};
   b.express_hours=[...document.querySelectorAll(".xhd")].map(r=>r.querySelector(".xhon").classList.contains("on")?[r.querySelector(".xhf").value,r.querySelector(".xht").value]:null);

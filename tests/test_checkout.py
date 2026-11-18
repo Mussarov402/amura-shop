@@ -28,6 +28,7 @@ _xs = delivery.express_state
 
 def setUpModule():                    # Express открыт — тесты не зависят от часов приёма (их проверяет test_express_hours)
     delivery.express_state = lambda now=None: {"open": True, "next": "", "today": "до 17:30"}
+    delivery.save({"rules": {"rpickup": 0}})       # по решению владельца сайт — только доставка; выключатель проверяет test_pickup_switch
 
 
 def tearDownModule():
@@ -152,6 +153,19 @@ class Orders(unittest.TestCase):
             opt = {m["id"]: m["price"] for m in checkout.options("Алматы", goods)["methods"]}
             self.assertEqual(res["total"] - goods, opt[ship], (qty, ship))
         self.assertEqual(checkout.options("Алматы", 51000)["freeFrom"], 50000)
+
+    def test_pickup_switch(self):
+        """Выключатель «Самовывоз на розничном сайте»: включён — самовывоз в корзине и заказ проходит, выключен — нет."""
+        try:
+            delivery.save({"rules": {"rpickup": 1}})
+            self.assertIn("pickup", checkout.allowed("Алматы"))
+            self.assertIn("pickup", [m["id"] for m in checkout.options("Алматы", 3000)["methods"]])
+            res, st = self.order(shipping="pickup")
+            self.assertEqual((st, res["total"]), (200, 3000))
+            self.assertNotIn("pickup", checkout.allowed("Караганда"))
+        finally:
+            delivery.save({"rules": {"rpickup": 0}})
+        self.assertEqual(self.order(shipping="pickup")[1], 400)
 
     def test_almaty_courier_slot(self):
         s = delivery.slots_ahead(days=7)
