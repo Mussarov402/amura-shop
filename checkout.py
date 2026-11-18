@@ -28,11 +28,12 @@ def door_extra():
 
 def allowed(city, pickup=False):
     """Способы получения на рознице: Алматы — Яндекс «в течение дня», пункт СДЭК, Express; другие города — пункт выдачи СДЭК.
-    Самовывоза на сайте нет (решение владельца 11.11.2026: «на клиентском сайте только доставкой»); pickup=True — заказ из системы AMURA."""
+    Самовывоз на сайте — выключателем «Самовывоз на розничном сайте» (Настройки → Доставка; владелец 11.11.2026: «только доставкой»,
+    17.11.2026: временно включить для теста оплаты Kaspi); pickup=True — заказ из системы AMURA."""
     if not is_almaty(city):
         return ("cdek",)
     out = ("courier", "cdek", "express") if delivery.express_state()["open"] else ("courier", "cdek")
-    return out + ("pickup",) if pickup else out
+    return out + ("pickup",) if pickup or delivery.conf()["rules"].get("rpickup") else out
 
 
 def free_all():
