@@ -165,5 +165,101 @@ class ClientCancel(unittest.TestCase):
         self.assertEqual(cc.get("2200")["msPayment"], "R1")
 
 
+
+class KaspiRefund(ClientCancel):
+    """«Вернуть через Kaspi»: POST /invoices/{id}/refund в ApiPay (заглушка), итог опросом GET /invoices/{id}/refunds."""
+    test_cancel_paid_not_shipped = test_shipped_branches = test_unpaid_and_foreign = None     # их проверяет ClientCancel
+    test_refund_done = test_refund_link_fallback_and_guards = None
+    def setUp(self):
+        super().setUp()
+        os.environ["APIPAY_API_KEY"] = "k"
+        self.addCleanup(lambda: os.environ.pop("APIPAY_API_KEY", None))
+        with apipay.db() as d:
+            d.run(f"INSERT INTO kaspi_pay ({apipay.COLS}) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                  (777, "2200", "o1", "c1", 6690, "87011234567", "paid", 1, 2, 0, "00042", "", "", 0))
+        self.api, self.ref, self.err = [], [], None
+
+        def call(method, path, **kw):
+            self.api.append((method, path, kw.get("json")))
+            if method == "POST" and path == "/invoices/777/refund":
+                if self.err:
+                    raise apipay.ApiError(400, *self.err)
+                key = kw["json"]["idempotency_key"]
+                old = next((r for r in self.ref if r["idempotency_key"] == key), None)
+                if old:
+                    return {"refund": old, "idempotent_replay": True}
+                r = {"id": 50 + len(self.ref), "status": "pending", "idempotency_key": key, "operation_state": "processing"}
+                self.ref.append(r)
+                return {"refund": dict(r)}
+            if method == "GET" and path == "/invoices/777/refunds":
+                return {"refunds": [dict(r) for r in self.ref]}
+            raise AssertionError((method, path))
+        self.patch(apipay, "call", call)
+        self.cancel()
+
+    def kr(self):
+        return self.c.post("/admin/api/orders/2200/kaspi-refund", headers=self.ah)
+
+    def posts(self):
+        return [a for a in self.api if a[0] == "POST"]
+
+    def test_success_after_poll(self):
+        r = self.kr()
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertEqual(r.get_json()["cancel"]["kaspiRefund"]["status"], "processing")
+        self.assertFalse(cc.get("2200")["done"])                       # заявка — ещё не «деньги вернулись»
+        self.assertEqual(self.posts()[0][2]["idempotency_key"], "amura-refund-2200-1")
+        self.assertEqual(self.kr().status_code, 200)                    # повтор, пока идёт, — второго возврата нет
+        self.assertEqual(len(self.posts()), 1)
+        self.ref[0]["operation_state"], self.ref[0]["status"] = "completed", "completed"
+        apipay.sweep()                                                  # фоновая сверка раз в минуту
+        c = cc.get("2200")
+        self.assertTrue(c["done"])
+        self.assertEqual(c["kaspiRefund"]["status"], "completed")
+        self.assertEqual(len(self.pouts), 1)                            # исходящий платёж, как «Деньги возвращены»
+        self.assertEqual(apipay.by_invoice(777)["status"], "refund")
+        self.assertEqual(self.me()["refund"], {"sum": 6690, "done": True})
+        r = self.kr()
+        self.assertEqual(r.status_code, 400)                            # уже вернули — второго возврата нет
+        self.assertEqual(len(self.posts()), 1)
+
+    def test_api_error_marks_nothing(self):
+        self.err = ("tariff_inactive", "Tariff inactive")
+        r = self.kr()
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("тариф ApiPay", r.get_json()["error"])
+        c = cc.get("2200")
+        self.assertFalse(c["done"])
+        self.assertEqual(self.pouts, [])
+        self.assertEqual(apipay.by_invoice(777)["status"], "paid")
+        self.err = None                                                 # причину устранили — новая попытка, новый ключ
+        self.assertEqual(self.kr().status_code, 200)
+        self.assertEqual(self.posts()[-1][2]["idempotency_key"], "amura-refund-2200-2")
+
+    def test_failed_in_kaspi_then_retry(self):
+        self.kr()
+        self.ref[0].update(status="failed", operation_state="failed", error_code="refund_insufficient_funds")
+        c = cc.poll("2200")
+        self.assertEqual(c["kaspiRefund"]["status"], "failed")
+        self.assertIn("не хватает денег", c["kaspiRefund"]["error"])
+        self.assertFalse(c["done"])
+        self.assertEqual(self.pouts, [])
+        self.kr()
+        self.assertEqual([p[2]["idempotency_key"] for p in self.posts()], ["amura-refund-2200-1", "amura-refund-2200-2"])
+
+    def test_uncertain_blocks_retry(self):
+        self.kr()
+        self.ref[0].update(status="processing", operation_state="uncertain", error_code="refund_execution_uncertain")
+        c = cc.poll("2200")
+        self.assertEqual(c["kaspiRefund"]["status"], "uncertain")
+        self.kr()
+        self.assertEqual(len(self.posts()), 1)                          # деньги могли уйти — второй возврат не создаём
+        self.assertFalse(cc.get("2200")["done"])
+
+    def test_owner_only(self):
+        self.assertEqual(self.c.post("/admin/api/orders/2200/kaspi-refund").status_code, 401)
+        self.assertEqual(self.posts(), [])
+
+
 if __name__ == "__main__":
     unittest.main()

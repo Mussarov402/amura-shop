@@ -471,6 +471,11 @@ def status_route():
 def sweep():
     """Все неоплаченные счета за 2 суток + закрытые за последние 24 ч (могут стать оплаченными); оплаченные без заказа / без МойСклад — ещё раз."""
     now = time.time()
+    try:                                               # «Вернуть через Kaspi» (client_cancel.py): итог возврата — опросом, вебхуков нет
+        import client_cancel
+        client_cancel.poll_pending()
+    except Exception as e:
+        print("ApiPay: сверка возвратов:", str(e)[:200], flush=True)
     with db() as d:
         rows = d.run("SELECT invoice_id FROM kaspi_pay WHERE created>%s AND (status IN ('processing', 'pending', 'cancelling') "
                      "OR (status IN ('cancelled', 'expired', 'error') AND closed_at>%s))", (now - 2 * TTL, now - WATCH_CLOSED), many=True) or []
