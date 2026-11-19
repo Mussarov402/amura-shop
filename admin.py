@@ -1073,7 +1073,13 @@ def _card_pay(number):
 def _client_cancel(number):
     try:
         import client_cancel
-        return client_cancel.get(number)
+        c = client_cancel.get(number)
+        if c and not c["done"] and c["kaspiRefund"]["status"] in ("pending", "processing", "sending"):
+            c = client_cancel.poll(number) or c            # открыли заказ — сразу сверяем возврат с ApiPay
+        if c:
+            import apipay
+            c["kaspiCan"] = bool(client_cancel.kaspi_invoice(number)) and apipay.keys_set()
+        return c
     except Exception as e:
         print("Отмена покупателем: не прочитана:", str(e)[:200], flush=True)
         return None
@@ -1086,6 +1092,19 @@ def client_refunded(number):
     import client_cancel
     try:
         c = client_cancel.refund_done(number, (who() or {}).get("name", ""))
+    except ValueError as e:
+        return jsonify(ok=False, error=str(e)), 400
+    oh._cache.pop("adm_orders", None)
+    return jsonify(ok=True, cancel=c)
+
+
+@bp.post("/admin/api/orders/<number>/kaspi-refund")
+@guard
+def client_kaspi_refund(number):
+    """«Вернуть через Kaspi»: возврат по счёту ApiPay (полный). Итог — сразу или фоновой сверкой; ошибка — по-русски, ничего не отмечено."""
+    import client_cancel
+    try:
+        c = client_cancel.kaspi_refund(number, (who() or {}).get("name", ""))
     except ValueError as e:
         return jsonify(ok=False, error=str(e)), 400
     oh._cache.pop("adm_orders", None)
