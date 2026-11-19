@@ -1044,7 +1044,7 @@ def order_detail(number):
                    store=(o.get("store") or {}).get("meta", {}).get("href", "").rstrip("/").rsplit("/", 1)[-1],
                    reserved=any((l["reserve"] or 0) > 0 for l in lines if l["type"] in RESERVABLE),
                    shipOps=shipments.enabled(), demands=len(o.get("demands") or []), shipOp=shipments.for_order(o["id"]),
-                   cardPay=_card_pay(o["name"]), kaspiPay=_kaspi_pay(o["name"]))
+                   cardPay=_card_pay(o["name"]), kaspiPay=_kaspi_pay(o["name"]), clientCancel=_client_cancel(o["name"]))
 
 
 def _kaspi_pay(number):
@@ -1068,6 +1068,28 @@ def _card_pay(number):
     except Exception as e:
         print("Оплата картой: не прочитана:", str(e)[:200], flush=True)
         return []
+
+
+def _client_cancel(number):
+    try:
+        import client_cancel
+        return client_cancel.get(number)
+    except Exception as e:
+        print("Отмена покупателем: не прочитана:", str(e)[:200], flush=True)
+        return None
+
+
+@bp.post("/admin/api/orders/<number>/refunded")
+@guard
+def client_refunded(number):
+    """Владелец вернул деньги покупателю, отменившему оплаченный заказ: исходящий платёж в МойСклад (статья «Возврат»)."""
+    import client_cancel
+    try:
+        c = client_cancel.refund_done(number, (who() or {}).get("name", ""))
+    except ValueError as e:
+        return jsonify(ok=False, error=str(e)), 400
+    oh._cache.pop("adm_orders", None)
+    return jsonify(ok=True, cancel=c)
 
 
 @bp.post("/admin/api/kaspipay/<int:iid>/refund")

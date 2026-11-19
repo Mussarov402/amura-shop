@@ -814,6 +814,35 @@ document.addEventListener("click", e => {   // «Отменить заказ» �
   if(e.target.closest("[data-rk-no]")) return cancelAsk(wrap, false);
   if(e.target.closest("[data-rk-yes]")) return cancelKaspi(box.dataset.rkToken, box);
 }, true);
+/* «Отменить заказ» у оплаченного, ещё не отгруженного: подтверждение на месте; деньги возвращает владелец через Kaspi (до 10 дней) */
+function mcAsk(box, open){
+  box.innerHTML = open ? `<div class="rkq"><b>Отменить заказ?</b><span>Деньги вернём на ваш счёт Kaspi в течение 10 календарных дней</span>
+      <div class="rpay2"><button type="button" class="btn ghost" data-mc-no>Нет</button><button type="button" class="btn rkdanger" data-mc-yes>Да, отменить</button></div></div>`
+    : `<button type="button" class="rlink rkc" data-mc-cancel>Отменить заказ</button>`;
+}
+async function mcCancel(box){
+  const b = box.querySelector("[data-mc-yes]"); if(b){ b.disabled = true; b.textContent = "Отменяем…"; }
+  const num = box.dataset.mcNum, o = (MO.orders || []).find(x => x.number === num);
+  try{
+    const r = await fetch(CONFIG.apiUrl + "/me/cancel", { method: "POST", headers: authHeaders(), body: JSON.stringify({ number: num }) });
+    const j = await r.json().catch(() => ({}));
+    if(!r.ok || !j.ok){
+      if(j.shipped && o){ o.canCancel = false; o.status = "Отгружен"; }
+      throw new Error(j.error || "Не получилось отменить, попробуйте ещё раз");
+    }
+    if(o){ o.canCancel = false; o.refund = j.refund; o.status = "Отменен"; }
+    toast(`Заказ отменён — вернём ${fmt(j.refund.sum)} ₸ на ваш счёт Kaspi`);
+  }catch(x){ toast(x.message); }
+  const i = (MO.orders || []).indexOf(o);
+  if($(".mo-det") && i >= 0) moOpen(i); else moList();
+}
+document.addEventListener("click", e => {
+  const box = e.target.closest("[data-mc-box]"); if(!box) return;
+  e.stopPropagation();
+  if(e.target.closest("[data-mc-cancel]")) return mcAsk(box, true);
+  if(e.target.closest("[data-mc-no]")) return mcAsk(box, false);
+  if(e.target.closest("[data-mc-yes]")) return mcCancel(box);
+}, true);
 document.addEventListener("click", e => {   // «Kaspi» в «Моих заказах» — экран счёта Kaspi вместо списка
   const b = e.target.closest("[data-rkaspi]"); if(!b) return;
   e.stopPropagation(); const mb = $("#viewMe .mo-top"); if(mb) mb.hidden = true;
@@ -829,6 +858,7 @@ const PAGES = { "#orders": "orders", "#seen": "seen" };   // экраны вну
 const MO = { p: null, orders: null, tab: "active", page: PAGES[location.hash] || "", keep: !!PAGES[location.hash] };
 function moStatus(o){
   const s = o.status || "", pick = /самовывоз/i.test(o.ship || "");
+  if(o.refund) return [o.refund.done ? "Отменён — деньги возвращены" : `Отменён — возврат ${fmt(o.refund.sum)} ₸ в обработке`, "off"];
   if(o.draft) return [{ cancelled: "Счёт отклонён в Kaspi", expired: "Время на оплату истекло", error: "Kaspi не принял счёт" }[o.kaspi] || "Ожидает оплаты", "wait"];
   if(/отмен/i.test(s)) return ["Отменён", "off"];
   if(/возврат/i.test(s)) return ["Возврат", "off"];
@@ -839,11 +869,12 @@ function moStatus(o){
   if(o.payCard) return ["Ожидает оплаты", "wait"];
   return [o.paid ? "Оплачен" : "Принят", "go"];
 }
-const moDone = o => ["Получен", "Отменён", "Возврат"].includes(moStatus(o)[0]) && !(moStatus(o)[0] === "Получен" && o.track && o.track.step < 3);
+const moDone = o => (["Получен", "Отменён", "Возврат"].includes(moStatus(o)[0]) || (o.refund && o.refund.done)) && !(moStatus(o)[0] === "Получен" && o.track && o.track.step < 3);
 const moPic = (it, cls) => { const c = byId(it.id), img = c && c.img; return `<span class="${cls}">${img ? `<img src="${esc(img)}" alt="" loading="lazy">` : `<i>${esc(((c && c.brand) || it.name || "A").charAt(0))}</i>`}${it.qty > 1 && cls === "mo-t" ? `<em>${it.qty}</em>` : ""}</span>`; };
 const moTitle = o => o.draft ? "Ещё не оплачен" : `Заказ № ${esc(o.number)}`;
 /* «Оплатить» у неоплаченного: заказ — картой; черновик — картой и/или Kaspi, что включено */
 function moPay(o){
+  if(o.canCancel) return `<div class="rkcan" data-mc-box data-mc-num="${esc(o.number)}"><button type="button" class="rlink rkc" data-mc-cancel>Отменить заказ</button></div>`;
   if(!o.payCard) return "";
   const two = o.draft && window.KASPI_PAY && window.CARD_PAY;   // две кнопки — без суммы (она над кнопками), чтобы влезло в одну строку
   const card = (!o.draft || window.CARD_PAY) ? `<button type="button" class="btn rpaynow" data-rpaynow="${esc(o.payCard)}">💳 ${two ? "Картой" : `Оплатить ${fmt(o.sum)} ₸`}</button>` : "";
@@ -888,6 +919,7 @@ function moOpen(i){
       <div class="rrow"><span>Доставка</span><span class="${o.extra ? "" : "free"}">${o.extra ? fmt(o.extra) + " ₸" : "бесплатно"}</span></div>
       <div class="rtot"><span>Итого</span><b>${fmt(o.sum)} ₸</b></div></section>
     <div class="mo-act"><button type="button" class="btn" data-mo-repeat="${i}">Повторить заказ</button><button type="button" class="btn ghost" data-mo-support="${esc(o.number || "")}">Написать в поддержку</button></div>
+    ${!o.draft && o.paid && !o.canCancel && !o.refund && /Передан в доставку|Получен|Готов к выдаче/.test(st) ? `<div class="rkcan"><button type="button" class="rlink rkc" data-mo-support="${esc(o.number)}" data-mo-ret>Оформить возврат</button></div>` : ""}
   </div>`;
   scrollTo({ top: 0 });
 }
@@ -904,7 +936,7 @@ document.addEventListener("click", e => {
   const t = e.target.closest("[data-mo-tab]"); if(t){ MO.tab = t.dataset.moTab; return moList(); }
   if(e.target.closest("[data-mo-back]")){ paintMe(MO.p, MO.orders); return scrollTo({ top: 0 }); }
   const r = e.target.closest("[data-mo-repeat]"); if(r) return moRepeat(+r.dataset.moRepeat);
-  const sp = e.target.closest("[data-mo-support]"); if(sp){ if(window.openSupport) openSupport(sp.dataset.moSupport ? `Вопрос по заказу № ${sp.dataset.moSupport}: ` : ""); return; }
+  const sp = e.target.closest("[data-mo-support]"); if(sp){ if(window.openSupport) openSupport(sp.dataset.moSupport ? (sp.hasAttribute("data-mo-ret") ? `Хочу оформить возврат по заказу № ${sp.dataset.moSupport}: ` : `Вопрос по заказу № ${sp.dataset.moSupport}: `) : ""); return; }
   const c = e.target.closest("[data-mo-open]"); if(c) moOpen(+c.dataset.moOpen);
 });
 const _renderMo = render;   // каталог загрузился позже списка — перерисовать миниатюры заказов с фото
