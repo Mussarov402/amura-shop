@@ -2337,7 +2337,45 @@ def client_orders(cid):
                 o["track"] = tr[o["number"]]
     except Exception as e:
         print("Кабинет: отслеживание", str(e)[:200], flush=True)
+    try:                                             # отмена оплаченного покупателем: можно ли ещё, ждёт ли возврата
+        import client_cancel as cc
+        mine, tr = cc.for_agent(cid), {o["number"] for o in orders if o.get("track")}
+        by_num = {o["name"]: o for o in rows}
+        for o in orders:
+            c = mine.get(o["number"])
+            if c:
+                o["refund"] = {"sum": c["amount"], "done": c["done"]}
+            elif o["number"] in by_num:
+                o["canCancel"] = cc.can_cancel(by_num[o["number"]], tr)
+    except Exception as e:
+        print("Мои заказы: отмена не проверена:", str(e)[:200], flush=True)
     return orders
+
+
+@bp.route("/me/cancel", methods=["POST", "OPTIONS"])
+def me_cancel():
+    """«Отменить заказ» у оплаченного, ещё не отгруженного заказа. Деньги возвращает владелец (client_cancel.py)."""
+    if request.method == "OPTIONS":
+        return "", 204
+    cid = session_cid()
+    if not cid:
+        return jsonify(ok=False, error="Войдите заново"), 401
+    number = str((request.get_json(silent=True) or {}).get("number") or "").strip()
+    if not re.fullmatch(r"\d{1,12}", number):
+        return jsonify(ok=False, error="Заказ не найден"), 404
+    if too_many("mecancel:" + cid, limit=10, window=3600):
+        return jsonify(ok=False, error="Слишком много попыток, подождите"), 429
+    import client_cancel as cc
+    try:
+        c = cc.cancel(cid, number)
+    except LookupError as e:
+        return jsonify(ok=False, error=str(e)), 404
+    except ValueError as e:
+        return jsonify(ok=False, error=str(e), shipped=str(e) == cc.SHIPPED), 409
+    except Exception as e:
+        print("Отмена покупателем:", str(e)[:200], flush=True)
+        return jsonify(ok=False, error="Не получилось отменить, попробуйте ещё раз или напишите в поддержку"), 502
+    return jsonify(ok=True, refund={"sum": c["amount"], "done": False})
 
 
 @bp.route("/me/push", methods=["GET", "POST", "OPTIONS"])
