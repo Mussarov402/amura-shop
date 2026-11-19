@@ -87,6 +87,65 @@ class Courier(unittest.TestCase):
     def post(self, url, body):
         return json.loads(self.c.post(url, data=json.dumps(body), content_type="application/json").data)
 
+    # ---------- день доставки, который выбрал покупатель (заказ №2184: оформлен 19.11, выбрал 21.11) ----------
+    def chosen(self):
+        o = {**ORDER, "id": "o3", "name": "2184", "moment": "2026-11-19 10:00:00",
+             "description": ORDER["description"].replace("09.10 Обед 11:00–14:00", "21.11 После обеда 14:00–17:30")}
+        plain = {**ORDER, "id": "o4", "name": "2185", "moment": "2026-11-19 10:00:00",
+                 "description": ORDER["description"].replace(", 09.10 Обед 11:00–14:00", "")}
+        xo = {**ORDER, "id": "o5", "name": "2186", "moment": "2026-11-19 10:00:00",
+              "description": f"{oh.RETAIL_MARK}\nДана, +77017654321\nОтправка: Срочный курьер по Алматы (Яндекс Экспресс) — Абая 12"}
+        self.patch(oh, "ms", lambda m, p, **kw: {"rows": [o, plain, xo]})
+
+    def test_slot_day(self):
+        self.assertEqual(courier.slot_day("21.11 После обеда 14:00–17:30", "2026-11-19 10:00:00"), "2026-11-21")
+        self.assertEqual(courier.slot_day("02.01 Обед 11:00–14:00", "2026-12-29 10:00:00"), "2027-01-02")   # через Новый год
+        self.assertEqual(courier.slot_day("", "2026-11-19 10:00:00"), "")
+        o = courier.parse_order({**ORDER, "moment": "2026-11-19 10:00:00",
+                                 "description": ORDER["description"].replace("09.10 Обед 11:00–14:00", "21.11 После обеда 14:00–17:30")})
+        self.assertEqual((o["dday"], o["sfrom"]), ("2026-11-21", "14:00"))
+
+    def test_order_on_chosen_day(self):
+        self.chosen()
+        r = json.loads(self.c.get("/admin/api/courier?date=2026-11-19").data)
+        self.assertEqual(sorted(o["num"] for o in r["orders"]), ["2185", "2186"])          # без дня и Express — в день оформления
+        self.assertEqual([(o["num"], o["dday"]) for o in r["future"]], [("2184", "2026-11-21")])   # выбрал 21.11 — «Будущие доставки»
+        self.assertIn("21.11", r["future"][0]["wrongDay"])
+        r = json.loads(self.c.get("/admin/api/courier?date=2026-11-21").data)
+        self.assertEqual([o["num"] for o in r["orders"]], ["2184"])                          # в выбранный день
+        self.assertEqual(r["future"], [])
+        r = json.loads(self.c.get("/admin/api/courier?date=2026-11-20").data)
+        self.assertEqual([o["num"] for o in r["orders"]], ["2185", "2186"])                  # накануне оформленные — как раньше
+        self.assertEqual([o["num"] for o in r["future"]], ["2184"])
+
+    def test_no_estimate_on_wrong_day(self):
+        self.chosen()
+        iv19 = {"from": "2026-11-19T09:00:00+00:00", "to": "2026-11-19T13:00:00+00:00"}
+        r = self.post("/admin/api/courier/estimate", {"date": "2026-11-19", "nums": ["2184"], "interval": iv19})
+        self.assertEqual(r["result"]["2184"], "Покупатель выбрал 21.11 — откройте этот день")
+        r = self.post("/admin/api/courier/estimate", {"date": "2026-11-21", "nums": ["2184"], "interval": iv19})
+        self.assertIn("не на 21.11", r["result"]["2184"])                                   # интервал Яндекса — не на тот день
+        self.assertFalse([c for c in self.calls if c[0] == "/claims/create"])
+        iv21 = {"from": "2026-11-21T09:00:00+00:00", "to": "2026-11-21T13:00:00+00:00"}
+        r = self.post("/admin/api/courier/estimate", {"date": "2026-11-21", "nums": ["2184"], "interval": iv21})
+        self.assertEqual(r["result"]["2184"], "ok")
+
+    def test_accept_refuses_claim_for_other_day(self):
+        """Заявка, рассчитанная до проверки на день оформления, — «Подтвердить» не проходит."""
+        oid = "11111111-2222-3333-4444-555555555555"
+        o = {**ORDER, "id": oid, "name": "2184", "moment": "2026-11-19 10:00:00",
+             "description": ORDER["description"].replace("09.10 Обед 11:00–14:00", "21.11 После обеда 14:00–17:30")}
+        self.patch(oh, "ms", lambda m, p, **kw: o if p.endswith(oid) else {"rows": [o]})
+        with courier.db() as d:
+            courier._save(d, "2184", order_id=oid, claim_id="cl1", status="ready_for_approval", version=1,
+                          ifrom="2026-11-19T09:00:00+00:00", ito="2026-11-19T13:00:00+00:00")
+        r = self.post("/admin/api/courier/accept", {"nums": ["2184"]})
+        self.assertIn("покупатель выбрал 21.11", r["result"]["2184"])
+        self.assertFalse([c for c in self.calls if c[0] == "/claims/accept"])
+        with courier.db() as d:
+            d.run("UPDATE ya_claim SET ifrom='2026-11-21T09:00:00+00:00' WHERE num='2184'")
+        self.assertEqual(self.post("/admin/api/courier/accept", {"nums": ["2184"]})["result"]["2184"], "ok")
+
     def test_parse_order(self):
         o = courier.parse_order(ORDER)
         self.assertEqual((o["phone"], o["addr"], o["slot"], o["sum"]), ("77011234567", "Абая 10, кв 5", "09.10 Обед 11:00–14:00", 15000))

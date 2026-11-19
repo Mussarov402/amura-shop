@@ -122,8 +122,32 @@ def kz_phone(v):
 
 
 # ---------- заказы ----------
+def slot_day(slot, moment):
+    """День доставки, который выбрал покупатель: «21.11 После обеда 14:00–17:30» → «2026-11-21» (год — по дате заказа,
+    выбор на 7 дней вперёд, через Новый год — следующий). Нет даты — пусто."""
+    m = re.match(r"(\d\d)\.(\d\d)\b", slot or "")
+    if not m:
+        return ""
+    try:
+        base = datetime.strptime((moment or "")[:10], "%Y-%m-%d")
+        d = datetime(base.year, int(m.group(2)), int(m.group(1)))
+        if d < base - timedelta(days=31):
+            d = d.replace(year=base.year + 1)
+        return d.strftime("%Y-%m-%d")
+    except ValueError:
+        return ""
+
+
+def _almaty_day(moment):
+    """Дата заказа по Алматы: в МойСклад время московское (UTC+3), у магазина — Алматы (UTC+5)."""
+    try:
+        return (datetime.strptime(moment[:16], "%Y-%m-%d %H:%M") + timedelta(hours=2)).strftime("%Y-%m-%d")
+    except ValueError:
+        return (moment or "")[:10]
+
+
 def parse_order(o):
-    """Из описания заказа сайта: имя, телефон, адрес и выбранный клиентом интервал."""
+    """Из описания заказа сайта: имя, телефон, адрес, выбранный клиентом интервал и его день (dday)."""
     lines = (o.get("description") or "").split("\n")
     who = lines[1] if len(lines) > 1 else ""
     ship = next((l[len("Отправка: "):] for l in lines if l.startswith("Отправка: ")), "")
@@ -134,25 +158,67 @@ def parse_order(o):
     m = re.search(r",\s*(\d\d\.\d\d\s.*)$", addr)
     if m:
         addr, slot = addr[:m.start()].strip(), m.group(1).strip()
+    t = re.search(r"(\d{1,2}:\d\d)\s*[–-]", slot)
     return {"id": o["id"], "num": o["name"], "name": name, "phone": phone, "addr": addr, "slot": slot,
+            "dday": slot_day(slot, o.get("moment", "")), "sfrom": t.group(1).zfill(5) if t else "",
             "agent": (o.get("agent") or {}).get("id") or str((o.get("agent") or {}).get("meta", {}).get("href", "")).rsplit("/", 1)[-1],
             "sum": round(o.get("sum", 0) / 100), "state": (o.get("state") or {}).get("name", ""), "moment": o.get("moment", "")[:16]}
 
 
-def day_orders(day):
-    """Розничные заказы с курьером по Алматы: созданные за день до выбранного и в сам день (МойСклад — московское время)."""
-    d0 = datetime.strptime(day, "%Y-%m-%d") - timedelta(days=1)
-    a = (d0 - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S")             # Алматы UTC+5 → Москва UTC+3
-    b = (d0 + timedelta(days=2) - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S")
-    r = oh.ms("GET", "/entity/customerorder", params={"filter": f"description~{SHIP_MARK};moment>={a};moment<{b}",
-                                                      "order": "moment,asc", "limit": 100, "expand": "agent,state"}, timeout=20)
+AHEAD = 8                      # покупатель выбирает день на 7 дней вперёд — заказы ищем за 8 дней до открытого дня
+
+
+def _orders_since(day):
+    d0 = datetime.strptime(day, "%Y-%m-%d")
+    a = (d0 - timedelta(days=AHEAD) - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S")      # Алматы UTC+5 → Москва UTC+3
+    b = (d0 + timedelta(days=1) - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S")
     out = []
-    for o in r.get("rows", []):
-        if (o.get("description") or "").startswith(oh.RETAIL_MARK):
-            x = parse_order(o)
-            x["express"] = EXPRESS_MARK in (o.get("description") or "")       # срочные — отдельный блок, свой вызов
-            out.append(x)
+    for off in range(0, 500, 100):
+        r = oh.ms("GET", "/entity/customerorder", params={"filter": f"description~{SHIP_MARK};moment>={a};moment<{b}", "offset": off,
+                                                          "order": "moment,asc", "limit": 100, "expand": "agent,state"}, timeout=20)
+        rows = r.get("rows", [])
+        out += rows
+        if len(rows) < 100:
+            break
     return out
+
+
+def day_split(day):
+    """→ (заказы этого дня, будущие доставки). Заказ — в тот день, который выбрал покупатель («21.11 После обеда …»);
+    без выбранного дня (Express, старые заказы) — как раньше: оформленные накануне и в сам день (по Алматы).
+    Будущие — оформлены не позже открытого дня, а покупатель выбрал день позже: показываем серым, собрать заранее."""
+    prev = (datetime.strptime(day, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
+    seen, today, future = set(), [], []
+    for o in _orders_since(day):
+        if o.get("id") in seen or not (o.get("description") or "").startswith(oh.RETAIL_MARK):
+            continue
+        seen.add(o.get("id"))
+        x = parse_order(o)
+        x["express"] = EXPRESS_MARK in (o.get("description") or "")       # срочные — отдельный блок, свой вызов
+        if x["express"]:
+            x["dday"] = ""
+        made = _almaty_day(o.get("moment", ""))
+        if x["dday"]:
+            if x["dday"] == day:
+                today.append(x)
+            elif x["dday"] > day and made <= day:
+                future.append(x)
+        elif made in (prev, day):
+            today.append(x)
+    future.sort(key=lambda x: (x["dday"], x["sfrom"], x["num"]))
+    return today, future
+
+
+def day_orders(day):
+    """Розничные заказы с курьером по Алматы на выбранный день (см. day_split)."""
+    return day_split(day)[0]
+
+
+def wrong_day(x, day):
+    """Покупатель выбрал другой день — по такому заказу курьера на этот день не вызываем."""
+    if not x.get("dday") or x["dday"] == day:
+        return ""
+    return f"Покупатель выбрал {x['dday'][8:10]}.{x['dday'][5:7]} — откройте этот день"
 
 
 def _row(d, num):
@@ -213,7 +279,7 @@ def courier_day():
         return jsonify(ok=False, error="Неверная дата"), 400
     ready = bool(delivery.conf()["svc"]["yandex"].get("token"))
     try:
-        orders = day_orders(day)
+        orders, future = day_split(day)
     except Exception as e:
         return jsonify(ok=False, error=f"МойСклад: {str(e)[:200]}"), 503
     intervals, err = [], ""
@@ -228,6 +294,10 @@ def courier_day():
         except Exception as e:
             err = str(e)[:300]
     with db() as d:
+        for o in future:
+            o["ya"] = _row(d, o["num"])
+            o["statusText"] = STATUS.get((o["ya"] or {}).get("status") or "new", (o["ya"] or {}).get("status") or "")
+            o["wrongDay"] = wrong_day(o, day)
         for o in orders:
             o["ya"] = _row(d, o["num"])
             if not (o["ya"] and o["ya"]["pt"]) and o["addr"]:
@@ -237,7 +307,7 @@ def courier_day():
                     o["ya"] = _row(d, o["num"])
             o["statusText"] = STATUS.get((o["ya"] or {}).get("status") or "new", (o["ya"] or {}).get("status") or "")
     windows = [s.get("from", "") for s in (delivery.conf().get("schedule") or {}).get("slots", [])]     # окна, которые выбирают клиенты на сайте
-    return jsonify(ok=True, date=day, ready=ready, error=err, intervals=intervals, windows=windows, orders=orders)
+    return jsonify(ok=True, date=day, ready=ready, error=err, intervals=intervals, windows=windows, orders=orders, future=future)
 
 
 @bp.post("/admin/api/courier/coords")
@@ -265,7 +335,11 @@ def courier_estimate():
     nums = [str(n)[:20] for n in (b.get("nums") or [])][:30]
     try:
         wh = warehouse()
-        orders = {o["num"]: o for o in day_orders(b.get("date") or datetime.now(oh.ALMATY).strftime("%Y-%m-%d"))}
+        day = b.get("date") or datetime.now(oh.ALMATY).strftime("%Y-%m-%d")
+        if not re.fullmatch(r"\d{4}-\d\d-\d\d", str(day)):
+            return jsonify(ok=False, error="Неверная дата"), 400
+        today, future = day_split(day)
+        orders, later = {o["num"]: o for o in today}, {o["num"]: o for o in future}
     except Exception as e:
         return jsonify(ok=False, error=str(e)[:300]), 400
     res = {}
@@ -273,7 +347,13 @@ def courier_estimate():
         for n in nums:
             o, row = orders.get(n), _row(d, n)
             if not o:
-                res[n] = "заказ не найден за этот день"
+                res[n] = wrong_day(later[n], day) if n in later else "заказ не найден за этот день"
+                continue
+            if wrong_day(o, day):
+                res[n] = wrong_day(o, day)
+                continue
+            if iv and o.get("dday") and _iv_day(iv) and _iv_day(iv) != o["dday"]:
+                res[n] = f"интервал забора не на {o['dday'][8:10]}.{o['dday'][5:7]} — день, который выбрал покупатель"
                 continue
             if o["express"] != express:
                 res[n] = "это заказ Express — вызывайте его отдельно" if o["express"] else "это заказ «В течение дня», не Express"
@@ -297,6 +377,14 @@ def courier_estimate():
                 _save(d, n, order_id=o["id"], err=str(e)[:300], status="new")
                 res[n] = str(e)[:200]
     return jsonify(ok=True, result=res)
+
+
+def _iv_day(iv):
+    """Дата интервала Яндекса по Алматы: «2026-11-21T09:00:00+00:00» → «2026-11-21»."""
+    try:
+        return datetime.fromisoformat(str(iv.get("from") or "").replace("Z", "+00:00")).astimezone(oh.ALMATY).strftime("%Y-%m-%d")
+    except ValueError:
+        return ""
 
 
 def refresh(nums=None):
@@ -529,6 +617,25 @@ def courier_refresh():
     return jsonify(ok=True)
 
 
+def _accept_day_check(row):
+    """Заявка «В течение дня» рассчитана на другой день, чем выбрал покупатель (в т.ч. рассчитанные до этой проверки) —
+    не подтверждаем: отмените и рассчитайте в нужный день. Express (без интервала) не проверяем."""
+    if not row.get("from"):
+        return ""
+    oid = row.get("order_id") or ""
+    if not re.fullmatch(r"[0-9a-f-]{36}", oid):
+        return ""
+    try:
+        x = parse_order(oh.ms("GET", f"/entity/customerorder/{oid}", params={"expand": "agent,state"}, timeout=15))
+    except Exception as e:
+        return f"не удалось проверить день доставки в МойСклад: {str(e)[:120]}"
+    got = _iv_day({"from": row["from"]})
+    if x["dday"] and got and got != x["dday"]:
+        return (f"рассчитан на {got[8:10]}.{got[5:7]}, а покупатель выбрал {x['dday'][8:10]}.{x['dday'][5:7]} — "
+                "отмените заявку и рассчитайте в нужный день")
+    return ""
+
+
 @bp.post("/admin/api/courier/accept")
 @need("orders")
 def courier_accept():
@@ -544,6 +651,10 @@ def courier_accept():
                 continue
             if row["status"] != "ready_for_approval":
                 res[n] = STATUS.get(row["status"], row["status"])
+                continue
+            bad = _accept_day_check({**row, "order_id": (d.run("SELECT order_id FROM ya_claim WHERE num=%s", (n,), one=True) or [""])[0]})
+            if bad:
+                res[n] = bad
                 continue
             try:
                 j = ya("/claims/accept", {"version": row["version"] or 1}, claim_id=row["claim"])
