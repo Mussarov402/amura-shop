@@ -52,6 +52,10 @@ class Quote(unittest.TestCase):
         self.patch(checkout, "cdek_city_code", lambda c: {"алматы": 1, "астана": 2}.get(c.lower()))
         self.patch(checkout, "_cdek", lambda: (type("C", (), {"base": "https://cdek"})(), "cdek-tok"))
         self.patch(oh, "_weights", {"p1": 0.2, "p2": 1.0})
+        oh._cache.pop("ya_methods_q", None)
+        self.ivs = [{"from": "2026-11-21T05:00:00+00:00", "to": "2026-11-21T09:00:00+00:00"},     # 10–14 по Алматы
+                    {"from": "2026-11-21T09:00:00+00:00", "to": "2026-11-21T13:00:00+00:00"}]     # 14–18
+        self.patch(courier, "ya", lambda path, body=None, **k: {"same_day_delivery": {"allowed": True, "available_intervals": self.ivs}})
         self.sent, self.ya_price, self.fail, self.slow = [], 1650, None, 0
 
         def post(url, json=None, headers=None, timeout=None, **kw):
@@ -83,9 +87,9 @@ class Quote(unittest.TestCase):
         self.assertTrue(url.endswith("/b2b/cargo/integration/v2/check-price"))
         self.assertEqual(body["route_points"][0]["coordinates"], [76.8897, 43.2389])   # склад
         self.assertEqual(body["route_points"][1]["coordinates"], [76.95, 43.24])
-        self.assertEqual(body["requirements"]["taxi_class"], "courier")
-        self.assertEqual(body["requirements"]["same_day_data"]["delivery_interval"],
-                         {"from": "2026-11-21T14:00:00+05:00", "to": "2026-11-21T18:00:00+05:00"})
+        self.assertNotIn("taxi_class", body["requirements"])                  # «в течение дня» — свой тариф, без класса Express
+        self.assertEqual(body["requirements"]["same_day_data"]["delivery_interval"],                  # интервал — ровно как у Яндекса
+                         {"from": "2026-11-21T09:00:00+00:00", "to": "2026-11-21T13:00:00+00:00"})
         self.assertEqual(body["items"][0]["weight"], 0.2)
         dq.quote("courier", CITY, 6690, LINES, "Туркебаева 63", slot)          # тот же адрес и окно — из кэша
         self.assertEqual(len(self.sent), 1)
@@ -95,7 +99,13 @@ class Quote(unittest.TestCase):
     def test_express_never_free_and_no_window(self):
         q = dq.quote("express", CITY, 90000, LINES, "Туркебаева 63")
         self.assertEqual(q["price"], 1850)
-        self.assertNotIn("same_day_data", self.sent[0][1]["requirements"])
+        self.assertEqual(self.sent[0][1]["requirements"], {"taxi_class": "courier"})
+
+    def test_same_day_without_yandex_window_falls_back(self):
+        self.ivs = [{"from": "2026-11-22T05:00:00+00:00", "to": "2026-11-22T09:00:00+00:00"}]   # на 21.11 окна у Яндекса нет
+        q = dq.quote("courier", CITY, 6690, LINES, "Туркебаева 63", {"date": "2026-11-21", "from": "14:00", "to": "18:00"})
+        self.assertEqual(q, {"price": 1000, "real": False, "raw": 0})          # не цена Express, а запасная «в течение дня»
+        self.assertEqual(self.sent, [])
 
     def test_free_from_threshold(self):
         self.assertEqual(dq.quote("courier", CITY, 50000, LINES, "Туркебаева 63")["price"], 0)
