@@ -105,6 +105,10 @@ class Courier(unittest.TestCase):
                                  "description": ORDER["description"].replace("09.10 Обед 11:00–14:00", "21.11 После обеда 14:00–17:30")})
         self.assertEqual((o["dday"], o["sfrom"]), ("2026-11-21", "14:00"))
 
+    def test_day_reports_xauto(self):
+        r = json.loads(self.c.get("/admin/api/courier?date=2026-10-09").data)
+        self.assertIs(r["xauto"], False)                                                    # по умолчанию автовызов Express выключен
+
     def test_order_on_chosen_day(self):
         self.chosen()
         r = json.loads(self.c.get("/admin/api/courier?date=2026-11-19").data)
@@ -221,6 +225,8 @@ class Courier(unittest.TestCase):
         self.assertNotIn("same_day_data", body)
         self.assertEqual(body["route_points"][1]["contact"]["phone"], "+77017654321")
         self.assertEqual(body["route_points"][1]["address"]["fullname"], "Алматы, Абая 12")
+        with courier.db() as d:
+            self.assertEqual(courier._row(d, "1701")["taxi"], "courier")                          # тариф виден в «Собраны»
         r = self.post("/admin/api/courier/estimate", {"date": "2026-10-09", "nums": ["1701"], "interval": {"from": "a", "to": "b"}})
         self.assertIn("Express", r["result"]["1701"])                                             # и наоборот
         self.assertEqual(self.post("/admin/api/courier/accept", {"nums": ["1701"]})["result"]["1701"], "ok")
@@ -339,6 +345,12 @@ class Courier(unittest.TestCase):
                    else {"rows": [ORDER if "1700" in str((kw.get("params") or {}).get("filter")) else xo]})
         self.patch(push, "notify", lambda title, body, *a, **k: told.append(body))
         self.patch(oh, "notify_staff", lambda key, text, **k: None)
+        self.assertEqual(courier.auto_express("1701", "a" * 36, wait=5), "off")               # по умолчанию ВЫКЛ: «Собран» ничего не вызывает
+        self.assertFalse([c for c in self.calls if c[0].startswith("/claims")])
+        base = delivery.conf()
+        self.patch(delivery, "conf", lambda: {**base, "rules": {**base["rules"], "xauto": 1}})            # прежний ключ больше не включает
+        self.assertEqual(courier.auto_express("1701", "a" * 36, wait=5), "off")
+        self.patch(delivery, "conf", lambda: {**base, "rules": {**base["rules"], "xauto_on": 1}})
         self.assertEqual(courier.auto_express("1701", "a" * 36, wait=5), "called")
         create = [c for c in self.calls if c[0] == "/claims/create"][-1][2]
         self.assertEqual(create["client_requirements"], {"taxi_class": "courier"})
@@ -354,7 +366,7 @@ class Courier(unittest.TestCase):
         self.assertFalse([c for c in self.calls if c[0] == "/claims/accept"])
         self.assertIn("дороже лимита 1 000", told[-1])
         self.assertEqual(courier.auto_express("1700", "", wait=5), "not express")             # обычный заказ — не трогаем
-        self.patch(delivery, "conf", lambda: {**conf, "rules": {**conf["rules"], "xauto": 0}})
+        self.patch(delivery, "conf", lambda: {**conf, "rules": {**conf["rules"], "xauto_on": 0}})
         self.assertEqual(courier.auto_express("1701", "", wait=5), "off")
 
     def test_me_push_subscribe(self):
