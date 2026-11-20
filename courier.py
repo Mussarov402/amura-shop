@@ -506,10 +506,20 @@ def set_ms_state(order_id, name):
     return False
 
 
+def _econ(oid):
+    """Цена доставки изменилась (расчёт, вызов, доставлен) — пересчитать «Экономику заказа» в описании МС (в фоне, чуть позже)."""
+    try:
+        import retail_econ
+        retail_econ.write_bg(oid, delay=5)
+    except Exception as e:
+        print("Курьер: экономика заказа", str(e)[:150], flush=True)
+
+
 def on_status(d, num, st):
     """Забрали со склада → «Отгружен», доставили → «Доставлен»; возврат / отмена Яндексом / сбой — уведомление сотрудникам."""
     r = d.run("SELECT order_id FROM ya_claim WHERE num=%s", (num,), one=True)
     oid = r[0] if r else ""
+    _econ(oid)
     try:
         if st in MS_STATE and set_ms_state(oid, MS_STATE[st]):
             import admin
@@ -667,6 +677,7 @@ def courier_accept():
                 j = ya("/claims/accept", {"version": row["version"] or 1}, claim_id=row["claim"])
                 _save(d, n, status=j.get("status", "accepted"), version=j.get("version", row["version"]), err="")
                 res[n] = "ok"
+                _econ((d.run("SELECT order_id FROM ya_claim WHERE num=%s", (n,), one=True) or [""])[0])
             except Exception as e:
                 _save(d, n, err=str(e)[:300])
                 res[n] = str(e)[:200]
