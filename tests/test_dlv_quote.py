@@ -55,14 +55,38 @@ class Quote(unittest.TestCase):
         oh._cache.pop("ya_methods_q", None)
         self.ivs = [{"from": "2026-11-21T05:00:00+00:00", "to": "2026-11-21T09:00:00+00:00"},     # 10–14 по Алматы
                     {"from": "2026-11-21T09:00:00+00:00", "to": "2026-11-21T13:00:00+00:00"}]     # 14–18
-        self.patch(courier, "ya", lambda path, body=None, **k: {"same_day_delivery": {"allowed": True, "available_intervals": self.ivs}})
-        self.sent, self.ya_price, self.fail, self.slow = [], 1650, None, 0
+        self.claims, self.sdd_price, self.estimate_polls = [], 1650, 2
+        dq._inflight.clear()
+
+        def ya(path, body=None, **k):
+            if path == "/delivery-methods":
+                return {"same_day_delivery": {"allowed": True, "available_intervals": self.ivs}}
+            if path == "/claims/create":
+                self.claims.append({"id": f"c{len(self.claims) + 1}", "body": body, "polls": 0, "status": "estimating", "cancel": None})
+                return {"id": self.claims[-1]["id"], "status": "estimating", "version": 1}
+            c = next(x for x in self.claims if x["id"] == k["claim_id"])
+            if path == "/claims/info":
+                c["polls"] += 1
+                if c["status"] == "estimating" and c["polls"] >= self.estimate_polls:
+                    c["status"] = "ready_for_approval"
+                out = {"id": c["id"], "status": c["status"], "version": 2, "available_cancel_state": "free"}
+                if c["status"] == "ready_for_approval":
+                    out["pricing"] = {"offer": {"price": str(self.sdd_price)}}
+                return out
+            if path == "/claims/cancel":
+                c["cancel"], c["status"] = body, "cancelled"
+                return {"status": "cancelled"}
+            raise AssertionError(path)
+        self.patch(courier, "ya", ya)
+        self.patch(courier, "warehouse", lambda: {"addr": "Байсат", "phone": "77010000000", "pt": (76.8897, 43.2389)})
+        self.patch(dq, "_nap", lambda s: None)
+        self.sent, self.ya_price, self.fail_net, self.slow = [], 1650, None, 0
 
         def post(url, json=None, headers=None, timeout=None, **kw):
             self.sent.append((url, json))
             if self.slow:
                 time.sleep(self.slow)
-            if self.fail:
+            if self.fail_net:
                 raise dq.requests.ConnectionError("нет связи")
             if url.endswith("/check-price"):
                 return Resp(200, {"price": str(self.ya_price), "currency_rules": {"code": "KZT"}})
@@ -83,18 +107,38 @@ class Quote(unittest.TestCase):
         slot = {"date": "2026-11-21", "from": "14:00", "to": "18:00", "name": "Вечер"}
         q = dq.quote("courier", CITY, 6690, LINES, "Туркебаева 63", slot)
         self.assertEqual(q, {"price": 1850, "real": True, "raw": 1650})       # 1650 × 1,1 = 1815 → вверх до 50 = 1850
-        url, body = self.sent[0]
-        self.assertTrue(url.endswith("/b2b/cargo/integration/v2/check-price"))
-        self.assertEqual(body["route_points"][0]["coordinates"], [76.8897, 43.2389])   # склад
-        self.assertEqual(body["route_points"][1]["coordinates"], [76.95, 43.24])
-        self.assertNotIn("taxi_class", body["requirements"])                  # «в течение дня» — свой тариф, без класса Express
-        self.assertEqual(body["requirements"]["same_day_data"]["delivery_interval"],                  # интервал — ровно как у Яндекса
+        self.assertEqual(self.sent, [])                                        # «в течение дня» — не check-price, а оценка заявки
+        c = self.claims[0]
+        body = c["body"]
+        self.assertEqual(body["route_points"][0]["address"]["coordinates"], [76.8897, 43.2389])   # склад
+        self.assertEqual(body["route_points"][1]["address"]["coordinates"], [76.95, 43.24])
+        self.assertEqual(body["same_day_data"]["delivery_interval"],                                # интервал — ровно как у Яндекса
                          {"from": "2026-11-21T09:00:00+00:00", "to": "2026-11-21T13:00:00+00:00"})
+        self.assertNotIn("client_requirements", body)
         self.assertEqual(body["items"][0]["weight"], 0.2)
-        dq.quote("courier", CITY, 6690, LINES, "Туркебаева 63", slot)          # тот же адрес и окно — из кэша
-        self.assertEqual(len(self.sent), 1)
+        self.assertEqual(c["cancel"], {"version": 2, "cancel_state": "free"})  # оценочную заявку сразу отменили
+        dq.quote("courier", CITY, 6690, LINES, "Туркебаева 63", slot)          # тот же адрес и окно — из кэша, второй заявки нет
+        self.assertEqual(len(self.claims), 1)
         dq.quote("courier", CITY, 6690, LINES, "Туркебаева 63", {**slot, "from": "10:00", "to": "14:00"})   # другое окно — новый расчёт
-        self.assertEqual(len(self.sent), 2)
+        self.assertEqual(len(self.claims), 2)
+        self.assertEqual(dq.quote("courier", CITY, 6690, LINES, "Туркебаева 63")["real"], False)           # окно не выбрано — без заявки
+        self.assertEqual(len(self.claims), 2)
+
+    def test_sdd_slow_estimate_then_cache(self):
+        self.patch(dq, "WAIT", 0.3)
+        real_sleep = time.sleep
+        self.patch(dq, "_nap", lambda s: real_sleep(0.2))
+        self.estimate_polls = 4                                                # Яндекс считает дольше, чем ждёт покупатель
+        slot = {"date": "2026-11-21", "from": "14:00", "to": "18:00"}
+        q = dq.quote("courier", CITY, 6690, LINES, "Туркебаева 63", slot)
+        self.assertEqual((q["price"], q["real"]), (1000, False))               # пока — запасная цена
+        q2 = dq.quote("courier", CITY, 6690, LINES, "Туркебаева 63", slot)     # повторный запрос не создаёт вторую заявку
+        self.assertEqual(len(self.claims), 1)
+        real_sleep(1.2)
+        q3 = dq.quote("courier", CITY, 6690, LINES, "Туркебаева 63", slot)     # оценка дошла в фоне — уже настоящая
+        self.assertEqual((q3["price"], q3["real"]), (1850, True))
+        self.assertEqual(len(self.claims), 1)
+        self.assertEqual(q2["real"], False)
 
     def test_express_never_free_and_no_window(self):
         q = dq.quote("express", CITY, 90000, LINES, "Туркебаева 63")
@@ -105,7 +149,7 @@ class Quote(unittest.TestCase):
         self.ivs = [{"from": "2026-11-22T05:00:00+00:00", "to": "2026-11-22T09:00:00+00:00"}]   # на 21.11 окна у Яндекса нет
         q = dq.quote("courier", CITY, 6690, LINES, "Туркебаева 63", {"date": "2026-11-21", "from": "14:00", "to": "18:00"})
         self.assertEqual(q, {"price": 1000, "real": False, "raw": 0})          # не цена Express, а запасная «в течение дня»
-        self.assertEqual(self.sent, [])
+        self.assertEqual((self.sent, self.claims), ([], []))
 
     def test_free_from_threshold(self):
         self.assertEqual(dq.quote("courier", CITY, 50000, LINES, "Туркебаева 63")["price"], 0)
@@ -126,10 +170,10 @@ class Quote(unittest.TestCase):
         self.assertEqual(dq.quote("cdek", "Астана", 6690, [{"id": "p1", "qty": 2}, {"id": "nowt", "qty": 3}])["price"], 2058)
 
     def test_fallback_on_error_and_timeout(self):
-        self.fail = True
-        q = dq.quote("courier", CITY, 6690, LINES, "Туркебаева 63")
-        self.assertEqual(q, {"price": 1000, "real": False, "raw": 0})          # запасная цена из настроек
-        self.fail = False
+        self.fail_net = True
+        q = dq.quote("express", CITY, 6690, LINES, "Туркебаева 63")
+        self.assertEqual(q, {"price": 2500, "real": False, "raw": 0})          # запасная цена из настроек
+        self.fail_net = False
         n = len(self.sent)
         self.assertEqual(dq.quote("express", CITY, 6690, LINES, "Туркебаева 63")["price"], 2500)   # пауза после сбоя — сразу запасная
         self.assertEqual(len(self.sent), n)

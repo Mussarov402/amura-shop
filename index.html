@@ -2438,7 +2438,7 @@ const _dlvPrice = dlvPrice;
 /* настоящая цена доставки (решение владельца 20.11.2026): сервер считает её по API Яндекса / СДЭК для адреса, окна, пункта и товаров.
    Пока считаем — «считаем…»; ответ кэшируем по всем этим данным, поменялось что-то — считаем заново. В заказ уходит показанная цена
    (dlvShown): не совпала с серверной — заказ не принят, покупатель видит новую */
-const QC = new Map(), QWAIT = new Set();
+const QC = new Map(), QWAIT = new Set(), QRETRY = new Map();
 function qCtx(ship, goods){
   const f = form(), ls = lines().filter(l => !off.has(l.it.id));
   const c = { ship, city: f.city || "", sum: goods, items: ls.map(l => ({ id: l.it.id, qty: l.q })) };
@@ -2453,7 +2453,11 @@ async function requote(k, c){
   try{
     const r = await fetch(CONFIG.apiUrl + "/delivery/quote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(c) });
     const j = await r.json().catch(() => ({}));
-    if(r.ok && j.ok) v = j.price;
+    if(r.ok && j.ok){ v = j.price;
+      if(j.real === false && c.address && (QRETRY.get(k) || 0) < 3){   // служба ещё считает (оценка Яндекса — несколько секунд) — спросим снова
+        QRETRY.set(k, (QRETRY.get(k) || 0) + 1);
+        setTimeout(() => { if(QC.get(k) === v){ QC.delete(k); if(VIEW === "cart") try{ paint(); }catch{} } }, 5000);
+      } }
   }catch{}
   if(v === null){ const rr = DLV.opts && (DLV.opts.rates || {})[c.ship]; v = rr ? rr.price : null; }   // нет связи — запасная цена (сервер проверит)
   QWAIT.delete(k);
