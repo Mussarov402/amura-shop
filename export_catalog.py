@@ -19,6 +19,7 @@ from datetime import datetime, timedelta, timezone
 import requests
 from PIL import Image
 
+import pricefx
 from pricebox import seal
 
 API = "https://api.moysklad.ru/api/remap/1.2"
@@ -75,12 +76,12 @@ def fetch_archived():
             return ids
 
 
+CUR = {}                  # валюты МС: id → (ISO, курс к тенге) — заполняет main()
+
+
 def price(item, name):
-    names = (name,) if isinstance(name, str) else name
-    for p in item.get("salePrices", []):
-        if p.get("priceType", {}).get("name") in names:
-            return round(p.get("value", 0) / 100)
-    return 0
+    """Цена типа в тенге; цена в валюте (например, «Короб» в $) — по курсу МС (pricefx), не как тенге."""
+    return pricefx.sale(item, name, CUR)[0]
 
 
 def brand_of(item):
@@ -147,6 +148,7 @@ def main():
     if img_index.get("_ver") != IMG_VER:     # сменился размер миниатюр — пересобрать все
         img_index = {"_ver": IMG_VER}
 
+    CUR.update(pricefx.cur_map(get(f"{API}/entity/currency", limit=100).json().get("rows")))
     rows = fetch_assortment()
     cmap = countries()
     now = datetime.now(timezone(timedelta(hours=5)))
@@ -164,8 +166,13 @@ def main():
         if opt <= 0 and rtl <= 0:
             no_opt += 1
             continue
-        mid, box, bq = price(it, PRICE_MID), price(it, PRICE_BOX), box_qty(it)
-        tiers = [opt, mid if 0 < mid < opt else 0, box if (0 < box < opt and bq) else 0, bq if (0 < box < opt) else 0]
+        bq = box_qty(it)
+        o_, mid, box, bq_ok, fx = pricefx.tiers(it, CUR, (PRICE_OPT, PRICE_MID, PRICE_BOX), bq)
+        cur_any = [(p.get("priceType") or {}).get("name") for p in it.get("salePrices") or []
+                   if pricefx.sale(it, (p.get("priceType") or {}).get("name"), CUR)[1]]
+        if cur_any:                                  # список для владельца: у каких товаров тип цены не в тенге
+            print("Цена в валюте:", it.get("code"), it.get("name", "")[:60], "—", ", ".join(cur_any), file=sys.stderr)
+        tiers = [opt, mid, box, bq_ok]
         if opt > 0:
             wholesale[it["id"]] = tiers
         pid, upd = it["id"], it.get("updated", "")
@@ -203,6 +210,7 @@ def main():
             "box": tiers[2] if PUBLIC_WHOLESALE else 0,
             "boxQty": tiers[3] if PUBLIC_WHOLESALE else bq,
             "rtl": rtl,
+            **({"fx": {k: {"iso": f["iso"], "v": f["v"]} for k, f in fx.items()}} if fx and PUBLIC_WHOLESALE else {}),   # курс — на сервере
             "img": img,
             "updated": upd[:10],
             "isNew": upd[:10] >= new_since,

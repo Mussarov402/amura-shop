@@ -149,7 +149,8 @@ select{font-size:14px;background:var(--surface);border:1px solid var(--line);bor
 .act{display:grid;gap:6px;margin-top:auto}
 .tiers{display:grid;gap:5px}
 .tiers button{display:flex;justify-content:space-between;align-items:center;gap:6px;border:1.5px solid var(--line);background:var(--bg);border-radius:10px;padding:7px 10px;font-size:13px;color:var(--muted);text-align:left}
-.tiers button b{color:var(--ink);font-weight:800;white-space:nowrap}
+.tiers button b{color:var(--ink);font-weight:800;white-space:nowrap;text-align:right}
+.tiers button b small{display:block;font-size:11px;font-weight:600;color:var(--muted);text-align:right}
 .tiers button:hover:not(:disabled){border-color:var(--green-3)}
 .tiers button.on{border-color:var(--green-3);background:var(--mint);color:var(--green-3);font-weight:700}
 .tiers button.on b{color:var(--green-3)}
@@ -550,13 +551,20 @@ function nextTierHint(it, q){
   if(t !== "box" && it.box && it.boxQty && it.boxQty <= it.qty && it.box < unitPrice(it, q)) return `Ещё ${it.boxQty - q} шт до короба — ${fmt(it.box)} ₸`;
   return "";
 }
+/* цена типа МойСклад в валюте (решение владельца 17.11.2026): тир показываем в валюте, ниже — ≈ ₸ по курсу МС; в корзине и заказе — ₸ */
+const FX_SIGN = { USD: "$", EUR: "€", RUB: "₽", CNY: "¥" };
+function fxTxt(it, k){
+  const f = it.fx && it.fx[k]; if(!f || !f.rate) return "";
+  const v = Number(f.v).toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return FX_SIGN[f.iso] ? FX_SIGN[f.iso] + v : v + " " + esc(f.iso);
+}
 function tiersHTML(it, q){
   const t = tierOf(it, q);
   const rows = [["opt", 1, it.mid ? `1–${CONFIG.tierMid - 1} шт` : "от 1 шт", it.opt]];
   if(it.mid) rows.push(["mid", CONFIG.tierMid, `от ${CONFIG.tierMid} шт`, it.mid]);
   if(it.box && it.boxQty) rows.push(["box", it.boxQty, `Короб ${it.boxQty} шт`, it.box]);
   return `<div class="tiers" role="group" aria-label="Цена по количеству">${rows.map(([k, min, label, p]) =>
-    `<button type="button" data-tier="${min}" class="${t === k ? "on" : ""}" aria-pressed="${t === k}" ${min > it.qty ? `disabled title="Столько нет в наличии"` : ""}><span>${label}</span><b>${fmt(p)} ₸</b></button>`).join("")}</div>`;
+    `<button type="button" data-tier="${min}" class="${t === k ? "on" : ""}" aria-pressed="${t === k}" ${min > it.qty ? `disabled title="Столько нет в наличии"` : ""}><span>${label}</span><b>${fxTxt(it, k) ? `${fxTxt(it, k)}<small>≈ ${fmt(p)} ₸ по курсу</small>` : `${fmt(p)} ₸`}</b></button>`).join("")}</div>`;
 }
 function buyHTML(it){
   const q = qtyPick(it), inCart = cart[it.id];
@@ -589,7 +597,7 @@ const overMsg = it => MAXQ && (it.stock || 0) > it.qty ? `Не больше ${MA
 function applyData(data){
   if(RETAIL && "maxQty" in data){ MAXQ = +data.maxQty || 0; save("amura-maxq", MAXQ); }
   if(RETAIL) data = { ...data, wholesale: false, items: (data.items || []).map(i => { const stock = i.stock ?? i.qty; return { ...i,   // в выгрузке опт и розница — берём розницу
-    ...("rtl" in i ? { opt: i.rtl, mid: 0, box: 0 } : {}), stock, qty: MAXQ ? Math.min(stock, MAXQ) : stock,
+    ...("rtl" in i ? { opt: i.rtl, mid: 0, box: 0, fx: null } : {}), stock, qty: MAXQ ? Math.min(stock, MAXQ) : stock,
     img: i.img && !/^(https?:)?\//.test(i.img) ? "/" + i.img : i.img }; }) };
   WS = !!data.wholesale;
   PO_NOTE = !RETAIL && data.poNote ? data.poNote : "";   // опт: товары поставщиков — «под заказ» (у нас 0, есть у партнёра)

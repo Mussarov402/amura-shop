@@ -34,6 +34,8 @@ class LiveStock(unittest.TestCase):
         self.addCleanup(lambda: setattr(admin, "hidden_ids", old_hidden))
 
         def ms(method, path, **kw):
+            if path == "/entity/currency":
+                return {"rows": [{"id": "kzt", "isoCode": "KZT", "rate": 1}]}
             self.calls.append((path, kw.get("params")))
             ids = [x[3:] for x in kw["params"]["filter"].split(";")]
             return {"rows": [MS_ROWS[i] for i in ids if i in MS_ROWS]}
@@ -43,7 +45,7 @@ class LiveStock(unittest.TestCase):
         oh._products = lambda: list(SITE)
         oh._delta = lambda: []
         oh._miss.clear()
-        for k in ("live", "products", "delta", "imgidx"):
+        for k in ("live", "products", "delta", "imgidx", "currencies", "currencies_last"):
             oh._cache.pop(k, None)
         self.addCleanup(oh._miss.clear)
         self.addCleanup(lambda: [oh._cache.pop(k, None) for k in ("live", "products", "delta", "imgidx")])

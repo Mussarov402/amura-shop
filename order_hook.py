@@ -286,12 +286,35 @@ def cached(key, ttl, fn):
     return val
 
 
+def currencies():
+    """Валюты МойСклад: id → (ISO, курс к тенге), кэш 10 минут. МС не ответил — прежний справочник; его нет — ошибка
+    (без курса цену в валюте посчитать нельзя, а прочитать её как тенге — продать в сотни раз дешевле)."""
+    import pricefx
+    try:
+        m = cached("currencies", 600, lambda: pricefx.cur_map(ms("GET", "/entity/currency", params={"limit": 100}, timeout=15).get("rows")))
+        _cache["currencies_last"] = (time.time(), m)
+        return m
+    except Exception:
+        last = _cache.get("currencies_last")
+        if last:
+            return last[1]
+        raise
+
+
+def _cur_safe():
+    """Для каталога: нет справочника валют — пустой: цены с валютой МС не определить → 0, товар не попадёт в каталог
+    (безопаснее, чем продать по цене в валюте как в тенге)."""
+    try:
+        return currencies()
+    except Exception as e:
+        print("Валюты МойСклад не получены:", str(e)[:150], flush=True)
+        return {}
+
+
 def _price(row, name):
-    names = (name,) if isinstance(name, str) else name
-    for p in row.get("salePrices", []):
-        if p.get("priceType", {}).get("name") in names:
-            return round(p.get("value", 0) / 100)
-    return 0
+    """Цена типа МС в тенге: цена в валюте (например, «Короб» в $) — по курсу МС (pricefx)."""
+    import pricefx
+    return pricefx.sale(row, name, _cur_safe())[0]
 
 
 def _brand(row):
@@ -448,18 +471,18 @@ def build_live(products, stock=None):
         if r.get("code") == LOADER_CODE or r.get("archived"):      # как в export_catalog.py: служебные и архивные не показываем
             continue
         qty = int(stock.get(r["id"], 0) or 0)
-        opt, rtl = _price(r, PRICE_OPT), _price(r, PRICE_RTL)
+        import pricefx
+        bq = max([int(p.get("quantity", 0)) for p in (r.get("packs") or []) if p.get("quantity", 0) > 1] or [0])
+        opt, mid, box, bq_ok, fx = pricefx.tiers(r, _cur_safe(), (PRICE_OPT, PRICE_MID, PRICE_BOX), bq)
+        rtl = _price(r, PRICE_RTL)
         descs[r["id"]], incis[r["id"]] = (r.get("description") or "")[:4000], _inci(r)
         if opt <= 0 and rtl <= 0:
             continue
-        mid, box = _price(r, PRICE_MID), _price(r, PRICE_BOX)
-        bq = max([int(p.get("quantity", 0)) for p in (r.get("packs") or []) if p.get("quantity", 0) > 1] or [0])
         upd = r.get("updated", "")
         (items if qty > 0 else out).append({
             "id": r["id"], "name": r.get("name", ""), "brand": _brand(r), "group": (r.get("pathName") or "").strip(), "code": r.get("code", ""),
             "article": r.get("article", ""), "country": _country(r), "barcode": _barcode(r), "qty": qty,
-            "opt": opt, "mid": mid if 0 < mid < opt else 0,
-            "box": box if (0 < box < opt and bq) else 0, "boxQty": bq, "rtl": rtl,
+            "opt": opt, "mid": mid, "box": box, "boxQty": bq, "rtl": rtl, **({"fx": fx} if fx else {}),
             "img": f"img/{r['id']}.webp" if r["id"] in imgs else (f"{PUBLIC_URL or DEFAULT_API}/pimg/{r['id']}"
                                                                    if (r.get("images") or {}).get("meta", {}).get("size", 0) > 0 else None),
             "updated": upd[:10], "isNew": upd[:10] >= new_since,
@@ -470,6 +493,33 @@ def build_live(products, stock=None):
     _cache["incis"] = (time.time(), incis)
     # описание и состав не входят в живой каталог (он уходит клиентам каждые 2 минуты) — отдаётся по /product/<id>
     return {"updated": datetime.now(ALMATY).strftime("%d.%m.%Y %H:%M"), "items": items, "hiddenItems": hid_items, "outItems": out}
+
+
+def _fx_fix(data):
+    """Цены в валюте — по курсу МС сейчас (выгрузка каталога могла посчитать по вчерашнему); страховка от цены в валюте,
+    прочитанной как тенге (pricefx.guard)."""
+    import pricefx
+    try:
+        iso = {i: r for i, r in currencies().values()}
+    except Exception as e:
+        print("Курс валют МойСклад не получен:", str(e)[:150], flush=True)
+        iso = {}
+    for key in ("items", "hiddenItems", "outItems"):
+        for i in data.get(key) or []:
+            if i.get("fx"):
+                pricefx.reprice(i, iso)
+            bad = pricefx.guard(i)
+            if bad:
+                print(f"Цена тира {bad} у {i.get('code')} меньше 100 ₸ при опте {i.get('opt')} — скрыта (валюта?)", flush=True)
+    return data
+
+
+def tier_of(item, qty):
+    if item.get("box") and item.get("boxQty") and qty >= item["boxQty"]:
+        return "box"
+    if item.get("mid") and qty >= TIER_MID:
+        return "mid"
+    return "opt"
 
 
 def panel_catalog():
@@ -503,6 +553,7 @@ def refresh(max_age):
         except Exception as e:
             print("Товары вне выгрузки не получены:", e, flush=True)
         data = build_live(products, stock)
+        _fx_fix(data)
         try:
             import site_price
             data = site_price.apply(data)            # «Новая модель цен» розницы (владелец 08.11.2026): rtl = цена сайта
@@ -1257,6 +1308,10 @@ def order_core(d, key, ip, me, source="с сайта", panel=False, paid=None):
         if qty <= 0 or price <= 0:
             continue
         line = {"id": item["id"], "name": item["name"], "qty": qty, "price": price, "reserve": min(qty, max(stock, 0))}   # резерв — не больше остатка
+        fxt = (item.get("fx") or {}).get(tier_of(item, qty)) if ws else None
+        if fxt and fxt.get("rate") and price == unit_price(item, qty, ws):                       # цена типа МС в валюте — строка в заказ
+            import pricefx
+            line["fx"] = pricefx.note(item["name"], tier_of(item, qty), fxt, price)
         if "own" in item:                                           # часть сверх нашего остатка — у поставщика, резерв только на наше
             line["reserve"] = min(qty, max(own, 0))
             if qty > max(own, 0):
@@ -1344,7 +1399,8 @@ def order_core(d, key, ip, me, source="с сайта", panel=False, paid=None):
                            + (f"\nИсточник: {src['code']}" + (f" (промокод {src['promo']}, скидка {disc:g}%)" if disc else "") if src else "")
                            + (f"\n{NEWS_TXT}: {'да' if d['news'] else 'нет'}" if retail and isinstance(d.get("news"), bool) else "")
                            + (f"\n{PAY_CARD_TXT}" if retail and d.get("pay") == "card" else "")
-                           + (f"\n{paid['note']}" if paid and paid.get("note") else ""),
+                           + (f"\n{paid['note']}" if paid and paid.get("note") else "")
+                           + ("".join(f"\n{l['fx']}" for l in lines if l.get("fx"))),
             "positions": positions,
             **({"state": {"meta": paid["state"]}} if paid and paid.get("state") else {}),   # оплачен — сразу «Подтвержден» (к сборке)
         })
