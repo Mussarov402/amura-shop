@@ -33,7 +33,7 @@ class Resp:
 
 class Quote(unittest.TestCase):
     def setUp(self):
-        for k in [k for k in oh._cache if isinstance(k, str) and k.startswith("dq:")]:
+        for k in [k for k in oh._cache if isinstance(k, str) and k.startswith("dq")]:
             oh._cache.pop(k)
         dq._down.update(ya=0.0, cdek=0.0)
         base = delivery.conf()
@@ -165,7 +165,7 @@ class Quote(unittest.TestCase):
         p = dq.quote("cdek", "Астана", 6690, [{"id": "p1", "qty": 2}, {"id": "nowt", "qty": 3}], pvz={"type": "Постамат"})
         self.assertEqual(p["price"], 1760)                                     # постамат — свой тариф
         self.rules["cdek_margin"] = 5
-        for k in [k for k in oh._cache if isinstance(k, str) and k.startswith("dq:")]:
+        for k in [k for k in oh._cache if isinstance(k, str) and k.startswith("dq")]:
             oh._cache.pop(k)
         self.assertEqual(dq.quote("cdek", "Астана", 6690, [{"id": "p1", "qty": 2}, {"id": "nowt", "qty": 3}])["price"], 2058)
 
@@ -198,6 +198,10 @@ class Quote(unittest.TestCase):
         self.assertEqual(price, 1850)
         self.assertIn("Цена доставки обновилась: 1", err)
         self.assertEqual(checkout.order_delivery({"pvz": {"code": "AST1", "address": "Мангилик Ел 1"}}, "cdek", "Астана", 6690, lines=LINES)[0], 1280)
+
+    def test_old_cache_ignored(self):
+        oh._cache["dq:express:туркебаева 63:x:0.2"] = (time.time(), 5000.0)   # цена старого способа расчёта (до версии в ключе)
+        self.assertEqual(dq.quote("express", CITY, 6690, LINES, "Туркебаева 63")["price"], 1850)
 
     def test_route(self):
         self.patch(oh, "too_many", lambda *a, **k: False)
