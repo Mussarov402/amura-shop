@@ -50,7 +50,7 @@ def db():
               " price DOUBLE PRECISION, ifrom TEXT, ito TEXT, lon DOUBLE PRECISION, lat DOUBLE PRECISION, addr TEXT, err TEXT,"
               " at DOUBLE PRECISION, updated DOUBLE PRECISION)")
         d.c.commit()
-        for col in ("agent_id TEXT", "track TEXT"):          # чей заказ (клиент видит только свои) и ссылка «где курьер»
+        for col in ("agent_id TEXT", "track TEXT", "taxi TEXT"):          # taxi — тариф Express (courier / express)          # чей заказ (клиент видит только свои) и ссылка «где курьер»
             try:
                 d.run("ALTER TABLE ya_claim ADD COLUMN " + col)
                 d.c.commit()
@@ -222,11 +222,11 @@ def wrong_day(x, day):
 
 
 def _row(d, num):
-    r = d.run("SELECT claim_id, status, version, price, ifrom, ito, lon, lat, addr, err FROM ya_claim WHERE num=%s", (num,), one=True)
+    r = d.run("SELECT claim_id, status, version, price, ifrom, ito, lon, lat, addr, err, taxi FROM ya_claim WHERE num=%s", (num,), one=True)
     if not r:
         return None
     return {"claim": r[0], "status": r[1], "version": r[2], "price": r[3], "from": r[4], "to": r[5],
-            "pt": [r[6], r[7]] if r[6] is not None else None, "addr": r[8], "err": r[9] or ""}
+            "pt": [r[6], r[7]] if r[6] is not None else None, "addr": r[8], "err": r[9] or "", "taxi": r[10] or ""}
 
 
 def _save(d, num, **kw):
@@ -307,7 +307,7 @@ def courier_day():
                     o["ya"] = _row(d, o["num"])
             o["statusText"] = STATUS.get((o["ya"] or {}).get("status") or "new", (o["ya"] or {}).get("status") or "")
     windows = [s.get("from", "") for s in (delivery.conf().get("schedule") or {}).get("slots", [])]     # окна, которые выбирают клиенты на сайте
-    return jsonify(ok=True, date=day, ready=ready, error=err, intervals=intervals, windows=windows, orders=orders, future=future)
+    return jsonify(ok=True, date=day, ready=ready, error=err, intervals=intervals, windows=windows, orders=orders, future=future, xauto=xauto_on())
 
 
 @bp.post("/admin/api/courier/coords")
@@ -371,7 +371,8 @@ def courier_estimate():
             try:
                 j = ya("/claims/create", claim_body(o, pt, wh, iv, taxi), request_id=str(uuid.uuid4()))
                 _save(d, n, order_id=o["id"], agent_id=o.get("agent", ""), claim_id=j.get("id"), status=j.get("status", "estimating"), version=j.get("version", 1),
-                      ifrom=(iv or {}).get("from", ""), ito=(iv or {}).get("to", ""), lon=pt[0], lat=pt[1], addr=o["addr"], err="", price=_price(j))
+                      ifrom=(iv or {}).get("from", ""), ito=(iv or {}).get("to", ""), lon=pt[0], lat=pt[1], addr=o["addr"], err="", price=_price(j),
+                      taxi=taxi if express else "")
                 res[n] = "ok"
             except Exception as e:
                 _save(d, n, order_id=o["id"], err=str(e)[:300], status="new")
@@ -416,12 +417,18 @@ def refresh(nums=None):
 
 
 # ---------- Express: «Собран» → курьер вызывается сам ----------
+def xauto_on():
+    """«Express: вызывать курьера сразу после сборки» (Настройки → Доставка). По умолчанию ВЫКЛ (владелец 20.11.2026: сначала
+    увидеть цену, потом вызвать). Новый ключ xauto_on: прежний xauto был включён по умолчанию и мог сохраниться включённым."""
+    return bool(int(delivery.conf()["rules"].get("xauto_on", 0) or 0))
+
+
 def auto_express(num, order_id="", wait=90):
     """Заказ Express отметили собранным: рассчитать в Яндексе (тариф «Курьер») и вызвать, если цена ≤ лимита.
     Дороже лимита или ошибка — уведомление сотрудникам, вызов вручную во вкладке Express → «Собраны»."""
     import push
     r = delivery.conf()["rules"]
-    if not int(r.get("xauto", 1) or 0) or not delivery.conf()["svc"]["yandex"].get("token"):
+    if not xauto_on() or not delivery.conf()["svc"]["yandex"].get("token"):
         return "off"
 
     def tell(text, title="Express"):
@@ -455,7 +462,7 @@ def auto_express(num, order_id="", wait=90):
             j = ya("/claims/create", claim_body(o, pt, warehouse(), None, "courier"), request_id=str(uuid.uuid4()))
             cid = j.get("id")
             _save(d, num, order_id=o["id"], agent_id=o.get("agent", ""), claim_id=cid, status=j.get("status", "estimating"),
-                  version=j.get("version", 1), ifrom="", ito="", lon=pt[0], lat=pt[1], addr=o["addr"], err="", price=_price(j))
+                  version=j.get("version", 1), ifrom="", ito="", lon=pt[0], lat=pt[1], addr=o["addr"], err="", price=_price(j), taxi="courier")
         info, t0 = {}, time.time()
         while time.time() - t0 < wait:                 # Яндекс считает цену несколько секунд
             info = ya("/claims/info", claim_id=cid)

@@ -968,10 +968,14 @@ const viewOrder=async(n,oid,opt={})=>{const ov=document.createElement("div");ov.
 const head=(t,s)=>`<h1>${t}</h1><div class="sub">${s}</div>`;
 /* этапы как в FBS у WB: Новые → Собраны → В доставке → Доставлены / Отменённые — по статусу заказа в МойСклад и курьера Яндекса */
 const STG=[["new","Новые"],["built","Собраны"],["ship","В доставке"],["done","Доставлены"],["cancel","Отменённые"]];
+/* курьерский заказ (вкладки Курьер / Express), по которому курьер Яндекса не вызван: заявки нет или она только рассчитана / отменена */
+const noCourier=x=>"ya" in x&&!/^(accepted|performer_|pickup_arrived|ready_for_pickup_confirmation|pickuped|delivery_arrived|pay_waiting|ready_for_delivery_confirmation|returning|return_arrived|returned|delivered)/.test((x.ya||{}).status||"");
+const shipWarn=x=>x.state==="Отгружен"&&noCourier(x)?`<span class="b w">В МС отгружен, но курьер не вызван</span>`:"";
 const stageOf=x=>{const y=(x.ya||{}).status||"",m=x.state||"";
  if(/Отмен|Возврат/.test(m))return "cancel";             // отмена заявки Яндекса — не отмена заказа: его можно отправить заново
  if(/^delivered/.test(y)||m==="Доставлен")return "done";
- if(/^(pickuped|delivery_arrived|pay_waiting|ready_for_delivery_confirmation|returning)$/.test(y)||m==="Отгружен")return "ship";
+ if(/^(pickuped|delivery_arrived|pay_waiting|ready_for_delivery_confirmation|returning)$/.test(y))return "ship";
+ if(m==="Отгружен")return noCourier(x)?"built":"ship";    // курьерский заказ «Отгружен» в МС, а курьер не вызван — остаётся в «Собраны», чтобы вызвать
  return m==="Собран"?"built":"new"};
 const stgChips=(list,cur,id)=>`<div class="chips cn" id="${id}" style="margin-bottom:10px;flex-wrap:wrap">${STG.map(([k,t])=>{const n=list.filter(x=>stageOf(x)===k).length;return !n&&k!==cur&&k!=="new"&&k!=="built"?"":`<button class="st ${k===cur?"on":""}" data-stg="${k}">${t} ${n}</button>`}).join("")}</div>`;
 /* открытый этап: выбранный раньше, иначе первый непустой — Новые → Собраны → … */
@@ -1374,7 +1378,7 @@ async courier(day){day=day||views.courier.day||new Date(Date.now()+5*3600e3).toI
  stgChips(o.orders,SG,"cstg")+
  `<div class="card">${SL.length?SL.map(x=>{const y=x.ya||{},can=SG==="built"&&!live(x)&&y.pt;return `<div class="ord cyo" data-num="${esc(x.num)}"><div class="o1">${can?`<input type="checkbox" data-sel="${esc(x.num)}" ${sel.has(x.num)?"checked":""} style="width:20px;height:20px">`:""}<b>№${esc(x.num)}</b><span class="mut">${esc(x.slot||x.moment.slice(5))}</span><span style="flex:1"></span><b style="white-space:nowrap">${fmt(x.sum)} ₸</b></div>
   <div class="o2"><span class="cl">${esc(x.name)} · ${esc(x.addr||"адрес не указан")}</span></div>
-  <div class="o3" style="flex-wrap:wrap"><span class="b ${y.status==="ready_for_approval"?"w":/deliver/.test(y.status||"")?"ok":/cancel|fail/.test(y.status||"")?"x":"n"}">${esc(x.statusText)}${y.price?" · "+fmt(Math.round(y.price))+" ₸":""}</span>
+  <div class="o3" style="flex-wrap:wrap">${shipWarn(x)}<span class="b ${y.status==="ready_for_approval"?"w":/deliver/.test(y.status||"")?"ok":/cancel|fail/.test(y.status||"")?"x":"n"}">${esc(x.statusText)}${y.price?" · "+fmt(Math.round(y.price))+" ₸":""}</span>
   ${y.pt?`<a class="mut" target="_blank" rel="noopener" href="https://2gis.kz/almaty/geo/${y.pt[0]},${y.pt[1]}">на карте</a>`:`<span class="b x">адрес не найден на карте</span>`}
   ${live(x)?"":`<button class="btn ghost" data-co="${esc(x.num)}" style="padding:6px 10px">${y.pt?"Поправить точку":"Указать точку"}</button>`}
   ${live(x)&&y.status!=="ready_for_approval"?"":""}${y.claim&&live(x)?`<button class="btn ghost" data-cx="${esc(x.num)}" style="padding:6px 10px">Отменить</button>`:""}${bldBtn(x)}</div>
@@ -1411,14 +1415,14 @@ async express(day){day=day||views.express.day||new Date(Date.now()+5*3600e3).toI
  const live=x=>x.ya&&x.ya.claim&&!/^(cancel|fail|estimating_failed|returned|delivered)/.test(st(x)),ready=x=>st(x)==="ready_for_approval"&&stageOf(x)==="built";
  let TX="courier";try{TX=localStorage.getItem("amura_xtaxi")==="express"?"express":"courier"}catch(e){}
  const toEst=E.filter(x=>!live(x)&&x.ya&&x.ya.pt&&stageOf(x)==="built"),R=E.filter(ready),sumR=R.reduce((s,x)=>s+Math.round(x.ya.price||0),0);
- $("#main").innerHTML=head("Express","Срочно по Алматы: соберите заказ и нажмите «Отметить собранным» — курьер Яндекса вызовется сам (лимит цены — Обзор → Доставка). К каждому заказу — свой курьер, везёт за 1–2 часа.")+seg("express")+
+ $("#main").innerHTML=head("Express",o.xauto?"Срочно по Алматы: соберите заказ и нажмите «Отметить собранным» — курьер Яндекса вызовется сам (лимит цены — Настройки → Доставка). К каждому заказу — свой курьер, везёт за 1–2 часа.":"Срочно по Алматы: соберите заказ и отметьте собранным — курьер НЕ вызывается сам. В «Собраны»: «Рассчитать» (бесплатно, цена и тариф), потом «Вызвать» (платно). Свой курьер к каждому заказу, везёт за 1–2 часа.")+seg("express")+
  `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px"><input type="date" id="xday" value="${esc(day)}" style="width:180px;flex:none"><button class="btn ghost" id="xref">Обновить статусы</button><span class="mut" id="xm"></span></div>`+
  (!o.ready?`<div class="card" style="margin-bottom:12px">Ключ Яндекс Доставки не введён. Обзор → Доставка → Яндекс.</div>`:"")+
  (SG!=="built"?"":`<div class="card" style="margin-bottom:12px"><b>Тариф Яндекса</b><div class="mut" style="font-size:13px">Для новых расчётов. Уже рассчитанные заказы не меняются — чтобы сменить тариф, отмените и рассчитайте заново.</div><div class="chips cn" style="margin-top:8px;flex-wrap:wrap"><button class="st ${TX==="courier"?"on":""}" data-tx="courier">Курьер — мото, вело, пешком · дешевле</button><button class="st ${TX==="express"?"on":""}" data-tx="express">Экспресс — на машине</button></div></div>`)+
  stgChips(E,SG,"xstg")+
  `<div class="card">${SL.length?SL.map(x=>{const y=x.ya||{},lv=live(x),bc=ready(x)?"w":/deliver/.test(st(x))?"ok":/cancel|fail/.test(st(x))?"x":"n";return `<div class="ord"><div class="o1"><b>№${esc(x.num)}</b><span class="mut">${esc(x.moment.slice(11))}</span><span style="flex:1"></span><b style="white-space:nowrap">${fmt(x.sum)} ₸</b></div>
   <div class="o2"><span class="cl">${esc(x.name)} · ${esc(x.addr||"адрес не указан")}</span></div>
-  <div class="o3" style="flex-wrap:wrap;gap:8px"><span class="b ${bc}">${esc(x.statusText)}${y.price?" · "+fmt(Math.round(y.price))+" ₸":""}</span>
+  <div class="o3" style="flex-wrap:wrap;gap:8px">${shipWarn(x)}<span class="b ${bc}">${esc(x.statusText)}${y.price?" · "+fmt(Math.round(y.price))+" ₸":""}${y.taxi?" · "+(y.taxi==="express"?"Экспресс, машина":"Курьер, мото/вело/пешком"):""}</span>
   ${y.pt?`<a class="mut" target="_blank" rel="noopener" href="https://2gis.kz/almaty/geo/${y.pt[0]},${y.pt[1]}">на карте</a>`:`<span class="b x">адрес не найден на карте</span>`}
   ${lv?"":`<button class="btn ghost" data-co="${esc(x.num)}" style="padding:6px 10px">${y.pt?"Поправить точку":"Указать точку"}</button>`}
   ${y.claim&&lv?`<button class="btn ghost" data-cx="${esc(x.num)}" style="padding:6px 10px">Отменить</button>`:""}${bldBtn(x)}</div>
@@ -1430,9 +1434,9 @@ async express(day){day=day||views.express.day||new Date(Date.now()+5*3600e3).toI
  const msg=t=>$("#xm").textContent=t,res=r=>Object.entries(r.result||{}).filter(([,v])=>v!=="ok").map(([k,v])=>"№"+k+": "+v).join("; ");
  $("#xday").onchange=e=>views.express(e.target.value);
  document.querySelectorAll("#xstg [data-stg]").forEach(b=>b.onclick=()=>{views.express.stg=b.dataset.stg;views.express(day)});
- document.querySelectorAll("[data-bld]").forEach(b=>b.onclick=async()=>{b.disabled=true;const on=b.dataset.on!=="1";await setBuilt([{number:b.dataset.bld,id:b.dataset.id}],on);if(on)toast("Собран — вызываю курьера автоматически…",4000);
-   if(n===nav)views.express(day);if(on)setTimeout(()=>{if(n===nav&&cur==="express")views.express(day)},20000)});bindLabels(SL,"EXPRESS");
- const xb=$("#xbld");if(xb)xb.onclick=async()=>{if(!confirm(`Отметить собранными все ${SL.length}? Статус в МойСклад станет «Собран», курьеры вызовутся автоматически.`))return;xb.disabled=true;await setBuilt(SL.map(x=>({number:x.num,id:x.id})),true);if(n===nav){views.express.stg="built";views.express(day)}};
+ document.querySelectorAll("[data-bld]").forEach(b=>b.onclick=async()=>{b.disabled=true;const on=b.dataset.on!=="1";await setBuilt([{number:b.dataset.bld,id:b.dataset.id}],on);if(on)toast(o.xauto?"Собран — вызываю курьера автоматически…":"Собран. Курьер НЕ вызван — рассчитайте во вкладке «Собраны»",5000);
+   if(n===nav)views.express(day);if(on&&o.xauto)setTimeout(()=>{if(n===nav&&cur==="express")views.express(day)},20000)});bindLabels(SL,"EXPRESS");
+ const xb=$("#xbld");if(xb)xb.onclick=async()=>{if(!confirm(`Отметить собранными все ${SL.length}? Статус в МойСклад станет «Собран». `+(o.xauto?"Курьеры вызовутся автоматически (платно, если цена не выше лимита).":"Курьер НЕ вызывается — рассчитайте и вызовите во вкладке «Собраны».")))return;xb.disabled=true;await setBuilt(SL.map(x=>({number:x.num,id:x.id})),true);if(n===nav){views.express.stg="built";views.express(day)}};
  document.querySelectorAll("[data-tx]").forEach(b=>b.onclick=()=>{try{localStorage.setItem("amura_xtaxi",b.dataset.tx)}catch(e){}views.express(day)});
  $("#xref").onclick=async()=>{msg("Обновляю…");try{await api("courier/refresh",{method:"POST",body:"{}"});if(n===nav)views.express(day)}catch(e){msg(e.message)}};
  ($("#xest")||{}).onclick=async()=>{msg("Рассчитываю в Яндексе…");try{const r=await api("courier/estimate",{method:"POST",body:JSON.stringify({date:day,nums:toEst.map(x=>x.num),express:true,taxi:TX})});const bad=res(r);msg("Яндекс считает цену…"+(bad?" "+bad:""));
@@ -1810,7 +1814,7 @@ async delivery(){const o=await api("delivery");const n=nav;const S=o.services,R=
   <div class="dlz">${num("r-sdd_price","Алматы, в течение дня — цена",R.sdd_price??1000,"₸")}</div>
   <div class="dlz">${num("r-express_price","Алматы, срочно (Яндекс Экспресс) — цена, всегда платно",R.express_price??2500,"₸")}</div>
   <div class="dlz"><label class="dll">Самовывоз на розничном сайте (amura.kz)<select id="r-rpickup"><option value="1" ${(R.rpickup??1)?"selected":""}>Включён — покупатель может выбрать самовывоз</option><option value="0" ${(R.rpickup??1)?"":"selected"}>Выключен — только доставка</option></select></label></div>
-  <div class="dlz"><label class="dll">Express: автовызов курьера (тариф «Курьер»), когда заказ отметили «Собран»<select id="r-xauto"><option value="1" ${(R.xauto??1)?"selected":""}>Включён — вызывается сам</option><option value="0" ${(R.xauto??1)?"":"selected"}>Выключен — вручную</option></select></label>${num("r-xauto_limit","Автовызов, если Яндекс просит не больше (дороже — спросит вас)",R.xauto_limit??3000,"₸")}</div>
+  <div class="dlz"><label class="dll">Express: вызывать курьера сразу после сборки (тариф «Курьер»)<select id="r-xauto_on"><option value="0" ${+(R.xauto_on||0)?"":"selected"}>Выключен — «Собран» только собирает; цена и вызов во вкладке Express → «Собраны»</option><option value="1" ${+(R.xauto_on||0)?"selected":""}>Включён — курьер вызывается сразу после сборки</option></select></label>${num("r-xauto_limit","Автовызов, если Яндекс просит не больше (дороже — спросит вас)",R.xauto_limit??3000,"₸")}</div>
   <div class="dlz">${num("r-cdek_price","Пункт выдачи СДЭК — цена",R.cdek_price??1500,"₸")}</div>
   <div class="mut dlx" id="dlx2"></div>
   <div hidden><div class="dltr" id="dltr"></div><button type="button" id="dlta"></button>${num("r-free_from","",R.free_from,"₸")}${num("r-door_extra","",R.door_extra??1000,"₸")}<div id="dlx"></div></div></div>
@@ -1850,7 +1854,7 @@ async delivery(){const o=await api("delivery");const n=nav;const S=o.services,R=
  (G.slots.length?G.slots:[]).forEach(slotRow);
  $("#dlsa").onclick=()=>{const last=[...document.querySelectorAll(".dlsto")].pop();const r=slotRow({name:"",from:last&&last.value||"",to:""});r.querySelector(".dlsn").focus()};
  const collect=()=>{const b={rules:{},store:{}};for(const k of Object.keys(S)){b[k]={};document.querySelectorAll(`[data-s="${k}"] [data-f]`).forEach(i=>b[k][i.dataset.f]=i.value)}
-  b.cdek.test=$("#d-cdek-test").checked;["free_from","door_extra","weight","cutoff","box_w","box_h","box_d","free_all","sdd_price","express_price","cdek_price","rpickup","xauto","xauto_limit"].forEach(k=>b.rules[k]=$("#r-"+k).value.replace(/\D/g,"")||0);b.tiers=tiers();
+  b.cdek.test=$("#d-cdek-test").checked;["free_from","door_extra","weight","cutoff","box_w","box_h","box_d","free_all","sdd_price","express_price","cdek_price","rpickup","xauto_on","xauto_limit"].forEach(k=>b.rules[k]=$("#r-"+k).value.replace(/\D/g,"")||0);b.tiers=tiers();
   b.schedule={days:[...document.querySelectorAll(".xhd .xhon")].map(x=>x.classList.contains("on")?"1":"0").join(""),
    slots:[...document.querySelectorAll(".dlsr")].map(r=>({name:r.querySelector(".dlsn").value,from:r.querySelector(".dlsf").value,to:r.querySelector(".dlsto").value})).filter(x=>x.name.trim())};
   b.express_hours=[...document.querySelectorAll(".xhd")].map(r=>r.querySelector(".xhon").classList.contains("on")?[r.querySelector(".xhf").value,r.querySelector(".xht").value]:null);
