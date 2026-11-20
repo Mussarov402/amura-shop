@@ -1441,6 +1441,12 @@ def order_core(d, key, ip, me, source="с сайта", panel=False, paid=None):
         except Exception as e:
             print("Источники:", str(e)[:200], flush=True)
     if retail:
+        try:                                   # «Экономика заказа» в описание МС (в фоне: себестоимость — запросы к МС)
+            import retail_econ
+            retail_econ.write_bg(order.get("id", ""), delay=3)
+        except Exception as e:
+            print("Розница: экономика заказа", str(e)[:150], flush=True)
+
         def _mark():
             try:
                 mark_retail(agent)

@@ -121,6 +121,8 @@ from analytics import bp as analytics_bp  # noqa: E402
 app.register_blueprint(analytics_bp)
 from retail_stats import bp as retail_stats_bp  # noqa: E402
 app.register_blueprint(retail_stats_bp)
+from retail_econ import bp as retail_econ_bp  # noqa: E402
+app.register_blueprint(retail_econ_bp)     # экономика розничных заказов (владелец 20.11.2026)
 from courier import bp as courier_bp  # noqa: E402
 app.register_blueprint(courier_bp)
 from ops import bp as ops_bp  # noqa: E402
