@@ -125,10 +125,14 @@ from retail_econ import bp as retail_econ_bp  # noqa: E402
 app.register_blueprint(retail_econ_bp)     # экономика розничных заказов (владелец 20.11.2026)
 from courier import bp as courier_bp  # noqa: E402
 app.register_blueprint(courier_bp)
+from cdek_orders import bp as cdek_bp  # noqa: E402
+app.register_blueprint(cdek_bp)            # отправления СДЭК из системы AMURA (20.11.2026)
 from ops import bp as ops_bp  # noqa: E402
 app.register_blueprint(ops_bp)          # сервер на Hoster.kz: ключи и подписанные отчёты (переезд, вариант В)
 import courier  # noqa: E402
-courier.start_poller()            # статусы курьера Яндекса — в фоне, для «Моих заказов» на сайте
+courier.start_poller()
+import cdek_orders  # noqa: E402
+cdek_orders.start_poller()              # статусы отправлений СДЭК — раз в 30 минут            # статусы курьера Яндекса — в фоне, для «Моих заказов» на сайте
 
 
 SLOW_SEC = 3.0                     # запросы системы AMURA дольше этого — в лог «SLOW <путь> <мс>» (ищем, что тормозит)

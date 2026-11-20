@@ -595,6 +595,12 @@ def client_tracks(agent_id, nums=None):
             continue                                       # ещё не подтверждено (оценка) — клиенту не показываем
         out[num] = {"code": st, "step": step, "label": label, "link": track if step in (1, 2) else "",
                     "from": ifrom or "", "to": ito or "", "kind": "yandex"}
+    try:                                                   # отправления СДЭК — трек и ссылка на cdek.kz
+        import cdek_orders
+        for num, t in cdek_orders.client_tracks(agent_id, nums).items():
+            out.setdefault(num, t)
+    except Exception as e:
+        print("СДЭК: трек для покупателя", str(e)[:150], flush=True)
     return out
 
 

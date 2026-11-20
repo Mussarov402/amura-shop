@@ -38,7 +38,7 @@ def parse(o, positions=None):
     phone = (m.group(0).strip() if m else "") or str(agent.get("phone") or "").strip()      # как в заказе, без переформатирования
     ship = line("Отправка:")
     method, _, addr = ship.partition(" — ")
-    track = line("Трек:") or line("Трек-номер:")
+    track = line("Трек:") or line("Трек-номер:") or line("Трек СДЭК:")
     goods = [p for p in (positions or []) if ((p.get("assortment") or {}).get("meta") or {}).get("type") != "service"]
     total, paid = (o.get("sum") or 0) / 100, (o.get("payedSum") or 0) / 100
     return {"number": str(o.get("name") or ""), "name": name, "phone": phone, "city": line("Город:"),
