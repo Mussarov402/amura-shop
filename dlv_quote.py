@@ -26,6 +26,7 @@ import order_hook as oh
 
 WAIT = 4.5                 # сек: дольше покупатель не ждёт — показываем фиксированную цену
 TTL = 900                  # кэш расчёта, сек
+VER = 3                    # версия способа расчёта: меняется — старые цены из кэша не используются (#577: «в течение дня» по заявке)
 KG_DEFAULT = 0.5           # вес штуки без веса в карточке
 PAUSE = 120                # после сбоя связи со службой — 2 минуты сразу фиксированная цена
 _pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="dlvq")
@@ -211,10 +212,10 @@ def _cdek_raw(city, kg, postamat):
 
 def _key(method, city, address, slot, pvz, kg):
     if method == "cdek":
-        return f"dq:cdek:{str(city).lower().strip()}:{kg}:{1 if _postamat(pvz) else 0}"
+        return f"dq{VER}:cdek:{str(city).lower().strip()}:{kg}:{1 if _postamat(pvz) else 0}"
     when = f"{(slot or {}).get('date', '')}/{(slot or {}).get('from', '')}" if method == "courier" else "x"
     addr = re.sub(r"\s+", " ", str(address).lower()).strip()
-    return f"dq:{method}:{addr}:{when}:{kg}"
+    return f"dq{VER}:{method}:{addr}:{when}:{kg}"
 
 
 def _postamat(pvz):
