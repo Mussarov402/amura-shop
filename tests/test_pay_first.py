@@ -59,7 +59,7 @@ class PayFirst(unittest.TestCase):
                           "_post_order": lambda body: self.posted.append(body) or {"name": "1700", "id": "o1"}}.items():
             self.patch(oh, name, val)
         import checkout
-        self.patch(checkout, "order_delivery", lambda d, ship, city, goods: (1000, "Курьер по Алматы (Яндекс) — Абая 1", None))
+        self.patch(checkout, "order_delivery", lambda d, ship, city, goods, **k: (1000, "Курьер по Алматы (Яндекс) — Абая 1", None))
         app = Flask(__name__)
         app.register_blueprint(freedom.bp)
         self.c = app.test_client()

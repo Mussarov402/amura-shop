@@ -2427,11 +2427,42 @@ function freeBar(goods, ff, cartStep){
 
 const isCour = s => s === "courier" || s === "express";
 const _dlvPrice = dlvPrice;
-dlvPrice = function(ship, goods){          // цена по способу: своя цена и свой порог бесплатной доставки (rates с сервера)
+/* настоящая цена доставки (решение владельца 20.11.2026): сервер считает её по API Яндекса / СДЭК для адреса, окна, пункта и товаров.
+   Пока считаем — «считаем…»; ответ кэшируем по всем этим данным, поменялось что-то — считаем заново. В заказ уходит показанная цена
+   (dlvShown): не совпала с серверной — заказ не принят, покупатель видит новую */
+const QC = new Map(), QWAIT = new Set();
+function qCtx(ship, goods){
+  const f = form(), ls = lines().filter(l => !off.has(l.it.id));
+  const c = { ship, city: f.city || "", sum: goods, items: ls.map(l => ({ id: l.it.id, qty: l.q })) };
+  if(isCour(ship)){ if(f.ship !== ship || !f.address) return null; c.address = f.address; }   // адрес курьера — только у выбранного способа
+  if(ship === "courier" && DLV.slotSel) c.slot = { date: DLV.slotSel.date, from: DLV.slotSel.from, to: DLV.slotSel.to };
+  if(ship === "cdek"){ if(!c.city) return null; if(DLV.pvzSel) c.pvz = { code: DLV.pvzSel.code, type: DLV.pvzSel.type }; }
+  return c;
+}
+async function requote(k, c){
+  QWAIT.add(k);
+  let v = null;
+  try{
+    const r = await fetch(CONFIG.apiUrl + "/delivery/quote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(c) });
+    const j = await r.json().catch(() => ({}));
+    if(r.ok && j.ok) v = j.price;
+  }catch{}
+  if(v === null){ const rr = DLV.opts && (DLV.opts.rates || {})[c.ship]; v = rr ? rr.price : null; }   // нет связи — запасная цена (сервер проверит)
+  QWAIT.delete(k);
+  if(v !== null){ QC.set(k, v); if(QC.size > 60) QC.delete(QC.keys().next().value); }
+  if(VIEW === "cart") try{ paint(); }catch{}
+}
+dlvPrice = function(ship, goods){          // цена по способу: бесплатно от порога (кроме Express), иначе — настоящая с сервера
   if(!ship || ship === "pickup") return 0;
   const o = DLV.opts; if(!o) return null;
   const r = (o.rates || {})[ship]; if(!r) return _dlvPrice(ship, goods);
-  return r.free && goods >= r.free ? 0 : r.price;
+  if(r.free && goods >= r.free) return 0;
+  const c = qCtx(ship, goods);
+  if(!c) return isCour(ship) && form().ship !== ship ? null : r.price;   // нет адреса — ориентир из настроек; на соседней вкладке — без цены
+  const k = JSON.stringify(c);
+  if(QC.has(k)) return QC.get(k);
+  if(!QWAIT.has(k)) setTimeout(() => { if(!QWAIT.has(k) && !QC.has(k)) requote(k, c); }, 0);
+  return null;
 };
 const freeFrom = ship => { const r = DLV.opts && (DLV.opts.rates || {})[ship]; return r && r.free || 0; };
 const plural = (n, a, b, c) => { const m = n % 10, h = n % 100; return m === 1 && h !== 11 ? a : m >= 2 && m <= 4 && (h < 10 || h >= 20) ? b : c; };
@@ -3021,6 +3052,7 @@ async function submit(){
   if(isCour(f.ship) && !f.address){ fail("Укажите адрес доставки"); return openSheet(); }
   if(f.ship === "courier" && DLV.opts && DLV.opts.almaty && (DLV.opts.slots || []).length && !DLV.slotSel) return fail("Выберите, когда доставить", "[data-rslot]");
   if(t.dlv === null && f.ship !== "pickup") return fail("Считаем доставку — секунду…");
+  const shown = t.dlv;
   err.textContent = "";
   const payload = {
     name: f.name, contact: "wa", phone: digits, telegram: "",
@@ -3028,7 +3060,7 @@ async function submit(){
     items: t.ls.map(l => ({ id: l.it.id, qty: l.q, price: l.price })), clientTotal: t.total,
     orderKey: orderKey(), mode: "retail", ref: REF.code() || undefined, promo: PROMO ? PROMO.code : undefined,   // модуль «Источники»
     consent: LEGAL() ? true : undefined, news: LEGAL() ? CONSENT.news : undefined, pay: payWay() || undefined, payFirst: payNow() || undefined,   // оплата картой: заказ в МойСклад — только после оплаты   // факт и время согласия сервер пишет в комментарий заказа
-    pvz: f.ship === "cdek" ? DLV.pvzSel : undefined, slot: f.ship === "courier" ? DLV.slotSel : undefined
+    pvz: f.ship === "cdek" ? DLV.pvzSel : undefined, slot: f.ship === "courier" ? DLV.slotSel : undefined, dlvShown: shown
   };
   const btns = [...document.querySelectorAll("#rGo, [data-rgo]")]; busy = true;
   btns.forEach(b => { b.disabled = true; b.dataset.t = b.innerHTML; b.textContent = "Отправляем…"; });
@@ -3044,7 +3076,10 @@ async function submit(){
       res = await r.json().catch(() => ({}));
       if(r.status === 401 && res.login){ setAuth("", null); toast("Войдите заново"); return toLogin(); }
       if(res.needPhone){ toast(res.error); return go("me"); }    // вошёл без номера (Telegram) — подтвердить в кабинете
-      if(!r.ok || !res.ok) throw new Error(res.error || "Сервер не ответил");
+      if(!r.ok || !res.ok){
+        if(/Цена доставки обновилась/.test(res.error || "")){ QC.clear(); setTimeout(() => { try{ paint(); }catch{} }, 0); }   // показываем новую цену
+        throw new Error(res.error || "Сервер не ответил");
+      }
     }
     const df = { ...f, pvz: DLV.pvzSel, slot: DLV.slotSel, address: f.address || "" };
     if(res.draft){   // заказ появится после оплаты: сразу на страницу оплаты; не вышло — экран «Ожидает оплаты»
