@@ -57,12 +57,42 @@ def _iv(slot):
         return None
 
 
+def _ya_interval(slot, wh):
+    """Окно «в течение дня» ровно в том виде, как его даёт Яндекс (/delivery-methods → same_day_delivery.available_intervals):
+    интервал Яндекса того же дня, внутри которого начинается окно сайта. Свой интервал Яндекс не принимает и считает обычный тариф."""
+    import courier
+    st = delivery.conf()["store"]
+    m = oh.cached("ya_methods_q", 300, lambda: courier.ya("/delivery-methods", {"start_point": list(wh), "fullname": "Алматы, " + (st.get("wh_addr") or "")}))
+    sd = m.get("same_day_delivery") or {}
+    if sd.get("allowed") is False:
+        raise RuntimeError("Яндекс: «в течение дня» для склада недоступна")
+    want = _iv(slot)
+    if not want:
+        return None
+    w0 = datetime.fromisoformat(want["from"])
+    best = None
+    for i in sd.get("available_intervals") or []:
+        try:
+            a, b = datetime.fromisoformat(str(i["from"]).replace("Z", "+00:00")), datetime.fromisoformat(str(i["to"]).replace("Z", "+00:00"))
+        except (KeyError, ValueError):
+            continue
+        if a.astimezone(oh.ALMATY).date() != w0.date():
+            continue
+        if a <= w0 < b:
+            return {"from": i["from"], "to": i["to"]}
+        if best is None or abs((a - w0).total_seconds()) < abs((best[0] - w0).total_seconds()):
+            best = (a, i)
+    if best:
+        return {"from": best[1]["from"], "to": best[1]["to"]}
+    raise RuntimeError(f"Яндекс не даёт окно «в течение дня» на {slot.get('date')}")
+
+
 def _box():
     r = delivery.conf()["rules"]
     return r["box_d"], r["box_w"], r["box_h"]
 
 
-def _ya_raw(address, iv, kg):
+def _ya_raw(address, slot, kg):
     import courier
     tok = delivery.conf()["svc"]["yandex"].get("token")
     if not tok:
@@ -75,9 +105,9 @@ def _ya_raw(address, iv, kg):
     if not wh:
         raise RuntimeError("нет координат склада")
     l, w, h = _box()
-    req = {"taxi_class": "courier"}
-    if iv:
-        req["same_day_data"] = {"delivery_interval": iv}
+    # «в течение дня» — свой тариф: только same_day_data с интервалом Яндекса, без taxi_class (как claim_body в courier.py);
+    # Express — taxi_class courier (мото / вело / пешком), как автовызов Express
+    req = {"same_day_data": {"delivery_interval": _ya_interval(slot, wh)}} if slot else {"taxi_class": "courier"}
     body = {"items": [{"quantity": 1, "weight": kg, "size": {"length": l / 100, "width": w / 100, "height": h / 100}}],
             "route_points": [{"coordinates": list(wh)}, {"coordinates": list(pt)}], "requirements": req}
     try:
@@ -90,7 +120,11 @@ def _ya_raw(address, iv, kg):
         _down["ya"] = time.time()
     if r.status_code >= 400:
         raise RuntimeError(f"Яндекс {r.status_code}: {r.text[:150]}")
-    return float(r.json()["price"])
+    j = r.json()
+    if slot:                                       # для сверки в логе Render: что ответил Яндекс на «в течение дня»
+        print(f"Доставка: check-price «в течение дня» {req['same_day_data']['delivery_interval']} → {j.get('price')} "
+              f"(ответ: {', '.join(sorted(j))[:200]})", flush=True)
+    return float(j["price"])
 
 
 def _cdek_raw(city, kg, postamat):
@@ -161,7 +195,7 @@ def quote(method, city, goods, lines, address="", slot=None, pvz=None):
             print(f"Доставка: {method} — служба недавно не ответила, фиксированная цена {fixed} ₸", flush=True)
             return {"price": fixed, "real": False, "raw": 0}
         calc = (lambda: _cdek_raw(city, kg, _postamat(pvz))) if kind == "cdek" else \
-               (lambda: _ya_raw(address, _iv(slot) if method == "courier" and slot else None, kg))
+               (lambda: _ya_raw(address, slot if method == "courier" and slot else None, kg))
         fut = _pool.submit(oh.cached, key, TTL, calc)
         try:
             raw = fut.result(timeout=WAIT)
