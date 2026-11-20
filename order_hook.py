@@ -450,6 +450,9 @@ def _stock():
     return {r["assortmentId"]: r.get("freeStock", r.get("stock", 0)) for r in rows}
 
 
+_weights = {}                 # id товара → вес из карточки МойСклад, кг (заполняет build_live)
+
+
 def build_live(products, stock=None):
     stock = _stock() if stock is None else stock
     imgs = cached("imgidx", 1800, _img_index)
@@ -462,6 +465,8 @@ def build_live(products, stock=None):
         hidden = set()
     for r in products:
         _names[r["id"]] = (r.get("name", ""), r.get("code", ""))   # справочник названий для позиций заказов
+        if r.get("weight"):
+            _weights[r["id"]] = float(r["weight"])                  # вес из карточки, кг — для цены доставки (dlv_quote.py)
         if r.get("_site"):                 # строка из catalog.json — цены уже готовы, обновляем только остаток
             qty = int(stock.get(r["id"], 0) or 0)
             row = {k: v for k, v in r.items() if k not in ("_site", "desc", "inci")} | {"qty": qty}
@@ -1352,7 +1357,7 @@ def order_core(d, key, ip, me, source="с сайта", panel=False, paid=None):
         dlv, ship_name = paid["dlv"], paid["shipName"]
     elif retail:                                 # розница: цена доставки — по настройкам, считаем здесь (как на WB)
         import checkout
-        dlv, ship_name, err = checkout.order_delivery(d, ship, city, goods)
+        dlv, ship_name, err = checkout.order_delivery(d, ship, city, goods, lines=lines)
         if err:
             return dict(ok=False, error=err), 400
     else:

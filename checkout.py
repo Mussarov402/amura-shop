@@ -193,6 +193,30 @@ def options_route():
     return jsonify(ok=True, **options(str(request.args.get("city", ""))[:80], s))
 
 
+@bp.route("/delivery/quote", methods=["POST", "OPTIONS"])
+def quote_route():
+    """Сайт: настоящая цена доставки для выбранного способа, адреса, окна, пункта СДЭК и товаров корзины (dlv_quote.py)."""
+    if request.method == "OPTIONS":
+        return "", 204
+    b = request.get_json(silent=True) or {}
+    if oh.too_many("dlvq:" + (request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0]), limit=240, window=600):
+        return jsonify(ok=False, error="Слишком много запросов"), 429
+    ship, city = str(b.get("ship", ""))[:20], str(b.get("city", ""))[:80]
+    try:
+        goods = max(0, int(float(b.get("sum") or 0)))
+    except (TypeError, ValueError):
+        goods = 0
+    lines = [{"id": str(x.get("id", ""))[:40], "qty": max(1, min(999, int(x.get("qty") or 1)))}
+             for x in (b.get("items") or [])[:100] if isinstance(x, dict)]
+    slot = b.get("slot") if isinstance(b.get("slot"), dict) else None
+    pvz = b.get("pvz") if isinstance(b.get("pvz"), dict) else None
+    if ship not in allowed(city, pickup=True):
+        return jsonify(ok=False, error="Способ недоступен"), 400
+    import dlv_quote
+    q = dlv_quote.quote(ship, city, goods, lines, str(b.get("address", ""))[:200], slot, pvz)
+    return jsonify(ok=True, ship=ship, price=q["price"], real=q["real"])
+
+
 @bp.get("/delivery/pvz")
 def pvz_route():
     city = str(request.args.get("city", ""))[:80]
@@ -255,9 +279,23 @@ def me_retail():
 
 
 # ---------- для order_core: розничный заказ ----------
-def order_delivery(d, ship, city, goods_sum, panel=False):
+def order_delivery(d, ship, city, goods_sum, panel=False, lines=None):
     """(цена, текст для описания, ошибка) для розничного заказа; цена считается здесь, не в браузере.
-    panel=True — заказ оформляет менеджер в системе AMURA: самовывоз ему доступен."""
+    panel=True — заказ оформляет менеджер в системе AMURA: самовывоз ему доступен.
+    Цена — настоящая, по API служб (dlv_quote.py); сайт присылает показанную цену (dlvShown) — не совпала, заказ не принимаем."""
+    price, text, err = _order_delivery(d, ship, city, goods_sum, panel, lines)
+    shown = d.get("dlvShown")
+    if not err and isinstance(shown, (int, float)) and not isinstance(shown, bool) and round(shown) != price:
+        return price, text, f"Цена доставки обновилась: {oh.fmt(price)} ₸ — проверьте сумму"
+    return price, text, err
+
+
+def _real(ship, city, goods_sum, lines, address="", slot=None, pvz=None):
+    import dlv_quote
+    return dlv_quote.quote(ship, city, goods_sum, lines or [], address, slot, pvz)["price"]
+
+
+def _order_delivery(d, ship, city, goods_sum, panel, lines):
     address = str(d.get("address", "")).strip()[:200]
     if ship not in allowed(city, pickup=panel):
         if ship == "express" and is_almaty(city):
@@ -273,11 +311,11 @@ def order_delivery(d, ship, city, goods_sum, panel=False):
         where = str(pvz.get("address") or address).strip()[:200]
         if not where:
             return 0, "", "Выберите пункт выдачи СДЭК"
-        return client_price(goods_sum, "cdek", city), f"Пункт выдачи СДЭК — {where}" + (f" (код {code})" if code else ""), None
+        return _real("cdek", city, goods_sum, lines, pvz=pvz), f"Пункт выдачи СДЭК — {where}" + (f" (код {code})" if code else ""), None
     if not address:
         return 0, "", "Укажите адрес доставки"
     if ship == "express":
-        return client_price(goods_sum, "express", city), f"Срочный курьер по Алматы (Яндекс Экспресс) — {address}", None
+        return _real("express", city, goods_sum, lines, address), f"Срочный курьер по Алматы (Яндекс Экспресс) — {address}", None
     if is_almaty(city):
         slot = d.get("slot") or {}
         when = ""
@@ -286,5 +324,5 @@ def order_delivery(d, ship, city, goods_sum, panel=False):
             if not ok:
                 return 0, "", "Этот интервал уже недоступен — выберите другой"
             when = f", {slot['date'][8:10]}.{slot['date'][5:7]} {slot.get('name', '')} {slot['from']}–{slot.get('to', '')}".rstrip()
-        return client_price(goods_sum, "courier", city), f"Курьер по Алматы (Яндекс) — {address}{when}", None
+        return _real("courier", city, goods_sum, lines, address, slot if when else None), f"Курьер по Алматы (Яндекс) — {address}{when}", None
     return client_price(goods_sum, "courier", city), f"Курьер СДЭК до двери — {address}", None

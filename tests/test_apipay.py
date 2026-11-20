@@ -96,7 +96,7 @@ class Kaspi(unittest.TestCase):
             self.patch(oh, name, val)
         self.patch(freedom, "_ms_account", lambda method="card": {"meta": {"href": f"https://x/account/{method}"}})
         import checkout
-        self.patch(checkout, "order_delivery", lambda d, ship, city, goods: (1000, "Курьер по Алматы (Яндекс) — Абая 1", None))
+        self.patch(checkout, "order_delivery", lambda d, ship, city, goods, **k: (1000, "Курьер по Алматы (Яндекс) — Абая 1", None))
         app = Flask(__name__)
         app.register_blueprint(apipay.bp)
         app.register_blueprint(freedom.bp)
@@ -311,7 +311,7 @@ class Kaspi(unittest.TestCase):
         """Тест владельца 18.11: выбрал СДЭК, получил счёт, потом переоформил на самовывоз и оплатил.
         Новый счёт отменяет прежний (в Kaspi висит один) — в МойСклад самовывоз и 0 ₸ доставки."""
         import checkout
-        self.patch(checkout, "order_delivery", lambda d, ship, city, goods: (0, "Самовывоз", None) if ship == "pickup"
+        self.patch(checkout, "order_delivery", lambda d, ship, city, goods, **k: (0, "Самовывоз", None) if ship == "pickup"
                    else (1200, "Пункт выдачи СДЭК — ш. Северное кольцо, 68/3 (код ALM182)", None))
         r1, _ = self.checkout(shipping="cdek", items=[{"id": "p1", "qty": 1}])
         self.assertEqual(r1["total"], 6690 + 1200)
