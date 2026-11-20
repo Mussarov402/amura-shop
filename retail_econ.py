@@ -100,6 +100,15 @@ def _claim(num):
         return None
 
 
+def _cdek_row(num):
+    try:
+        import cdek_orders
+        with cdek_orders.db() as d:
+            return cdek_orders.row(d, num) or {}
+    except Exception:
+        return {}
+
+
 def month_orders(moment):
     """Розничных заказов за календарный месяц заказа (по Алматы), без отменённых — делитель подписки ApiPay. Кэш 10 минут."""
     m = (moment or "")[:7] or datetime.now(ALMATY).strftime("%Y-%m")
@@ -175,6 +184,13 @@ def calc(o, c=None, claim=None, cost=_cost, per_month=None):
         dlv_out = float(claim["price"])
         dlv_note = "факт Яндекса" if st in YA_DONE else "по заявке Яндекса" if YA_CALLED.match(st) else "оценка Яндекса, курьер не вызван"
         dlv_est = st not in YA_DONE
+    elif "СДЭК" in ship and _cdek_row(num).get("price"):
+        r = _cdek_row(num)
+        dlv_out = float(r["price"])
+        dlv_est = r.get("status") not in ("DELIVERED", "POSTOMAT_RECEIVED")
+        dlv_note = "факт СДЭК" if not dlv_est else "по отправлению СДЭК"
+    elif "СДЭК" in ship and _cdek_row(num).get("est"):
+        dlv_out, dlv_note, dlv_est = float(_cdek_row(num)["est"]), "оценка СДЭК, отправление не создано", True
     elif not ship or ship.startswith("Самовывоз"):
         dlv_out, dlv_note, dlv_est = 0.0, "самовывоз", False
     else:
@@ -221,7 +237,7 @@ def text(e):
            f"ApiPay подписка: −{_f(e['apipay'])} (1/{e['perMonth']} месяца)",
            f"Себестоимость: −{_f(e['cost'])}" + (f" (без закупки: {e['noCost']} поз.)" if e["noCost"] else ""),
            f"Прибыль: {_f(e['profit'])}, маржа {str(e['margin']).replace('.', ',')} %",
-           f"Доставка: покупатель заплатил {_f(e['dlvIn'])}, {'Яндекс' if 'Яндекс' in e['dlvNote'] else 'доставка'} взял {_f(e['dlvOut'])} → {sign(e['dlvDiff'])}"]
+           f"Доставка: покупатель заплатил {_f(e['dlvIn'])}, {'СДЭК' if 'СДЭК' in e['dlvNote'] else 'Яндекс' if 'Яндекс' in e['dlvNote'] else 'доставка'} взял {_f(e['dlvOut'])} → {sign(e['dlvDiff'])}"]
     return "\n".join(out)
 
 
