@@ -94,7 +94,7 @@ class Channels(unittest.TestCase):
             for k in (f"mp_map_{ch.key}", f"mp_wh_{ch.key}"):
                 oh._cache.pop(k, None)
         mpk.set_setting("mp_reserve", "20")
-        for k in ("mp_kiz_on", "mp_ozon_noshow", "mp_wb_noshow"):
+        for k in ("mp_kiz_on", "mp_ozon_noshow", "mp_wb_noshow", "mp_ozon_nobrand", "mp_wb_nobrand"):
             mpk.set_setting(k, "")
         oh._cache.pop("ms_order_states", None)
         modules.update("marketplaces", on=True)
@@ -251,6 +251,46 @@ class Channels(unittest.TestCase):
         self.assertEqual({s["offer_id"]: s["stock"] for s in self.oz.stocks[-1]}, {"TON-1": 2})
         self.patch(admin, "who", lambda: {"role": "manager", "perms": ["orders"]})
         self.assertEqual(c.post("/admin/api/mp/settings", json={"noshow": {"shop": "ozon", "id": "TON-1", "hide": True}}).status_code, 403)
+
+    def test_brand_noshow_and_push_now(self):
+        """Бренд целиком (22.11.2026): правило по бренду МойСклад — остаток 0, во всех магазинах сразу; снять — снова выставляем;
+        «Отправить сейчас» — остатки уходят сразу; поиск видит бренд; только владелец."""
+        import admin
+        cat = {k: dict(v) for k, v in CAT.items()}
+        for v in cat.values():
+            v["brand"] = "Anua" if "anua" in v["name"].lower() or v.get("article") == "" else "Toner Co"
+        self.patch(oh, "panel_catalog", lambda: cat)
+        app = Flask(__name__)
+        app.register_blueprint(mpk.bp)
+        c = app.test_client()
+        self.patch(admin, "who", lambda: {"role": "owner", "perms": []})
+        oz, wb = mpk.CHANNELS["ozon"], mpk.CHANNELS["wb"]
+        mpk.push_stocks(oz)
+        brand = cat["p1"]["brand"]
+        j = c.post("/admin/api/mp/settings", json={"nobrand": {"shop": "ozon", "brand": f" {brand} ", "hide": True, "all": True}}).get_json()
+        self.assertTrue(j["ok"])
+        self.assertEqual(next(x for x in j["channels"] if x["id"] == "ozon")["nobrand"], [brand])
+        self.assertIn(brand.lower(), mpk.nobrand(wb))                                       # «во всех магазинах» — и WB
+        g = {x["id"]: x for x in c.get("/admin/api/mp/goods?shop=ozon").get_json()["goods"]}
+        self.assertEqual(g["anua-cream"]["hidden"], f"бренд {brand} не выставляется")
+        self.assertEqual(g["anua-cream"]["brand"], brand)
+        self.assertEqual(g["TON-1"]["hidden"], "")
+        n = len(self.oz.stocks)
+        j = c.post("/admin/api/mp/settings", json={"push": {"shop": "ozon"}}).get_json()
+        self.assertEqual(j["pushed"]["ozon"]["sent"], 2)                                    # «Отправить сейчас» — force, все товары
+        self.assertEqual({s["offer_id"]: s["stock"] for s in self.oz.stocks[n]}, {"anua-cream": 0, "TON-1": 2})
+        c.post("/admin/api/mp/settings", json={"nobrand": {"shop": "ozon", "brand": brand.upper(), "hide": False}})
+        self.assertEqual(mpk.nobrand(oz), {})
+        self.assertIn(brand.lower(), mpk.nobrand(wb))                                       # снят только в Ozon
+        mpk.push_stocks(oz)
+        self.assertEqual({s["offer_id"]: s["stock"] for s in self.oz.stocks[-1]}, {"anua-cream": 8})
+        # правило по названию: карточки без пары / с другим брендом МС, но название начинается с бренда
+        self.assertEqual(mpk.brand_hit({"name": "Без пары крем"}, "", {"без пары": {"name": "Без пары"}}), "Без пары")
+        self.assertEqual(mpk.brand_hit({"name": "Безпары крем"}, "", {"без пары": {"name": "Без пары"}}), "")
+        self.assertEqual(c.post("/admin/api/mp/settings", json={"nobrand": {"shop": "ozon", "brand": "", "hide": True}}).status_code, 400)
+        self.patch(admin, "who", lambda: {"role": "manager", "perms": ["orders"]})
+        self.assertEqual(c.post("/admin/api/mp/settings", json={"nobrand": {"shop": "ozon", "brand": "X", "hide": True}}).status_code, 403)
+        self.assertEqual(c.post("/admin/api/mp/settings", json={"push": {"shop": "ozon"}}).status_code, 403)
 
     def test_routes(self):
         import admin
