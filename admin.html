@@ -157,8 +157,18 @@ input,textarea,select{font-family:inherit}input,textarea{font:15px inherit;font-
 .rer.ret{border-bottom:0;font-size:17px}.rei{cursor:pointer}.rex{opacity:.6}
 .reco{margin-top:10px;padding:10px 12px;border:1px solid var(--line,#e6e6e6);border-radius:12px}.reco .rer{padding:5px 0}
 @media(max-width:900px){.rek{grid-template-columns:1fr 1fr}.rew{grid-template-columns:1fr}}
-.mpgt{margin-top:8px}.mpgt input[type=search],.mpgb input[data-mpb]{width:100%;max-width:420px}
-.mpgb{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}.mpgb input[data-mpb]{flex:1 1 220px}
+.mpgt{position:sticky;top:0;z-index:3;background:var(--card,#fff);padding:8px 0 6px;border-bottom:1px solid #EEF1EE}
+.mpgt input[type=search]{width:100%;max-width:520px}.mpgf{margin-top:6px;flex-wrap:wrap}
+.mpgb,.mpgs{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px}.mpgb input[data-mpb]{flex:1 1 200px;max-width:320px}
+.mpga{display:flex;gap:6px;align-items:center;white-space:nowrap;font-size:13px}.mpga input{width:18px;height:18px;margin:0}.mpgbl{margin-top:6px;font-size:13px}
+.mpgd{margin-top:6px}.mpgd summary{cursor:pointer;font-size:14px;font-weight:600}.mpgr{max-height:none}.mpgi{display:flex;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid #F1F3F1;cursor:pointer}
+.mpgi input{width:20px;height:20px;flex:none;margin:0}.mpgn{min-width:0;flex:1}.mpgt1{display:block;font-size:14px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mpgt2{display:block;font-size:12px;color:var(--mut,#6b7280);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.mpgt2 b{font-weight:700;color:#8a6d1a}.mpgt2 b.bad{color:var(--bad,#b3261e)}
+.mpgi.off .mpgt1{color:var(--mut,#6b7280)}
+@media(max-width:900px){.mpgt{top:56px;padding:6px 0 4px}.mpgt input[type=search],.mpgb input[data-mpb]{padding:9px 12px;font-size:15px}
+ .mpgf{flex-wrap:nowrap;gap:6px}.mpgf button{padding:6px 10px;font-size:12.5px;white-space:nowrap}
+ .mpgb input[data-mpb]{flex:1 1 100%;max-width:none}.mpgb .mpga{flex:1 1 100%}.mpgs .btn,.mpgb .btn{flex:1 1 0;min-width:0;white-space:normal;line-height:1.15;padding:7px 6px;font-size:12.5px}
+ .mpgbl{margin-top:4px;font-size:12px}.mpgs{margin-top:4px}.mpgs .mpga{flex:1 1 100%}}
 </style><style id="eocss">.eo{background:#fff;width:100%;max-width:560px;max-height:92vh;overflow:auto;border-radius:18px 18px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom))}
 @media(min-width:801px){.eo{border-radius:0;margin:0;width:100%;max-width:none;height:100%;max-height:none;box-sizing:border-box;padding:28px max(28px,calc((100vw - 1000px)/2)) 40px}.eo .voa{max-width:none;display:flex;flex-wrap:wrap}.eo .voa button{flex:0 1 128px;min-width:96px}}   /* компьютер: заказ на весь экран, содержимое по центру; кнопки заказа — в одну строку */
 .eor{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid #EEF1EE}.nost{color:#C0392B;font-weight:600}.eolN{counter-reset:pos}.eolN>.eor::before{counter-increment:pos;content:counter(pos);flex:none;min-width:16px;font-size:12px;color:#8A968F;text-align:right}.eor:first-child{border-top:0}.eon{flex:1;min-width:0;font-size:14px}
@@ -912,6 +922,16 @@ async function fileAct(el,url,name,type,share){const old=el.innerHTML;el.disable
  let f;try{f=await getFile(url,name,type);if(share&&touchDev&&navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f],title:f.name});return}saveFile(f)}
  catch(e){if(e&&e.name==="AbortError")return;if(e&&e.name==="NotAllowedError"&&f){if(touchDev)toast("Файл готов — нажмите ещё раз");else saveFile(f);return}toast(e.message||"Не получилось")}
  finally{el.disabled=false;el.innerHTML=old}}
+/* обновление системы AMURA: страница сама проверяет новую версию (ETag /admin) при возврате во вкладку и раз в 5 минут —
+   открытая давно вкладка или приложение на телефоне подтягивают обновление сами (владелец 22.11.2026: видел старый экран) */
+(()=>{let tag=null,busy=false;const head=()=>fetch("/admin",{method:"HEAD",cache:"no-store"}).then(r=>r.headers.get("ETag")||r.headers.get("Last-Modified")).catch(()=>null);
+ head().then(t=>tag=t);
+ const check=async()=>{if(busy||!tag||document.hidden)return;busy=true;const t=await head();busy=false;if(!t||t===tag)return;
+  const idle=!document.querySelector(".ovx,.eo")&&!(document.activeElement&&/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName));
+  if(idle)location.reload();else if(!document.getElementById("updbar")){const b=document.createElement("div");b.id="updbar";b.textContent="Вышло обновление системы AMURA — нажмите, чтобы обновить";
+   b.style.cssText="position:fixed;left:50%;top:10px;transform:translateX(-50%);z-index:99999;background:#173A2A;color:#fff;padding:10px 16px;border-radius:20px;font-weight:700;font-size:14px;box-shadow:0 6px 20px rgba(0,0,0,.25);cursor:pointer;max-width:92vw;text-align:center";
+   b.onclick=()=>location.reload();document.body.appendChild(b)}};
+ document.addEventListener("visibilitychange",()=>{if(!document.hidden)check()});setInterval(check,300000)})();
 /* экономика розничного заказа в окне заказа (только владелец): пришло → расходы → прибыль; «оценка», пока нет факта */
 const reEcon=(ov,num)=>{const rc=ov.querySelector("#reco");if(!rc)return;
  api("orders/"+encodeURIComponent(num)+"/economy").then(r=>{const e=r.econ,t=v=>fmt(Math.round(v||0))+" ₸",p=v=>String(v).replace(".",",")+" %";
@@ -1509,22 +1529,38 @@ async mp(){const gRow=(c,g,own)=>`<div style="display:flex;gap:10px;align-items:
  document.querySelectorAll("[data-mpg]").forEach(d=>d.ontoggle=async()=>{const l=d.querySelector("[data-mpgl]");if(!d.open||d._ok||!o.channels.find(c=>c.id===d.dataset.mpg).goodsN)return;   /* список товаров — только когда раскрыли (раньше шёл в каждом ответе, 150 КБ) */
   try{const r=await api("mp/goods?shop="+encodeURIComponent(d.dataset.mpg));d._ok=1;const c=o.channels.find(c=>c.id===d.dataset.mpg),G=r.goods;
    const brands=[...new Set(G.map(g=>g.brand).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"ru"));
-   l.innerHTML=`<div class="mpgt"><input type="search" data-mpq placeholder="Поиск: название, артикул, бренд">`+(own?`<div class="mpgb"><input data-mpb list="mpbl-${esc(c.id)}" placeholder="Бренд (из МойСклад или как в названии)"><datalist id="mpbl-${esc(c.id)}">${brands.map(b=>`<option value="${esc(b)}">`).join("")}</datalist>
-     <label class="mut" style="display:flex;gap:6px;align-items:center;white-space:nowrap"><input type="checkbox" data-mpball style="width:18px;height:18px"> во всех магазинах</label>
+   const st={q:"",f:"all",sel:new Set()},isOff=g=>!!g.hidden;
+   l.innerHTML=`<div class="mpgt"><input type="search" data-mpq placeholder="Поиск: название, артикул, бренд">
+     <div class="chips mpgf">${[["all","Все"],["on","Выставляются"],["off","Не выставляются"]].map(([k,t])=>`<button data-mpf="${k}" class="${k==="all"?"on":""}">${t} <span data-mpfn="${k}"></span></button>`).join("")}</div>`+
+     (own?`<details class="mpgd" ${innerWidth>900?"open":""}><summary>Бренд целиком${(c.nobrand||[]).length?` · не выставляются: ${c.nobrand.length}`:""}</summary><div class="mpgb"><input data-mpb list="mpbl-${esc(c.id)}" placeholder="Название бренда"><datalist id="mpbl-${esc(c.id)}">${brands.map(b=>`<option value="${esc(b)}">`).join("")}</datalist>
+     <label class="mut mpga"><input type="checkbox" data-mpball> во всех магазинах</label>
      <button class="btn sm" data-mpbh="1">Не выставлять бренд</button><button class="btn sm ghost" data-mpbh="">Выставлять бренд</button></div>
-     ${(c.nobrand||[]).length?`<div class="mut" style="margin-top:6px">Не выставляются бренды: ${c.nobrand.map(b=>`<span class="b n">${esc(b)} <a href="#" data-mpbx="${esc(b)}" title="Снова выставлять">✕</a></span>`).join(" ")}</div>`:""}
-     <div style="margin-top:8px"><button class="btn sm ghost" data-mppush>Отправить остатки сейчас</button> <span class="mut">иначе уйдут при следующей сверке (до 15 минут)</span></div>`:"")+`</div><div data-mpgr></div>`;
-   const rows=l.querySelector("[data-mpgr]"),q=l.querySelector("[data-mpq]");
-   const show=()=>{const s=q.value.trim().toLowerCase(),F=s?G.filter(g=>[g.name,g.id,g.offer,g.brand].some(v=>String(v||"").toLowerCase().includes(s))):G;
-    rows.innerHTML=(s?`<div class="mut" style="margin-top:6px">Найдено: ${F.length}</div>`:"")+(F.slice(0,300).map(g=>gRow(c,g,own)).join("")||'<div class="mut" style="margin-top:6px">Товаров нет.</div>')+(F.length>300?`<div class="mut" style="margin-top:6px">Показаны первые 300 из ${F.length} — уточните поиск.</div>`:"");mpns(rows)};
-   q.oninput=show;show();
+     ${(c.nobrand||[]).length?`<div class="mut mpgbl">Не выставляются бренды: ${c.nobrand.map(b=>`<span class="b n">${esc(b)} <a href="#" data-mpbx="${esc(b)}" title="Снова выставлять">✕</a></span>`).join(" ")}</div>`:""}</details>
+     <div class="mpgs"><label class="mpga"><input type="checkbox" data-mpsall> <span data-mpsalt>Выбрать все найденные</span></label>
+      <button class="btn sm" data-mpsh="1" disabled>Не выставлять выбранные</button><button class="btn sm ghost" data-mpsh="" disabled>Выставлять выбранные</button>
+      <button class="btn sm ghost" data-mppush>Отправить остатки сейчас</button></div>`:"")+`</div><div data-mpgr class="mpgr"></div>`;
+   const rows=l.querySelector("[data-mpgr]"),q=l.querySelector("[data-mpq]"),sall=l.querySelector("[data-mpsall]");
+   const found=()=>{const s=st.q.toLowerCase();return G.filter(g=>(st.f==="all"||(st.f==="off")===isOff(g))&&(!s||[g.name,g.id,g.offer,g.brand].some(v=>String(v||"").toLowerCase().includes(s))))};
+   const row=g=>`<label class="mpgi${isOff(g)?" off":""}">${own?`<input type="checkbox" data-mpgs="${esc(g.id)}" ${st.sel.has(g.id)?"checked":""}>`:""}<span class="mpgn"><span class="mpgt1">${esc(g.name)}</span><span class="mpgt2">${esc(g.offer||g.id)}${g.brand?" · "+esc(g.brand):""}${g.pair?"":" · нет пары в МС"}${g.hidden?` · <b class="${g.hidden==="нужна маркировка"?"bad":""}">${esc(g.hidden)}</b>`:""}</span></span></label>`;
+   const bar=()=>{const F=found(),n=st.sel.size;l.querySelectorAll("[data-mpsh]").forEach(b=>{b.disabled=!n;b.textContent=(b.dataset.mpsh?"Не выставлять":"Выставлять")+" выбранные"+(n?` (${n})`:"")});
+    if(sall){sall.checked=F.length>0&&F.every(g=>st.sel.has(g.id));l.querySelector("[data-mpsalt]").textContent=`Выбрать все найденные (${F.length})`}};
+   const show=()=>{const F=found(),cnt={all:G.length,on:G.filter(g=>!isOff(g)).length,off:G.filter(isOff).length};
+    Object.entries(cnt).forEach(([k,v])=>{const e=l.querySelector(`[data-mpfn="${k}"]`);if(e)e.textContent=v});
+    l.querySelectorAll("[data-mpf]").forEach(b=>b.classList.toggle("on",b.dataset.mpf===st.f));
+    rows.innerHTML=(F.slice(0,500).map(row).join("")||'<div class="mut" style="padding:8px 0">Ничего не найдено.</div>')+(F.length>500?`<div class="mut" style="padding:6px 0">Показаны первые 500 из ${F.length} — уточните поиск; «Выбрать все найденные» берёт все ${F.length}.</div>`:"");
+    rows.querySelectorAll("[data-mpgs]").forEach(x=>x.onchange=()=>{x.checked?st.sel.add(x.dataset.mpgs):st.sel.delete(x.dataset.mpgs);bar()});bar()};
+   q.oninput=()=>{st.q=q.value.trim();show()};l.querySelectorAll("[data-mpf]").forEach(b=>b.onclick=()=>{st.f=b.dataset.mpf;show()});show();
+   if(sall)sall.onchange=()=>{const F=found();if(sall.checked)F.forEach(g=>st.sel.add(g.id));else F.forEach(g=>st.sel.delete(g.id));show()};
+   const push=async()=>{const r=await save({push:{shop:c.id}});const x=r&&(r.pushed||{})[c.id]||{};if(r)toast(x.error?"Остатки не отправлены: "+x.error:`Остатки отправлены: ${x.sent||0}`+((x.errors||[]).length?`, ошибок: ${x.errors.length}`:""),5000)};
+   l.querySelectorAll("[data-mpsh]").forEach(b=>b.onclick=async()=>{const hide=!!b.dataset.mpsh,ids=[...st.sel],br=G.filter(g=>st.sel.has(g.id)&&/^бренд /.test(g.hidden)).length;
+    if(!confirm(`${hide?"Не выставлять":"Выставлять"} выбранные товары: ${ids.length}? ${hide?"Остаток станет 0.":""}${!hide&&br?` ${br} из них скрыты правилом бренда — они останутся скрытыми, пока бренд не снят.`:""}`))return;
+    b.disabled=true;if(await save({noshow:{shop:c.id,ids,hide}})){if(confirm("Сохранено. Отправить остатки на площадку сейчас (иначе — при следующей сверке, до 15 минут)?"))await push();views.mp()}else b.disabled=false});
    const setB=async(brand,hide)=>{if(!brand)return alert("Укажите бренд");const all=!!(l.querySelector("[data-mpball]")||{}).checked,cnt=G.filter(g=>(g.brand||"").toLowerCase()===brand.toLowerCase()||g.name.toLowerCase().startsWith(brand.toLowerCase()+" ")).length;
-    if(!confirm(`${hide?"Не выставлять":"Снова выставлять"} бренд «${brand}» ${all?"во всех магазинах":"в магазине "+c.title}? Сейчас в этом магазине товаров бренда: ${cnt}.${hide?" Остаток станет 0.":""}`))return;
-    if(await save({nobrand:{shop:c.id,brand,hide,all}})){toast((hide?"Бренд не выставляется":"Бренд снова выставляется")+" — нажмите «Отправить остатки сейчас», чтобы не ждать сверки",5000);views.mp()}};
+    if(!confirm(`${hide?"Не выставлять":"Снова выставлять"} бренд «${brand}» ${all?"во всех магазинах":"в магазине "+c.title}? Товаров бренда здесь: ${cnt}.${hide?" Остаток станет 0, новые карточки бренда тоже.":""}`))return;
+    if(await save({nobrand:{shop:c.id,brand,hide,all}})){if(confirm("Сохранено. Отправить остатки сейчас?"))await save({push:all?{all:true}:{shop:c.id}}).then(r=>r&&toast("Остатки отправлены",4000));views.mp()}};
    l.querySelectorAll("[data-mpbh]").forEach(b=>b.onclick=()=>setB(l.querySelector("[data-mpb]").value.trim(),!!b.dataset.mpbh));
    l.querySelectorAll("[data-mpbx]").forEach(a=>a.onclick=e=>{e.preventDefault();setB(a.dataset.mpbx,false)});
-   const pb=l.querySelector("[data-mppush]");if(pb)pb.onclick=async()=>{pb.disabled=true;pb.textContent="Отправляю…";const r=await save({push:{shop:c.id}});pb.disabled=false;pb.textContent="Отправить остатки сейчас";
-    if(r){const x=(r.pushed||{})[c.id]||{};toast(x.error?"Не отправлено: "+x.error:`Отправлено остатков: ${x.sent||0}`+((x.errors||[]).length?`, ошибок: ${x.errors.length}`:""),5000)}}}
+   const pb=l.querySelector("[data-mppush]");if(pb)pb.onclick=async()=>{pb.disabled=true;pb.textContent="Отправляю…";await push();pb.disabled=false;pb.textContent="Отправить остатки сейчас"}}
   catch(e){l.innerHTML='<div class="b x" style="white-space:normal">'+esc(e.message)+'</div>'}});
  const save=async body=>{try{return await api("mp/settings",{method:"POST",body:JSON.stringify(body)})}catch(e){if(e.message!=="401")alert(e.message)}};
  ($("#mprs")||{}).onclick=async()=>{const v=Math.round(+$("#mpr").value);if(!(v>=0&&v<=90))return alert("Запас — от 0 до 90 %");if(await save({reserve:v}))toast("Запас сохранён, остатки уйдут при следующей сверке")};
