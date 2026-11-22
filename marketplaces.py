@@ -1208,6 +1208,7 @@ def goods(ch):
             mid = mp["ref"].get(ref)
             b = brand_of(x, mid, cat)
             out[i] = {"id": i, "offer": x["offer"], "name": x["name"], "pair": bool(mid), "brand": b,
+                      "code": str((cat.get(mid) or {}).get("code") or "") if mid else "", "qty": int((cat.get(mid) or {}).get("qty") or 0) if mid else 0,
                       "hidden": hidden(ch, x, marks, kiz, b, brands)}
     return sorted(out.values(), key=lambda g: (not g["hidden"], g["name"].lower()))
 
@@ -1350,7 +1351,7 @@ def goods_route():
     ch = {c.key: c for c in channels()}.get(request.args.get("shop", ""))
     if not ch:
         return jsonify(ok=False, error="Нет такого магазина"), 404
-    return jsonify(ok=True, goods=goods(ch))
+    return jsonify(ok=True, goods=goods(ch), nobrand=sorted(r["name"] for r in nobrand(ch).values()))
 
 
 @bp.post("/admin/api/mp/settings")
