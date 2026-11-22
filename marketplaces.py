@@ -1132,10 +1132,55 @@ def set_noshow(ch, idt, hide, who):
     return d
 
 
-def hidden(ch, x, marks=None, kiz=None):
-    """Почему остаток товара не выставляем (→ 0): отметка «не выставлять» или нужна маркировка. Пусто — выставляем."""
+def nobrand(ch):
+    """Бренды, которые в этом магазине не выставляются: {бренд в нижнем регистре: {name, who, at}} (владелец 22.11.2026).
+    Правило, а не список товаров: новые карточки этого бренда тоже получают остаток 0."""
+    try:
+        return json.loads(setting(f"mp_{ch.key}_nobrand", "") or "{}")
+    except ValueError:
+        return {}
+
+
+def set_nobrand(ch, brand, hide, who):
+    d, b = nobrand(ch), " ".join(str(brand or "").split())
+    if not b:
+        return d
+    if hide:
+        d[b.lower()] = {"name": b, "who": who, "at": int(time.time())}
+    else:
+        d.pop(b.lower(), None)
+    set_setting(f"mp_{ch.key}_nobrand", json.dumps(d, ensure_ascii=False))
+    return d
+
+
+def brand_of(x, mid=None, cat=None):
+    """Бренд товара площадки: из пары в МойСклад (доп. поле «Бренд» или папка), иначе — пусто."""
+    if mid and cat:
+        return str((cat.get(mid) or {}).get("brand") or "").strip()
+    return ""
+
+
+def brand_hit(x, brand, rules):
+    """Попадает ли товар под правило бренда: бренд пары в МойСклад или название на площадке начинается с бренда."""
+    if not rules:
+        return ""
+    if brand and brand.lower() in rules:
+        return rules[brand.lower()]["name"]
+    name = str(x.get("name") or "").lower()
+    for k, r in rules.items():
+        if name == k or name.startswith(k + " "):
+            return r["name"]
+    return ""
+
+
+def hidden(ch, x, marks=None, kiz=None, brand="", brands=None):
+    """Почему остаток товара не выставляем (→ 0): отметка «не выставлять», бренд не выставляется или нужна маркировка.
+    Пусто — выставляем."""
     if ident(ch, x) in (noshow(ch) if marks is None else marks):
         return "не выставлять"
+    b = brand_hit(x, brand, nobrand(ch) if brands is None else brands)
+    if b:
+        return f"бренд {b} не выставляется"
     if isinstance(ch, WB) and x.get("kiz") and not (kiz_on() if kiz is None else kiz):   # kiz — один раз на список (каждый вызов — запрос в базу)
         return "нужна маркировка"
     return ""
@@ -1146,22 +1191,29 @@ def goods(ch):
     m = oh._cache.get(f"mp_map_{ch.key}")
     if not m:
         return None
-    mp, marks, kiz, out = m[1], noshow(ch), kiz_on(), {}
+    mp, marks, kiz, brands, out = m[1], noshow(ch), kiz_on(), nobrand(ch), {}
+    try:
+        cat = _catalog()
+    except Exception:
+        cat = {}
     for ref, x in mp["products"].items():
         i = ident(ch, x)
         if i and not x["archived"] and i not in out:
-            out[i] = {"id": i, "offer": x["offer"], "name": x["name"], "pair": bool(mp["ref"].get(ref)), "hidden": hidden(ch, x, marks, kiz)}
+            mid = mp["ref"].get(ref)
+            b = brand_of(x, mid, cat)
+            out[i] = {"id": i, "offer": x["offer"], "name": x["name"], "pair": bool(mid), "brand": b,
+                      "hidden": hidden(ch, x, marks, kiz, b, brands)}
     return sorted(out.values(), key=lambda g: (not g["hidden"], g["name"].lower()))
 
 
 def push_stocks(ch, force=False):
     mp, cat, pct, share, marks, kiz = mapping(ch), _catalog(), reserve_pct(), share_pct(ch), noshow(ch), kiz_on()
-    want = []
+    brands, want = nobrand(ch), []
     for ref, x in mp["products"].items():
         mid = mp["ref"].get(ref)
         if not mid or x["archived"]:
             continue
-        n = 0 if hidden(ch, x, marks, kiz) else shown((cat.get(mid) or {}).get("qty"), pct, share)
+        n = 0 if hidden(ch, x, marks, kiz, brand_of(x, mid, cat), brands) else shown((cat.get(mid) or {}).get("qty"), pct, share)
         if force or ch.sent.get(ref) != n:
             want.append({"ref": ref, "offer": x["offer"], "stock": n})
     for s in want:                                      # «отправлено» — только то, что площадка приняла
@@ -1263,6 +1315,7 @@ def status():
                                 "share": share_pct(ch), "orders": last(ch, "orders"),
                                 "stocks": last(ch, "stocks"), "lost": (m[1]["lost"][:50] if m else []),
                                 "goodsN": None if g is None else len(g), "goodsHidden": sum(1 for x in g or [] if x["hidden"]),
+                                "nobrand": sorted(r["name"] for r in nobrand(ch).values()),
                                 "recent": [dict(zip(COLS.split(", "), r)) for r in recent[ch.key]]})
     return out
 
@@ -1325,6 +1378,28 @@ def settings_route():
         if not ch or not str(x.get("id") or "").strip():
             return jsonify(ok=False, error="Нет такого магазина или товара"), 400
         set_noshow(ch, str(x["id"]).strip(), bool(x.get("hide")), "владелец")
+    if isinstance(d.get("nobrand"), dict):                # бренд целиком: в этом магазине или во всех сразу (владелец 22.11.2026)
+        x = d["nobrand"]
+        brand = " ".join(str(x.get("brand") or "").split())[:80]
+        shops = channels() if x.get("all") else [c for c in channels() if c.key == str(x.get("shop") or "")]
+        if not brand or not shops:
+            return jsonify(ok=False, error="Укажите бренд и магазин"), 400
+        for ch in shops:
+            set_nobrand(ch, brand, bool(x.get("hide")), "владелец")
+    if isinstance(d.get("push"), dict):                   # «Отправить сейчас»: остатки на площадку сразу, не ждать сверки
+        x = d["push"]
+        shops = channels() if x.get("all") else [c for c in channels() if c.key == str(x.get("shop") or "")]
+        res = {}
+        for ch in shops:
+            if not ch.keys_set():
+                continue
+            try:
+                r = push_stocks(ch, force=True)
+                _log(ch, "stocks", not r["errors"] or r["sent"] > 0, r)
+                res[ch.key] = r
+            except Exception as e:
+                res[ch.key] = {"error": str(e)[:200]}
+        return jsonify(ok=True, pushed=res, **status())
     if d.get("run") and on():
         for ch in channels():
             ch.last.update(orders=0, stocks=0)
