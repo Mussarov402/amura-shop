@@ -292,6 +292,22 @@ class Channels(unittest.TestCase):
         self.assertEqual(c.post("/admin/api/mp/settings", json={"nobrand": {"shop": "ozon", "brand": "X", "hide": True}}).status_code, 403)
         self.assertEqual(c.post("/admin/api/mp/settings", json={"push": {"shop": "ozon"}}).status_code, 403)
 
+    def test_noshow_many(self):
+        """Массово (22.11.2026): «Не выставлять выбранные» / «Выставлять выбранные» — одним запросом по списку товаров."""
+        import admin
+        app = Flask(__name__)
+        app.register_blueprint(mpk.bp)
+        c = app.test_client()
+        self.patch(admin, "who", lambda: {"role": "owner", "perms": []})
+        oz = mpk.CHANNELS["ozon"]
+        self.assertTrue(c.post("/admin/api/mp/settings", json={"noshow": {"shop": "ozon", "ids": ["anua-cream", "TON-1", " "], "hide": True}}).get_json()["ok"])
+        self.assertEqual(set(mpk.noshow(oz)), {"anua-cream", "TON-1"})
+        mpk.push_stocks(oz)
+        self.assertEqual({s["offer_id"]: s["stock"] for s in self.oz.stocks[-1]}, {"anua-cream": 0, "TON-1": 0})
+        c.post("/admin/api/mp/settings", json={"noshow": {"shop": "ozon", "ids": ["TON-1"], "hide": False}})
+        self.assertEqual(set(mpk.noshow(oz)), {"anua-cream"})
+        self.assertEqual(c.post("/admin/api/mp/settings", json={"noshow": {"shop": "ozon", "ids": []}}).status_code, 400)
+
     def test_routes(self):
         import admin
         app = Flask(__name__)

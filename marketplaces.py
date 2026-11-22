@@ -1123,11 +1123,17 @@ def noshow(ch):
 
 
 def set_noshow(ch, idt, hide, who):
-    d = noshow(ch)
-    if hide:
-        d[str(idt)] = {"who": who, "at": int(time.time())}
-    else:
-        d.pop(str(idt), None)
+    return set_noshow_many(ch, [idt], hide, who)
+
+
+def set_noshow_many(ch, ids, hide, who):
+    """«Не выставлять» / «Выставлять» сразу для списка товаров магазина (одна запись настройки)."""
+    d, now = noshow(ch), int(time.time())
+    for idt in ids:
+        if hide:
+            d[str(idt)] = {"who": who, "at": now}
+        else:
+            d.pop(str(idt), None)
     set_setting(f"mp_{ch.key}_noshow", json.dumps(d, ensure_ascii=False))
     return d
 
@@ -1375,9 +1381,10 @@ def settings_route():
     if isinstance(d.get("noshow"), dict):
         x = d["noshow"]
         ch = {c.key: c for c in channels()}.get(str(x.get("shop") or ""))
-        if not ch or not str(x.get("id") or "").strip():
+        ids = [str(i).strip() for i in (x.get("ids") if isinstance(x.get("ids"), list) else [x.get("id")]) if str(i or "").strip()][:5000]
+        if not ch or not ids:
             return jsonify(ok=False, error="Нет такого магазина или товара"), 400
-        set_noshow(ch, str(x["id"]).strip(), bool(x.get("hide")), "владелец")
+        set_noshow_many(ch, ids, bool(x.get("hide")), "владелец")
     if isinstance(d.get("nobrand"), dict):                # бренд целиком: в этом магазине или во всех сразу (владелец 22.11.2026)
         x = d["nobrand"]
         brand = " ".join(str(x.get("brand") or "").split())[:80]
