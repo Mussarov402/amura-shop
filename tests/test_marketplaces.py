@@ -307,6 +307,11 @@ class Channels(unittest.TestCase):
         c.post("/admin/api/mp/settings", json={"noshow": {"shop": "ozon", "ids": ["TON-1"], "hide": False}})
         self.assertEqual(set(mpk.noshow(oz)), {"anua-cream"})
         self.assertEqual(c.post("/admin/api/mp/settings", json={"noshow": {"shop": "ozon", "ids": []}}).status_code, 400)
+        mpk.set_nobrand(oz, "Anua", True, "владелец")
+        j = c.get("/admin/api/mp/goods?shop=ozon").get_json()                  # «Товары» → вкладка площадки: код МС, остаток, правила брендов
+        g = {x["id"]: x for x in j["goods"]}
+        self.assertEqual((g["TON-1"]["code"], g["TON-1"]["qty"], j["nobrand"]), ("00700", 3, ["Anua"]))
+        self.assertEqual((g["chuzhoy"]["pair"], g["chuzhoy"]["code"]), (False, ""))      # без пары в МС — тоже в списке
 
     def test_routes(self):
         import admin
