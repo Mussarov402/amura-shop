@@ -3615,3 +3615,56 @@ def card_new_retry(op):
     if not r:
         return jsonify(ok=False, error="Не найдено"), 404
     return jsonify(ok=True, new=r)
+
+
+# ---------- Club: owner-only versioned configuration ----------
+@bp.route("/admin/api/club/settings", methods=["GET", "PUT"])
+@guard
+def club_settings():
+    import club
+    import inbox
+    if not modules.enabled("club"):
+        return jsonify(ok=False, error="Модуль Club выключен"), 404
+    try:
+        with inbox.db() as d:
+            if request.method == "PUT":
+                body = request.get_json(silent=True)
+                if not isinstance(body, dict) or not isinstance(body.get("version"), str):
+                    raise ValueError("Укажите версию настроек")
+                result = club.save(d, body.get("settings"), who()["chat"], body["version"])
+            else:
+                result = club.settings(d)
+        return jsonify(ok=True, settings=result)
+    except ValueError as e:
+        return jsonify(ok=False, error=str(e)), 400
+
+
+@bp.post("/admin/api/club/settings/restore")
+@guard
+def club_restore():
+    import club
+    import inbox
+    if not modules.enabled("club"):
+        return jsonify(ok=False, error="Модуль Club выключен"), 404
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or not all(isinstance(body.get(k), str) for k in ("version", "restore_version")):
+        return jsonify(ok=False, error="Укажите версии настроек"), 400
+    try:
+        with inbox.db() as d:
+            result = club.restore(d, body["restore_version"], who()["chat"], body["version"])
+        return jsonify(ok=True, settings=result)
+    except ValueError as e:
+        return jsonify(ok=False, error=str(e)), 400
+
+
+@bp.get("/admin/api/club/settings/history")
+@guard
+def club_history():
+    import club
+    import inbox
+    if not modules.enabled("club"):
+        return jsonify(ok=False, error="Модуль Club выключен"), 404
+    with inbox.db() as d:
+        club.schema(d)
+        rows = d.run("SELECT id, previous_id, data, actor, at FROM club_config_history ORDER BY at DESC LIMIT 100", many=True)
+    return jsonify(ok=True, history=[dict(version=r[0], previous_version=r[1], settings=json.loads(r[2]), actor=r[3], at=r[4]) for r in rows])
