@@ -1387,6 +1387,22 @@ ${r?r.checks.map(c=>`<div class="row" style="display:block"><div style="display:
  const find=async()=>{const q=$("#mq").value.trim();if(!q)return;$("#mqr").innerHTML='<div class="mut">Ищу…</div>';try{const j=await api("mirror/stock?q="+encodeURIComponent(q));
   $("#mqr").innerHTML=j.items.length?j.items.map(i=>`<div class="row" style="display:block"><b>${esc(i.name)}</b><div class="mut">код ${esc(i.code||"—")} · ${Object.entries(i.prices).filter(([,v])=>v).map(([k,v])=>esc(k)+": "+fmt(v)+" ₸").join(" · ")||"без цен"}</div><div class="mut">${i.stores.length?i.stores.map(s=>esc(s.store)+": "+s.stock+(s.reserve?" (резерв "+s.reserve+")":"")).join(" · "):"нет на складах"}</div></div>`).join(""):'<div class="mut">Не найдено</div>'}catch(x){$("#mqr").innerHTML=`<div class="b x">${esc(x.message)}</div>`}};
  api("modules").then(m=>{if(n!==nav)return;$("#mods").innerHTML=`<div style="font-size:17px;font-weight:700;margin-bottom:6px">Модули</div><div class="mut" style="margin-bottom:4px">Выключенный модуль не виден в панели и ни на что не влияет.</div>`+m.modules.map(x=>`<div class="row"><div class="grow"><b>${esc(x.title)}</b><div class="mut">${esc(x.about)}</div><div class="mut">Источник: ${esc((x.sources.find(s=>s.id===x.source)||{}).title||"")}</div>${x.id==="cardpay"&&m.cardpayKeys?`<div class="mut">Ключи на сервере: ID магазина ${m.cardpayKeys.merchant?"✓":"✗ нет"} · секретный ключ ${m.cardpayKeys.secret?"✓":"✗ нет"}${m.cardpayKeys.test?" · тестовый режим":""}</div>`:""}${x.id==="kaspipay"&&m.kaspipayKeys?`<div class="mut">Ключ ApiPay на сервере: ${m.kaspipayKeys.key?"✓":"✗ нет"}</div>`:""}</div><button class="sw ${x.on?"on":""}" data-mod="${x.id}" aria-label="${esc(x.title)}"></button></div>`).join("");
+  if(MODS.club){
+    const section=document.createElement("div");section.className="card";section.style.marginTop="12px";
+    section.innerHTML='<b>Club — настройки</b><div class="mut">Только розница. Начисления пока не подключены.</div><div id="club-config"></div>';
+    $("#mods").appendChild(section);
+    const loadClub=async()=>{const host=section.querySelector("#club-config");try{
+      const [a,h]=await Promise.all([api("club/settings"),api("club/settings/history")]);const c=a.settings;
+      host.innerHTML='<label>Покупок до подарка <input id="club-target" type="number" min="1" max="100"></label><label>Минимальный чек, ₸ <input id="club-min" type="number" min="1"></label><label>Себестоимость подарка, ₸ <input id="club-gift" type="number" min="0"></label><div class="row"><button class="btn sm" id="club-save">Сохранить</button></div><label>Версия для восстановления <select id="club-version"></select></label><button class="btn sm ghost" id="club-restore">Восстановить</button>';
+      const get=id=>host.querySelector("#"+id);
+      get("club-target").value=c.target;get("club-min").value=c.minimum_kzt;get("club-gift").value=c.gift_cost_kzt;
+      get("club-version").add(new Option("Исходные настройки",""));
+      for(const v of h.history)get("club-version").add(new Option(new Date(v.at*1000).toLocaleString("ru-RU")+" · "+v.settings.target+" покупок",v.version));
+      const act=async(path,method,body)=>{try{await api(path,{method,body:JSON.stringify(body)});await loadClub()}catch(e){alert(e.message)}};
+      get("club-save").onclick=()=>act("club/settings","PUT",{version:c.version,settings:{target:Number(get("club-target").value),minimum_kzt:Number(get("club-min").value),gift_cost_kzt:Number(get("club-gift").value)}});
+      get("club-restore").onclick=()=>{if(confirm("Восстановить выбранные настройки Club?"))act("club/settings/restore","POST",{version:c.version,restore_version:get("club-version").value})};
+    }catch(e){host.textContent=e.message}};loadClub();
+  }
   document.querySelectorAll("[data-mod]").forEach(b=>b.onclick=async()=>{const on=!b.classList.contains("on");b.classList.toggle("on",on);try{await api("modules",{method:"PUT",body:JSON.stringify({id:b.dataset.mod,on})});MODS=(await api("modules/on")).on||{};drawAcc();document.querySelectorAll(".nav,.tabbar button").forEach(x=>x.hidden=!navOk(x.dataset.p));renderSubs()}catch(x){b.classList.toggle("on",!on);if(x.message!=="401")alert(x.message)}})}).catch(()=>{});
  $("#mqb").onclick=find;$("#mq").onkeydown=ev=>{if(ev.key==="Enter")find()}},
 async clients(q="",src="ms",page=0,foc=false){const o=await api("clients?src="+src+"&q="+encodeURIComponent(q)+"&page="+page);const ms=src!=="chat";
