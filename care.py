@@ -259,7 +259,7 @@ def _norm(x):
 
 def prepare(limit=60):
     """Тексты для товаров в наличии, у которых их нет или изменились описание / состав. → сколько подготовлено."""
-    if not inbox.OPENAI_KEY or not _run.acquire(blocking=False):
+    if not inbox.OPENAI_KEY or not on() or not _run.acquire(blocking=False):   # модуль выключен — OpenAI не тратим (владелец 24.11.2026)
         return 0
     try:
         live = oh.live()

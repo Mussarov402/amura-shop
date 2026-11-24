@@ -115,6 +115,11 @@ class Care(unittest.TestCase):
                      "skin": ["dry"], "concerns": ["dry", "bogus"]} for i in items]
         self.patch(care, "_ask", ask)
         self.patch(care.time, "sleep", lambda s: None)
+        modules.update("care", on=False)
+        self.assertEqual(care.prepare(), 0)                            # модуль выключен — ИИ не вызываем
+        self.assertEqual(sent, [])
+        modules.update("care", on=True)
+        self.addCleanup(lambda: modules.update("care", on=False))
         n = care.prepare()
         self.assertEqual(n, 14)
         self.assertEqual(len(sent), 3)                                 # пачками по 6
