@@ -481,29 +481,9 @@ def notes(r):
 
 
 def summary(q, r):
-    """Короткое пояснение ИИ к уже выбранной рутине (товары не меняет). Не вышло или нашлось запрещённое слово — шаблон."""
-    base = ("Наносите по порядку: от самой лёгкой текстуры к самой плотной — умывание, тонер, сыворотка, крем; утром последним "
+    """Пояснение к рутине — шаблон, без ИИ: ответы анкеты в OpenAI не уходят (Юрист 24.11.2026 — тогда галочка согласия не нужна)."""
+    return ("Наносите по порядку: от самой лёгкой текстуры к самой плотной — умывание, тонер, сыворотка, крем; утром последним "
             "шагом солнцезащитный крем." + (" Новые средства вводите по одному, чтобы видеть, как кожа на них реагирует." if q["sens"] else ""))
-    if not inbox.OPENAI_KEY:
-        return base
-    key = "care_sum:" + hashlib.sha1(json.dumps([q["skin"], q["sens"], q["concerns"], [s["id"] for k in ("am", "pm", "week") for s in r[k]]],
-                                                ensure_ascii=False).encode()).hexdigest()
-
-    def ask():
-        steps = [{"когда": k, "шаг": s["title"], "товар": s["name"]} for k in ("am", "pm", "week") for s in r[k]]
-        msg = (f"Кожа: {SKINS[q['skin']]}{', чувствительная' if q['sens'] else ''}; задачи: {', '.join(CONCERNS[c][0] for c in q['concerns']) or 'поддерживающий уход'}. "
-               f"Рутина (уже выбрана, не меняй и не добавляй товары): {json.dumps(steps, ensure_ascii=False)}. "
-               "Напиши 2–3 коротких предложения, почему уход устроен так и в каком порядке наносить. Без обещаний результата и медицинских слов.")
-        rr = requests.post("https://api.openai.com/v1/chat/completions", timeout=8, headers={"Authorization": f"Bearer {inbox.OPENAI_KEY}"},
-                           json={"model": inbox.OPENAI_MODEL, "temperature": 0.3, "max_tokens": 220,
-                                 "messages": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": msg}]})
-        rr.raise_for_status()
-        return clean(rr.json()["choices"][0]["message"]["content"], 500)
-    try:
-        return oh.cached(key, 86400, ask) or base
-    except Exception as e:
-        print("Уход: пояснение ИИ:", str(e)[:150], flush=True)
-        return base
 
 
 # ---------- адреса для сайта ----------
