@@ -38,8 +38,8 @@ def build(src):
     # розница: с покупателями в WhatsApp не переписываемся (решение владельца 04.11.2026) — номер менеджера не вшиваем,
     # оптовое оформление с WhatsApp и PDF-накладной на рознице недостижимо (корзина своя — retail/cart.js)
     s = rep(s, 'managerWa: "77003671350",', 'managerWa: "",')
-    css = read("cards.css") + read("cart.css") + read("reviews.css") + read("banners.css") + read("product.css") + read("hits.css") + read("search.css")    # карточки, корзина как на WB, отзывы, баннеры, страница товара
-    js = read("cards.js") + read("cart.js") + read("reviews.js") + read("banners.js") + read("product.js") + read("hits.js") + read("recs.js") + read("search.js") + read("nav.js") + read("stats.js")
+    css = read("cards.css") + read("cart.css") + read("reviews.css") + read("banners.css") + read("product.css") + read("hits.css") + read("search.css") + read("care.css")    # карточки, корзина как на WB, отзывы, баннеры, страница товара
+    js = read("cards.js") + read("cart.js") + read("reviews.js") + read("banners.js") + read("product.js") + read("hits.js") + read("recs.js") + read("search.js") + read("nav.js") + read("stats.js") + read("care.js")
     r = legal_req()
     if legal_ready(r):                            # ссылки внизу и согласие у «Заказать» — только когда заполнены реквизиты
         s = rep(s, "</body>", legal_footer(r) + "<script>window.AMURA_LEGAL = true;</script>\n</body>")

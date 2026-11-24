@@ -88,7 +88,11 @@ freedom.start()                   # оплаты картой, не записа
 from apipay import bp as apipay_bp  # noqa: E402
 app.register_blueprint(apipay_bp)
 import apipay  # noqa: E402
-apipay.start()                    # оплата Kaspi (ApiPay): сверка неоплаченных счетов раз в минуту
+apipay.start()
+from care import bp as care_bp  # noqa: E402
+app.register_blueprint(care_bp)
+import care  # noqa: E402
+care.start()                      # уход: тексты «Состав простым языком» по каталогу — заранее, в фоне                    # оплата Kaspi (ApiPay): сверка неоплаченных счетов раз в минуту
 from marketplaces import bp as marketplaces_bp  # noqa: E402
 app.register_blueprint(marketplaces_bp)
 from agent import bp as agent_bp  # noqa: E402
