@@ -101,7 +101,9 @@ class Care(unittest.TestCase):
         self.assertTrue(all(cat[i]["price"] < cat["r1"]["price"] and cat[i]["cat"] == "cream" for i in sim))
         self.assertEqual(care.similar("m1", cat), [])
         ok, no = care.pairing(["retinoid"], "serum")
-        self.assertTrue(any("кислотами" in x for x in no))
+        self.assertTrue(any("Не рекомендуется одновременно" in x for x in no))
+        self.assertIsNone(care.BANNED.search("увлажняет и уменьшает видимость пор"))
+        self.assertTrue(care.BANNED.search("избавляет от прыщей") and care.BANNED.search("гипоаллергенный крем"))
         self.assertTrue(any("солнцезащитный" in x for x in ok))
 
     def test_ai_batch_and_banned_words(self):
@@ -140,12 +142,13 @@ class Care(unittest.TestCase):
                                             "name": "Айгерим", "phone": "+77011234567"}).get_json()
         self.assertTrue(j["ok"])
         self.assertIn("не медицинская консультация", j["disclaimer"])
+        self.assertIn("кормления грудью", j["disclaimer"])
         self.assertTrue(j["main"]["am"] and j["eco"]["am"])
         self.assertNotIn("Айгерим", json.dumps(j, ensure_ascii=False))
         info = self.c.get("/care/info/s1").get_json()
         self.assertTrue(info["found"])
         self.assertTrue(info["avoid"])
-        self.assertIn("дерматологу", info["disclaimer"])
+        self.assertIn("ИИ может ошибаться", info["disclaimer"])
         self.assertEqual(self.c.get("/care/info/nope").get_json()["found"], False)
 
 

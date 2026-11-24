@@ -4288,10 +4288,10 @@ const Q = [
     ["combo", "Комбинированная", "Блестит лоб, нос и подбородок"], ["normal", "Нормальная", "Комфортно, без проблем"], ["unknown", "Не знаю", "Пройти мини-тест"]] },
   { k: "test", t: "Мини-тест: как кожа ощущается через 2–3 часа после умывания, без крема?", if: a => a.skin === "unknown", o: [
     ["dry", "Стянута, хочется нанести крем"], ["oily", "Блестит везде"], ["combo", "Блестит только лоб, нос, подбородок"], ["normal", "Комфортно, без блеска и стянутости"]] },
-  { k: "sens", t: "Кожа часто краснеет или щиплет от новых средств?", o: [["yes", "Да, часто"], ["some", "Иногда"], ["no", "Нет"]] },
+  { k: "sens", t: "Кожа часто краснеет или щиплет от новых средств?", o: [["yes", "Да, часто"], ["some", "Иногда"], ["no", "Нет"], ["skip", "Не указывать"]] },
   { k: "concerns", t: "Что хочется улучшить?", s: "До трёх вариантов", multi: 3, o: [
     ["acne", "Высыпания"], ["pores", "Поры, чёрные точки"], ["pigment", "Пятна и неровный тон"], ["dry", "Сухость, шелушение"],
-    ["red", "Покраснения"], ["aging", "Морщины, упругость"], ["dull", "Тусклый цвет"], ["none", "Ничего особенного — просто ухаживать"]] },
+    ["red", "Покраснения"], ["aging", "Морщины, упругость"], ["dull", "Тусклый цвет"], ["none", "Ничего особенного — просто ухаживать"], ["skip", "Не указывать"]] },
   { k: "age", t: "Ваш возраст", o: [["18", "До 25"], ["25", "25–34"], ["35", "35–44"], ["45", "45 и старше"]] },
   { k: "have", t: "Что у вас уже есть и вы хотите оставить?", s: "Эти шаги не положим в корзину. Можно ничего не выбирать", multi: 6, opt: true, o: [
     ["cleanser", "Средство для умывания"], ["toner", "Тонер"], ["serum", "Сыворотка"], ["cream", "Крем"], ["spf", "Солнцезащитный крем"]] },
@@ -4346,8 +4346,8 @@ function choose(id){
   const q = steps()[S.i];
   if(q.multi){
     let cur = [...(S.a[q.k] || [])];
-    if(id === "none") cur = cur.includes("none") ? [] : ["none"];
-    else{ cur = cur.filter(x => x !== "none"); cur = cur.includes(id) ? cur.filter(x => x !== id) : cur.concat(id); if(cur.length > q.multi) cur.shift(); }
+    if(id === "none" || id === "skip") cur = cur.includes(id) ? [] : [id];
+    else{ cur = cur.filter(x => x !== "none" && x !== "skip"); cur = cur.includes(id) ? cur.filter(x => x !== id) : cur.concat(id); if(cur.length > q.multi) cur.shift(); }
     S.a[q.k] = cur; return paint();
   }
   S.a[q.k] = id; next();
@@ -4360,7 +4360,7 @@ function next(){
 async function submit(){
   const v = view(), a = S.a;
   v.innerHTML = `${head("Подбор ухода")}<div class="rcare-in rcare-wait"><div class="rkwait"><span class="rkdot"></span>Подбираем уход из товаров в наличии…</div></div>`;
-  const body = { skin: a.skin === "unknown" ? a.test : a.skin, sens: a.sens, concerns: (a.concerns || []).filter(x => x !== "none"),
+  const body = { skin: a.skin === "unknown" ? a.test : a.skin, sens: a.sens, concerns: (a.concerns || []).filter(x => x !== "none" && x !== "skip"),
     age: a.age, have: a.have || [], level: a.level, budget: a.budget };
   try{
     const r = await fetch(API() + "/care/quiz", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
