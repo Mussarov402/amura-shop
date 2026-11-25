@@ -277,6 +277,22 @@ form.co{display:grid;gap:12px;padding-top:6px}
 .sheet.opros{grid-template-columns:1fr;max-width:560px}   /* анкета «Пожелания» — одна колонка */
 .sheet .pic{position:relative;background:#fff;display:grid;place-items:center;min-height:300px;border-radius:var(--radius-lg) 0 0 var(--radius-lg)}
 .sheet .pic img{max-height:460px;object-fit:contain;padding:22px}
+.gal{position:relative;width:100%;align-self:stretch;display:grid;grid-template-rows:auto auto}
+.gal-t{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain;outline:none}
+.gal-t::-webkit-scrollbar{display:none}
+.gal-s{flex:0 0 100%;margin:0;scroll-snap-align:center;display:grid;place-items:center;min-height:300px}
+.sheet .pic .gal-s img{width:100%;object-fit:contain;padding:22px;user-select:none;-webkit-user-drag:none}
+.gal-a{position:absolute;top:calc(50% - 40px);width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:rgba(255,255,255,.92);color:#16201B;display:none;place-items:center;cursor:pointer;z-index:2}
+.gal-a svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.gal-a.prev{left:10px}.gal-a.next{right:10px}.gal-a:disabled{opacity:.35;cursor:default}
+.gal-d{display:flex;justify-content:center;gap:6px;padding:0 0 12px}
+.gal-d i{width:7px;height:7px;border-radius:50%;background:#C9D2CD;transition:background .2s,width .2s}
+.gal-d i.on{background:#15503C;width:18px;border-radius:4px}
+.gal-th{display:none;gap:8px;justify-content:center;flex-wrap:wrap;padding:0 12px 14px}
+.gal-th button{width:56px;height:56px;padding:0;border:2px solid transparent;border-radius:10px;background:#fff;cursor:pointer;overflow:hidden}
+.gal-th button.on{border-color:#15503C}
+.sheet .pic .gal-th img{width:100%;height:100%;max-height:none;object-fit:contain;padding:3px}
+@media (pointer:fine) and (min-width:761px){.gal-a{display:grid}.gal-d{display:none}.gal-th{display:flex}.gal-s{cursor:pointer}}
 .sheet .info{padding:26px;display:flex;flex-direction:column;gap:10px}
 .sheet .info h3{font-family:var(--display);font-weight:500;font-size:21px;line-height:1.25;margin:0}
 .sheet .desc{color:var(--ink);font-size:14px;line-height:1.6;white-space:pre-line}
@@ -980,7 +996,7 @@ function descHTML(it){
 function openProduct(it){
   $("#sheet").dataset.id = it.id; $("#sheet").classList.remove("opros");
   $("#sheet").innerHTML = `<button class="x" id="closeModal" aria-label="Закрыть">×</button>
-    <div class="pic">${favBtnHTML(it.id)}${it.imgBig || it.img ? `<img src="${esc(it.imgBig || it.img)}" alt="${esc(it.name)}">` : `<span class="ph" style="font-size:48px">${esc((it.brand||"A").charAt(0))}</span>`}</div>
+    <div class="pic">${favBtnHTML(it.id)}${galHTML(it)}</div>
     <div class="info">
       <div class="brand">${esc(it.brand || "")}${it.country ? ` · ${esc(it.country)}` : ""}</div>
       <h3>${esc(it.name)}</h3>
@@ -994,8 +1010,40 @@ function openProduct(it){
     </div>`;
   $("#modal").classList.add("open"); $("#scrim").classList.add("open");
   $("#closeModal").onclick = closeAll; $("#closeModal").focus();
-  bindDesc();
+  bindGal(); bindDesc();
   if(it.desc === undefined && !DEMO) loadDesc(it);
+}
+/* фото товара: все фото из МойСклад (catalog.json: img + imgs). Телефон — свайп и точки, компьютер — стрелки, миниатюры, клик.
+   В списке товаров — только первое фото. Остальные грузятся лениво, когда до них листают. */
+function galSrcs(it){ return [it.imgBig || it.img, ...(it.imgs || [])].filter(Boolean); }
+function galHTML(it){
+  const L = galSrcs(it), alt = esc(it.name);
+  if(!L.length) return `<span class="ph" style="font-size:48px">${esc((it.brand||"A").charAt(0))}</span>`;
+  if(L.length === 1) return `<img src="${esc(L[0])}" alt="${alt}">`;
+  const arrow = (d, l) => `<button type="button" class="gal-a ${d}" data-gal="${d}" aria-label="${l}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${d === "prev" ? "M15 5l-7 7 7 7" : "M9 5l7 7-7 7"}"/></svg></button>`;
+  return `<div class="gal" role="region" aria-roledescription="галерея" aria-label="Фото товара">
+    <div class="gal-t" tabindex="0">${L.map((u, i) => `<figure class="gal-s"><img src="${esc(u)}" alt="${alt}${i ? `, фото ${i + 1}` : ""}" ${i ? 'loading="lazy" decoding="async"' : 'fetchpriority="high"'} draggable="false"></figure>`).join("")}</div>
+    ${arrow("prev", "Предыдущее фото")}${arrow("next", "Следующее фото")}
+    <div class="gal-d" aria-hidden="true">${L.map((_, i) => `<i class="${i ? "" : "on"}"></i>`).join("")}</div>
+    <div class="gal-th">${L.map((u, i) => `<button type="button" class="${i ? "" : "on"}" data-galto="${i}" aria-label="Фото ${i + 1}"><img src="${esc(u)}" alt="" loading="lazy" decoding="async"></button>`).join("")}</div></div>`;
+}
+function bindGal(){
+  const g = $("#sheet .gal"); if(!g) return;
+  const t = g.querySelector(".gal-t"), n = t.children.length;
+  const cur = () => Math.round(t.scrollLeft / Math.max(1, t.clientWidth));
+  const to = i => t.scrollTo({ left: Math.max(0, Math.min(n - 1, i)) * t.clientWidth, behavior: "smooth" });
+  const mark = () => { const i = cur();
+    g.querySelectorAll(".gal-d i").forEach((d, k) => d.classList.toggle("on", k === i));
+    g.querySelectorAll(".gal-th button").forEach((b, k) => b.classList.toggle("on", k === i));
+    g.querySelector(".gal-a.prev").disabled = i === 0; g.querySelector(".gal-a.next").disabled = i === n - 1; };
+  let raf = 0; t.addEventListener("scroll", () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(mark); }, { passive: true });
+  g.addEventListener("click", e => {
+    const a = e.target.closest("[data-gal]"); if(a){ e.stopPropagation(); return to(cur() + (a.dataset.gal === "next" ? 1 : -1)); }
+    const b = e.target.closest("[data-galto]"); if(b){ e.stopPropagation(); return to(+b.dataset.galto); }
+    if(e.target.closest(".gal-s") && matchMedia("(pointer:fine)").matches) to(cur() + 1 < n ? cur() + 1 : 0);   // клик по фото — следующее
+  });
+  t.addEventListener("keydown", e => { if(e.key === "ArrowRight"){ e.preventDefault(); to(cur() + 1); } if(e.key === "ArrowLeft"){ e.preventDefault(); to(cur() - 1); } });
+  mark();
 }
 function bindDesc(){ const m = $("#descMore"); if(m) m.onclick = () => { $("#descText").classList.remove("clip"); m.remove(); }; }
 async function loadDesc(it){

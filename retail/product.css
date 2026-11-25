@@ -12,11 +12,13 @@ body.rpage #closeModal{display:none}
 .rp-bar em{position:absolute;top:3px;right:1px;min-width:18px;height:18px;border-radius:9px;background:#E5483A;color:#fff;font:700 11px/18px system-ui,sans-serif;font-style:normal;padding:0 4px}
 .rp-rate{align-self:flex-start;border:0;background:none;padding:0;color:var(--muted);font:inherit;font-size:14px;cursor:pointer}
 .rp-rate b{color:#E8A317}
+.rp-main{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:32px;align-items:start}
 body.rpage .sheet .pic{border-radius:var(--radius-lg);margin-top:16px;align-self:start;position:sticky;top:76px;min-height:360px}
 body.rpage .sheet .pic img{max-height:min(560px,70vh)}
 body.rpage .sheet .info{padding:16px 0 0}
 @media(max-width:760px){
   body.rpage .sheet{display:block;padding:0 0 calc(var(--rpact,150px) + 16px)}
+  .rp-main{display:block}
   body.rpage .sheet .pic img{max-height:min(440px,55vh)}
   .rp-bar{margin:0;padding-left:4px;padding-right:4px}
   body.rpage .sheet .pic{position:relative;top:0;margin:0;border-radius:0;min-height:300px}

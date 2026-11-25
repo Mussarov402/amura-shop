@@ -28,6 +28,7 @@ OUT = os.environ.get("OUT", "docs")
 IMG_DIR = os.path.join(OUT, "img")
 IMG_SIZE = 800          # большая сторона миниатюры; фото в МойСклад — 3:4 (900×1200), как на WB
 IMG_VER = 2             # сменить — все миниатюры пересоберутся
+MAX_IMGS = 8            # фото товара для галереи в карточке: первое — img/<id>.webp, остальные — img/<id>-2.webp … (владелец 25.11.2026)
 NEW_DAYS = 21
 KEEP_DAYS = 90          # фото товара без остатка хранится столько дней (см. конец main)
 
@@ -124,11 +125,7 @@ def barcode_of(item):
     return ""
 
 
-def fetch_image(pid):
-    rows = get(f"{API}/entity/product/{pid}/images", limit=1).json().get("rows", [])
-    if not rows:
-        return None
-    href = rows[0]["meta"]["downloadHref"]
+def _webp(href):
     r = S.get(href, timeout=60, allow_redirects=True)
     r.raise_for_status()
     im = Image.open(io.BytesIO(r.content)).convert("RGB")
@@ -136,6 +133,39 @@ def fetch_image(pid):
     buf = io.BytesIO()
     im.save(buf, "WEBP", quality=80, method=6)
     return buf.getvalue()
+
+
+def fetch_images(pid, n=MAX_IMGS):
+    """Все фото товара по порядку МойСклад (до MAX_IMGS) → список WebP."""
+    rows = get(f"{API}/entity/product/{pid}/images", limit=n).json().get("rows", [])
+    return [_webp(r["meta"]["downloadHref"]) for r in rows[:n]]
+
+
+def fetch_image(pid):
+    got = fetch_images(pid, 1)
+    return got[0] if got else None
+
+
+def save_images(pid, upd, count, img_index):
+    """Фото товара в img/: первое — <id>.webp, следующие — <id>-2.webp …; уже скачанные (тот же updated) не качаем.
+    → (список путей для каталога, сколько скачано)."""
+    count = max(1, min(int(count or 1), MAX_IMGS))
+    paths = [f"img/{pid}.webp"] + [f"img/{pid}-{k}.webp" for k in range(2, count + 1)]
+    files = [os.path.join(IMG_DIR, os.path.basename(p)) for p in paths]
+    if img_index.get(pid) == upd and img_index.get(pid + "#n", 1) == count and all(os.path.exists(f) for f in files):
+        return paths, 0
+    data = fetch_images(pid, count) if count > 1 else [fetch_image(pid)]
+    data = [d for d in data if d]
+    if not data:
+        return [], 0
+    for f, d in zip(files, data):
+        open(f, "wb").write(d)
+    for k in range(len(data) + 1, MAX_IMGS + 1):                    # фото удалили в МойСклад — лишние файлы убираем
+        old = os.path.join(IMG_DIR, f"{pid}-{k}.webp")
+        if os.path.exists(old):
+            os.remove(old)
+    img_index[pid], img_index[pid + "#n"] = upd, len(data)
+    return paths[:len(data)], len(data)
 
 
 def main():
@@ -177,21 +207,18 @@ def main():
             wholesale[it["id"]] = tiers
         pid, upd = it["id"], it.get("updated", "")
 
-        img = None
-        if it.get("images", {}).get("meta", {}).get("size", 0) > 0:
-            path = os.path.join(IMG_DIR, f"{pid}.webp")
-            if img_index.get(pid) == upd and os.path.exists(path):
-                img = f"img/{pid}.webp"
-            else:
-                try:
-                    data = fetch_image(pid)
-                    if data:
-                        open(path, "wb").write(data)
-                        img_index[pid] = upd
-                        img = f"img/{pid}.webp"
-                        downloaded += 1
-                except Exception as e:
-                    print("img fail", pid, e, file=sys.stderr)
+        img, imgs = None, []
+        n_img = it.get("images", {}).get("meta", {}).get("size", 0)
+        if n_img > 0:
+            try:
+                paths, got = save_images(pid, upd, n_img, img_index)
+                downloaded += got
+                if paths:
+                    img, imgs = paths[0], paths[1:]
+            except Exception as e:
+                print("img fail", pid, e, file=sys.stderr)
+                if os.path.exists(os.path.join(IMG_DIR, f"{pid}.webp")):
+                    img = f"img/{pid}.webp"
 
         items.append({
             "id": pid,
@@ -212,6 +239,7 @@ def main():
             "rtl": rtl,
             **({"fx": {k: {"iso": f["iso"], "v": f["v"]} for k, f in fx.items()}} if fx and PUBLIC_WHOLESALE else {}),   # курс — на сервере
             "img": img,
+            **({"imgs": imgs} if imgs else {}),                     # остальные фото — галерея в карточке
             "updated": upd[:10],
             "isNew": upd[:10] >= new_since,
         })
