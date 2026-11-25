@@ -31,4 +31,10 @@ jobs:
           git add catalog.json prices.bin img
           git diff --cached --quiet && echo "Без изменений" && exit 0
           git commit -m "Каталог $(TZ=Asia/Almaty date '+%d.%m.%Y %H:%M')"
-          git push
+          # пока шла выгрузка, в main могли влить PR — подтягиваем и повторяем (бот меняет только catalog.json, prices.bin, img/)
+          for i in 1 2 3; do
+            git push && exit 0
+            git pull --rebase origin main || { git rebase --abort; exit 1; }
+            sleep $((i * 5))
+          done
+          exit 1
