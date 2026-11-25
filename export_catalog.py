@@ -126,8 +126,15 @@ def barcode_of(item):
 
 
 def _webp(href):
-    r = S.get(href, timeout=60, allow_redirects=True)
-    r.raise_for_status()
+    for i in range(3):                                   # МойСклад при множестве скачиваний иногда рвёт соединение — повтор
+        try:
+            r = S.get(href, timeout=60, allow_redirects=True)
+            r.raise_for_status()
+            break
+        except requests.RequestException:
+            if i == 2:
+                raise
+            time.sleep(2 * (i + 1))
     im = Image.open(io.BytesIO(r.content)).convert("RGB")
     im.thumbnail((IMG_SIZE, IMG_SIZE))
     buf = io.BytesIO()
