@@ -6,6 +6,12 @@ cd "$APP" || exit 1
 git fetch -q origin main || exit 0
 NEW=$(git rev-parse origin/main); OLD=$(git rev-parse HEAD)
 [ "$NEW" = "$OLD" ] && [ ! -f /var/lib/amura/retry ] && exit 0
+# только данные сайтов (выгрузка каталога, фото, страницы с GitHub Pages, документы) — приложение их с диска не читает:
+# забираем без apply.sh, чтобы не перезапускать систему AMURA несколько раз в день из-за выгрузки каталога
+if [ ! -f /var/lib/amura/retry ] && ! git diff --name-only "$OLD" "$NEW" | grep -qvE '^(catalog\.json|prices\.bin|img/|shop/|retail/|opt/|docs/|cards/|motion/|index\.html$|[^/]*\.md$)'; then
+  git reset -q --hard origin/main
+  exit 0
+fi
 git reset -q --hard origin/main
 python3 deploy/report.py hello >/dev/null 2>&1 || true        # пока ключ сервера не закреплён в репозитории
 if OUT=$(bash deploy/apply.sh 2>&1); then
