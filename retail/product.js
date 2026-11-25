@@ -48,7 +48,7 @@ openProduct = function(it, fromHistory){
   const pic = sh.querySelector(":scope > .pic"), info = sh.querySelector(":scope > .info");
   if(pic && info){ const m = document.createElement("div"); m.className = "rp-main"; pic.before(m); m.append(pic, info); }
   const h3 = sh.querySelector(".info h3"); if(h3) h3.insertAdjacentHTML("afterend", rateLine(it.id));
-  const br = sh.querySelector(".info .brand"); if(br && window.VERIFIED_SVG && !br.querySelector(".rpc-ok")) br.insertAdjacentHTML("afterbegin", window.VERIFIED_SVG);   // синяя галочка «оригинал», как в каталоге
+  const br = sh.querySelector(".info .brand"); if(br && window.VERIFIED_SVG && it.orig !== false && !br.querySelector(".rpc-ok")) br.insertAdjacentHTML("afterbegin", window.VERIFIED_SVG);   // синяя галочка «оригинал», как в каталоге
   sh.scrollTop = 0;
   const act = sh.querySelector(".act"); if(act) sh.style.setProperty("--rpact", act.offsetHeight + "px");   // телефон: место под закреплённой кнопкой покупки
   document.title = it.name + " — AMURA";

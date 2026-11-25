@@ -564,6 +564,11 @@ def refresh(max_age):
             data = site_price.apply(data)            # «Новая модель цен» розницы (владелец 08.11.2026): rtl = цена сайта
         except Exception as e:
             print("Цены сайта не применены:", str(e)[:150], flush=True)
+        try:
+            import badge
+            data = badge.apply(data)                 # синяя галочка «оригинал»: товар → бренд → по умолчанию (владелец 25.11.2026)
+        except Exception as e:
+            print("Галочка «оригинал» не применена:", str(e)[:150], flush=True)
         _cache["live"] = (time.time(), data)
         return data
 
