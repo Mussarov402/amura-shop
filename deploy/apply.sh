@@ -68,7 +68,9 @@ if [ "$STAGE" = live ] && [ ! -f "$LIVE" ]; then
   echo "финальная копия принята, рабочий режим"
 fi
 
-cat > /etc/systemd/system/amura-app.service <<EOU
+UNIT=/etc/systemd/system/amura-app.service
+OLDUNIT=$(cat "$UNIT" 2>/dev/null || true)
+cat > "$UNIT" <<EOU
 [Unit]
 Description=AMURA: приложение (gunicorn)
 After=network-online.target postgresql.service
@@ -79,6 +81,7 @@ WorkingDirectory=$APP
 EnvironmentFile=$ENVF
 EnvironmentFile=$LOCAL
 ExecStart=$VENV/bin/gunicorn $([ "$STAGE" = live ] && echo app:app || echo app_standby:app) --bind 127.0.0.1:8000 --workers 1 --threads 8 --timeout 120
+ExecReload=/bin/kill -HUP \$MAINPID
 Restart=always
 RestartSec=5
 
@@ -87,7 +90,14 @@ WantedBy=multi-user.target
 EOU
 systemctl daemon-reload
 systemctl enable amura-app >/dev/null 2>&1
-systemctl restart amura-app
+# без простоя (25.11.2026: при каждом обновлении сайт ~минуту показывал ошибку): процесс уже работает и его настройка
+# не менялась — gunicorn по HUP поднимает новый процесс с новым кодом, старый дообслуживает запросы; новые запросы ждут
+# в очереди сокета, а не получают 502. Полный перезапуск — только при смене настройки службы или если она не запущена.
+if [ "$OLDUNIT" = "$(cat "$UNIT")" ] && systemctl is-active --quiet amura-app; then
+  systemctl reload amura-app; echo "перезагрузка без простоя"
+else
+  systemctl restart amura-app
+fi
 
 # nginx: все домены AMURA → приложение (deploy/nginx.sh); сертификаты — таймер amura-certs (deploy/certs.sh),
 # выпускаются и до смены DNS: проверку Let's Encrypt Render пересылает сюда
