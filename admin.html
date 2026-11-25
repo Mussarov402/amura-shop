@@ -492,9 +492,35 @@ const newBtn=(pl)=>canNew()||(ME&&ME.role==="owner")?`<div style="display:flex;g
 /* площадки в «Товарах» (владелец 22.11.2026): Сайт | WB — магазин | Ozon — магазин; для WB/Ozon переключатель = выставлять остаток */
 const plBar=async cur=>{const el=$("#plbar");if(!el||!ME||ME.role!=="owner")return;let ch=window._mpch;
  if(!ch){try{ch=window._mpch=((await api("mp/status")).channels||[]).filter(c=>c.keys)}catch(e){ch=window._mpch=[]}}
- if(!ch.length||!$("#plbar"))return;
- el.innerHTML=`<span class="chips plch">${[["site","Сайт"],...ch.map(c=>[c.id,(/wb/i.test(c.id)?"WB":"Ozon")+(/^(WB|Ozon)$/.test(c.title)?"":" — "+c.title.replace(/^(WB|Ozon)\s*[—-]?\s*/,""))])].map(([k,t])=>`<button class="${k===cur?"on":""}" data-pl="${esc(k)}">${esc(t)}</button>`).join("")}</span>`;
+ if(!$("#plbar"))return;
+ el.innerHTML=`<span class="chips plch">${[["site","Сайт"],["badge","✔ Галочка"],...ch.map(c=>[c.id,(/wb/i.test(c.id)?"WB":"Ozon")+(/^(WB|Ozon)$/.test(c.title)?"":" — "+c.title.replace(/^(WB|Ozon)\s*[—-]?\s*/,""))])].map(([k,t])=>`<button class="${k===cur?"on":""}" data-pl="${esc(k)}">${esc(t)}</button>`).join("")}</span>`;
  el.querySelectorAll("[data-pl]").forEach(b=>b.onclick=()=>{views.products.pl=b.dataset.pl;views.products("",views.products.pl==="site"?"":"",0)})};
+/* синяя галочка «оригинал» на amura.kz (владелец 25.11.2026): товар → бренд → по умолчанию вкл; правило бренда — и для новых товаров */
+async function badgeGoods(q,brand,page){const n=nav,size=+(localStorage.getItem("amura_psize")||100);let r;
+ try{r=await api("badge")}catch(e){$("#main").innerHTML=head("Галочка «оригинал»","")+seg("products")+newBtn("badge")+`<div class="card"><div class="b x" style="white-space:normal">${esc(e.message)}</div></div>`;bindSeg();plBar("badge");return}
+ if(n!==nav)return;const G=r.items,BR={};(r.brands||[]).forEach(b=>BR[b.key]=b);const bOf=g=>g.brand||"без бренда";
+ const B={};G.forEach(g=>{const k=bOf(g);B[k]=B[k]||{n:0,on:0};B[k].n++;if(g.on)B[k].on++});const BL=Object.keys(B).sort((a,b)=>a.localeCompare(b,"ru"));
+ const s=q.toLowerCase(),F=G.filter(g=>(!brand||bOf(g)===brand)&&(!s||[g.name,g.code,g.brand].some(v=>String(v||"").toLowerCase().includes(s))));
+ const onN=F.filter(g=>g.on).length,pages=Math.max(1,Math.ceil(F.length/size)),P=F.slice(page*size,(page+1)*size);
+ const br=brand&&brand!=="без бренда"?BR[brand.toLowerCase()]||{name:brand}:null,brOn=br?(br.on!=null?br.on:r.default):null;
+ const src=g=>g.src==="item"?"свой выбор":g.src==="brand"?"как у бренда":"по умолчанию";
+ $("#main").innerHTML=head("Галочка «оригинал»","Синяя галочка у бренда на amura.kz (каталог и карточка). Порядок: свой переключатель товара → правило бренда → по умолчанию включена.")+seg("products")+newBtn("badge")+
+ `<div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap"><select id="br" style="padding:12px;border:1px solid #CBD4CE;border-radius:10px;font:15px inherit;background:#fff"><option value="">Все бренды (${BL.length})</option>${BL.map(b=>`<option value="${esc(b)}" ${b===brand?"selected":""}>${esc(b)} — ${B[b].n}, с галочкой ${B[b].on}</option>`).join("")}</select><input id="q" placeholder="Поиск по названию, бренду, коду" value="${esc(q)}" style="flex:1;min-width:200px"></div>
+ <div class="card"><div class="mut" style="margin-bottom:6px">Найдено: ${F.length} · с галочкой: ${onN} · без: ${F.length-onN}${brand?"":` · всего с галочкой: ${r.on} из ${r.on+r.off}`}</div>
+ ${br?`<div class="row swall" style="flex-wrap:wrap"><div class="grow" style="min-width:200px"><b>Галочка всему бренду ${esc(brand)} · ${B[brand].n}</b><div class="mut">${br.on==null?"правило не задано — по умолчанию включена":brOn?"включена — и новым товарам бренда":"выключена — и новым товарам бренда"}. Товар со своим выбором — по своему.</div>
+   <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap"><input id="bdoc" placeholder="Документ: ссылка или «есть документы поставки»" value="${esc(br.doc||"")}" style="flex:1;min-width:200px"><button class="btn sm ghost" id="bdocs">Сохранить</button></div></div><button class="sw ${brOn?"on":""}" id="swb" aria-label="Галочка всему бренду"></button></div>`:""}`+
+ P.map(g=>`<div class="row ${g.on?"":"hid"}"><span class="mut" style="width:56px">${esc(g.code||"")}</span><div class="grow"><b>${esc(g.name)}</b><div class="mut">${esc(g.brand||"без бренда")} · ${src(g)}${g.doc?" · документ: "+esc(g.doc):""}${g.src==="item"?` · <a href="#" data-bdr="${esc(g.id)}">как у бренда</a>`:""}</div></div><button class="sw ${g.on?"on":""}" data-bdid="${esc(g.id)}" aria-label="Галочка у товара"></button></div>`).join("")+
+ (F.length?"":'<div class="mut" style="padding:8px 0">Ничего не найдено.</div>')+`</div>
+ <div style="display:flex;gap:10px;align-items:center;margin:14px 0;flex-wrap:wrap"><button class="btn ghost" id="pp" ${page<1?"disabled":""}>← Назад</button><span>Страница ${page+1} из ${pages}</span><button class="btn ghost" id="pn" ${page+1>=pages?"disabled":""}>Вперёд →</button></div>
+ <div class="mut">На сайте изменения видны через 1–2 минуты (живой каталог).</div>`;
+ bindSeg();plBar("badge");const go=(qq,bb,pp)=>badgeGoods(qq,bb,pp);
+ $("#br").onchange=()=>go("",$("#br").value,0);$("#pp").onclick=()=>{go(q,brand,page-1);scrollTo(0,0)};$("#pn").onclick=()=>{go(q,brand,page+1);scrollTo(0,0)};
+ let t;$("#q").oninput=()=>{clearTimeout(t);t=setTimeout(()=>go($("#q").value,brand,0).then(()=>{const i=$("#q");if(i){i.focus();i.setSelectionRange(99,99)}}),400)};
+ const put=async b=>{try{await api("badge",{method:"PUT",body:JSON.stringify(b)});return true}catch(e){alert(e.message)}};
+ document.querySelectorAll("[data-bdid]").forEach(b=>b.onclick=async()=>{const on=!b.classList.contains("on");b.disabled=true;if(await put({ids:[b.dataset.bdid],on})){const g=G.find(x=>x.id===b.dataset.bdid);g.on=on;g.src="item";go(q,brand,page)}else b.disabled=false});
+ document.querySelectorAll("[data-bdr]").forEach(a=>a.onclick=async e=>{e.preventDefault();if(await put({ids:[a.dataset.bdr],reset:true}))go(q,brand,page)});
+ if($("#swb"))$("#swb").onclick=async()=>{const on=!$("#swb").classList.contains("on");if(!confirm(`${on?"Включить":"Выключить"} галочку всему бренду «${brand}»? Новым товарам бренда — тоже. Товары со своим выбором не меняются.`))return;if(await put({brand,on}))go(q,brand,page)};
+ if($("#bdocs"))$("#bdocs").onclick=async()=>{if(await put({brand,doc:$("#bdoc").value}))toast("Документ сохранён")}}
 async function mpGoods(shop,q,brand,page){const n=nav,size=+(localStorage.getItem("amura_psize")||100);let r;
  try{r=await api("mp/goods?shop="+encodeURIComponent(shop))}catch(e){$("#main").innerHTML=head("Товары","")+seg("products")+newBtn(shop)+`<div class="card"><div class="b x" style="white-space:normal">${esc(e.message)}</div></div>`;bindSeg();plBar(shop);return}
  if(n!==nav)return;const c=(window._mpch||[]).find(x=>x.id===shop)||{title:shop,nobrand:[]},G=r.goods||[];
@@ -2071,7 +2097,7 @@ async delivery(){const o=await api("delivery");const n=nav;const S=o.services,R=
    const r=await api("delivery/test",{method:"POST",body:JSON.stringify({svc:k})});m.textContent="✅ "+r.message;
    document.querySelectorAll(`[data-s="${k}"] input[type=password]`).forEach(i=>{if(i.value){i.value="";i.placeholder="сохранён — оставьте пустым"}})}
   catch(e){m.textContent="❌ "+e.message}finally{b.disabled=false}})},
-async products(q="",brand="",page=0){if(views.products.pl&&views.products.pl!=="site")return mpGoods(views.products.pl,q,brand,page);const size=+(localStorage.getItem("amura_psize")||100);const [o,bs]=await Promise.all([api("products?q="+encodeURIComponent(q)+"&brand="+encodeURIComponent(brand)+"&size="+size+"&offset="+page*size),api("brands")]);const pages=Math.max(1,Math.ceil(o.total/size));
+async products(q="",brand="",page=0){if(views.products.pl==="badge")return badgeGoods(q,brand,page);if(views.products.pl&&views.products.pl!=="site")return mpGoods(views.products.pl,q,brand,page);const size=+(localStorage.getItem("amura_psize")||100);const [o,bs]=await Promise.all([api("products?q="+encodeURIComponent(q)+"&brand="+encodeURIComponent(brand)+"&size="+size+"&offset="+page*size),api("brands")]);const pages=Math.max(1,Math.ceil(o.total/size));
  const cb=brand?bs.brands.find(b=>b.brand===brand):null;
  $("#main").innerHTML=head("Товары на сайте","Цены и остатки идут из МойСклад. Здесь только видимость.")+seg("products")+newBtn("site")+(ME&&ME.role==="owner"?'<div id="pend"></div>':"")+`<div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap"><select id="br" style="padding:12px;border:1px solid #CBD4CE;border-radius:10px;font:15px inherit;background:#fff"><option value="">Все бренды (${bs.brands.length})</option>${bs.brands.map(b=>`<option value="${esc(b.brand)}" ${b.brand===brand?"selected":""}>${esc(b.brand)} — ${b.total}${b.hidden?`, скрыто ${b.hidden}`:""}</option>`).join("")}</select><input id="q" placeholder="Поиск по названию, бренду, коду" value="${esc(q)}" style="flex:1;min-width:200px"></div>
  ${cb?`<div class="card" style="margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><b style="flex:1">${esc(cb.brand)}: ${cb.total} тов., скрыто ${cb.hidden}</b><button class="btn ghost" id="bh">Скрыть весь бренд</button><button class="btn" id="bs">Показать весь бренд</button></div>`:""}

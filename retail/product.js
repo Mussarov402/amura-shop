@@ -44,7 +44,7 @@ openProduct = function(it, fromHistory){
     <button type="button" class="rp-ic" data-rpfav aria-label="Избранное">${HEART_SVG}<em id="rpFav" ${FAV.length ? "" : "hidden"}>${FAV.length}</em></button>
     <button type="button" class="rp-ic" data-rpcart aria-label="Корзина">${CART_SVG}<em id="rpCnt" ${n ? "" : "hidden"}>${n}</em></button></div>`);
   const h3 = sh.querySelector(".info h3"); if(h3) h3.insertAdjacentHTML("afterend", rateLine(it.id));
-  const br = sh.querySelector(".info .brand"); if(br && window.VERIFIED_SVG && !br.querySelector(".rpc-ok")) br.insertAdjacentHTML("afterbegin", window.VERIFIED_SVG);   // синяя галочка «оригинал», как в каталоге
+  const br = sh.querySelector(".info .brand"); if(br && window.VERIFIED_SVG && it.orig !== false && !br.querySelector(".rpc-ok")) br.insertAdjacentHTML("afterbegin", window.VERIFIED_SVG);   // синяя галочка «оригинал», как в каталоге
   sh.scrollTop = 0;
   const act = sh.querySelector(".act"); if(act) sh.style.setProperty("--rpact", act.offsetHeight + "px");   // телефон: место под закреплённой кнопкой покупки
   document.title = it.name + " — AMURA";

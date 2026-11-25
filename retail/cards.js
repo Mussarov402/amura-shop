@@ -31,7 +31,7 @@ cardHTML = function(it){
       <button type="button" class="rpc-add${q ? " in" : ""}" data-radd aria-label="${q ? `В корзине ${q} шт, добавить ещё` : "В корзину"}">${CART_SVG}${q ? `<em>${q}</em>` : ""}</button>
     </div>
     <div class="rpc-price">${fmt(unitPrice(it, 1))} ₸</div>
-    ${it.brand ? `<div class="rpc-brand">${VERIFIED}<span>${esc(it.brand)}</span></div>` : ""}
+    ${it.brand ? `<div class="rpc-brand">${it.orig === false ? "" : VERIFIED}<span>${esc(it.brand)}</span></div>` : ""}
     <button type="button" class="rpc-name" data-open>${esc(it.name)}</button>
     ${rateHTML(it.id)}
     ${(it.stock ?? it.qty) <= 5 ? `<div class="rpc-low">Осталось ${fmt(it.stock ?? it.qty)} шт</div>` : ""}
