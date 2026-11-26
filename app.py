@@ -127,6 +127,8 @@ from retail_stats import bp as retail_stats_bp  # noqa: E402
 app.register_blueprint(retail_stats_bp)
 from badge import bp as badge_bp  # noqa: E402
 app.register_blueprint(badge_bp)           # синяя галочка «оригинал» на сайте — правила владельца (25.11.2026)
+from kpi import bp as kpi_bp  # noqa: E402
+app.register_blueprint(kpi_bp)             # KPI сотрудников: план, факт, бонус (модуль, 26.11.2026)
 from retail_econ import bp as retail_econ_bp  # noqa: E402
 app.register_blueprint(retail_econ_bp)     # экономика розничных заказов (владелец 20.11.2026)
 from courier import bp as courier_bp  # noqa: E402
