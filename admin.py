@@ -986,6 +986,9 @@ def order_state():
             oid = rows[0]["id"]
         oh.ms("PUT", f"/entity/customerorder/{oid}", json={"state": {"meta": st["meta"]}}, timeout=30)
         _olog(num, f"Статус → «{name}»")
+        import kpi
+        if name in kpi.MARK_STATES:                # KPI: провёл заказ (если его ещё никто не создал/не провёл в системе)
+            kpi.mark(num, "статус «" + name + "»")
         if name == "Собран":                      # Express: собрали — курьер вызывается сам (Обзор → Доставка → автовызов)
             import courier
             threading.Thread(target=courier.auto_express, args=(num, oid), daemon=True, name="xauto-" + num).start()
@@ -1186,7 +1189,7 @@ def orders_bulk():
         if not st:
             return jsonify(ok=False, error="Такого статуса нет в МойСклад"), 400
     import courier
-    res = {}
+    res, me_kpi = {}, who()
     for x in items:
         num = str(x["number"])[:20]
         try:
@@ -1200,6 +1203,9 @@ def orders_bulk():
             if act == "state":
                 oh.ms("PUT", f"/entity/customerorder/{oid}", json={"state": {"meta": st["meta"]}}, timeout=30)
                 _olog(num, f"Статус → «{st['name']}» (массово)")
+                import kpi
+                if st["name"] in kpi.MARK_STATES:
+                    kpi.mark(num, "статус «" + st["name"] + "»", me_kpi)
                 if st["name"] == "Собран":
                     threading.Thread(target=courier.auto_express, args=(num, oid), daemon=True, name="xauto-" + num).start()
             else:
@@ -1445,6 +1451,8 @@ def order_new():
              for i, n in asked.items() if got.get(i, 0) < n]
     out = dict(ok=True, number=payload["number"], total=payload["total"], short=short)
     _olog(payload["number"], f"Создан в панели: {len(got)} поз. на {payload['total']:,.0f} ₸".replace(",", " "), me.get("name"))
+    import kpi
+    kpi.mark(payload["number"], "создал заказ", me)       # KPI: заказ закреплён за тем, кто его создал
     oh._orders[key] = (time.time(), out)
     oh._cache.pop("adm_orders", None)
     return jsonify(**out)
@@ -2761,12 +2769,7 @@ import modules  # noqa: E402
 def modules_on():
     if not who():
         return jsonify(ok=False, error="Войдите заново"), 401
-    on = modules.on_map()
-    if on.get("kpi"):
-        import kpi
-        if kpi.staff_on():
-            on["kpi_staff"] = True       # KPI открыт сотрудникам: каждый видит только свою карточку
-    return jsonify(ok=True, on=on)
+    return jsonify(ok=True, on=modules.on_map())
 
 
 @bp.route("/admin/api/modules", methods=["GET", "PUT"])
