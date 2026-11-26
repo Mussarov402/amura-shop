@@ -2761,7 +2761,12 @@ import modules  # noqa: E402
 def modules_on():
     if not who():
         return jsonify(ok=False, error="Войдите заново"), 401
-    return jsonify(ok=True, on=modules.on_map())
+    on = modules.on_map()
+    if on.get("kpi"):
+        import kpi
+        if kpi.staff_on():
+            on["kpi_staff"] = True       # KPI открыт сотрудникам: каждый видит только свою карточку
+    return jsonify(ok=True, on=on)
 
 
 @bp.route("/admin/api/modules", methods=["GET", "PUT"])
