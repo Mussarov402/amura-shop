@@ -54,8 +54,16 @@ class Kpi(unittest.TestCase):
             self.calls.append((method, path, params))
             assert method == "GET", "KPI не пишет в МойСклад"
             if path == "/report/profit/byemployee":
-                return {"rows": [{"employee": {"meta": {"href": EMP + OWN}}, "sellSum": 290_000_00, "returnSum": 0, "profit": 15_000_00}],
-                        "meta": {"size": 1}}
+                return {"rows": [{"employee": {"meta": {"href": EMP + OWN}}, "sellSum": 290_000_00, "returnSum": 0, "profit": 15_000_00},
+                                 {"employee": {"meta": {"href": EMP + ADM2}}, "sellSum": 110_000_00, "sellCostSum": self.ms_cost * 100,
+                                  "profit": (110_000 - self.ms_cost) * 100}], "meta": {"size": 2}}
+            if path == "/report/stock/byoperation":
+                if self.byop_fail:
+                    raise RuntimeError("МС 500")
+                did = params["filter"].rsplit("/", 1)[-1]
+                pids = {pid for pid, _ in [(p["assortment"]["meta"]["href"].rsplit("/", 1)[-1], 0) for p in self.positions[did]]}
+                return {"rows": [{"positions": [{"meta": {"href": "https://x/entity/product/" + pid}, "name": "Товар " + pid,
+                                                 "cost": self.unit_cost.get(pid, 0) * 100} for pid in sorted(pids) if pid != "srv"]}]}
             if path == "/entity/demand":
                 return {"rows": self.demands, "meta": {"size": len(self.demands)}}
             if path == "/entity/retaildemand":
@@ -67,7 +75,8 @@ class Kpi(unittest.TestCase):
                 return {"rows": [{"id": ADM2, "name": "Mussarov 2-й"}], "meta": {"size": 1}}
             raise AssertionError(path)
         self.patch(oh, "ms", ms)
-        self.patch(retail_econ, "_cost", lambda pid: ({"p1": 30_000, "p2": 20_000}.get(pid), ""))
+        self.unit_cost, self.ms_cost, self.byop_fail = {"p1": 30_000, "p2": 20_000}, 90_000, False   # себестоимость партий МС
+        self.patch(retail_econ, "_cost", lambda pid: ({"p1": 25_000, "p2": 15_000}.get(pid), ""))     # закупка — только запасной путь
         self.me = {"role": "owner", "perms": list(team.PERMS), "name": "В", "chat": "1"}
         self.patch(admin, "who", lambda: self.me)
         self.patch(team, "staff", lambda force=False: [{"chat": RUF, "name": "Руфина", "active": True, "perms": ["orders", "kpi"]},
@@ -250,14 +259,25 @@ class Kpi(unittest.TestCase):
         self.assertFalse(self.get("/admin/api/kpi")[1]["computing"])                            # не долбим МС каждый запрос
         self.assertEqual(len(self.spawned), n)
 
-    def test_positions_and_costs_cached_per_product(self):
+    def test_cost_from_ms_check_and_missing(self):
+        """Себестоимость — из МС (партии, как в «Прибыльности»); сверка с отчётом по доп. логину; товар без себестоимости — по имени."""
         self.link()
-        self.ruf()
-        prods = []
-        self.patch(retail_econ, "_cost", lambda pid: (prods.append(pid), ({"p1": 30_000, "p2": 20_000}.get(pid), ""))[1])
-        kpi._cache.clear()
-        kpi.compute("2026-11")
-        self.assertEqual(sorted(prods), ["p1", "p2"])                                           # себестоимость — раз на товар
+        r = self.ruf()
+        self.assertEqual(r["check"], {"login": "Mussarov 2-й", "msVp": 20_000, "msSell": 110_000, "ourVp": 20_000, "ourSell": 110_000})
+        self.assertEqual((r["est"], r["noCost"]), (0, 0))
+        self.unit_cost = {"p1": 30_000}                                                          # у p2 нет себестоимости в МС
+        r = self.ruf()
+        self.assertEqual((r["noCost"], r["missNames"]), (2, ["Товар p2"]))
+        self.unit_cost, self.ms_cost = {"p1": 30_000, "p2": 20_000}, 70_000                      # «cost» — за всю строку
+        r = self.ruf()
+        self.assertEqual(r["check"]["ourVp"], r["check"]["msVp"])
+
+    def test_ms_cost_unavailable_falls_back_to_purchase(self):
+        self.link()
+        self.byop_fail = True
+        r = self.ruf()
+        self.assertEqual(r["est"], 4)                                                            # все 4 документа — оценка
+        self.assertEqual(r["cost"], 50_000 + 25_000 + 15_000 + 30_000)
 
 
 if __name__ == "__main__":
