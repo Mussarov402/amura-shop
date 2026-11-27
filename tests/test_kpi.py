@@ -73,12 +73,17 @@ class Kpi(unittest.TestCase):
         self.patch(team, "staff", lambda force=False: [{"chat": RUF, "name": "Руфина", "active": True, "perms": ["orders", "kpi"]},
                                                        {"chat": "88", "name": "Ержан", "active": True, "perms": ["orders"]}])
         self.patch(kpi, "_now", lambda: datetime(2026, 11, 15, 12, 0, tzinfo=oh.ALMATY))
+        self.spawned = []
+        self.patch(kpi, "_spawn", lambda fn, *a: (self.spawned.append(a), fn(*a)))   # фон — сразу, в тестах
         kpi._cache.clear()
+        kpi._running.clear()
+        kpi._errors.clear()
         with inbox.db() as d:
             kpi._table(d)
             d.run("DELETE FROM kpi_order")
             inbox.set_setting(d, kpi.KEY, "")
             inbox.set_setting(d, "mod_kpi", "1")
+            d.run("DELETE FROM setting WHERE key LIKE %s", (kpi.SNAP + "%",))
         self.addCleanup(self.off)
         kpi.attribute("3001", RUF, "Руфина", "создал заказ")
         kpi.attribute("3001", "88", "Ержан", "статус «Собран»")              # второй не перебивает первого
@@ -94,6 +99,7 @@ class Kpi(unittest.TestCase):
             inbox.set_setting(d, "mod_kpi", "0")
             inbox.set_setting(d, kpi.KEY, "")
             d.run("DELETE FROM kpi_order")
+            d.run("DELETE FROM setting WHERE key LIKE %s", (kpi.SNAP + "%",))
 
     def patch(self, obj, name, val):
         old = getattr(obj, name)
@@ -110,7 +116,7 @@ class Kpi(unittest.TestCase):
 
     def ruf(self):
         kpi._cache.clear()
-        return next(c for c in self.get("/admin/api/kpi")[1]["cards"] if c["id"] == "ruf")
+        return next(c for c in self.get("/admin/api/kpi?refresh=1")[1]["cards"] if c["id"] == "ruf")
 
     def link(self, **kw):
         self.assertEqual(self.put({"id": "ruf", "chat": RUF, **kw})[0], 200)
@@ -154,8 +160,7 @@ class Kpi(unittest.TestCase):
         self.assertEqual(self.put({"name": "Никто"})[0], 400)                   # без сотрудника системы и логина МС
         code, o = self.put({"chat": "88", "name": "Ержан", "scheme": "none"})
         self.assertEqual(code, 200)
-        kpi._cache.clear()
-        e = next(c for c in self.get("/admin/api/kpi")[1]["cards"] if c["id"] == o["id"])
+        e = next(c for c in self.get("/admin/api/kpi")[1]["cards"] if c["id"] == o["id"])   # новый сотрудник — пересчёт сам
         self.assertEqual((e["count"], e["revenue"]), (1, 40_000))                # заказ 3002 из МС, проведённый им в системе
 
     def test_staff_sees_only_own(self):
@@ -206,6 +211,53 @@ class Kpi(unittest.TestCase):
         a = kpi.attributed()
         self.assertEqual((a.get("4001"), "4002" in a, a.get("3002")), (RUF, False, "88"))   # 3002 уже у Ержана
         self.assertEqual(len(puts), 3)
+
+    def test_background_snapshot_fast_answer(self):
+        """Экран отвечает сразу: без снимка — «Считаю» (ready=False), пересчёт в фоне; дальше — из снимка без МойСклад."""
+        self.link()
+        later = []
+        self.patch(kpi, "_spawn", lambda fn, *a: later.append((fn, a)))
+        code, o = self.get("/admin/api/kpi")
+        self.assertEqual((code, o["ready"], o["computing"], o["cards"]), (200, False, True, []))
+        self.assertFalse([c for c in self.calls if c[1] != "/report/profit/byemployee"])      # запрос экрана МС не ждёт
+        self.get("/admin/api/kpi")
+        self.assertEqual(len(later), 1)                                                         # второй расчёт не запускается
+        fn, a = later.pop()
+        fn(*a)
+        n = len(self.calls)
+        code, o = self.get("/admin/api/kpi")
+        self.assertEqual((o["ready"], o["computing"], len(o["cards"])), (True, False, 1))
+        self.assertEqual(len(self.calls), n)                                                    # из снимка, без МойСклад
+        self.assertTrue(o["at"])
+        self.put({"id": "ruf", "month": "2026-11", "plan": "10"})                               # план — без пересчёта
+        self.assertFalse(self.get("/admin/api/kpi")[1]["computing"])
+        self.assertEqual(self.get("/admin/api/kpi")[1]["cards"][0]["plan"], 10)
+        self.put({"id": "ruf", "msExtra": ""})                                                  # кто чьи продажи — пересчёт
+        self.assertTrue(self.get("/admin/api/kpi")[1]["computing"])
+        later.clear()
+        kpi._running.clear()
+        self.assertTrue(self.get("/admin/api/kpi?refresh=1")[1]["computing"])                   # «Обновить»
+        self.assertEqual(len(later), 1)
+
+    def test_failed_compute_shows_error_not_crash(self):
+        def bad(*a, **k):
+            raise RuntimeError("МойСклад 503")
+        self.patch(kpi, "_docs", bad)
+        code, o = self.get("/admin/api/kpi")
+        self.assertEqual((code, o["ready"]), (200, False))
+        self.assertIn("503", o["error"])
+        n = len(self.spawned)
+        self.assertFalse(self.get("/admin/api/kpi")[1]["computing"])                            # не долбим МС каждый запрос
+        self.assertEqual(len(self.spawned), n)
+
+    def test_positions_and_costs_cached_per_product(self):
+        self.link()
+        self.ruf()
+        prods = []
+        self.patch(retail_econ, "_cost", lambda pid: (prods.append(pid), ({"p1": 30_000, "p2": 20_000}.get(pid), ""))[1])
+        kpi._cache.clear()
+        kpi.compute("2026-11")
+        self.assertEqual(sorted(prods), ["p1", "p2"])                                           # себестоимость — раз на товар
 
 
 if __name__ == "__main__":
