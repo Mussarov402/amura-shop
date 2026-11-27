@@ -19,6 +19,7 @@ import json
 import secrets
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 
 from flask import Blueprint, jsonify, request
@@ -31,7 +32,10 @@ KEY = "kpi_conf"
 LOW_MARGIN = 8.0                   # маржа месяца ниже — подозрение на ошибку себестоимости (окт 5,5 %)
 HIST = 6                           # месяцев в истории
 SCHEMES = ("pct", "steps", "none")
-MARK_STATES = ("Подтвержден", "Собран")   # «провёл заказ» в системе AMURA
+MARK_STATES = ("Подтвержден", "Собран")
+SNAP = "kpi_snap:"                # снимок фактов месяца в настройках системы
+FRESH = 600                        # текущий месяц пересчитывается в фоне раз в 10 минут
+WORKERS = 4                        # параллельных запросов к МойСклад при расчёте   # «провёл заказ» в системе AMURA
 
 # Черновик по слову владельца (26.11): Руфина, в МойСклад пока работает под «Mussarov 2-й» (admin2); схема ещё выбирается —
 # черновик не начисляет. Сотрудника системы AMURA владелец выбирает в настройках.
@@ -41,6 +45,7 @@ DRAFT = {"emps": {
 }}
 
 _cache, _lock, _ready = {}, threading.Lock(), [False]
+_running, _errors, _poller = set(), {}, [None]
 
 
 # ---------- закрепление заказов за сотрудником системы AMURA ----------
@@ -268,26 +273,45 @@ def _unit_cost(pid):
     return v
 
 
-def _doc_cost(kind, did):
-    """Себестоимость документа: Σ количество × себестоимость товара МойСклад (кэш 1 час). → (сумма, позиций без себестоимости)."""
-    k = ("pos", kind, did)
+def _par(fn, items):
+    """Параллельно, не больше WORKERS запросов к МойСклад сразу (лимит МС — 5; общий семафор в order_hook.ms)."""
+    items = list(items)
+    if len(items) <= 1:
+        return [fn(x) for x in items]
+    with ThreadPoolExecutor(max_workers=WORKERS) as ex:
+        return list(ex.map(fn, items))
+
+
+def _positions(doc):
+    k = ("pos", doc["kind"], doc["id"])
     with _lock:
         hit = _cache.get(k)
     if hit and time.time() - hit[0] < 3600:
         return hit[1]
-    cost, miss = 0.0, 0
-    for p in _rows(f"/entity/{kind}/{did}/positions", {}):
-        a = p.get("assortment") or {}
-        if (a.get("meta") or {}).get("type") == "service":
-            continue
-        v = _unit_cost(_id(a))
-        if v is None:
-            miss += 1
-        else:
-            cost += v * (p.get("quantity") or 0)
+    rows = [((_id(p.get("assortment"))), p.get("quantity") or 0)
+            for p in _rows(f"/entity/{doc['kind']}/{doc['id']}/positions", {})
+            if ((p.get("assortment") or {}).get("meta") or {}).get("type") != "service"]
     with _lock:
-        _cache[k] = (time.time(), (cost, miss))
-    return cost, miss
+        _cache[k] = (time.time(), rows)
+    return rows
+
+
+def _costs(docs):
+    """{id документа: (себестоимость, позиций без себестоимости)} — позиции и себестоимость товаров пачками, параллельно."""
+    pos = dict(zip([d["id"] for d in docs], _par(_positions, docs)))
+    pids = sorted({pid for rows in pos.values() for pid, _ in rows if pid})
+    unit = dict(zip(pids, _par(_unit_cost, pids)))
+    out = {}
+    for did, rows in pos.items():
+        cost, miss = 0.0, 0
+        for pid, q in rows:
+            v = unit.get(pid)
+            if v is None:
+                miss += 1
+            else:
+                cost += v * q
+        out[did] = (cost, miss)
+    return out
 
 
 def _docs(frm, to):
@@ -321,34 +345,115 @@ def assign(docs, emps, attr):
     return out
 
 
-def month_data(m, ttl=None):
-    """Документы месяца и итоги компании (кэш: текущий месяц — 5 мин, прошлые — 30 мин)."""
-    cur = m == month_key(_now())
-    ttl = ttl if ttl is not None else (300 if cur else 1800)
-    with _lock:
-        hit = _cache.get(m)
-    if hit and time.time() - hit[0] < ttl:
-        return hit[1]
+def _sig(c):
+    """Кто чьи продажи: меняется — факты пересчитываются."""
+    return json.dumps(sorted([k, str(e.get("chat") or ""), str(e.get("msExtra") or "")] for k, e in c["emps"].items()))
+
+
+def compute(m, c=None):
+    """Факты месяца по каждому сотруднику KPI (без плана и бонуса — они из настроек на лету). Долго: только в фоне."""
+    c = c or conf()
+    t0 = time.time()
     frm, to, _ = _month_bounds(m)
-    data = {"docs": _docs(frm, to), "company": _company(frm, to)}
+    docs = _docs(frm, to)
+    attr = attributed()
+    parts = assign(docs, c["emps"], attr)
+    mine = [d for ds in parts.values() for d in ds]
+    costs = _costs(mine)
+    emps = {}
+    for k, ds in parts.items():
+        emps[k] = {"rev": sum(d["sum"] for d in ds), "paid": sum(d["paid"] for d in ds),
+                   "cost": sum(costs[d["id"]][0] for d in ds), "miss": sum(costs[d["id"]][1] for d in ds),
+                   "count": len(ds), "fromSystem": sum(1 for d in ds if d["order"] and d["order"] in attr),
+                   "nPaid": sum(1 for d in ds if d["sum"] and d["paid"] >= d["sum"] - 0.5)}
+    snap = {"month": m, "at": time.time(), "secs": round(time.time() - t0, 1), "sig": _sig(c),
+            "company": _company(frm, to), "emps": emps}
+    with inbox.db() as d:
+        inbox.set_setting(d, SNAP + m, json.dumps(snap, ensure_ascii=False))
+    print(f"KPI: {m} посчитан за {snap['secs']} с, документов сотрудников {len(mine)}", flush=True)
+    return snap
+
+
+def snapshot(m):
+    with inbox.db() as d:
+        raw = inbox.get_setting(d, SNAP + m, "")
+    try:
+        return json.loads(raw) if raw else None
+    except ValueError:
+        return None
+
+
+def _job(m):
+    try:
+        compute(m)
+    except Exception as e:
+        print(f"KPI: {m} не посчитан:", str(e)[:300], flush=True)
+        with _lock:
+            _errors[m] = (time.time(), str(e)[:200])
+    finally:
+        with _lock:
+            _running.discard(m)
+
+
+def _spawn(fn, *args):
+    threading.Thread(target=fn, args=args, daemon=True, name="kpi-" + "-".join(map(str, args))).start()
+
+
+def ensure(m, force=False):
+    """Снимок месяца свежий? Нет — пересчёт в фоне (один на месяц). → идёт ли расчёт."""
+    s = snapshot(m)
+    cur = m == month_key(_now())
+    stale = (s is None or force or s.get("sig") != _sig(conf())
+             or (cur and time.time() - (s.get("at") or 0) > FRESH))
+    if not stale:
+        return False
     with _lock:
-        _cache[m] = (time.time(), data)
-    return data
+        if m in _running:
+            return True
+        if not force and m in _errors and time.time() - _errors[m][0] < FRESH:
+            return False                     # МойСклад не ответил — следующая попытка через 10 минут (или «Обновить»)
+        _running.add(m)
+        _errors.pop(m, None)
+    _spawn(_job, m)
+    return True
 
 
-# ---------- расчёт ----------
-def card(eid, e, m, docs, attr, now=None):
+def _poll():
+    time.sleep(90)
+    while True:
+        try:
+            import modules
+            if modules.enabled("kpi"):
+                ensure(month_key(_now()))
+        except Exception as e:
+            print("KPI: фоновый пересчёт:", e, flush=True)
+        time.sleep(FRESH)
+
+
+def start_poller():
+    """Пересчёт текущего месяца раз в FRESH секунд, пока модуль включён (экран всегда открывается сразу)."""
+    import bg
+    if bg.in_master():
+        bg.start(start_poller)
+        return
+    if bg.STANDBY:
+        return
+    if _poller[0] is None:
+        _poller[0] = threading.Thread(target=_poll, daemon=True, name="kpi-poll")
+        _poller[0].start()
+
+
+# ---------- расчёт карточки (быстро, из снимка) ----------
+EMPTY = {"rev": 0, "paid": 0, "cost": 0, "miss": 0, "count": 0, "fromSystem": 0, "nPaid": 0}
+
+
+def card(eid, e, m, f, now=None):
     now = now or _now()
     _, _, days = _month_bounds(m)
     cur = m == month_key(now)
     day = now.day if cur else days
-    rev = sum(d["sum"] for d in docs)
-    paid = sum(d["paid"] for d in docs)
-    cost, miss = 0.0, 0
-    for d in docs:
-        c, x = _doc_cost(d["kind"], d["id"])
-        cost += c
-        miss += x
+    f = f or EMPTY
+    rev, paid, cost = f["rev"], f["paid"], f["cost"]
     vp = rev - cost
     share = max(0.0, min(1.0, paid / rev)) if rev else 0.0
     vp_paid = vp * share
@@ -362,42 +467,78 @@ def card(eid, e, m, docs, attr, now=None):
     return {"id": eid, "name": e.get("name") or "", "chat": e.get("chat") or "", "msExtraName": e.get("msExtraName") or "",
             "month": m, "plan": plan, "vp": round(vp), "pct": round(vp / plan * 100, 1) if plan else None,
             "forecast": round(forecast), "forecastPct": round(forecast / plan * 100, 1) if plan else None,
-            "revenue": round(rev), "cost": round(cost), "noCost": miss, "margin": margin,
-            "lowMargin": bool(rev) and margin < LOW_MARGIN, "count": len(docs),
-            "fromSystem": sum(1 for d in docs if d["order"] and d["order"] in attr),
-            "paid": round(paid), "debt": round(rev - paid),
-            "nPaid": sum(1 for d in docs if d["sum"] and d["paid"] >= d["sum"] - 0.5),
+            "revenue": round(rev), "cost": round(cost), "noCost": f["miss"], "margin": margin,
+            "lowMargin": bool(rev) and margin < LOW_MARGIN, "count": f["count"], "fromSystem": f["fromSystem"],
+            "paid": round(paid), "debt": round(rev - paid), "nPaid": f["nPaid"],
             "vpPaid": round(vp_paid), "salary": salary, "bonus": b_shown, "bonusCalc": b, "bonusHow": how,
-            "total": salary + b_shown, "scheme": e.get("scheme") or "", "draft": draft, "day": day, "days": days}
+            "total": salary + b_shown, "scheme": e.get("scheme") or "", "draft": draft, "day": day, "days": days,
+            "pending": f is EMPTY}
 
 
-def _cards(m, c, data, attr, only=None, now=None):
-    parts = assign(data["docs"], c["emps"], attr)
-    return [card(k, e, m, parts.get(k, []), attr, now) for k, e in c["emps"].items() if only is None or k == only]
-
-
-def overview(m=None):
-    now = _now()
-    m = m or month_key(now)
+def view(m, only=None, force=False):
+    """Ответ экрана сразу: последний снимок + идёт ли пересчёт. Без снимка — ready=False («Считаю…»)."""
     c = conf()
-    data = month_data(m)
-    return {"month": m, "cards": _cards(m, c, data, attributed(), now=now), "company": data["company"], "conf": c}
+    computing = ensure(m, force)
+    s = snapshot(m)
+    with _lock:
+        err = (_errors.get(m) or (0, ""))[1]
+    base = {"month": m, "computing": computing, "error": err if not s else "", "ready": bool(s)}
+    if not s:
+        return {**base, "cards": [], "company": None, "at": None}
+    emps = s.get("emps") or {}
+    cards = [card(k, e, m, emps.get(k)) for k, e in c["emps"].items() if only is None or k == only]
+    at = datetime.fromtimestamp(s["at"], oh.ALMATY).strftime("%d.%m %H:%M")
+    return {**base, "cards": cards, "company": s.get("company"), "at": at, "secs": s.get("secs")}
 
 
 def history(eid, n=HIST):
+    """Из снимков месяцев (прошлые месяцы не меняются — считаются один раз); недостающие — в фоне, по одному."""
     c = conf()
-    if eid not in c["emps"]:
-        return []
-    attr, out = attributed(), []
+    e = c["emps"].get(eid)
+    if not e:
+        return [], False
+    out, pending = [], False
     for m in _months_back(month_key(_now()), n):
-        try:
-            x = _cards(m, c, month_data(m), attr, only=eid)[0]
-        except Exception as ex:
-            out.append({"month": m, "error": str(ex)[:120]})
-            continue
+        s = snapshot(m)
+        if not s or s.get("sig") != _sig(c):
+            pending = True
+            _queue_hist(m)
+            if not s:
+                out.append({"month": m, "pending": True})
+                continue
+        x = card(eid, e, m, (s.get("emps") or {}).get(eid))
         out.append({k: x[k] for k in ("month", "plan", "vp", "pct", "vpPaid", "bonus", "bonusCalc", "revenue", "margin",
                                       "lowMargin", "debt", "draft", "count")})
-    return out
+    return out, pending
+
+
+_hist_q = []
+
+
+def _queue_hist(m):
+    """Прошлые месяцы — по одному за раз, чтобы не занимать МойСклад."""
+    with _lock:
+        if m in _hist_q or m in _running:
+            return
+        _hist_q.append(m)
+        start = len(_hist_q) == 1
+    if start:
+        _spawn(_hist_worker)
+
+
+def _hist_worker():
+    while True:
+        with _lock:
+            if not _hist_q:
+                return
+            m = _hist_q[0]
+            busy = m in _running
+            if not busy:
+                _running.add(m)
+        if not busy:
+            _job(m)
+        with _lock:
+            _hist_q.pop(0)
 
 
 def ms_employees():
@@ -426,7 +567,7 @@ def _own(me, c):
 
 
 STAFF_KEYS = ("id", "name", "month", "plan", "vp", "pct", "forecast", "forecastPct", "vpPaid", "bonus", "bonusCalc", "bonusHow",
-              "draft", "day", "days")
+              "draft", "day", "days", "pending")
 
 
 def _team():
@@ -435,27 +576,30 @@ def _team():
     return rows + [{"chat": s["chat"], "name": s["name"], "kpi": "kpi" in s["perms"]} for s in team.staff() if s.get("active")]
 
 
+def _month_arg():
+    m = request.args.get("month") or month_key(_now())
+    return m if len(m) == 7 and m[4] == "-" and m[:4].isdigit() and m[5:].isdigit() else month_key(_now())
+
+
 @bp.get("/admin/api/kpi")
 def route_get():
+    """Отвечает сразу из снимка; пересчёт — в фоне (раз в 10 минут, по кнопке «Обновить» — сразу)."""
     me, err = _who()
     if err:
         return err
-    m = request.args.get("month") or None
-    try:
-        if me["role"] != "owner":
-            if "kpi" not in me["perms"]:
-                return jsonify(ok=False, error="Нет доступа к KPI — его даёт владелец в «Команде»"), 403
-            c = conf()
-            eid = _own(me, c)
-            mm = m or month_key(_now())
-            if not eid:
-                return jsonify(ok=True, staff=True, cards=[], month=mm)
-            x = _cards(mm, c, month_data(mm), attributed(), only=eid)[0]
-            return jsonify(ok=True, staff=True, month=mm, cards=[{k: x[k] for k in STAFF_KEYS}])
-        o = overview(m)
-    except Exception as e:
-        return jsonify(ok=False, error="МойСклад не ответил: " + str(e)[:200]), 503
-    return jsonify(ok=True, staff=False, lowMargin=LOW_MARGIN, team=_team(), **o)
+    m = _month_arg()
+    if me["role"] != "owner":
+        if "kpi" not in me["perms"]:
+            return jsonify(ok=False, error="Нет доступа к KPI — его даёт владелец в «Команде»"), 403
+        eid = _own(me, conf())
+        if not eid:
+            return jsonify(ok=True, staff=True, ready=True, cards=[], month=m)
+        v = view(m, only=eid)
+        v["cards"] = [{k: x[k] for k in STAFF_KEYS} for x in v["cards"]]
+        v.pop("company", None)
+        return jsonify(ok=True, staff=True, **v)
+    v = view(m, force=request.args.get("refresh") == "1")
+    return jsonify(ok=True, staff=False, lowMargin=LOW_MARGIN, team=_team(), conf=conf(), **v)
 
 
 @bp.get("/admin/api/kpi/history")
@@ -465,7 +609,8 @@ def route_history():
         return err
     if me["role"] != "owner":
         return jsonify(ok=False, error="История — только владелец"), 403
-    return jsonify(ok=True, items=history(request.args.get("id", "")), lowMargin=LOW_MARGIN)
+    items, pending = history(request.args.get("id", ""))
+    return jsonify(ok=True, items=items, pending=pending, lowMargin=LOW_MARGIN)
 
 
 @bp.get("/admin/api/kpi/employees")
