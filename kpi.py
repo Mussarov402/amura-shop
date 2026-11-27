@@ -36,7 +36,7 @@ SCHEMES = ("pct", "steps", "none")
 MARK_STATES = ("Подтвержден", "Собран")
 SNAP = "kpi_snap:"                # снимок фактов месяца в настройках системы
 FRESH = 600                        # текущий месяц пересчитывается в фоне раз в 10 минут
-CALC = 2                           # версия расчёта: изменилась — все снимки (и история) пересчитываются
+CALC = 3                           # версия расчёта: изменилась — все снимки (и история) пересчитываются
 WORKERS = 4                        # параллельных запросов к МойСклад при расчёте   # «провёл заказ» в системе AMURA
 
 # Черновик по слову владельца (26.11): Руфина, в МойСклад пока работает под «Mussarov 2-й» (admin2); схема ещё выбирается —
@@ -360,6 +360,14 @@ def _costs(docs):
     return dict(zip([d["id"] for d in docs], _par(_doc_cost, docs)))
 
 
+def _day(moment):
+    """День месяца по Алматы из времени МойСклад (Москва, на 2 часа раньше)."""
+    try:
+        return (datetime.strptime(str(moment)[:19], "%Y-%m-%d %H:%M:%S") + timedelta(hours=2)).day
+    except ValueError:
+        return 0
+
+
 def _docs(frm, to):
     """Отгрузки (с номером заказа) и розничные продажи месяца."""
     flt = f"moment>={frm};moment<={to};applicable=true"
@@ -367,11 +375,13 @@ def _docs(frm, to):
     for d in _rows("/entity/demand", {"filter": flt, "expand": "customerOrder"}, page=100):
         s = (d.get("sum") or 0) / 100
         out.append({"kind": "demand", "id": d.get("id"), "order": str((d.get("customerOrder") or {}).get("name") or ""),
-                    "owner": _id(d.get("owner")), "sum": s, "paid": min(s, (d.get("payedSum") or 0) / 100)})
+                    "owner": _id(d.get("owner")), "sum": s, "paid": min(s, (d.get("payedSum") or 0) / 100),
+                    "day": _day(d.get("moment"))})
     try:
         for d in _rows("/entity/retaildemand", {"filter": flt}):
             s = (d.get("sum") or 0) / 100
-            out.append({"kind": "retaildemand", "id": d.get("id"), "order": "", "owner": _id(d.get("owner")), "sum": s, "paid": s})
+            out.append({"kind": "retaildemand", "id": d.get("id"), "order": "", "owner": _id(d.get("owner")), "sum": s, "paid": s,
+                        "day": _day(d.get("moment"))})
     except Exception as e:
         print("KPI: розничные продажи не получены:", e, flush=True)
     return out
@@ -436,6 +446,10 @@ def compute(m, c=None):
              "est": sum(1 for d in ds if costs[d["id"]]["est"]),
              "count": len(ds), "fromSystem": sum(1 for d in ds if d["order"] and d["order"] in attr),
              "nPaid": sum(1 for d in ds if d["sum"] and d["paid"] >= d["sum"] - 0.5)}
+        byday = {}
+        for d in ds:                                                       # ВП по дням — для недельного ориентира
+            byday[str(d.get("day") or 0)] = byday.get(str(d.get("day") or 0), 0) + d["sum"] - costs[d["id"]]["cost"]
+        f["byday"] = {k: round(v) for k, v in byday.items()}
         if e.get("msExtra"):                                              # сверка: наш расчёт по логину МС = отчёт МС?
             ours = [d for d in check_docs if d["owner"] == e["msExtra"]]
             o_rev = sum(d["sum"] for d in ours)
@@ -525,6 +539,27 @@ def start_poller():
 EMPTY = {"rev": 0, "paid": 0, "cost": 0, "miss": 0, "count": 0, "fromSystem": 0, "nPaid": 0}
 
 
+def week(plan, byday, m, now):
+    """Недельный ориентир из месячного плана (неделя пн–вс по Алматы, внутри месяца):
+    нужно на неделю = (план − ВП до начала недели) × дней недели в месяце / дней от начала недели до конца месяца
+    (неполная неделя — пропорционально календарным дням); сделано за неделю; темп — против равномерного по дням месяца."""
+    if not plan or m != month_key(now):
+        return None
+    _, _, days = _month_bounds(m)
+    day = now.day
+    start = max(1, day - now.weekday())
+    end = min(days, day + (6 - now.weekday()))
+    v = {int(k): x for k, x in (byday or {}).items() if str(k).isdigit()}
+    before = sum(x for k, x in v.items() if 0 < k < start)
+    done = sum(x for k, x in v.items() if start <= k <= day)
+    left = max(0, plan - before)
+    need = left * (end - start + 1) / (days - start + 1)
+    fact = sum(x for k, x in v.items() if 0 < k <= day)
+    ahead = fact - plan * day / days
+    return {"from": start, "to": end, "need": round(need), "done": round(done),
+            "pct": round(done / need * 100, 1) if need else None, "ahead": round(ahead)}
+
+
 def card(eid, e, m, f, now=None):
     now = now or _now()
     _, _, days = _month_bounds(m)
@@ -551,7 +586,7 @@ def card(eid, e, m, f, now=None):
             "vpPaid": round(vp_paid), "salary": salary, "bonus": b_shown, "bonusCalc": b, "bonusHow": how,
             "total": salary + b_shown, "scheme": e.get("scheme") or "", "draft": draft, "day": day, "days": days,
             "pending": f is EMPTY, "missNames": f.get("missNames") or [], "est": f.get("est") or 0,
-            "check": f.get("check")}
+            "check": f.get("check"), "week": week(plan, f.get("byday"), m, now)}
 
 
 def view(m, only=None, force=False):
@@ -646,7 +681,7 @@ def _own(me, c):
 
 
 STAFF_KEYS = ("id", "name", "month", "plan", "vp", "pct", "forecast", "forecastPct", "vpPaid", "bonus", "bonusCalc", "bonusHow",
-              "draft", "day", "days", "pending")
+              "draft", "day", "days", "pending", "week")
 
 
 def _team():

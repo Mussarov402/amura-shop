@@ -30,7 +30,7 @@ RUF = "77"
 
 def doc(did, order, owner, total, paid):
     return {"id": did, "customerOrder": {"name": order} if order else None, "owner": {"meta": {"href": EMP + owner}},
-            "sum": total * 100, "payedSum": paid * 100}
+            "sum": total * 100, "payedSum": paid * 100, "moment": "2026-11-10 23:30:00.000"}   # Москва → 11.11 по Алматы
 
 
 def pos(pid, qty, service=False):
@@ -67,7 +67,7 @@ class Kpi(unittest.TestCase):
             if path == "/entity/demand":
                 return {"rows": self.demands, "meta": {"size": len(self.demands)}}
             if path == "/entity/retaildemand":
-                return {"rows": [{"id": "r1", "owner": {"meta": {"href": EMP + ADM2}}, "sum": 20_000 * 100}], "meta": {"size": 1}}
+                return {"rows": [{"id": "r1", "owner": {"meta": {"href": EMP + ADM2}}, "sum": 20_000 * 100, "moment": "2026-11-12 09:00:00"}], "meta": {"size": 1}}
             if path.endswith("/positions"):
                 rows = self.positions[path.split("/")[3]]
                 return {"rows": rows, "meta": {"size": len(rows)}}
@@ -278,6 +278,28 @@ class Kpi(unittest.TestCase):
         r = self.ruf()
         self.assertEqual(r["est"], 4)                                                            # все 4 документа — оценка
         self.assertEqual(r["cost"], 50_000 + 25_000 + 15_000 + 30_000)
+
+    def test_week_target(self):
+        """Неделя пн–вс по Алматы внутри месяца; нужно = (план − ВП до недели) × дней недели / дней до конца месяца."""
+        now = datetime(2026, 11, 18, 12, 0, tzinfo=oh.ALMATY)                     # среда; неделя 16–22.11, ноябрь 30 дней
+        w = kpi.week(300_000, {"3": 50_000, "16": 20_000, "18": 10_000}, "2026-11", now)
+        self.assertEqual((w["from"], w["to"]), (16, 22))
+        self.assertEqual(w["need"], round((300_000 - 50_000) * 7 / 15))             # 116 667
+        self.assertEqual((w["done"], w["ahead"]), (30_000, 80_000 - 180_000))       # равномерно к 18-му — 180 000
+        w = kpi.week(300_000, {}, "2026-11", datetime(2026, 11, 30, 9, 0, tzinfo=oh.ALMATY))   # пн 30.11 — неделя из 1 дня
+        self.assertEqual((w["from"], w["to"], w["need"]), (30, 30, 300_000))
+        w = kpi.week(100, {}, "2026-11", datetime(2026, 11, 1, 9, 0, tzinfo=oh.ALMATY))         # вс 1.11 — неделя 1–1
+        self.assertEqual((w["from"], w["to"]), (1, 1))
+        self.assertIsNone(kpi.week(0, {}, "2026-11", now))                                 # нет плана — блока нет
+        self.assertIsNone(kpi.week(100, {}, "2026-10", now))                               # прошлый месяц — нет
+
+    def test_week_in_card_and_staff(self):
+        self.link(month="2026-11", plan="100000")
+        r = self.ruf()
+        self.assertEqual(r["week"]["from"], 9)                                     # 15.11.2026 — воскресенье, неделя 9–15
+        self.assertEqual(r["week"]["done"], r["vp"])                               # все документы 11.11 — на этой неделе
+        self.me = {"role": "staff", "perms": ["orders", "kpi"], "name": "Руфина", "chat": RUF}
+        self.assertIn("week", self.get("/admin/api/kpi")[1]["cards"][0])
 
 
 if __name__ == "__main__":
