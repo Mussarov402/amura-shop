@@ -36,6 +36,7 @@ SCHEMES = ("pct", "steps", "none")
 MARK_STATES = ("Подтвержден", "Собран")
 SNAP = "kpi_snap:"                # снимок фактов месяца в настройках системы
 FRESH = 600                        # текущий месяц пересчитывается в фоне раз в 10 минут
+CALC = 2                           # версия расчёта: изменилась — все снимки (и история) пересчитываются
 WORKERS = 4                        # параллельных запросов к МойСклад при расчёте   # «провёл заказ» в системе AMURA
 
 # Черновик по слову владельца (26.11): Руфина, в МойСклад пока работает под «Mussarov 2-й» (admin2); схема ещё выбирается —
@@ -392,7 +393,7 @@ def assign(docs, emps, attr):
 
 def _sig(c):
     """Кто чьи продажи: меняется — факты пересчитываются."""
-    return json.dumps(sorted([k, str(e.get("chat") or ""), str(e.get("msExtra") or "")] for k, e in c["emps"].items()))
+    return json.dumps([CALC] + sorted([k, str(e.get("chat") or ""), str(e.get("msExtra") or "")] for k, e in c["emps"].items()))
 
 
 def _mode(raw, todo, check_docs, prof, extra):
