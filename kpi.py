@@ -15,6 +15,7 @@
   none  — оклад без бонуса.
 Доступ сотрудника к своей карточке — право «KPI (своя карточка)» в «Команде». Хранение — настройка `kpi_conf`."""
 import calendar
+import math
 import json
 import secrets
 import threading
@@ -258,12 +259,20 @@ def _rows(path, params, page=1000):
             return out
 
 
-def _company(frm, to):
-    """Итоги компании из «Прибыльности по сотрудникам»: выручка (за вычетом возвратов) и ВП."""
-    sell = vp = 0.0
+def _profit(frm, to):
+    """«Прибыльность по сотрудникам» МойСклад: {id сотрудника МС: {sell, cost, vp}} — итоги компании и сверка."""
+    out = {}
     for r in _rows("/report/profit/byemployee", {"momentFrom": frm, "momentTo": to}):
-        sell += ((r.get("sellSum") or 0) - (r.get("returnSum") or 0)) / 100
-        vp += (r.get("profit") or 0) / 100
+        eid = _id(r.get("employee")) or r.get("employeeId") or ""
+        out[eid] = {"sell": ((r.get("sellSum") or 0) - (r.get("returnSum") or 0)) / 100,
+                    "cost": ((r.get("sellCostSum") or 0) - (r.get("returnCostSum") or 0)) / 100,
+                    "vp": (r.get("profit") or 0) / 100}
+    return out
+
+
+def _company(prof):
+    sell = sum(x["sell"] for x in prof.values())
+    vp = sum(x["vp"] for x in prof.values())
     return {"revenue": round(sell), "vp": round(vp), "margin": round(vp / sell * 100, 1) if sell else 0}
 
 
@@ -283,35 +292,71 @@ def _par(fn, items):
 
 
 def _positions(doc):
-    k = ("pos", doc["kind"], doc["id"])
+    """[(товар, количество, цена ₸)] без услуг."""
+    rows = [(_id(p.get("assortment")), p.get("quantity") or 0, (p.get("price") or 0) / 100 * (1 - (p.get("discount") or 0) / 100))
+            for p in _rows(f"/entity/{doc['kind']}/{doc['id']}/positions", {})
+            if ((p.get("assortment") or {}).get("meta") or {}).get("type") != "service"]
+    return rows
+
+
+def _byop(doc):
+    """Себестоимость позиций документа так же, как в отчётах прибыльности МойСклад (партии на момент отгрузки):
+    отчёт «Остатки по документам». → {товар: (себестоимость, название)}."""
+    r = oh.ms("GET", "/report/stock/byoperation",
+              params={"filter": f"operation={oh.API}/entity/{doc['kind']}/{doc['id']}"}, timeout=60)
+    out = {}
+    for row in r.get("rows") or []:
+        for p in row.get("positions") or []:
+            pid = _id(p)
+            c, n = out.get(pid, (0.0, p.get("name") or ""))
+            out[pid] = (max(c, (p.get("cost") or 0) / 100), n)
+    return out
+
+
+def _doc_cost(doc):
+    """→ {cost, miss: [названия без себестоимости], est: себестоимость не из МС-партий}. Кэш 1 час."""
+    k = ("cost", doc["kind"], doc["id"])
     with _lock:
         hit = _cache.get(k)
     if hit and time.time() - hit[0] < 3600:
         return hit[1]
-    rows = [((_id(p.get("assortment"))), p.get("quantity") or 0)
-            for p in _rows(f"/entity/{doc['kind']}/{doc['id']}/positions", {})
-            if ((p.get("assortment") or {}).get("meta") or {}).get("type") != "service"]
+    pos = _positions(doc)
+    try:
+        ms = _byop(doc)
+    except Exception as e:
+        print("KPI: себестоимость документа из МС не получена:", str(e)[:150], flush=True)
+        ms = None
+    if ms is not None:
+        # поле «cost» отчёта — за единицу или за всю строку: считаем оба, выбор — в compute() по сверке с прибыльностью МС
+        unit = whole = 0.0
+        miss, seen = [], set()
+        for pid, q, _ in pos:
+            c, name = ms.get(pid) or (0, "")
+            if not c:
+                miss.append(name or pid)
+                continue
+            unit += c * q
+            if pid not in seen:
+                whole += c
+            seen.add(pid)
+        res = {"unit": unit, "whole": whole, "miss": miss, "est": False}
+    else:
+        cost, miss = 0.0, []
+        for pid, q, _ in pos:
+            v = _unit_cost(pid)
+            if v is None:
+                miss.append(pid)
+            else:
+                cost += v * q
+        res = {"unit": cost, "whole": cost, "miss": miss, "est": True}
     with _lock:
-        _cache[k] = (time.time(), rows)
-    return rows
+        _cache[k] = (time.time(), res)
+    return res
 
 
 def _costs(docs):
-    """{id документа: (себестоимость, позиций без себестоимости)} — позиции и себестоимость товаров пачками, параллельно."""
-    pos = dict(zip([d["id"] for d in docs], _par(_positions, docs)))
-    pids = sorted({pid for rows in pos.values() for pid, _ in rows if pid})
-    unit = dict(zip(pids, _par(_unit_cost, pids)))
-    out = {}
-    for did, rows in pos.items():
-        cost, miss = 0.0, 0
-        for pid, q in rows:
-            v = unit.get(pid)
-            if v is None:
-                miss += 1
-            else:
-                cost += v * q
-        out[did] = (cost, miss)
-    return out
+    """{id документа: себестоимость} — пачками, параллельно (не больше WORKERS запросов к МС)."""
+    return dict(zip([d["id"] for d in docs], _par(_doc_cost, docs)))
 
 
 def _docs(frm, to):
@@ -350,6 +395,21 @@ def _sig(c):
     return json.dumps(sorted([k, str(e.get("chat") or ""), str(e.get("msExtra") or "")] for k, e in c["emps"].items()))
 
 
+def _mode(raw, todo, check_docs, prof, extra):
+    """«unit» или «whole»: что ближе к себестоимости из «Прибыльности по сотрудникам» МС по доп. логинам;
+    сверять не с чем — что ближе к обычной марже (себестоимость ≈ 85 % выручки)."""
+    if check_docs:
+        ms_cost = sum((prof.get(x) or {}).get("cost", 0) for x in extra)
+        if ms_cost:
+            du = abs(sum(raw[d["id"]]["unit"] for d in check_docs) - ms_cost)
+            dw = abs(sum(raw[d["id"]]["whole"] for d in check_docs) - ms_cost)
+            return "unit" if du <= dw else "whole"
+    sell = sum(d["sum"] for d in todo.values()) or 1
+    u = sum(v["unit"] for v in raw.values()) or 1
+    w = sum(v["whole"] for v in raw.values()) or 1
+    return "unit" if abs(math.log(u / sell / 0.85)) <= abs(math.log(w / sell / 0.85)) else "whole"
+
+
 def compute(m, c=None):
     """Факты месяца по каждому сотруднику KPI (без плана и бонуса — они из настроек на лету). Долго: только в фоне."""
     c = c or conf()
@@ -359,18 +419,35 @@ def compute(m, c=None):
     attr = attributed()
     parts = assign(docs, c["emps"], attr)
     mine = [d for ds in parts.values() for d in ds]
-    costs = _costs(mine)
+    extra = {e.get("msExtra") for e in c["emps"].values() if e.get("msExtra")}
+    check_docs = [d for d in docs if d["owner"] in extra]                 # для сверки с отчётом МС по доп. логину
+    todo = {d["id"]: d for d in mine + check_docs}
+    raw = _costs(list(todo.values()))
+    prof = _profit(frm, to)
+    mode = _mode(raw, todo, check_docs, prof, extra)
+    costs = {k: {"cost": v[mode], "miss": v["miss"], "est": v["est"]} for k, v in raw.items()}
     emps = {}
     for k, ds in parts.items():
-        emps[k] = {"rev": sum(d["sum"] for d in ds), "paid": sum(d["paid"] for d in ds),
-                   "cost": sum(costs[d["id"]][0] for d in ds), "miss": sum(costs[d["id"]][1] for d in ds),
-                   "count": len(ds), "fromSystem": sum(1 for d in ds if d["order"] and d["order"] in attr),
-                   "nPaid": sum(1 for d in ds if d["sum"] and d["paid"] >= d["sum"] - 0.5)}
+        miss = [n for d in ds for n in costs[d["id"]]["miss"]]
+        e = c["emps"][k]
+        f = {"rev": sum(d["sum"] for d in ds), "paid": sum(d["paid"] for d in ds),
+             "cost": sum(costs[d["id"]]["cost"] for d in ds), "miss": len(miss), "missNames": sorted(set(miss))[:10],
+             "est": sum(1 for d in ds if costs[d["id"]]["est"]),
+             "count": len(ds), "fromSystem": sum(1 for d in ds if d["order"] and d["order"] in attr),
+             "nPaid": sum(1 for d in ds if d["sum"] and d["paid"] >= d["sum"] - 0.5)}
+        if e.get("msExtra"):                                              # сверка: наш расчёт по логину МС = отчёт МС?
+            ours = [d for d in check_docs if d["owner"] == e["msExtra"]]
+            o_rev = sum(d["sum"] for d in ours)
+            o_vp = o_rev - sum(costs[d["id"]]["cost"] for d in ours)
+            r = prof.get(e["msExtra"]) or {"sell": 0, "vp": 0}
+            f["check"] = {"login": e.get("msExtraName") or "", "msVp": round(r["vp"]), "msSell": round(r["sell"]),
+                          "ourVp": round(o_vp), "ourSell": round(o_rev)}
+        emps[k] = f
     snap = {"month": m, "at": time.time(), "secs": round(time.time() - t0, 1), "sig": _sig(c),
-            "company": _company(frm, to), "emps": emps}
+            "company": _company(prof), "emps": emps}
     with inbox.db() as d:
         inbox.set_setting(d, SNAP + m, json.dumps(snap, ensure_ascii=False))
-    print(f"KPI: {m} посчитан за {snap['secs']} с, документов сотрудников {len(mine)}", flush=True)
+    print(f"KPI: {m} посчитан за {snap['secs']} с, документов {len(todo)}", flush=True)
     return snap
 
 
@@ -472,7 +549,8 @@ def card(eid, e, m, f, now=None):
             "paid": round(paid), "debt": round(rev - paid), "nPaid": f["nPaid"],
             "vpPaid": round(vp_paid), "salary": salary, "bonus": b_shown, "bonusCalc": b, "bonusHow": how,
             "total": salary + b_shown, "scheme": e.get("scheme") or "", "draft": draft, "day": day, "days": days,
-            "pending": f is EMPTY}
+            "pending": f is EMPTY, "missNames": f.get("missNames") or [], "est": f.get("est") or 0,
+            "check": f.get("check")}
 
 
 def view(m, only=None, force=False):
